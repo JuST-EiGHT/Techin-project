@@ -1,13 +1,13 @@
-"""Счётчик операций с товарами для лимита Ozon (30 000 в минуту на кабинет).
+"""Ограничение частоты запросов к Ozon Seller API.
 
-Скользящее окно 60 с: каждая резервация — запись (время, число товаров) в sorted set
-Redis `ozon:ops:<client_id>`. Проверка и запись атомарны (Lua-скрипт), поэтому
-несколько воркеров Celery не превысят лимит вместе.
+По документации Ozon (раздел «Лимиты»): не больше 50 запросов в секунду на все
+методы с одного Client ID; у части методов есть свой, более строгий лимит — он
+указан в описании метода (METHOD_LIMITS). При превышении Ozon отвечает 429 с
+заголовком Retry-After — это обрабатывает клиент.
 
-Ozon отклоняет запрос ЦЕЛИКОМ, если товаров в нём больше остатка лимита, поэтому
-резервируем сразу всё n_items: не хватает — ждём, пока освободится нужное
-количество, а не отправляем «сколько влезет».
-
+Счётчик — скользящее окно в Redis: каждый запрос — запись в sorted set
+`ozon:rl:<client_id>[:<метод>]`. Проверка и запись атомарны (Lua-скрипт), поэтому
+API и все воркеры Celery вместе не превысят лимит одного кабинета.
 Если Redis недоступен (тесты, локальный запуск) — тот же алгоритм в памяти процесса.
 """
 import asyncio
@@ -21,8 +21,15 @@ from app.core.config import settings
 
 log = logging.getLogger(__name__)
 
-WINDOW_SECONDS = 60.0
-_KEY_PREFIX = "ozon:ops:"
+GLOBAL_WINDOW_SECONDS = 1.0
+
+# Собственные лимиты методов из документации Ozon: путь → (запросов, окно в секундах)
+METHOD_LIMITS: dict[str, tuple[int, float]] = {
+    "/v2/products/stocks": (80, 60.0),  # «до 80 запросов в минуту» с аккаунта продавца
+    "/v1/product/placement-zone/info": (10, 1.0),  # «не больше 10 запросов в секунду»
+}
+
+_KEY_PREFIX = "ozon:rl:"
 _REDIS_RETRY_AFTER = 60.0  # после неудачного подключения к Redis не пробуем столько секунд
 
 # KEYS[1] — sorted set; ARGV: now, window, limit, n, id. Возвращает "0" (зарезервировано)
@@ -122,34 +129,44 @@ class OzonRateLimiter:
         client_id: str,
         *,
         limit: int | None = None,
-        window: float = WINDOW_SECONDS,
+        window: float = GLOBAL_WINDOW_SECONDS,
+        method_limits: dict[str, tuple[int, float]] | None = None,
         backend: WindowBackend | None = None,
         clock: Callable[[], float] = time.time,
         sleep: Callable[[float], Awaitable[Any]] | None = None,
     ) -> None:
         self.key = _KEY_PREFIX + client_id
-        self.limit = limit or settings.OZON_RATE_LIMIT_PER_MINUTE
+        self.limit = limit or settings.OZON_RATE_LIMIT_PER_SECOND
         self.window = window
+        self.method_limits = METHOD_LIMITS if method_limits is None else method_limits
         self._backend = backend
         self._clock = clock
         self._sleep = sleep if sleep is not None else asyncio.sleep
 
-    async def check_and_acquire(self, n_items: int) -> None:
-        """Резервирует n_items операций; если лимита не хватает — ждёт, сколько нужно."""
-        if n_items <= 0:
+    async def check_and_acquire(self, n: int = 1, path: str | None = None) -> None:
+        """Резервирует n запросов к Ozon (общий лимит кабинета и лимит метода path, если он есть);
+        если лимита не хватает — ждёт, сколько нужно."""
+        if n <= 0:
             return
-        if n_items > self.limit:
-            # такой запрос Ozon отклонит всегда — вызывающий код должен бить на батчи
-            raise ValueError(f"В одном запросе {n_items} товаров — больше лимита Ozon {self.limit} в минуту")
+        windows = [(self.key, self.limit, self.window)]
+        if path and path in self.method_limits:
+            m_limit, m_window = self.method_limits[path]
+            windows.append((f"{self.key}:{path}", m_limit, m_window))
+        for _, limit, _ in windows:
+            if n > limit:
+                raise ValueError(f"Нельзя зарезервировать {n} запросов при лимите {limit}")
         if self._backend is None:
             self._backend = await _default_backend()
 
-        while True:
-            wait = await self._backend.try_acquire(self.key, n_items, self._clock(), self.window, self.limit)
-            if wait <= 0:
-                return
-            log.info("Лимит Ozon: нужно %d операций, ждём %.1f с", n_items, wait)
-            await self._sleep(wait + 0.01)
+        # Сначала самый строгий (поминутный) лимит метода, потом общий посекундный:
+        # ожидание по методу не «сжигает» секундные слоты кабинета
+        for key, limit, window in reversed(windows):
+            while True:
+                wait = await self._backend.try_acquire(key, n, self._clock(), window, limit)
+                if wait <= 0:
+                    break
+                log.debug("Лимит Ozon (%d запросов за %.0f с): ждём %.2f с", limit, window, wait)
+                await self._sleep(wait + 0.01)
 
     async def aclose(self) -> None:
         if self._backend is not None and self._backend is not _memory:

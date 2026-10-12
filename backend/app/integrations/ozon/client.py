@@ -6,9 +6,9 @@
 - 5xx — до 2 повторов через 5 с;
 - 401/403 и прочие 4xx — без повторов, сразу исключение.
 
-Ozon считает лимит в «операциях с товарами» (docs/OZON_API.md, «Лимиты»), поэтому
-вызывающий код передаёт в request() число товаров в запросе (items) — клиент
-резервирует их в rate limiter перед каждой попыткой.
+Лимит Ozon — 50 запросов в секунду на Client ID плюс лимиты отдельных методов
+(docs/OZON_API.md, «Лимиты»): перед каждой попыткой клиент резервирует слот в
+rate limiter (общий счётчик кабинета в Redis).
 
 Api-Key живёт только в заголовке запроса: в логи, тексты ошибок и repr не попадает.
 """
@@ -39,10 +39,20 @@ SERVER_RETRIES = 2
 RATE_LIMIT_BACKOFF = (1, 2, 4, 8, 16, 30)
 RETRY_AFTER_MAX = 60
 
-_AUTH_MESSAGES = {
-    401: "Ozon не принял API-ключ: неверный Client-Id или Api-Key",
-    403: "Ozon отказал в доступе: у ключа нет прав на этот метод или ключ отключён",
+# Тексты ошибок ключа из раздела «Частые ошибки» документации Ozon → (kind, сообщение)
+_AUTH_ERRORS = (
+    ("invalid api-key", "invalid", "Ozon не принял API-ключ: неверный Client-Id или Api-Key"),
+    ("deactivated", "deactivated", "Ключ Ozon деактивирован — создайте новый в кабинете Ozon (Настройки → Seller API)"),
+    ("missing a required role", "no_role",
+     "У ключа Ozon нет нужной роли для этого метода — выдайте доступ в кабинете Ozon (Настройки → Seller API)"),
+    ("restricted to specific ip", "ip_restricted",
+     "Ключ Ozon разрешён только для определённых IP-адресов — добавьте адрес сервиса в настройках ключа"),
+)
+_AUTH_BY_STATUS = {
+    401: ("invalid", "Ozon не принял API-ключ: неверный Client-Id или Api-Key"),
+    403: ("forbidden", "Ozon отказал в доступе: у ключа нет прав на этот метод"),
 }
+CIRCLE_OPEN_MESSAGE = "Ozon временно ограничил этот метод из-за нагрузки, попробуйте через несколько минут"
 
 Sleep = Callable[[float], Awaitable[Any]]
 
@@ -97,7 +107,6 @@ class OzonClient:
             await self._rate_limiter.aclose()
 
     def _limiter(self) -> OzonRateLimiter:
-        # Создаём лениво: запросы без товаров (items=0) Redis не трогают
         if self._rate_limiter is None:
             self._rate_limiter = OzonRateLimiter(self.client_id, sleep=self._sleep)
         return self._rate_limiter
@@ -113,14 +122,13 @@ class OzonClient:
             text = r.text[:500]
         return self._redact(text)
 
-    async def request(self, method: str, path: str, json: Any = None, *, items: int = 0) -> Any:
+    async def request(self, method: str, path: str, json: Any = None) -> Any:
         """Запрос к Ozon. Возвращает разобранный JSON или бросает OzonAPIError и наследников."""
         net_retries = server_retries = rate_retries = 0
         who = mask_client_id(self.client_id)
 
         while True:
-            if items > 0:
-                await self._limiter().check_and_acquire(items)
+            await self._limiter().check_and_acquire(1, path)
 
             started = time.monotonic()
             try:
@@ -152,8 +160,15 @@ class OzonClient:
             ozon_message = self._ozon_message(r)
             log.warning("Ozon %s %s → %s за %.0f мс (client %s): %s", method, path, status, ms, who, ozon_message)
 
-            if status in _AUTH_MESSAGES:
-                raise OzonAuthError(_AUTH_MESSAGES[status], status_code=status, ozon_message=ozon_message, path=path)
+            text = ozon_message.lower()
+            known = next(((k, m) for marker, k, m in _AUTH_ERRORS if marker in text), None)
+            if known or status in _AUTH_BY_STATUS:
+                kind, message = known or _AUTH_BY_STATUS[status]
+                raise OzonAuthError(message, kind=kind, status_code=status, ozon_message=ozon_message, path=path)
+
+            if "circle is open" in text:
+                # Ozon сам заблокировал метод на несколько минут — частые повторы только мешают
+                raise OzonServerError(CIRCLE_OPEN_MESSAGE, status_code=status, ozon_message=ozon_message, path=path)
 
             if status == 429:
                 if self._retry and rate_retries < len(RATE_LIMIT_BACKOFF):

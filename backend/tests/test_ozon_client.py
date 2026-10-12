@@ -131,15 +131,34 @@ async def test_5xx_exhausted(ozon, sleeps):
     assert route.call_count == 3 and e.value.status_code == 503
 
 
-@pytest.mark.parametrize("status,text", [(401, "неверный Client-Id или Api-Key"), (403, "нет прав")])
-async def test_auth_errors_not_retried(ozon, sleeps, status, text):
-    route = ozon.post(PATH).respond(status, json={"code": 16, "message": "Invalid Api-Key, please contact support"})
+# Тексты ошибок — из раздела «Частые ошибки» документации Ozon
+@pytest.mark.parametrize(
+    "status,ozon_text,kind,text",
+    [
+        (401, "Invalid Api-Key, please check the key and try again", "invalid", "неверный Client-Id или Api-Key"),
+        (403, "Api-key is deactivated, use another one or generate a new one", "deactivated", "деактивирован"),
+        (403, "Api-Key is missing a required role for a method", "no_role", "нет нужной роли"),
+        (403, "Api-Key is restricted to specific IP addresses", "ip_restricted", "определённых IP-адресов"),
+        (403, "Access denied", "forbidden", "нет прав на этот метод"),
+        (400, "Invalid Api-Key, please check the key and try again", "invalid", "неверный Client-Id"),  # код не важен
+    ],
+)
+async def test_auth_errors_not_retried(ozon, sleeps, status, ozon_text, kind, text):
+    route = ozon.post(PATH).respond(status, json={"code": 16, "message": ozon_text})
     async with make_client(sleeps) as c:
         with pytest.raises(OzonAuthError) as e:
             await c.request("POST", PATH, {})
     assert route.call_count == 1 and sleeps == []
-    assert e.value.status_code == status and text in str(e.value)
-    assert e.value.ozon_message == "Invalid Api-Key, please contact support"
+    assert e.value.status_code == status and e.value.kind == kind and text in str(e.value)
+    assert e.value.ozon_message == ozon_text
+
+
+async def test_circle_is_open_not_hammered(ozon, sleeps):
+    route = ozon.post(PATH).respond(503, json={"code": 14, "message": "Circle is open"})
+    async with make_client(sleeps) as c:
+        with pytest.raises(OzonServerError, match="несколько минут"):
+            await c.request("POST", PATH, {})
+    assert route.call_count == 1 and sleeps == []
 
 
 async def test_other_4xx_is_api_error_without_retry(ozon, sleeps):
@@ -193,7 +212,7 @@ async def test_api_key_never_in_logs_or_errors(ozon, sleeps, caplog):
         ozon.post(PATH).mock(side_effect=side_effect)
         async with make_client(sleeps) as c:
             try:
-                await c.request("POST", PATH, {"limit": 1}, items=1)
+                await c.request("POST", PATH, {"limit": 1})
             except OzonAPIError as e:
                 errors.append(e)
 
@@ -232,10 +251,14 @@ BACKENDS = ["memory"] + (["redis"] if os.environ.get("TEST_REDIS_URL") else [])
 async def limiter_factory(request):
     made = []
 
-    async def make(limit=100, client_id=None):
+    async def make(limit=100, client_id=None, method_limits=None):
         backend = MemoryWindow() if request.param == "memory" else await _redis_backend()
         t = FakeTime()
-        lim = OzonRateLimiter(client_id or f"test-{uuid.uuid4().hex}", limit=limit, backend=backend, clock=t.clock, sleep=t.sleep)
+        # окно 60 с — проверяем сам алгоритм скользящего окна на «крупных» числах
+        lim = OzonRateLimiter(
+            client_id or f"test-{uuid.uuid4().hex}", limit=limit, window=60.0, method_limits=method_limits or {},
+            backend=backend, clock=t.clock, sleep=t.sleep,
+        )
         made.append(lim)
         return lim, t
 
@@ -273,9 +296,28 @@ async def test_limiter_frees_oldest_first(limiter_factory):
 
 async def test_limiter_rejects_batch_over_limit(limiter_factory):
     lim, _ = await limiter_factory(limit=100)
-    with pytest.raises(ValueError, match="больше лимита"):
+    with pytest.raises(ValueError, match="при лимите 100"):
         await lim.check_and_acquire(101)
-    await lim.check_and_acquire(0)  # 0 товаров — ничего не резервируем
+    await lim.check_and_acquire(0)  # 0 — ничего не резервируем
+
+
+async def test_limiter_method_limit(limiter_factory):
+    # у метода свой лимит (2 за 60 с) поверх общего (100 за 60 с)
+    lim, t = await limiter_factory(limit=100, method_limits={"/v2/products/stocks": (2, 60.0)})
+    await lim.check_and_acquire(1, "/v2/products/stocks")
+    await lim.check_and_acquire(1, "/v2/products/stocks")
+    await lim.check_and_acquire(1, "/v3/product/list")  # другие методы не ждут
+    assert t.sleeps == []
+    await lim.check_and_acquire(1, "/v2/products/stocks")
+    assert t.sleeps == [pytest.approx(60.01)]
+
+
+def test_limiter_defaults_from_ozon_docs():
+    from app.integrations.ozon.rate_limiter import METHOD_LIMITS
+
+    lim = OzonRateLimiter("1")
+    assert (lim.limit, lim.window) == (50, 1.0)  # 50 запросов в секунду на Client ID
+    assert METHOD_LIMITS["/v2/products/stocks"] == (80, 60.0)
 
 
 async def test_limiter_counts_per_client(limiter_factory):
@@ -286,15 +328,18 @@ async def test_limiter_counts_per_client(limiter_factory):
     assert ta.sleeps == [] and tb.sleeps == []
 
 
-async def test_client_reserves_items_on_every_attempt(ozon):
+async def test_client_takes_slot_on_every_attempt(ozon):
     t = FakeTime()
-    backend = MemoryWindow()
-    limiter = OzonRateLimiter(CLIENT_ID, limit=1000, backend=backend, clock=t.clock, sleep=t.sleep)
-    ozon.post(PATH).mock(side_effect=[httpx.Response(500), httpx.Response(200, json=OK_BODY)])
+    limiter = OzonRateLimiter(CLIENT_ID, limit=2, backend=MemoryWindow(), clock=t.clock, sleep=t.sleep)
+    ozon.post(PATH).mock(side_effect=[
+        httpx.Response(429, headers={"Retry-After": "0"}), httpx.Response(200, json=OK_BODY),  # 2 попытки
+        httpx.Response(200, json=OK_BODY),
+    ])
     async with OzonClient(CLIENT_ID, API_KEY, rate_limiter=limiter, sleep=t.sleep) as c:
-        await c.request("POST", PATH, {}, items=400)
-    # 2 попытки × 400; следующий запрос на 400 уже не помещается в окно
-    assert await backend.try_acquire(limiter.key, 400, t.now, 60, 1000) > 0
+        await c.request("POST", PATH, {})
+        assert t.sleeps == [0]  # только пауза Retry-After
+        await c.request("POST", PATH, {})  # лимит 2 в секунду исчерпан двумя попытками — ждём
+    assert t.sleeps[1] == pytest.approx(1.01)
 
 
 # ── фабрика ──

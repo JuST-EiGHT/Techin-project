@@ -19,7 +19,7 @@ class CredentialCreate(BaseModel):
     client_id: str = Field(min_length=1, max_length=32)
     # SecretStr: значение не попадёт в repr/логи модели
     api_key: SecretStr = Field(min_length=1, max_length=200)
-    # Если не задан — +6 месяцев (столько живёт ключ Ozon)
+    # Обычно срок сообщает сам Ozon (/v1/roles); это поле — запасной вариант, иначе +3 месяца
     expires_at: datetime | None = None
 
     @field_validator("label")

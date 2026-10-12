@@ -3,7 +3,7 @@
     {
       "id": 1001, "name": "Подшипник 6001-2RS C3 NACHI", "offer_id": "6001-2RS.C3.SRL.NAC.TH",
       "is_archived": false, "is_autoarchived": false, "barcodes": ["4580143941234"],
-      "description_category_id": 17028922, "type_id": 970866271, "currency_code": "RUB", "vat": "0.22",
+      "description_category_id": 17028922, "type_id": 970866271, "currency_code": "RUB", "vat": "22%",
       "sources": [{"sku": 900001001, "source": "sds", "shipment_type": "SHIPMENT_TYPE_GENERAL", "quant_code": "", "created_at": "2026-03-01T10:00:00Z"}],
       "created_at": "2026-03-01T10:00:00Z", "updated_at": "2026-10-01T10:00:00Z"
     },

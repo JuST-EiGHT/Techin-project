@@ -8,7 +8,7 @@
 
 Ответы Ozon разбираются «мягко»: отсутствующее поле → None, а не исключение.
 Поле `total` не используется (Ozon отключает его 23.11.2026), счётчики не нужны вовсе.
-Форматы ответов с официальной документацией не сверены — см. docs/OZON_API.md.
+Форматы сверены с документацией Ozon (docs/ozon/, октябрь 2026) — см. docs/OZON_API.md.
 """
 import logging
 import uuid
@@ -32,7 +32,7 @@ PRODUCT_PRICES_PATH = "/v5/product/info/prices"
 LIST_LIMIT = 1000  # максимум Ozon для /v3/product/list
 BATCH_SIZE = 1000  # максимум Ozon для info/list и prices
 MAX_PAGES = 1000  # защита от бесконечной пагинации
-VISIBILITIES = ("ALL", "ARCHIVED")  # ALL у Ozon может не включать архив — берём оба и объединяем
+VISIBILITIES = ("ALL", "ARCHIVED")  # по документации ALL — «все товары, кроме архивных»
 
 _CENT = Decimal("0.01")
 _MILLI = Decimal("0.001")
@@ -67,6 +67,18 @@ def _dec(value: Any, q: Decimal) -> Decimal | None:
         return None
 
 
+def _vat(value: Any) -> Decimal | None:
+    """НДС у Ozon бывает "0.2", 0.2 и "20%" — приводим к доле 0.2."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    percent = text.endswith("%")
+    rate = _dec(text.rstrip("%").strip(), _VAT_Q)
+    if rate is None:
+        return None
+    return (rate / 100).quantize(_VAT_Q) if percent or rate > 1 else rate
+
+
 def _int(value: Any) -> int | None:
     try:
         return int(value) if value not in (None, "", 0, "0") else None
@@ -93,7 +105,7 @@ def _items(data: Any) -> list[dict]:
 
 def _product_attrs(list_item: dict, info: dict | None) -> dict[str, Any]:
     info = info or {}
-    sku = info.get("sku")
+    sku = info.get("sku") or list_item.get("sku")
     if not sku:
         sku = next((s.get("sku") for s in info.get("sources") or [] if isinstance(s, dict) and s.get("sku")), None)
     barcodes = info.get("barcodes") or []
@@ -105,7 +117,7 @@ def _product_attrs(list_item: dict, info: dict | None) -> dict[str, Any]:
         "name": _str(info.get("name"), 500),
         "category_id": _int(info.get("description_category_id") or info.get("category_id")),
         "barcode": _str(barcode, 100),
-        "vat": _dec(info.get("vat"), _VAT_Q),
+        "vat": _vat(info.get("vat")),
         "is_archived": bool(archived),
     }
 
@@ -114,15 +126,15 @@ def _price_attrs(item: dict) -> dict[str, Any]:
     price = item.get("price") if isinstance(item.get("price"), dict) else {}
     commissions = item.get("commissions") if isinstance(item.get("commissions"), dict) else {}
     indexes = item.get("price_indexes") if isinstance(item.get("price_indexes"), dict) else {}
-    marketing = price.get("marketing_price", price.get("marketing_seller_price"))
     auto = price.get("auto_action_enabled")
     return {
         "price": _dec(price.get("price"), _CENT),
         "min_price": _dec(price.get("min_price"), _CENT),
         "old_price": _dec(price.get("old_price"), _CENT),
-        "marketing_price": _dec(marketing, _CENT),
+        # price.marketing_price Ozon удалил 12.11.2025; описание marketing_seller_price в выгрузке документации свёрнуто
+        "marketing_price": _dec(price.get("marketing_seller_price"), _CENT),
         "commission_pct": _dec(commissions.get("sales_percent_fbo"), _MILLI),  # магазин работает по FBO
-        "acquiring_pct": _dec(item.get("acquiring"), _MILLI),
+        "acquiring_pct": _dec(item.get("acquiring"), _MILLI),  # в примерах Ozon 1.5 при цене ~3000 — процент
         "auto_action_enabled": auto if isinstance(auto, bool) else None,
         "price_index": _str(indexes.get("color_index"), 32),
     }
@@ -144,7 +156,6 @@ async def fetch_product_ids(client: OzonClient) -> dict[int, dict]:
             data = await client.request(
                 "POST", PRODUCT_LIST_PATH,
                 {"filter": {"visibility": visibility}, "last_id": last_id, "limit": LIST_LIMIT},
-                items=LIST_LIMIT,
             )
             result = (data.get("result") or {}) if isinstance(data, dict) else {}
             page = [i for i in result.get("items") or [] if isinstance(i, dict)]
@@ -161,7 +172,8 @@ async def fetch_product_ids(client: OzonClient) -> dict[int, dict]:
 
 
 async def fetch_info(client: OzonClient, ids: list[int]) -> dict[int, dict]:
-    data = await client.request("POST", PRODUCT_INFO_PATH, {"product_id": ids}, items=len(ids))
+    # product_id в запросе — массив строк int64 (по схеме Ozon)
+    data = await client.request("POST", PRODUCT_INFO_PATH, {"product_id": [str(i) for i in ids]})
     return {pid: i for i in _items(data) if (pid := _int(i.get("id") or i.get("product_id")))}
 
 
@@ -171,8 +183,7 @@ async def fetch_prices(client: OzonClient, ids: list[int]) -> dict[int, dict]:
     for _ in range(MAX_PAGES):
         data = await client.request(
             "POST", PRODUCT_PRICES_PATH,
-            {"cursor": cursor, "filter": {"product_id": ids, "visibility": "ALL"}, "limit": BATCH_SIZE},
-            items=len(ids),
+            {"cursor": cursor, "filter": {"product_id": [str(i) for i in ids], "visibility": "ALL"}, "limit": BATCH_SIZE},
         )
         page = _items(data)
         for item in page:

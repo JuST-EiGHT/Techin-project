@@ -80,8 +80,9 @@ pip install -r requirements-dev.txt && pytest
    (см. `core/errors.py`).
 9. **Интерфейс — на русском**, тёмная тема (фон #0f1117, карточки #1a1d27,
    рамки #2a2d3a, акцент #4f8ef7, зелёный #22c55e, красный #f87171, жёлтый #fbbf24).
-10. **Ozon API меняется.** Перед реализацией интеграции сверяй эндпоинты с
-    https://docs.ozon.ru/api/seller/ — список в `docs/OZON_API.md` мог устареть.
+10. **Ozon API меняется.** Перед реализацией интеграции сверяй эндпоинты с официальной
+    документацией: её выгрузка — `docs/ozon/seller_api_2026-10.txt` (docs.ozon.ru из облачной
+    среды недоступен). `docs/OZON_API.md` — наша выжимка, при расхождении обнови её.
 11. Не коммить `.env`, ключи и реальные выгрузки клиентов (кроме fixtures в tests/).
 
 ## Текущий статус
@@ -117,22 +118,26 @@ Fernet-шифротекст (`services/encryption.py`; ключ проверяе
 429/5xx/сеть → Ozon недоступен. `/api/v1/credentials`: POST сохраняет только принятый
 Ozon ключ (иначе 400, при недоступности Ozon — 503), GET — без ключа, Client-Id как
 `••••1234`, DELETE и POST `/{id}/verify` (invalid/forbidden → `is_active=false`,
-недоступность Ozon состояние не меняет). Чужой ключ — 404. Срок по умолчанию — +6
-календарных месяцев; `days_until_expiry` считает бэкенд, фронт предупреждает при < 30.
+недоступность Ozon состояние не меняет). Чужой ключ — 404. Срок ключа берётся из Ozon
+(`POST /v1/roles` → `expires_at`) при добавлении и каждой проверке; если Ozon его не
+сообщил — введённый пользователем или +3 месяца (срок ключа по документации Ozon);
+`days_until_expiry` считает бэкенд, фронт предупреждает при < 30.
 Тест `test_api_key_never_returned_or_logged` ловит ключ в ответах и логах (DEBUG).
-Эндпоинт Ozon с официальной документацией не сверен — docs.ozon.ru недоступен из
-облачной среды разработки (на шаге 1.1 тоже); сверить на реальном ключе.
+Сверено с официальной документацией (`docs/ozon/`): проверка — `/v1/roles`, затем
+`/v3/product/list` (limit=1); тексты ошибок ключа распознаются по «Частым ошибкам» Ozon.
 
 Детали сделанного в 1.1 (`app/integrations/ozon/`): все запросы к Ozon — только через
-`OzonClient.request(method, path, json, items=N)`; `items` — число товаров в запросе
-(для лимита 30 000 операций/мин), клиент резервирует их перед каждой попыткой.
+`OzonClient.request(method, path, json)`; перед каждой попыткой клиент берёт слот в
+rate limiter: 50 запросов/с на Client ID (документация Ozon) плюс `METHOD_LIMITS` для
+методов со своим лимитом.
 Повторы: сеть/таймаут — 3 повтора (1, 2, 4 с); 429 — до 6 повторов (Retry-After ≤ 60 с
 или 1…30 с); 5xx — 2 повтора через 5 с; 401/403/прочие 4xx — сразу исключение.
 Иерархия: `OzonAPIError` → `OzonAuthError`, `OzonRateLimitError`, `OzonServerError`,
 `OzonTimeoutError`, `OzonNetworkError`, `OzonNotConfiguredError`; у ошибки есть
-`status_code`, `ozon_message` (ключ вырезан), `path`. Rate limiter — скользящее окно
-60 с в Redis (sorted set + Lua, атомарно для всех воркеров), без Redis — в памяти;
-партия резервируется целиком или ждёт. `get_ozon_client(user_id, db)` берёт активный
+`status_code`, `ozon_message` (ключ вырезан), `path`; у `OzonAuthError` — `kind`
+(invalid / deactivated / no_role / ip_restricted / forbidden, по текстам Ozon);
+«Circle is open» — `OzonServerError` без повторов. Rate limiter — скользящее окно в
+Redis (sorted set + Lua, атомарно для API и всех воркеров), без Redis — в памяти. `get_ozon_client(user_id, db)` берёт активный
 неистёкший ключ (последний использованный), обновляет `last_used_at`, клиент закрывать
 (`async with`). Проверка ключа из 0.4 (`services/ozon_auth.py`) работает через тот же
 клиент без повторов. Тесты лимитера против реального Redis: `TEST_REDIS_URL=redis://… pytest`.
@@ -151,7 +156,8 @@ success/failed; нужен для статуса и защиты от двойн
 В Docker Compose добавлен сервис `beat`. API: `POST /api/v1/sync/products` (202,
 409 если уже идёт, 503 если брокер недоступен), `GET /api/v1/sync/status`.
 Фронт: `components/SyncStatus.tsx` в шапке кабинета. Тестовые ответы Ozon —
-`backend/tests/fixtures/ozon/*.json` (только `total_items`).
+`backend/tests/fixtures/ozon/*.json` (только `total_items`). Разбор полей сверен с
+документацией — таблица в `docs/OZON_API.md` («Как мы читаем ответы»).
 
 ## Где что искать
 
@@ -159,6 +165,7 @@ success/failed; нужен для статуса и защиты от двойн
 - Формулы P&L, себестоимость, минимальная цена, поставки, аномалии, эталонные цифры
   для тестов → `docs/BUSINESS_LOGIC.md`
 - Эндпоинты Ozon Seller API, лимиты, устаревшие методы → `docs/OZON_API.md`
+- Официальная документация Ozon Seller API (выгрузка, октябрь 2026) → `docs/ozon/seller_api_2026-10.txt`
 - План по фазам и шагам → `docs/ROADMAP.md`
 - Готовые промпты на каждый шаг → `docs/prompts/`
 - Рабочий JS-калькулятор P&L (логика парсинга двух типов отчётов) →

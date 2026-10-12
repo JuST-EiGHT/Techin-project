@@ -26,9 +26,21 @@ class OzonAPIError(Exception):
 
 
 class OzonAuthError(OzonAPIError):
-    """401/403: ключ неверный, отключён или без прав на метод."""
+    """Ключ не принят: 401/403 или известный текст ошибки ключа от Ozon.
+
+    kind — причина (по текстам «Частых ошибок» документации Ozon):
+      invalid      — неверный Client-Id / Api-Key
+      deactivated  — ключ деактивирован
+      no_role      — у ключа нет роли для метода
+      ip_restricted — ключ разрешён только с определённых IP-адресов
+      forbidden    — прочий отказ в доступе
+    """
 
     default_message = "Ozon не принял API-ключ"
+
+    def __init__(self, message: str | None = None, *, kind: str = "invalid", **kw) -> None:
+        self.kind = kind
+        super().__init__(message, **kw)
 
 
 class OzonRateLimitError(OzonAPIError):

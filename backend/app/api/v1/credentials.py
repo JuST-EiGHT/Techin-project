@@ -33,7 +33,7 @@ async def add_credential(data: CredentialCreate, user: User = Depends(get_curren
     if not result.ok:
         code = status.HTTP_503_SERVICE_UNAVAILABLE if result.reason == "unavailable" else status.HTTP_400_BAD_REQUEST
         raise HTTPException(code, f"Ключ не сохранён: {result.message}")
-    return CredentialResponse.from_model(await crud.create(db, user.id, data))
+    return CredentialResponse.from_model(await crud.create(db, user.id, data, result.expires_at))
 
 
 @router.get("", response_model=list[CredentialResponse])
@@ -58,6 +58,8 @@ async def verify_credential(cred_id: uuid.UUID, user: User = Depends(get_current
     if result.ok:
         cred.is_active = True
         cred.last_used_at = datetime.now(timezone.utc)
+        if result.expires_at:
+            cred.expires_at = result.expires_at  # срок по данным Ozon точнее введённого
     elif result.reason in ("invalid", "forbidden"):
         cred.is_active = False
     # unavailable — состояние ключа неизвестно, ничего не меняем

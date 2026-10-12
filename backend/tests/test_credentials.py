@@ -22,16 +22,25 @@ def auth(t):
     return {"Authorization": f"Bearer {t['access_token']}"}
 
 
+OZON_EXPIRES_IN_DAYS = 75
+
+
+def roles_body(days=OZON_EXPIRES_IN_DAYS):
+    expires = (datetime.now(timezone.utc) + timedelta(days=days, hours=1)).isoformat().replace("+00:00", "Z")
+    return {"expires_at": expires, "roles": [{"name": "Admin", "methods": ["/v3/product/list"]}]}
+
+
 @pytest.fixture
 def ozon():
-    """Мок Ozon: по умолчанию ключ принимается."""
+    """Мок Ozon: по умолчанию ключ принимается, /v1/roles сообщает срок действия."""
     with respx.mock(base_url=settings.OZON_API_URL, assert_all_called=False) as mock:
+        mock.post("/v1/roles", name="roles").respond(200, json=roles_body())
         mock.post("/v3/product/list", name="product_list").respond(200, json={"result": {"items": [], "total_items": 0, "last_id": ""}})
         yield mock
 
 
-def set_ozon(mock, *, status=200, body=None, exc=None):
-    route = mock.routes["product_list"]
+def set_ozon(mock, *, status=200, body=None, exc=None, route="product_list"):
+    route = mock.routes[route]
     if exc:
         route.side_effect = exc
     else:
@@ -94,7 +103,7 @@ async def test_add_ok(client, tokens, ozon):
     assert body["label"] == "Основной"
     assert body["client_id_masked"] == "••••4567"
     assert body["is_active"] is True and body["last_used_at"] is not None
-    assert 180 <= body["days_until_expiry"] <= 184  # +6 месяцев
+    assert body["days_until_expiry"] == OZON_EXPIRES_IN_DAYS  # срок из /v1/roles
     assert not {"api_key", "api_key_encrypted", "client_id"} & body.keys()
 
     # в Ozon ушёл правильный тестовый запрос
@@ -119,15 +128,24 @@ async def test_add_custom_label_default_and_expiry(client, tokens, ozon):
     exp = (datetime.now(timezone.utc) + timedelta(days=20)).isoformat()
     body = (await add(client, tokens, label="  ", expires_at=exp)).json()
     assert body["label"] == "Магазин Ozon"
+    assert body["days_until_expiry"] == OZON_EXPIRES_IN_DAYS  # срок от Ozon важнее введённого
+
+    set_ozon(ozon, route="roles", body={"roles": []})  # Ozon срок не сообщил → берём введённый
+    body = (await add(client, tokens, expires_at=exp)).json()
     assert body["days_until_expiry"] == 19
+
+    body = (await add(client, tokens)).json()  # ни Ozon, ни пользователь → +3 месяца (документация Ozon)
+    assert 88 <= body["days_until_expiry"] <= 92
 
 
 @pytest.mark.parametrize(
     "status,body,code,text",
     [
         (401, {"code": 16, "message": "Invalid Api-Key, please contact support"}, 400, "Неверный Client-Id или Api-Key"),
-        (403, {"code": 7, "message": "Api-key is deactivated, use another one"}, 400, "отключён или истёк"),
-        (403, {"code": 7, "message": "Access denied"}, 400, "нет прав"),
+        (403, {"code": 7, "message": "Api-key is deactivated, use another one or generate a new one"}, 400, "деактивирован"),
+        (403, {"code": 7, "message": "Access denied"}, 400, "нет прав на чтение товаров"),
+        (403, {"code": 7, "message": "Api-Key is missing a required role for a method"}, 400, "нет прав на чтение товаров"),
+        (403, {"code": 7, "message": "Api-Key is restricted to specific IP addresses"}, 400, "IP-адресов"),
         (429, {"code": 8, "message": "rate limit"}, 503, "ограничил запросы"),
         (500, {"message": "internal"}, 503, "Ozon недоступен"),
     ],
@@ -138,6 +156,19 @@ async def test_add_rejected_not_saved(client, tokens, ozon, status, body, code, 
     assert r.status_code == code
     assert r.json()["code"] == code and text in r.json()["detail"]
     assert (await client.get(API, headers=auth(tokens))).json() == []
+
+
+async def test_roles_rejects_key_before_product_list(client, tokens, ozon):
+    set_ozon(ozon, route="roles", status=401, body={"message": "Invalid Api-Key, please check the key and try again"})
+    r = await add(client, tokens)
+    assert r.status_code == 400 and "Неверный Client-Id или Api-Key" in r.json()["detail"]
+    assert not ozon.routes["product_list"].called
+
+
+async def test_roles_unavailable_method_does_not_block(client, tokens, ozon):
+    set_ozon(ozon, route="roles", status=404, body={"message": "method is not allowed"})
+    r = await add(client, tokens)
+    assert r.status_code == 201 and 88 <= r.json()["days_until_expiry"] <= 92  # решил запрос товаров
 
 
 async def test_add_ozon_unreachable(client, tokens, ozon):
@@ -193,8 +224,10 @@ async def test_verify_updates_state(client, tokens, ozon):
     assert r["ok"] is False and r["credential"]["is_active"] is False and "недоступен" in r["message"]
 
     set_ozon(ozon, status=200, body={"result": {}})
+    set_ozon(ozon, route="roles", body=roles_body(days=40))  # ключ продлили — срок обновится
     r = (await client.post(url, headers=auth(tokens))).json()
     assert r["ok"] is True and r["message"] == "Ключ работает" and r["credential"]["is_active"] is True
+    assert r["credential"]["days_until_expiry"] == 40
     # проверка ушла с расшифрованным ключом
     assert ozon.routes["product_list"].calls.last.request.headers["Api-Key"] == API_KEY
 

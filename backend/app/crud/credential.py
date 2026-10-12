@@ -9,7 +9,7 @@ from app.models.api_credential import ApiCredential
 from app.schemas.credential import DEFAULT_LABEL, CredentialCreate
 from app.services.encryption import encrypt
 
-KEY_LIFETIME_MONTHS = 6  # срок жизни ключа Ozon (docs/OZON_API.md)
+KEY_LIFETIME_MONTHS = 3  # срок ключа Ozon по документации — если Ozon сам не сообщил expires_at
 
 
 def add_months(dt: datetime, months: int) -> datetime:
@@ -32,7 +32,10 @@ async def get_for_user(db: AsyncSession, user_id: uuid.UUID, cred_id: uuid.UUID)
     return cred if cred is not None and cred.user_id == user_id else None
 
 
-async def create(db: AsyncSession, user_id: uuid.UUID, data: CredentialCreate) -> ApiCredential:
+async def create(
+    db: AsyncSession, user_id: uuid.UUID, data: CredentialCreate, ozon_expires_at: datetime | None = None
+) -> ApiCredential:
+    """Срок действия: из Ozon (/v1/roles) → введённый пользователем → +3 месяца."""
     now = datetime.now(timezone.utc)
     cred = ApiCredential(
         user_id=user_id,
@@ -40,7 +43,7 @@ async def create(db: AsyncSession, user_id: uuid.UUID, data: CredentialCreate) -
         client_id=data.client_id,
         api_key_encrypted=encrypt(data.api_key.get_secret_value()),
         is_active=True,
-        expires_at=data.expires_at or add_months(now, KEY_LIFETIME_MONTHS),
+        expires_at=ozon_expires_at or data.expires_at or add_months(now, KEY_LIFETIME_MONTHS),
         last_used_at=now,  # ключ только что успешно проверен
     )
     db.add(cred)

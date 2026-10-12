@@ -1,7 +1,7 @@
 {
   "result": {
     "items": [
-      {"product_id": 1004, "offer_id": "6000.CM.NAC.JP", "has_fbo_stocks": false, "has_fbs_stocks": false, "archived": true, "is_discounted": false, "quants": []}
+      {"product_id": 1004, "sku": 900001004, "offer_id": "6000.CM.NAC.JP", "has_fbo_stocks": false, "has_fbs_stocks": false, "archived": true, "is_discounted": false, "quants": []}
     ],
     "total_items": 1,
     "last_id": ""

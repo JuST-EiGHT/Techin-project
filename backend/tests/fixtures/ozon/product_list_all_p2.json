@@ -1,7 +1,7 @@
 {
   "result": {
     "items": [
-      {"product_id": 1003, "offer_id": "6000-2RS.C3.SRL.NAC.JP", "has_fbo_stocks": false, "has_fbs_stocks": false, "archived": false, "is_discounted": false, "quants": []}
+      {"product_id": 1003, "sku": 900001003, "offer_id": "6000-2RS.C3.SRL.NAC.JP", "has_fbo_stocks": false, "has_fbs_stocks": false, "archived": false, "is_discounted": false, "quants": []}
     ],
     "total_items": 3,
     "last_id": ""

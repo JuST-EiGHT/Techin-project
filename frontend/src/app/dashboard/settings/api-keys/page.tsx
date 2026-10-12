@@ -170,7 +170,7 @@ function AddForm({ onAdded }: { onAdded: (c: Credential) => void }) {
     <form onSubmit={onSubmit} noValidate className="bg-card border border-line rounded-xl p-6">
       <h2 className="text-lg font-semibold mb-1">Добавить ключ</h2>
       <p className="text-sm text-slate-400 mb-5">
-        Ключ создаётся в кабинете Ozon: Настройки → API-ключи. Для аналитики хватает прав на чтение. Перед сохранением
+        Ключ создаётся в кабинете Ozon: Настройки → Seller API, живёт 3 месяца. Для аналитики хватает прав на чтение. Перед сохранением
         ключ проверяется запросом к Ozon и хранится только в зашифрованном виде.
       </p>
       <FormError message={error} />
@@ -179,7 +179,7 @@ function AddForm({ onAdded }: { onAdded: (c: Credential) => void }) {
         <Field label="Client-Id" id="client_id" inputMode="numeric" autoComplete="off" required value={form.client_id} onChange={set('client_id')} />
         <Field label="Api-Key" id="api_key" type="password" autoComplete="off" required value={form.api_key} onChange={set('api_key')} />
         <Field
-          label="Действует до (необязательно, по умолчанию +6 месяцев)"
+          label="Действует до (необязательно — обычно Ozon сообщает срок сам)"
           id="expires_at"
           type="date"
           value={form.expires_at}

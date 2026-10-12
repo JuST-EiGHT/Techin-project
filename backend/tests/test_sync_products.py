@@ -60,7 +60,7 @@ class FakeOzon:
     def _info(self, request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         self.calls["info"].append(body)
-        ids = set(body["product_id"])
+        ids = {int(x) for x in body["product_id"]}  # Ozon принимает product_id строками int64
         return httpx.Response(200, json={"items": [i for i in self.info["items"] if i["id"] in ids]})
 
     def _prices(self, request: httpx.Request) -> httpx.Response:
@@ -68,7 +68,7 @@ class FakeOzon:
         self.calls["prices"].append(body)
         if self.price_pages is not None:
             return httpx.Response(200, json=self.price_pages[body["cursor"]])
-        ids = set(body["filter"]["product_id"])
+        ids = {int(x) for x in body["filter"]["product_id"]}
         items = [i for i in self.prices["items"] if i["product_id"] in ids]
         return httpx.Response(200, json={"cursor": "", "total_items": len(items), "items": items})
 
@@ -125,16 +125,17 @@ async def test_first_sync_creates_products_and_prices(sessions, ozon):
     assert [(c["filter"]["visibility"], c["last_id"]) for c in ozon.calls["list"]] == [
         ("ALL", ""), ("ALL", "WzEwMDJd"), ("ARCHIVED", ""),
     ]
-    assert ozon.calls["info"] == [{"product_id": [1001, 1002, 1003, 1004]}]
+    assert ozon.calls["info"] == [{"product_id": ["1001", "1002", "1003", "1004"]}]  # строки, как в схеме Ozon
 
     ps = await products(sessions, user_id)
     p = ps[1001]
     assert (p.offer_id, p.name, p.ozon_sku, p.barcode, p.category_id) == (
         "6001-2RS.C3.SRL.NAC.TH", "Подшипник 6001-2RS C3 NACHI", 900001001, "4580143941234", 17028922,
     )
-    assert p.vat == Decimal("0.22") and p.is_archived is False and p.synced_at is not None
+    assert p.vat == Decimal("0.22") and p.is_archived is False and p.synced_at is not None  # из "22%"
+    assert ps[1002].vat == Decimal("0.22")  # из "0.22"
     assert ps[1003].barcode is None  # пустой список штрихкодов
-    assert ps[1004].is_archived is True and ps[1004].ozon_sku is None
+    assert ps[1004].is_archived is True and ps[1004].ozon_sku == 900001004  # sku из списка товаров
 
     [snap] = await snapshots(sessions, p.id)
     assert (snap.price, snap.old_price, snap.min_price, snap.marketing_price) == (
@@ -179,8 +180,8 @@ async def test_batches(sessions, ozon, monkeypatch):
     user_id = await make_user(sessions)
     stats = await sync(sessions, user_id)
     assert stats.created == 4
-    assert [c["product_id"] for c in ozon.calls["info"]] == [[1001, 1002, 1003], [1004]]
-    assert [c["filter"]["product_id"] for c in ozon.calls["prices"]] == [[1001, 1002, 1003], [1004]]
+    assert [c["product_id"] for c in ozon.calls["info"]] == [["1001", "1002", "1003"], ["1004"]]
+    assert [c["filter"]["product_id"] for c in ozon.calls["prices"]] == [["1001", "1002", "1003"], ["1004"]]
     assert all(c["limit"] == 3 for c in ozon.calls["prices"])
 
 
@@ -402,6 +403,11 @@ async def test_api_status_keeps_last_success_after_failure(sessions, client, tok
 def test_fixtures_use_total_items_not_total():
     for f in FIXTURES.glob("*.json"):
         assert '"total"' not in f.read_text(encoding="utf-8"), f.name
+
+
+@pytest.mark.parametrize("raw,expected", [("20%", "0.2"), ("22%", "0.22"), ("0.1", "0.1"), (0.2, "0.2"), ("0", "0"), (None, None), ("", None), ("abc", None)])
+def test_vat_formats(raw, expected):
+    assert sync_mod._vat(raw) == (Decimal(expected) if expected is not None else None)
 
 
 def test_fixture_copy_helper_isolated():
