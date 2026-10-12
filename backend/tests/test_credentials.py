@@ -26,7 +26,7 @@ def auth(t):
 def ozon():
     """Мок Ozon: по умолчанию ключ принимается."""
     with respx.mock(base_url=settings.OZON_API_URL, assert_all_called=False) as mock:
-        mock.post("/v3/product/list", name="product_list").respond(200, json={"result": {"items": [], "total": 0, "last_id": ""}})
+        mock.post("/v3/product/list", name="product_list").respond(200, json={"result": {"items": [], "total_items": 0, "last_id": ""}})
         yield mock
 
 
