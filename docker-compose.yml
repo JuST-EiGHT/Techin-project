@@ -51,6 +51,7 @@ services:
     ports: ["3000:3000"]
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
+      API_URL: http://api:8000          # сервер Next (route handlers) ходит к бэкенду внутри сети Docker
     volumes: [./frontend:/app, /app/node_modules, /app/.next]
     depends_on: [api]
 volumes:

@@ -89,12 +89,23 @@ pip install -r requirements-dev.txt && pytest
 |---|---|---|
 | 0.1 | Каркас проекта, Docker Compose | ✅ готово |
 | 0.2 | Авторизация на бэкенде (JWT, register/login/refresh/logout/me) | ✅ готово, 21 тест |
-| 0.3 | Авторизация на фронтенде | ⏭ следующий |
-| 0.4 … 9.2 | см. `docs/ROADMAP.md` | ⏳ |
+| 0.3 | Авторизация на фронтенде (httpOnly cookies, /login, /register, /dashboard) | ✅ готово |
+| 0.4 | Хранение API-ключей Ozon (шифрование) | ⏳ |
+| 0.5 … 9.2 | см. `docs/ROADMAP.md` | ⏳ |
 
 Детали сделанного в 0.2: access-токен 24 ч, refresh 30 дней; refresh одноразовый
 (ротация); logout отзывает токены через чёрный список в Redis (в тестах — в памяти);
 ошибки валидации отдаются как 400 с русским текстом.
+
+Детали сделанного в 0.3: токены живут только в httpOnly cookies (`access_token`,
+`refresh_token`), JS браузера их не видит. Браузер ходит к бэкенду через route
+handlers Next: `/api/session/{login,refresh,logout}` ставят/чистят cookies,
+`/api/session/proxy/<путь>` → `<API>/api/v1/<путь>` с `Authorization` из cookie
+(методы выдачи токенов через прокси закрыты). Адрес бэкенда для сервера Next —
+`API_URL` (в Docker `http://api:8000`), иначе `NEXT_PUBLIC_API_URL`.
+`src/lib/api.ts` — axios: при 401 один общий refresh и повтор, иначе `/login?next=…`.
+`src/middleware.ts` пускает на `/dashboard/*` только при наличии cookie сессии.
+В nginx на бэкенд проксируется только `/api/v1/`, остальное `/api/*` — Next.
 
 ## Где что искать
 
