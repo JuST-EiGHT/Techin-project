@@ -95,7 +95,8 @@ pip install -r requirements-dev.txt && pytest
 | 0.4 | Хранение API-ключей Ozon (шифрование, /dashboard/settings/api-keys) | ✅ готово, 42 теста всего |
 | 1.1 | Универсальный клиент Ozon (retry, rate limit, фабрика) | ✅ готово, 68 тестов всего |
 | 1.2 | Синхронизация товаров и цен (Celery, Beat, /sync, статус в шапке) | ✅ готово, 91 тест всего |
-| 1.3 … 9.2 | см. `docs/ROADMAP.md` | ⏳ |
+| 1.3 | Склады и остатки (FBO по складам и кластерам, FBS/rFBS, /dashboard/warehouses) | ✅ готово, 139 тестов всего |
+| 1.4 … 9.2 | см. `docs/ROADMAP.md` | ⏳ |
 
 Детали сделанного в 0.2: access-токен 24 ч, refresh 30 дней; refresh одноразовый
 (ротация); logout отзывает токены через чёрный список в Redis (в тестах — в памяти);
@@ -158,6 +159,22 @@ success/failed; нужен для статуса и защиты от двойн
 Фронт: `components/SyncStatus.tsx` в шапке кабинета. Тестовые ответы Ozon —
 `backend/tests/fixtures/ozon/*.json` (только `total_items`). Разбор полей сверен с
 документацией — таблица в `docs/OZON_API.md` («Как мы читаем ответы»).
+
+Детали сделанного в 1.3 (решения согласованы с владельцем): миграция 0004 — `warehouses`
+(FBO | FBS | rFBS, кластер для FBO, уникальность user_id+ozon_warehouse_id) и
+`product_stocks` (снепшот только при изменении; пара пропала из ответа — нулевой снепшот).
+`/v1/warehouse/list` из промпта отключён Ozon, `/v4/product/info/stocks` не делит
+остаток по складам, поэтому: FBO — `/v1/analytics/stocks` (как отчёт «Управление
+остатками», по 100 SKU, SKU из товаров шага 1.2; present = «Доступно к продаже»,
+in_transit = «В поставках в пути», reserved = NULL), FBS/rFBS — `/v2/warehouse/list` +
+`/v1/product/info/warehouse/stocks`. Расчёт — `app/engine/stocks.py` (critical < 7,
+low < 14, excess > 60 дней). Продаж пока нет: `services/stocks.avg_daily_sales` пустой
+до шага 1.4, поэтому days_of_supply и статус = null («нет данных»), а не 0 — Ozon-овские
+`ads`/`idc` намеренно не используем. Celery: `sync_stocks_all` в :13 и :43. API:
+`GET /api/v1/warehouses`, `GET /api/v1/stocks` (warehouse_id, product_id,
+status=critical|low|normal|excess|no_data, include_empty), `POST /api/v1/sync/stocks`.
+Общий код синхронизаций: `runner.JOBS`, `tasks.sync.FOR_USER_TASKS`, `api/v1/sync._sync_now`;
+разбор ответов — `services/sync/parsing.py`.
 
 ## Где что искать
 

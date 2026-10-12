@@ -323,7 +323,7 @@ def auth(tokens):
 @pytest.fixture
 def enqueued(monkeypatch):
     calls = []
-    monkeypatch.setattr(sync_api, "enqueue_products_sync", lambda u, r: calls.append((u, r)))
+    monkeypatch.setattr(sync_api, "enqueue_sync", lambda kind, u, r: calls.append((u, r)) if kind == "products" else None)
     return calls
 
 
@@ -347,7 +347,8 @@ async def test_api_sync_without_key(client, tokens, enqueued):
     r = await client.post("/api/v1/sync/products", headers=auth(tokens))
     assert r.status_code == 400 and "API-ключ" in r.json()["detail"] and enqueued == []
     status = (await client.get("/api/v1/sync/status", headers=auth(tokens))).json()
-    assert status == {"has_active_key": False, "products": {"last_run": None, "last_success_at": None}}
+    empty = {"last_run": None, "last_success_at": None}
+    assert status == {"has_active_key": False, "products": empty, "stocks": empty}
 
 
 async def test_api_manual_sync_flow(sessions, client, tokens, enqueued, ozon):
@@ -378,13 +379,13 @@ async def test_api_broker_down(sessions, client, tokens, monkeypatch):
     def down(*_):
         raise ConnectionError("redis down")
 
-    monkeypatch.setattr(sync_api, "enqueue_products_sync", down)
+    monkeypatch.setattr(sync_api, "enqueue_sync", down)
     r = await client.post("/api/v1/sync/products", headers=auth(tokens))
     assert r.status_code == 503 and "недоступны" in r.json()["detail"]
     status = (await client.get("/api/v1/sync/status", headers=auth(tokens))).json()
     assert status["products"]["last_run"]["status"] == FAILED  # запуск не висит в очереди
     # и следующий запуск не блокируется
-    monkeypatch.setattr(sync_api, "enqueue_products_sync", lambda *_: None)
+    monkeypatch.setattr(sync_api, "enqueue_sync", lambda *_: None)
     assert (await client.post("/api/v1/sync/products", headers=auth(tokens))).status_code == 202
 
 

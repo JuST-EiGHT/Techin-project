@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { Field, FormError, SubmitButton } from '@/components/AuthForm'
+import { notifyCredentialsChanged } from '@/components/SyncStatus'
 import { api, errorMessage } from '@/lib/api'
 
 type Credential = {
@@ -47,6 +48,7 @@ function CredentialRow({ cred, onChanged, onDeleted }: { cred: Credential; onCha
       const { data } = await api.post<VerifyResponse>(`/credentials/${cred.id}/verify`)
       onChanged(data.credential)
       setResult({ ok: data.ok, text: data.message })
+      notifyCredentialsChanged()
     } catch (err) {
       setResult({ ok: false, text: errorMessage(err) })
     } finally {
@@ -59,6 +61,7 @@ function CredentialRow({ cred, onChanged, onDeleted }: { cred: Credential; onCha
     try {
       await api.delete(`/credentials/${cred.id}`)
       onDeleted(cred.id)
+      notifyCredentialsChanged()
     } catch (err) {
       setResult({ ok: false, text: errorMessage(err) })
       setBusy(null)
@@ -159,6 +162,7 @@ function AddForm({ onAdded }: { onAdded: (c: Credential) => void }) {
       })
       setForm(EMPTY_FORM) // ключ не держим в памяти страницы дольше нужного
       onAdded(data)
+      notifyCredentialsChanged()
     } catch (err) {
       setError(errorMessage(err))
     } finally {

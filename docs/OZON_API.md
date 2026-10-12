@@ -98,6 +98,20 @@ HTTP-коды для этих текстов в документации не у
 | `acquiring_pct` | `acquiring` | описание свёрнуто; в примерах 1.5 и 1.8 при цене ~3000 и ~6000 — это **процент**, не рубли |
 | `price_index` | `price_indexes.color_index` | числовые индексы — `ozon_index_data.price_index_value` и др. |
 
+### Остатки (шаг 1.3)
+
+| Наше поле | FBO: `/v1/analytics/stocks` | FBS/rFBS: `/v1/product/info/warehouse/stocks` |
+|---|---|---|
+| склад | `warehouse_id`, `warehouse_name`, `cluster_id`, `cluster_name` | склад из `/v2/warehouse/list`: `warehouse_id`, `name`, `is_rfbs`, `status` (`created` = активный) |
+| `present` | `available_stock_count` («Доступно к продаже») | `present` |
+| `reserved` | нет в ответе → NULL | `reserved` |
+| `in_transit` | `transit_stock_count` («В поставках в пути») | нет → NULL |
+
+`/v1/analytics/stocks` требует `skus` (до 100, строками), без пагинации; одна пара SKU × склад
+может прийти несколькими строками (разные теги/зоны) — складываем. Там же есть `ads`
+(продажи в день за 28 дней), `idc` (дни запаса), `turnover_grade` — пока не используем:
+дни запаса считаем по своим продажам (появятся на шаге 1.4).
+
 Пригодится позже: `price.net_price` — себестоимость, которую продавец может передать в Ozon
 через `/v1/product/import/prices` (`prices.net_price`); `/v1/product/prices/details` — цена
 для покупателя (`customer_price`), но только с подпиской Premium Pro.

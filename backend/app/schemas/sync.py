@@ -38,3 +38,4 @@ class KindStatus(BaseModel):
 class SyncStatusResponse(BaseModel):
     has_active_key: bool
     products: KindStatus
+    stocks: KindStatus

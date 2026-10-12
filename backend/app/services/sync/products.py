@@ -14,13 +14,17 @@ import logging
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.integrations.ozon.client import OzonClient
+from app.services.sync.parsing import list_items as _items
+from app.services.sync.parsing import to_decimal as _dec
+from app.services.sync.parsing import to_id as _int
+from app.services.sync.parsing import to_str as _str
 from app.models.product import Product, ProductPrice
 
 log = logging.getLogger(__name__)
@@ -58,15 +62,6 @@ class ProductSyncStats:
 
 
 # ── разбор значений ──
-def _dec(value: Any, q: Decimal) -> Decimal | None:
-    if value is None or value == "":
-        return None
-    try:
-        return Decimal(str(value)).quantize(q)
-    except (InvalidOperation, ValueError):
-        return None
-
-
 def _vat(value: Any) -> Decimal | None:
     """НДС у Ozon бывает "0.2", 0.2 и "20%" — приводим к доле 0.2."""
     if value is None:
@@ -77,30 +72,6 @@ def _vat(value: Any) -> Decimal | None:
     if rate is None:
         return None
     return (rate / 100).quantize(_VAT_Q) if percent or rate > 1 else rate
-
-
-def _int(value: Any) -> int | None:
-    try:
-        return int(value) if value not in (None, "", 0, "0") else None
-    except (TypeError, ValueError):
-        return None
-
-
-def _str(value: Any, limit: int) -> str | None:
-    if value is None:
-        return None
-    s = str(value).strip()
-    return s[:limit] or None
-
-
-def _items(data: Any) -> list[dict]:
-    """v3 отдаёт {"items": [...]}, более старые версии — {"result": {"items": [...]}}."""
-    if not isinstance(data, dict):
-        return []
-    items = data.get("items")
-    if items is None and isinstance(data.get("result"), dict):
-        items = data["result"].get("items")
-    return [i for i in items or [] if isinstance(i, dict)]
 
 
 def _product_attrs(list_item: dict, info: dict | None) -> dict[str, Any]:

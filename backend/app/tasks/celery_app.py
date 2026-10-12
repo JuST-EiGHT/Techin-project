@@ -16,6 +16,8 @@ celery_app.conf.update(
     beat_schedule={
         # раз в час; минута не :00 — чтобы не совпадать с пиком запросов к Ozon
         "sync-products-hourly": {"task": "tasks.sync_products_all", "schedule": crontab(minute=7)},
+        # каждые 30 минут, со сдвигом от синхронизации товаров
+        "sync-stocks-every-30-min": {"task": "tasks.sync_stocks_all", "schedule": crontab(minute="13,43")},
     },
 )
 

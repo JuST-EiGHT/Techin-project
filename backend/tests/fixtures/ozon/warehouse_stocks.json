@@ -1,0 +1,10 @@
+{
+  "stocks": [
+    {"sku": 900001001, "product_id": 1001, "offer_id": "6001-2RS.C3.SRL.NAC.TH", "warehouse_id": 20605650762000,
+     "present": 12, "reserved": 2, "free_stock": 10, "updated_at": "2026-10-12T10:36:24.417498Z"},
+    {"sku": 900001004, "product_id": 1004, "offer_id": "6000.CM.NAC.JP", "warehouse_id": 20605650762000,
+     "present": 1, "reserved": 0, "free_stock": 1, "updated_at": "2026-10-12T10:36:24.417498Z"}
+  ],
+  "has_next": false,
+  "cursor": ""
+}

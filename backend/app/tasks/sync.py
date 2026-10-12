@@ -60,6 +60,19 @@ async def _active_users() -> list[uuid.UUID]:
         return await users_with_active_keys(db)
 
 
+def _fan_out(kind: str, task) -> int:
+    """Отдельная задача на каждого пользователя с действующим ключом — сбой у одного не влияет на остальных."""
+    queued = 0
+    for user_id in asyncio.run(_active_users()):
+        try:
+            task.delay(str(user_id))
+            queued += 1
+        except Exception:  # noqa: BLE001
+            log.exception("Не удалось поставить синхронизацию %s в очередь для %s", kind, user_id)
+    log.info("Синхронизация %s по расписанию: в очереди %d пользователей", kind, queued)
+    return queued
+
+
 @celery_app.task(name="tasks.sync_products_for_user")
 def sync_products_for_user(user_id: str, run_id: str | None = None) -> dict:
     return asyncio.run(_sync_for_user("products", user_id, run_id))
@@ -67,14 +80,18 @@ def sync_products_for_user(user_id: str, run_id: str | None = None) -> dict:
 
 @celery_app.task(name="tasks.sync_products_all")
 def sync_products_all() -> int:
-    """По расписанию: отдельная задача на каждого пользователя с действующим ключом —
-    сбой у одного не влияет на остальных."""
-    queued = 0
-    for user_id in asyncio.run(_active_users()):
-        try:
-            sync_products_for_user.delay(str(user_id))
-            queued += 1
-        except Exception:  # noqa: BLE001
-            log.exception("Не удалось поставить синхронизацию товаров в очередь для %s", user_id)
-    log.info("Синхронизация товаров по расписанию: в очереди %d пользователей", queued)
-    return queued
+    return _fan_out("products", sync_products_for_user)
+
+
+@celery_app.task(name="tasks.sync_stocks_for_user")
+def sync_stocks_for_user(user_id: str, run_id: str | None = None) -> dict:
+    return asyncio.run(_sync_for_user("stocks", user_id, run_id))
+
+
+@celery_app.task(name="tasks.sync_stocks_all")
+def sync_stocks_all() -> int:
+    return _fan_out("stocks", sync_stocks_for_user)
+
+
+# Задача Celery для каждого вида синхронизации — для ручного запуска из API
+FOR_USER_TASKS = {"products": sync_products_for_user, "stocks": sync_stocks_for_user}

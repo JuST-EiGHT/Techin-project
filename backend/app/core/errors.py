@@ -21,6 +21,9 @@ _FIELD_NAMES = {
     "api_key": "Api-Key",
     "expires_at": "Срок действия",
     "cred_id": "Ключ",
+    "warehouse_id": "Склад",
+    "product_id": "Товар",
+    "status": "Статус",
 }
 
 
@@ -36,6 +39,10 @@ def _humanize(err: dict) -> str:
         return f"{name}: максимум {err.get('ctx', {}).get('max_length')} символов"
     if "email" in t or field == "email":
         return f"{name}: некорректный адрес"
+    if t in ("literal_error", "enum"):
+        return f"{name}: недопустимое значение"
+    if t == "uuid_parsing":
+        return f"{name}: некорректный идентификатор"
     if t == "value_error" and "error" in err.get("ctx", {}):
         return f"{name}: {err['ctx']['error']}"  # текст из наших field_validator
     return f"{name}: {err.get('msg')}"

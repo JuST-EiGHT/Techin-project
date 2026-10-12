@@ -40,6 +40,10 @@ export function timeAgo(iso: string, now = Date.now()): string {
   return new Date(iso).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })
 }
 
+// Событие «ключи Ozon изменились» — шлёт страница API-ключей, шапка перечитывает статус
+export const CREDENTIALS_CHANGED = 'ozon-credentials-changed'
+export const notifyCredentialsChanged = () => window.dispatchEvent(new Event(CREDENTIALS_CHANGED))
+
 const isActive = (s: Status | null) => ['queued', 'running'].includes(s?.products.last_run?.status ?? '')
 
 export function SyncStatus() {
@@ -60,10 +64,15 @@ export function SyncStatus() {
     }
   }, [])
 
-  // при переходах по кабинету — например, после добавления ключа
+  // при переходах по кабинету и после изменения ключей
   useEffect(() => {
     load()
   }, [load, pathname])
+
+  useEffect(() => {
+    window.addEventListener(CREDENTIALS_CHANGED, load)
+    return () => window.removeEventListener(CREDENTIALS_CHANGED, load)
+  }, [load])
 
   // пока идёт синхронизация — опрашиваем статус
   const active = isActive(status)
