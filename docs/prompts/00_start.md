@@ -1,7 +1,7 @@
 Привет. Это первая сессия в этом репозитории — до этого проект вёлся в другом чате.
 
 Сначала только разберись, ничего не меняй:
-1. Прочитай CLAUDE.md, docs/ROADMAP.md, docs/BUSINESS_LOGIC.md, docs/OZON_API.md.
+1. Прочитай CLAUDE.md, docs/PROJECT.md, docs/ROADMAP.md, docs/BUSINESS_LOGIC.md, docs/OZON_API.md.
 2. Пройдись по backend/ и frontend/, посмотри reference/ozon_calculator.html.
 3. Установи зависимости бэкенда в виртуальное окружение и запусти pytest — должно быть 21 passed.
 4. Если есть Docker — подними `docker compose up --build` и проверь http://localhost:8000/health.

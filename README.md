@@ -1,6 +1,8 @@
 # Ozon Analytics
 
 SaaS-сервис аналитики для продавцов Ozon.
+
+**С чего начать:** `docs/PROJECT.md` — описание проекта, `КАК_НАЧАТЬ.md` — как вести разработку в Claude Code.
 Стек: FastAPI · Next.js 14 · PostgreSQL 16 · Celery + Redis · Docker.
 
 ## Запуск
