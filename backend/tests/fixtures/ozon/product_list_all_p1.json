@@ -1,0 +1,10 @@
+{
+  "result": {
+    "items": [
+      {"product_id": 1001, "offer_id": "6001-2RS.C3.SRL.NAC.TH", "has_fbo_stocks": true, "has_fbs_stocks": false, "archived": false, "is_discounted": false, "quants": []},
+      {"product_id": 1002, "offer_id": "ACB305523.NAC.JP", "has_fbo_stocks": true, "has_fbs_stocks": false, "archived": false, "is_discounted": false, "quants": []}
+    ],
+    "total_items": 3,
+    "last_id": "WzEwMDJd"
+  }
+}

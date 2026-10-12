@@ -19,16 +19,21 @@ from app.services.token_blacklist import blacklist  # noqa: E402
 
 
 @pytest.fixture
-async def client():
+async def sessions():
+    """Фабрика сессий тестовой БД (SQLite в памяти) — та же, что видит API в фикстуре client."""
     engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    Session = async_sessionmaker(engine, expire_on_commit=False)
+    yield async_sessionmaker(engine, expire_on_commit=False)
+    await engine.dispose()
 
+
+@pytest.fixture
+async def client(sessions):
     async def _get_db():
-        async with Session() as s:
+        async with sessions() as s:
             yield s
 
     app.dependency_overrides[get_db] = _get_db
@@ -36,7 +41,6 @@ async def client():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
     app.dependency_overrides.clear()
-    await engine.dispose()
 
 
 USER = {"email": "Seller@Example.com", "password": "strongpass1", "full_name": "Радимир"}

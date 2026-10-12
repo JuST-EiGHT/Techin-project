@@ -58,3 +58,17 @@ async def save(db: AsyncSession, cred: ApiCredential) -> ApiCredential:
     await db.commit()
     await db.refresh(cred)
     return cred
+
+
+async def has_active(db: AsyncSession, user_id: uuid.UUID) -> bool:
+    """Есть ли у пользователя действующий (активный и не истёкший) ключ — как в integrations/ozon/factory.py."""
+    res = await db.execute(
+        select(ApiCredential.id)
+        .where(
+            ApiCredential.user_id == user_id,
+            ApiCredential.is_active.is_(True),
+            ApiCredential.expires_at > datetime.now(timezone.utc),
+        )
+        .limit(1)
+    )
+    return res.first() is not None

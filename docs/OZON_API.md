@@ -85,6 +85,23 @@
 рядом со штрихкодом. Для списка FBS-отправлений брать `/v4/posting/fbs/list` — эта версия
 упомянута в рассылке; отключён ли `/v3`, Ozon не пишет — сверить по документации.
 
+## Как мы читаем ответы (шаг 1.2) — сверить с документацией
+
+Документация Ozon из среды разработки недоступна; разбор написан по памяти о формате
+и «мягкий» (нет поля → NULL). На реальном ключе проверить:
+
+| Наше поле | Откуда берём | Сомнение |
+|---|---|---|
+| список товаров | `/v3/product/list`, `filter.visibility` = `ALL`, затем `ARCHIVED` | входит ли архив в `ALL` |
+| `ozon_sku` | `/v3/product/info/list` → `sku`, иначе `sources[].sku` | — |
+| `barcode` | `barcodes[0]`, иначе `barcode` | — |
+| `category_id` | `description_category_id`, иначе `category_id` | — |
+| `price`, `min_price`, `old_price` | `/v5/product/info/prices` → `price.*` | 0 у Ozon = «не задано», храним 0 как есть |
+| `marketing_price` | `price.marketing_price`, иначе `price.marketing_seller_price` | какая из цен нужна для анализа |
+| `commission_pct` | `commissions.sales_percent_fbo` | магазин FBO; для FBS-продавцов нужен `sales_percent_fbs` |
+| `acquiring_pct` | `acquiring` | **процент это или рубли** — от этого зависит формула мин. цены (шаг 4.2) |
+| `price_index` | `price_indexes.color_index` | числовой индекс (`ozon_index_data.price_index_value`) не храним |
+
 ## Изменение (только через систему безопасности, см. BUSINESS_LOGIC.md §8)
 
 | Назначение | Метод | Эндпоинт |

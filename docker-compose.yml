@@ -45,6 +45,17 @@ services:
       db: { condition: service_healthy }
       redis: { condition: service_healthy }
     command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2
+  beat:
+    # расписание фоновых задач (синхронизация с Ozon); ровно один экземпляр
+    build: { context: ./backend, dockerfile: ../docker/backend/Dockerfile }
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    volumes: [./backend:/app]
+    depends_on:
+      redis: { condition: service_healthy }
+    command: celery -A app.tasks.celery_app beat --loglevel=info --schedule /tmp/celerybeat-schedule
   frontend:
     build: { context: ./frontend, dockerfile: ../docker/frontend/Dockerfile }
     restart: unless-stopped

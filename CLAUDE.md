@@ -93,7 +93,8 @@ pip install -r requirements-dev.txt && pytest
 | 0.3 | Авторизация на фронтенде (httpOnly cookies, /login, /register, /dashboard) | ✅ готово |
 | 0.4 | Хранение API-ключей Ozon (шифрование, /dashboard/settings/api-keys) | ✅ готово, 42 теста всего |
 | 1.1 | Универсальный клиент Ozon (retry, rate limit, фабрика) | ✅ готово, 68 тестов всего |
-| 1.2 … 9.2 | см. `docs/ROADMAP.md` | ⏳ |
+| 1.2 | Синхронизация товаров и цен (Celery, Beat, /sync, статус в шапке) | ✅ готово, 91 тест всего |
+| 1.3 … 9.2 | см. `docs/ROADMAP.md` | ⏳ |
 
 Детали сделанного в 0.2: access-токен 24 ч, refresh 30 дней; refresh одноразовый
 (ротация); logout отзывает токены через чёрный список в Redis (в тестах — в памяти);
@@ -135,6 +136,22 @@ Ozon ключ (иначе 400, при недоступности Ozon — 503), 
 неистёкший ключ (последний использованный), обновляет `last_used_at`, клиент закрывать
 (`async with`). Проверка ключа из 0.4 (`services/ozon_auth.py`) работает через тот же
 клиент без повторов. Тесты лимитера против реального Redis: `TEST_REDIS_URL=redis://… pytest`.
+
+Детали сделанного в 1.2: миграция 0003 — `products` (уникальность user_id+ozon_product_id),
+`product_prices` (снепшоты) и `sync_runs` (журнал запусков: queued → running →
+success/failed; нужен для статуса и защиты от двойного запуска, зависший > 30 мин
+считается проваленным). `services/sync/products.py`: `/v3/product/list` (last_id,
+видимости ALL и ARCHIVED) → батчами по 1000 `/v3/product/info/list` (карточка) и
+`/v5/product/info/prices` (cursor); снепшот цены — только при изменении полей.
+`services/sync/runner.py: run_sync(kind, …)` — общий запуск с журналом, все ошибки
+пишутся в `sync_runs.error`, наружу не летят; новые виды синхронизации добавляются
+в `JOBS`. Celery (`app/tasks/sync.py`): `sync_products_for_user`, `sync_products_all`
+(Beat, каждый час в :07) ставит отдельную задачу на каждого пользователя с
+действующим ключом. В задачах свой движок БД с NullPool (новый event loop на запуск).
+В Docker Compose добавлен сервис `beat`. API: `POST /api/v1/sync/products` (202,
+409 если уже идёт, 503 если брокер недоступен), `GET /api/v1/sync/status`.
+Фронт: `components/SyncStatus.tsx` в шапке кабинета. Тестовые ответы Ozon —
+`backend/tests/fixtures/ozon/*.json` (только `total_items`).
 
 ## Где что искать
 

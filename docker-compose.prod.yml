@@ -28,6 +28,13 @@ services:
     env_file: .env.prod
     depends_on: [db, redis]
     command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=4
+  beat:
+    # расписание фоновых задач; ровно один экземпляр
+    build: { context: ./backend, dockerfile: ../docker/backend/Dockerfile.prod }
+    restart: unless-stopped
+    env_file: .env.prod
+    depends_on: [redis]
+    command: celery -A app.tasks.celery_app beat --loglevel=info --schedule /tmp/celerybeat-schedule
   frontend:
     build: { context: ./frontend, dockerfile: ../docker/frontend/Dockerfile.prod }
     restart: unless-stopped

@@ -1,0 +1,25 @@
+{
+  "cursor": "",
+  "total_items": 3,
+  "items": [
+    {
+      "product_id": 1001, "offer_id": "6001-2RS.C3.SRL.NAC.TH", "acquiring": 1.5, "volume_weight": 0.1,
+      "price": {"price": 540, "old_price": 720, "min_price": 420, "marketing_seller_price": 512.3, "retail_price": 0, "vat": 0.22, "currency_code": "RUB", "auto_action_enabled": false, "net_price": 0},
+      "commissions": {"sales_percent_fbo": 38, "sales_percent_fbs": 40, "fbo_deliv_to_customer_amount": 25, "fbo_direct_flow_trans_min_amount": 30, "fbo_direct_flow_trans_max_amount": 50, "fbo_return_flow_amount": 40},
+      "price_indexes": {"color_index": "GREEN", "ozon_index_data": {"price_index_value": 0.95, "min_price": 560, "min_price_currency": "RUB"}, "external_index_data": {"price_index_value": 0, "min_price": 0, "min_price_currency": "RUB"}},
+      "marketing_actions": {"actions": [], "current_period_from": null, "current_period_to": null, "ozon_actions_exist": false}
+    },
+    {
+      "product_id": 1002, "offer_id": "ACB305523.NAC.JP", "acquiring": 2.4,
+      "price": {"price": 2150, "old_price": 0, "min_price": 1900, "marketing_seller_price": 2150, "vat": 0.22, "currency_code": "RUB", "auto_action_enabled": true},
+      "commissions": {"sales_percent_fbo": 38, "sales_percent_fbs": 40},
+      "price_indexes": {"color_index": "WITHOUT_INDEX"}
+    },
+    {
+      "product_id": 1003, "offer_id": "6000-2RS.C3.SRL.NAC.JP", "acquiring": 1.3,
+      "price": {"price": "499.00", "old_price": "650.00", "min_price": "0", "marketing_seller_price": "0", "vat": "0.22", "currency_code": "RUB", "auto_action_enabled": false},
+      "commissions": {"sales_percent_fbo": 37.5, "sales_percent_fbs": 39.5},
+      "price_indexes": {"color_index": "RED"}
+    }
+  ]
+}

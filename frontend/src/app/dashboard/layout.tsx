@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 
+import { SyncStatus } from '@/components/SyncStatus'
 import { useAuth } from '@/contexts/AuthContext'
 
 const NAV = [
@@ -49,10 +50,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </Link>
           ))}
         </nav>
+        <div className="ml-auto">
+          <SyncStatus />
+        </div>
         <button
           onClick={onLogout}
           disabled={leaving}
-          className="ml-auto rounded-lg border border-line px-4 py-1.5 text-sm hover:border-bad hover:text-bad disabled:opacity-60"
+          className="rounded-lg border border-line px-4 py-1.5 text-sm hover:border-bad hover:text-bad disabled:opacity-60"
         >
           Выйти
         </button>
