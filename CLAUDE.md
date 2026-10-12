@@ -92,7 +92,8 @@ pip install -r requirements-dev.txt && pytest
 | 0.2 | Авторизация на бэкенде (JWT, register/login/refresh/logout/me) | ✅ готово, 21 тест |
 | 0.3 | Авторизация на фронтенде (httpOnly cookies, /login, /register, /dashboard) | ✅ готово |
 | 0.4 | Хранение API-ключей Ozon (шифрование, /dashboard/settings/api-keys) | ✅ готово, 42 теста всего |
-| 1.1 … 9.2 | см. `docs/ROADMAP.md` | ⏳ |
+| 1.1 | Универсальный клиент Ozon (retry, rate limit, фабрика) | ✅ готово, 68 тестов всего |
+| 1.2 … 9.2 | см. `docs/ROADMAP.md` | ⏳ |
 
 Детали сделанного в 0.2: access-токен 24 ч, refresh 30 дней; refresh одноразовый
 (ротация); logout отзывает токены через чёрный список в Redis (в тестах — в памяти);
@@ -119,7 +120,21 @@ Ozon ключ (иначе 400, при недоступности Ozon — 503), 
 календарных месяцев; `days_until_expiry` считает бэкенд, фронт предупреждает при < 30.
 Тест `test_api_key_never_returned_or_logged` ловит ключ в ответах и логах (DEBUG).
 Эндпоинт Ozon с официальной документацией не сверен — docs.ozon.ru недоступен из
-облачной среды разработки; сверить перед шагом 1.1.
+облачной среды разработки (на шаге 1.1 тоже); сверить на реальном ключе.
+
+Детали сделанного в 1.1 (`app/integrations/ozon/`): все запросы к Ozon — только через
+`OzonClient.request(method, path, json, items=N)`; `items` — число товаров в запросе
+(для лимита 30 000 операций/мин), клиент резервирует их перед каждой попыткой.
+Повторы: сеть/таймаут — 3 повтора (1, 2, 4 с); 429 — до 6 повторов (Retry-After ≤ 60 с
+или 1…30 с); 5xx — 2 повтора через 5 с; 401/403/прочие 4xx — сразу исключение.
+Иерархия: `OzonAPIError` → `OzonAuthError`, `OzonRateLimitError`, `OzonServerError`,
+`OzonTimeoutError`, `OzonNetworkError`, `OzonNotConfiguredError`; у ошибки есть
+`status_code`, `ozon_message` (ключ вырезан), `path`. Rate limiter — скользящее окно
+60 с в Redis (sorted set + Lua, атомарно для всех воркеров), без Redis — в памяти;
+партия резервируется целиком или ждёт. `get_ozon_client(user_id, db)` берёт активный
+неистёкший ключ (последний использованный), обновляет `last_used_at`, клиент закрывать
+(`async with`). Проверка ключа из 0.4 (`services/ozon_auth.py`) работает через тот же
+клиент без повторов. Тесты лимитера против реального Redis: `TEST_REDIS_URL=redis://… pytest`.
 
 ## Где что искать
 

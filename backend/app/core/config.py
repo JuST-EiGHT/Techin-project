@@ -20,7 +20,8 @@ class Settings(BaseSettings):
     ENCRYPTION_KEY: str = ""
 
     OZON_API_URL: str = "https://api-seller.ozon.ru"
-    OZON_TIMEOUT_SECONDS: float = 15.0
+    OZON_TIMEOUT_SECONDS: float = 30.0
+    OZON_RATE_LIMIT_PER_MINUTE: int = 30_000  # операций с товарами на кабинет (docs/OZON_API.md)
 
     # В .env задаётся строкой через запятую
     ALLOWED_ORIGINS: list[str] | str = ["http://localhost:3000", "http://127.0.0.1:3000"]

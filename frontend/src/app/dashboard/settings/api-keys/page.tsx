@@ -83,7 +83,7 @@ function CredentialRow({ cred, onChanged, onDeleted }: { cred: Credential; onCha
             <ExpiryNote days={cred.days_until_expiry} expiresAt={cred.expires_at} />
           </div>
           {cred.last_used_at && (
-            <div className="mt-1 text-xs text-slate-500">Последняя успешная проверка: {fmtDateTime(cred.last_used_at)}</div>
+            <div className="mt-1 text-xs text-slate-500">Последнее использование: {fmtDateTime(cred.last_used_at)}</div>
           )}
           {result && <div className={`mt-2 text-sm ${result.ok ? 'text-ok' : 'text-bad'}`}>{result.text}</div>}
         </div>
