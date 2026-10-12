@@ -16,7 +16,11 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24        # 24 часа
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
-    ENCRYPTION_KEY: str = "change_me"
+    # Fernet-ключ для шифрования API-ключей Ozon. Без валидного ключа приложение не стартует.
+    ENCRYPTION_KEY: str = ""
+
+    OZON_API_URL: str = "https://api-seller.ozon.ru"
+    OZON_TIMEOUT_SECONDS: float = 15.0
 
     # В .env задаётся строкой через запятую
     ALLOWED_ORIGINS: list[str] | str = ["http://localhost:3000", "http://127.0.0.1:3000"]

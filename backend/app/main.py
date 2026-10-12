@@ -1,11 +1,21 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.errors import register_error_handlers
+from app.services.encryption import init_encryption
 
-app = FastAPI(title="Ozon Analytics API", version="0.2.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_encryption()  # нет/невалиден ENCRYPTION_KEY → приложение не стартует с понятной ошибкой
+    yield
+
+
+app = FastAPI(title="Ozon Analytics API", version="0.4.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

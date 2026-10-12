@@ -11,7 +11,17 @@ from fastapi.responses import JSONResponse
 
 log = logging.getLogger(__name__)
 
-_FIELD_NAMES = {"email": "Email", "password": "Пароль", "full_name": "Имя", "refresh_token": "Refresh-токен"}
+_FIELD_NAMES = {
+    "email": "Email",
+    "password": "Пароль",
+    "full_name": "Имя",
+    "refresh_token": "Refresh-токен",
+    "label": "Название",
+    "client_id": "Client-Id",
+    "api_key": "Api-Key",
+    "expires_at": "Срок действия",
+    "cred_id": "Ключ",
+}
 
 
 def _humanize(err: dict) -> str:
@@ -26,6 +36,8 @@ def _humanize(err: dict) -> str:
         return f"{name}: максимум {err.get('ctx', {}).get('max_length')} символов"
     if "email" in t or field == "email":
         return f"{name}: некорректный адрес"
+    if t == "value_error" and "error" in err.get("ctx", {}):
+        return f"{name}: {err['ctx']['error']}"  # текст из наших field_validator
     return f"{name}: {err.get('msg')}"
 
 

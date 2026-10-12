@@ -3,6 +3,8 @@ import os
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 os.environ["REDIS_URL"] = "redis://127.0.0.1:1/0"  # недоступен → in-memory blacklist
 os.environ["SECRET_KEY"] = "test-secret"
+os.environ["ENCRYPTION_KEY"] = "q0bQ3jZ8m0kVq1z5c3k1m4yJgk1aB8tXz9tq2v6l1hE="  # тестовый Fernet-ключ
+os.environ["OZON_API_URL"] = "https://ozon.test"
 
 import pytest  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402

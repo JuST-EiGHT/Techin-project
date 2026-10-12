@@ -51,6 +51,7 @@ reference/                  рабочий HTML-калькулятор P&L (эт
 
 ```bash
 cp .env.example .env                       # первый запуск
+# затем в .env задать ENCRYPTION_KEY (команда генерации — в .env.example), иначе API не стартует
 docker compose up --build                  # всё приложение
 docker compose exec api alembic upgrade head
 docker compose exec api alembic revision --autogenerate -m "..."
@@ -90,8 +91,8 @@ pip install -r requirements-dev.txt && pytest
 | 0.1 | Каркас проекта, Docker Compose | ✅ готово |
 | 0.2 | Авторизация на бэкенде (JWT, register/login/refresh/logout/me) | ✅ готово, 21 тест |
 | 0.3 | Авторизация на фронтенде (httpOnly cookies, /login, /register, /dashboard) | ✅ готово |
-| 0.4 | Хранение API-ключей Ozon (шифрование) | ⏳ |
-| 0.5 … 9.2 | см. `docs/ROADMAP.md` | ⏳ |
+| 0.4 | Хранение API-ключей Ozon (шифрование, /dashboard/settings/api-keys) | ✅ готово, 42 теста всего |
+| 1.1 … 9.2 | см. `docs/ROADMAP.md` | ⏳ |
 
 Детали сделанного в 0.2: access-токен 24 ч, refresh 30 дней; refresh одноразовый
 (ротация); logout отзывает токены через чёрный список в Redis (в тестах — в памяти);
@@ -106,6 +107,19 @@ handlers Next: `/api/session/{login,refresh,logout}` ставят/чистят c
 `src/lib/api.ts` — axios: при 401 один общий refresh и повтор, иначе `/login?next=…`.
 `src/middleware.ts` пускает на `/dashboard/*` только при наличии cookie сессии.
 В nginx на бэкенд проксируется только `/api/v1/`, остальное `/api/*` — Next.
+
+Детали сделанного в 0.4: таблица `api_credentials` (миграция 0002), Api-Key — только
+Fernet-шифротекст (`services/encryption.py`; ключ проверяется в lifespan при старте).
+`services/ozon_auth.py` проверяет ключ запросом `POST /v3/product/list` (limit=1):
+401/400/404 → неверные ключи, 403 → нет прав (или «ключ отключён/истёк» по тексту Ozon),
+429/5xx/сеть → Ozon недоступен. `/api/v1/credentials`: POST сохраняет только принятый
+Ozon ключ (иначе 400, при недоступности Ozon — 503), GET — без ключа, Client-Id как
+`••••1234`, DELETE и POST `/{id}/verify` (invalid/forbidden → `is_active=false`,
+недоступность Ozon состояние не меняет). Чужой ключ — 404. Срок по умолчанию — +6
+календарных месяцев; `days_until_expiry` считает бэкенд, фронт предупреждает при < 30.
+Тест `test_api_key_never_returned_or_logged` ловит ключ в ответах и логах (DEBUG).
+Эндпоинт Ozon с официальной документацией не сверен — docs.ozon.ru недоступен из
+облачной среды разработки; сверить перед шагом 1.1.
 
 ## Где что искать
 
