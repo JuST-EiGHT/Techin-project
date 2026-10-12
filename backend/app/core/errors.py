@@ -1,0 +1,47 @@
+"""Единый формат ошибок: {"detail": "...", "code": <status>}.
+
+Ошибки валидации Pydantic (по умолчанию 422 со сложной структурой)
+превращаются в 400 с понятным списком полей.
+"""
+import logging
+
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+log = logging.getLogger(__name__)
+
+_FIELD_NAMES = {"email": "Email", "password": "Пароль", "full_name": "Имя", "refresh_token": "Refresh-токен"}
+
+
+def _humanize(err: dict) -> str:
+    field = next((str(p) for p in reversed(err.get("loc", [])) if p not in ("body", "query", "path")), None)
+    name = _FIELD_NAMES.get(field, field) if field else "Запрос"
+    t = err.get("type", "")
+    if t == "missing":
+        return f"{name}: обязательное поле"
+    if t == "string_too_short":
+        return f"{name}: минимум {err.get('ctx', {}).get('min_length')} символов"
+    if t == "string_too_long":
+        return f"{name}: максимум {err.get('ctx', {}).get('max_length')} символов"
+    if "email" in t or field == "email":
+        return f"{name}: некорректный адрес"
+    return f"{name}: {err.get('msg')}"
+
+
+def register_error_handlers(app: FastAPI) -> None:
+    @app.exception_handler(HTTPException)
+    async def http_exc(_: Request, exc: HTTPException):
+        return JSONResponse({"detail": exc.detail, "code": exc.status_code}, status_code=exc.status_code, headers=exc.headers)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exc(_: Request, exc: RequestValidationError):
+        errors = [_humanize(e) for e in exc.errors()]
+        return JSONResponse(
+            {"detail": "; ".join(errors), "errors": errors, "code": 400}, status_code=status.HTTP_400_BAD_REQUEST
+        )
+
+    @app.exception_handler(Exception)
+    async def unhandled(_: Request, exc: Exception):
+        log.exception("Необработанная ошибка: %s", exc)
+        return JSONResponse({"detail": "Внутренняя ошибка сервера", "code": 500}, status_code=500)

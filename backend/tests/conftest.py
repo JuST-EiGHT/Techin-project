@@ -1,0 +1,47 @@
+import os
+
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+os.environ["REDIS_URL"] = "redis://127.0.0.1:1/0"  # недоступен → in-memory blacklist
+os.environ["SECRET_KEY"] = "test-secret"
+
+import pytest  # noqa: E402
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # noqa: E402
+from sqlalchemy.pool import StaticPool  # noqa: E402
+
+import app.models  # noqa: E402,F401
+from app.db.base import Base  # noqa: E402
+from app.db.session import get_db  # noqa: E402
+from app.main import app  # noqa: E402
+from app.services.token_blacklist import blacklist  # noqa: E402
+
+
+@pytest.fixture
+async def client():
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    Session = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def _get_db():
+        async with Session() as s:
+            yield s
+
+    app.dependency_overrides[get_db] = _get_db
+    blacklist._memory.clear()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        yield c
+    app.dependency_overrides.clear()
+    await engine.dispose()
+
+
+USER = {"email": "Seller@Example.com", "password": "strongpass1", "full_name": "Радимир"}
+
+
+@pytest.fixture
+async def tokens(client):
+    await client.post("/api/v1/auth/register", json=USER)
+    r = await client.post("/api/v1/auth/login", json={"email": USER["email"], "password": USER["password"]})
+    return r.json()
