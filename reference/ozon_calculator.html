@@ -1,0 +1,1584 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ozon PnL</title>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#0f1117;--s:#1a1d27;--b:#2a2d3a;
+  --acc:#4f8ef7;--g:#22c55e;--r:#f87171;--y:#fbbf24;--bl:#60a5fa;--pu:#c084fc;
+  --t:#e2e8f0;--m:#6b7280;
+  --rg:rgba(34,197,94,.12);--rr:rgba(248,113,113,.12);--ry:rgba(251,191,36,.12);--rb:rgba(96,165,250,.12);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--t);font:14px/1.5 system-ui,sans-serif;padding:28px 20px;min-height:100vh}
+main{max-width:980px;margin:auto}
+h1{font-size:20px;font-weight:700}
+.sub{font-size:12px;color:var(--m)}
+.card{background:var(--s);border:1px solid var(--b);border-radius:12px;padding:20px;margin-bottom:16px}
+.card-title{font-weight:600;margin-bottom:14px;display:block}
+
+/* Mode selector CSS удалён — карточки убраны */
+
+/* ── Drop zone ─────────────────────────────────── */
+.drop{border:2px dashed var(--b);border-radius:14px;padding:48px 20px;text-align:center;cursor:pointer;
+      transition:all .15s;user-select:none;margin-bottom:14px}
+.drop:hover,.drop.drag{border-color:var(--acc);background:#1a2030}
+.drop-icon{font-size:38px;margin-bottom:10px}
+.drop-title{font-size:16px;font-weight:600;margin-bottom:5px}
+.err{background:#2d1818;border:1px solid var(--r);border-radius:10px;padding:12px 16px;
+     color:var(--r);font-size:13px;line-height:1.6;margin-bottom:16px;display:none;white-space:pre-wrap}
+.params{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
+.param-label{font-size:11px;color:var(--m);display:block;margin-bottom:5px;text-transform:uppercase;letter-spacing:.04em}
+input[type=number],input[type=text]{background:var(--bg);border:1px solid var(--b);border-radius:8px;
+  padding:8px 11px;color:var(--t);font-size:14px;font-weight:600;width:100%;transition:border-color .15s}
+input:focus{outline:none;border-color:var(--acc)}
+
+/* ── Result header ─────────────────────────────── */
+.rh{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.badge{font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px}
+.badge-w{background:#1e2535;color:var(--bl)}
+button.back{background:var(--s);border:1px solid var(--b);color:var(--t);border-radius:8px;
+  padding:7px 14px;cursor:pointer;font-size:13px;transition:border-color .15s}
+button.back:hover{border-color:var(--acc)}
+.warn{background:#2a2310;border:1px solid var(--y);border-radius:10px;padding:12px 16px;margin-bottom:14px}
+
+/* ── Summary bar ───────────────────────────────── */
+/* Горизонтальная полоса с 5 ключевыми KPI — первое что видит пользователь */
+.sbar{display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1.3fr;gap:1px;
+      background:var(--b);border:1px solid var(--b);border-radius:12px;
+      overflow:hidden;margin-bottom:16px}
+.sbar-cell{background:var(--s);padding:14px 16px;display:flex;flex-direction:column;gap:3px}
+.sbar-cell.result-cell{background:#101e14}
+.sbar-cell.result-cell.neg{background:#1e1010}
+.sbar-lbl{font-size:10px;color:var(--m);text-transform:uppercase;letter-spacing:.06em}
+.sbar-val{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2}
+.sbar-sub{font-size:11px;color:var(--m)}
+.sbar-margin{font-size:13px;font-weight:600;margin-top:2px}
+
+/* ── Metrics grid ──────────────────────────────── */
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
+.metric{background:var(--s);border:1px solid var(--b);border-radius:11px;padding:16px 18px}
+.metric.hl{border-color:var(--g)}.metric.hl-neg{border-color:var(--r)}
+.m-label{font-size:10px;color:var(--m);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+.m-val{font-size:19px;font-weight:700;margin:3px 0;font-variant-numeric:tabular-nums}
+.m-sub{font-size:11px;color:var(--m)}
+
+/* ── Editable total ────────────────────────────── */
+.total-row{display:flex;align-items:center;gap:8px;margin:8px 0 4px}
+.total-row input{font-size:18px;font-weight:700;color:var(--g);max-width:220px;border-color:var(--b)}
+.total-row input.manual{border-color:var(--acc)}
+.btn-reset{background:transparent;border:1px solid var(--b);color:var(--m);border-radius:6px;
+  padding:5px 10px;cursor:pointer;font-size:12px;white-space:nowrap;display:none}
+.btn-reset:hover{border-color:var(--acc);color:var(--t)}
+.total-hint{font-size:12px;color:var(--m)}
+
+/* ── Calc steps ─────────────────────────────────── */
+.step{display:flex;justify-content:space-between;align-items:center;padding:9px 10px;border-radius:6px;gap:12px}
+.step.bold{background:#1e2535;font-weight:700;margin-top:4px}
+.step-divider{border-top:1px solid var(--b);margin:3px 0}
+.step-label{color:var(--m);font-size:13px;flex:1}
+
+/* ── Types table ────────────────────────────────── */
+.types-wrap{font-size:13px}
+.type-hdr{display:grid;grid-template-columns:1fr 70px 130px;gap:6px;padding:7px 10px;
+  border-bottom:1px solid var(--b);font-size:11px;color:var(--m);text-transform:uppercase;letter-spacing:.04em}
+.type-hdr .r,.trow .pct,.trow .amt{text-align:right}
+.trow{display:grid;grid-template-columns:1fr 70px 130px;gap:6px;padding:8px 10px;border-radius:6px;transition:background .1s}
+.trow:hover{background:#1e2535}
+.trow.bold{font-weight:600}
+.trow.section-total{background:#1e2535;border-top:1px solid var(--b);border-bottom:1px solid var(--b);margin:4px 0}
+.trow.profit-row{background:var(--rb);border-radius:6px;margin:2px 0}
+.trow.net-pos{background:var(--rg);border:1px solid var(--g);border-radius:8px;margin-top:8px}
+.trow.net-neg{background:var(--rr);border:1px solid var(--r);border-radius:8px;margin-top:8px}
+.types-divider{border-top:1px solid var(--b);margin:6px 0}
+.section-label{font-size:11px;color:var(--m);padding:6px 10px 2px;text-transform:uppercase;letter-spacing:.04em}
+
+/* ── Sales table ────────────────────────────────── */
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{padding:7px 10px;border-bottom:1px solid var(--b);text-align:left}
+th{color:var(--m);font-weight:500}
+.r{text-align:right}
+
+/* ── Color utils ────────────────────────────────── */
+.g{color:var(--g)}.r-c{color:var(--r)}.y{color:var(--y)}.bl{color:var(--bl)}.m{color:var(--m)}
+.mono{font-family:monospace}.bold{font-weight:700}.sm{font-size:11px}
+.trunc{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hidden{display:none!important}
+
+/* ── History ────────────────────────────────────── */
+.hist-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+.hist-cols{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.hist-col-title{font-weight:600;font-size:13px;color:var(--m);text-transform:uppercase;
+  letter-spacing:.06em;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--b)}
+.hist-card{background:var(--s);border:1px solid var(--b);border-radius:10px;padding:14px 16px;
+  margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;
+  transition:border-color .15s}
+.hist-card:hover{border-color:var(--acc)}
+.hist-card-main{flex:1;min-width:0}
+.hist-period{font-weight:600;font-size:14px;margin-bottom:4px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hist-meta{font-size:13px;display:flex;flex-wrap:wrap;gap:6px;margin-bottom:3px}
+.hist-date{font-size:11px}
+.hist-actions{display:flex;gap:6px;flex-shrink:0}
+.hist-btn-open{background:var(--acc);border:none;color:#fff;border-radius:7px;
+  padding:6px 14px;cursor:pointer;font-size:13px;font-weight:500;transition:opacity .15s}
+.hist-btn-open:hover{opacity:.85}
+.hist-btn-del{background:transparent;border:1px solid var(--b);color:var(--m);border-radius:7px;
+  padding:6px 10px;cursor:pointer;font-size:13px;transition:all .15s}
+.hist-btn-del:hover{border-color:var(--r);color:var(--r)}
+.hist-empty{text-align:center;padding:32px 16px;color:var(--m);background:var(--s);
+  border:1px dashed var(--b);border-radius:10px}
+.hist-from-badge{background:#1e2535;border:1px solid var(--acc);border-radius:8px;
+  padding:8px 14px;font-size:12px;color:var(--acc);margin-bottom:14px;
+  display:flex;align-items:center;justify-content:space-between;gap:10px}
+.btn-save-hist{background:transparent;border:1px solid var(--acc);color:var(--acc);
+  border-radius:6px;padding:5px 14px;cursor:pointer;font-size:12px;font-weight:600}
+.btn-save-hist:hover{background:var(--acc);color:#fff}
+.hist-btn-top{background:transparent;border:1px solid var(--b);color:var(--m);border-radius:8px;
+  padding:6px 14px;cursor:pointer;font-size:12px;display:flex;align-items:center;gap:5px}
+.hist-btn-top:hover{border-color:var(--acc);color:var(--t)}
+/* ── Responsive ─────────────────────────────────── */
+@media(max-width:800px){.sbar{grid-template-columns:1fr 1fr 1fr}}
+@media(max-width:720px){.metrics,.mode-grid{grid-template-columns:1fr 1fr}.params{grid-template-columns:1fr}}
+@media(max-width:600px){.sbar{grid-template-columns:1fr 1fr}}
+@media(max-width:480px){.metrics,.mode-grid{grid-template-columns:1fr}.sbar{grid-template-columns:1fr}
+  .type-hdr,.trow{grid-template-columns:1fr 55px 100px}}
+</style>
+</head>
+<body>
+<main>
+
+<!-- ═══════════════ UPLOAD ═══════════════ -->
+<section id="sec-upload">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+    <div style="width:38px;height:38px;border-radius:9px;background:linear-gradient(135deg,#4f8ef7,#7c3aed);display:grid;place-items:center;font-size:19px;flex-shrink:0">📊</div>
+    <div style="flex:1">
+      <h1>Ozon PnL Калькулятор</h1>
+      <div class="sub">Отчёт по начислениям · Отчёт о реализации · Тип определяется автоматически</div>
+    </div>
+    <button class="hist-btn-top" id="btn-show-history">📋 История</button>
+  </div>
+
+  <div class="drop" id="drop-zone">
+    <div class="drop-icon" id="drop-icon">📁</div>
+    <div class="drop-title" id="drop-title">Перетащи файл или нажми для выбора</div>
+    <div class="sub">Файл Ozon .xlsx — без изменений · Тип определяется автоматически</div>
+    <input id="file-input" type="file" accept=".xlsx,.xls" style="display:none">
+  </div>
+
+  <div id="err-box" class="err"></div>
+
+  <div class="card">
+    <b class="card-title">⚙️ Параметры расчёта</b>
+    <div class="params">
+      <div>
+        <span class="param-label">Коэффициент НДС (×себест. = долг)</span>
+        <input type="number" id="p-vat" step="0.01" value="1.22">
+        <div class="sub" style="margin-top:4px">Себестоимость × коэф. = долг поставщику</div>
+      </div>
+      <div>
+        <span class="param-label">Ставка налога УСН</span>
+        <input type="number" id="p-tax" step="0.01" value="0.20">
+        <div class="sub" style="margin-top:4px">Применяется к прибыли до налога</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ RESULTS ═══════════════ -->
+<section id="sec-result" class="hidden">
+
+  <!-- Шапка -->
+  <div class="rh">
+    <button class="back" id="btn-back">← Загрузить другой файл</button>
+    <span id="period-label" class="sub"></span>
+    <span id="report-badge" class="badge badge-w">Начисления</span>
+  </div>
+
+  <!-- Бейдж «открыто из истории» + кнопка сохранить изменения -->
+  <div id="hist-from-bar" class="hist-from-badge hidden">
+    <span>📋 Открыто из истории — изменения параметров сохраняются автоматически</span>
+    <button class="btn-save-hist" id="btn-save-hist-now">Сохранить сейчас</button>
+  </div>
+
+  <!-- Предупреждения парсера и валидации -->
+  <div id="warn-box" class="warn hidden"></div>
+
+  <!-- Summary bar: 5 ключевых KPI одним взглядом -->
+  <div class="sbar" id="sbar">
+    <div class="sbar-cell">
+      <div class="sbar-lbl">Продано (выручка)</div>
+      <div class="sbar-val g" id="sb-revenue">—</div>
+      <div class="sbar-sub">Gross Ozon revenue</div>
+    </div>
+    <div class="sbar-cell">
+      <div class="sbar-lbl">Получено от Ozon</div>
+      <div class="sbar-val" id="sb-received">—</div>
+      <div class="sbar-sub">После комиссий и логистики</div>
+    </div>
+    <div class="sbar-cell">
+      <div class="sbar-lbl">Себестоимость</div>
+      <div class="sbar-val" id="sb-cogs">—</div>
+      <div class="sbar-sub">Долг поставщику с НДС</div>
+    </div>
+    <div class="sbar-cell">
+      <div class="sbar-lbl">Налог УСН</div>
+      <div class="sbar-val y" id="sb-tax">—</div>
+      <div class="sbar-sub" id="sb-tax-sub">—</div>
+    </div>
+    <div class="sbar-cell result-cell" id="sb-result-cell">
+      <div class="sbar-lbl">Остаток (чистая прибыль)</div>
+      <div class="sbar-val" id="sb-net">—</div>
+      <div class="sbar-margin" id="sb-margin">—</div>
+    </div>
+  </div>
+
+  <!-- Metric cards (детализация) -->
+  <div id="metrics" class="metrics"></div>
+
+  <!-- Ручной ввод суммы от Ozon -->
+  <div class="card">
+    <span class="card-title">💰 Сумма к получению от Ozon
+      <span class="sub" style="font-weight:400"> — можно изменить вручную</span>
+    </span>
+    <div class="total-row">
+      <input type="text" id="inp-total" placeholder="0.00">
+      <button class="btn-reset" id="btn-reset-total">↩ Авто</button>
+    </div>
+    <div id="total-hint" class="total-hint"></div>
+  </div>
+
+  <!-- Расчёт по шагам -->
+  <div class="card">
+    <b class="card-title">🔢 Расчёт по шагам</b>
+    <div id="calc-steps"></div>
+  </div>
+
+  <!-- Начисления по типам + P&L -->
+  <div class="card">
+    <b class="card-title" id="types-title">📑 Начисления по типам и P&amp;L</b>
+    <div class="types-wrap" id="types-section"></div>
+  </div>
+
+  <!-- Продажи по товарам -->
+  <div class="card">
+    <b class="card-title" id="sales-title">📦 Продажи по товарам</b>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>Артикул</th><th>Товар</th>
+          <th class="r">Шт</th><th class="r">Выручка</th>
+          <th class="r">Себест./шт</th><th class="r">Себест. итого</th>
+        </tr></thead>
+        <tbody id="sales-body"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<script>
+'use strict';
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  АРХИТЕКТУРА                                                      ║
+// ║                                                                   ║
+// ║  File → fixXlsxEntities → XLSX.read                             ║
+// ║       → ReportDetector.detect(wb)                               ║
+// ║       ├─ AccrualReportParser.parse(detection)                   ║
+// ║       └─ RealizationReportParser.parse(detection)  [Часть 3]   ║
+// ║                    ↓                                             ║
+// ║             NormalizedReportData                                 ║
+// ║                    ↓                                             ║
+// ║             PnLEngine.compute(data, params)                     ║
+// ║                    ↓                                             ║
+// ║             PnLResult → render*()                               ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+// ═══════════════════════════════════════════════════════
+// SECTION 1: COST MAP — справочник себестоимостей (78 артикулов)
+// ═══════════════════════════════════════════════════════
+const COST_MAP = {
+  "ACB305523.NAC.JP":851,"ACB325520.NAC.JP":735,"ACB355520.NAC.JP":758,
+  "ACB355020.NAC.JP":775,"ACB355220.NAC.JP":775,"ACB355222.NAC.JP":869,
+  "6000-2RS.C3.SRL.NAC.TW":162,"6000-2RS.C3.SRL.NAC.JP":185.26,
+  "6000-2RS.CM.SRL.NAC.TW":176,"6000.CM.NAC.JP":142.49,
+  "6000-2Z.CM.SRL.NAC.TW":163.32,"6001-2RS.C3.SRL.NAC.TH":164,
+  "6001-2RS.CM.SRL.NAC.TH":199.09,"6001-2Z.C3.SRL.NAC.TH":149,
+  "6001-2Z.CM.SRL.NAC.JP":176.23,"6002-2RS.C3.SRL.NAC.TW":179,
+  "6002-2RS.CM.SRL.NAC.TW":200,"6002-2Z.C3.SRL.NAC.TW":158,
+  "6002-2Z.CM.SRL.NAC.TW":158,"6003-2RS.CM.SRL.NAC.TW":188,
+  "6003-2RS.C3.SRL.NAC.JP":229.5,"6003-2Z.CM.SRL.NAC.TW":173,
+  "6003-2Z.C3.SRL.NAC.JP":204.43,"6004-2RS.C3.SRL.NAC.TH":254.76,
+  "6004-2RS.C3.SRL.NAC.JP":254.76,"6004-2RS.CM.SRL.NAC.TH":225,
+  "6004.CM.NAC.TH":160,"6005-2RS.CM.SRL.NAC.TH":272,
+  "6006-2RS.C3.SRL.NAC.TH":328,"6006-2RS.CM.SRL.NAC.JP":358.72,
+  "6006-2RS.CM.SRL.NAC.TH":344,"6007.CM.NAC.JP":341.95,
+  "6200-2RS.CM.SRL.NAC.TH":151,"6201-2RS.C3.SRL.NAC.TH":152,
+  "6201-2RS.CM.SRL.NAC.TH":193.73,"6201-2RS.CM.SRL.NAC.JP":193.74,
+  "6201.C3.NAC.TH":116,"6201.CM.NAC.TH":113,
+  "6201-2Z.C3.SRL.NAC.JP":171.62,"6201-2Z.CM.SRL.NAC.TH":134,
+  "6201-2Z.CM.SRL.NAC.JP":171.62,"6202-2RS.C3.SRL.NAC.TH":165,
+  "6202-2RS.CM.SRL.NAC.TH":208.67,"6202.CM.NAC.TH":160.19,
+  "6202.CM.NAC.JP":160.19,"6202-2Z.C3.SRL.NAC.JP":184.52,
+  "6202-2Z.CM.SRL.NAC.TH":139,"6203-2RS.CM.SRL.NAC.TH":234.66,
+  "6203-2RS.C3.SRL.NAC.JP":234.66,"6203-2Z.C3.SRL.NAC.TH":207.01,
+  "6203-2Z.CM.SRL.NAC.JP":207.01,"6204-2RS.C3.SRL.NAC.TH":260,
+  "6204-2RS.CM.SRL.NAC.TH":255,"6204.C3.NAC.JP":212.17,
+  "6204.C3.NAC.TH":186,"6204.CM.NAC.TH":212.17,
+  "6204-2Z.C3.SRL.NAC.TH":218,"6204-2Z.CM.SRL.NAC.JP":241.85,
+  "6205-2RS.CM.SRL.NAC.TH":322.22,"6205-2RS.C3.SRL.NAC.JP":322.22,
+  "6205.C3.NAC.TH":246.64,"6205.C3.NAC.JP":246.64,
+  "6205-2Z.C3.SRL.NAC.TH":244,"6205-2Z.CM.SRL.NAC.TH":258,
+  "6206-2RS.CM.SRL.NAC.TH":372,"6206-2Z.CM.SRL.NAC.TH":333,
+  "6206-2Z.CM.SRL.NAC.JP":380.84,"6302-2RS.CM.SRL.NAC.JP":273.19,
+  "6303-2RS.C3.SRL.NAC.TH":269,"6303-2RS.CM.SRL.NAC.TH":309.5,
+  "6303.CM.NAC.TH":206,"6304.CM.NAC.TH":224,
+  "6305.CM.NAC.TH":276,"6305.CM.NAC.JP":345.45,
+  "6306-2RS.CM.SRL.NAC.TH":574,"6306-2Z.C3.SRL.NAC.JP":535.87,
+  "6007-2RS.CM.SRL.NAC.JP":443.52,"6007-2RS.CM.SRL.NAC.TH":370,
+};
+
+// ═══════════════════════════════════════════════════════
+// SECTION 2: STATE + NormalizedReportData schema
+// ═══════════════════════════════════════════════════════
+
+/**
+ * @typedef {Object} NormalizedReportData
+ * @property {'accrual'|'realization'} reportType
+ * @property {string}   period       — "07.09.2026 – 13.09.2026"
+ * @property {string}   periodStart  — "07.09.2026" или ''
+ * @property {string}   periodEnd    — "13.09.2026" или ''
+ * @property {number}   autoTotal    — итоговая сумма к получению от Ozon
+ * @property {number}   revenueBase  — «Выручка» (база для % и маржи)
+ * @property {number}   costSales    — сумма (cost × qty) без НДС
+ * @property {Object}   byType       — { typeName: sum }
+ * @property {Object}   byArticle    — { article: ArticleLine }
+ * @property {Array}    missingCost  — [{ article, sku, name, qty }]
+ * @property {string[]} warnings     — нефатальные предупреждения парсера
+ * @property {string}   _sheetName
+ * @property {number}   _headerIdx
+ */
+
+/**
+ * @typedef {Object} ArticleLine
+ * @property {string}  name
+ * @property {string}  sku
+ * @property {number}  qty
+ * @property {number}  revenue
+ * @property {number}  cost        — per unit (0 if not found)
+ * @property {number}  totalCost
+ * @property {boolean} hasCost
+ */
+
+function makeNormalizedData(reportType) {
+  return {
+    reportType, period: '', periodStart: '', periodEnd: '',
+    autoTotal: 0, revenueBase: 0, costSales: 0,
+    byType: {}, byArticle: {}, missingCost: [], warnings: [],
+    _sheetName: '', _headerIdx: -1,
+  };
+}
+
+/**
+ * @typedef {Object} PnLResult
+ * @property {number}      effectiveTotal    — к получению (авто или ручное)
+ * @property {number}      autoTotal
+ * @property {number}      revenueBase       — «Выручка» (гросс-продажи)
+ * @property {number}      costSales         — COGS без НДС
+ * @property {number}      owed              — COGS × vatMult (долг поставщику)
+ * @property {number}      profitBeforeTax   — effectiveTotal − owed
+ * @property {number}      tax               — УСН
+ * @property {number}      net               — чистая прибыль
+ * @property {number|null} margin            — net / revenueBase × 100, или null
+ * @property {number}      vatMult
+ * @property {number}      taxRate
+ * @property {string[]}    validationWarnings
+ */
+
+const STATE = {
+  normalizedData: null, // NormalizedReportData
+  autoTotal:      0,
+  manualTotal:    null, // null = autoTotal
+};
+
+// ═══════════════════════════════════════════════════════
+// SECTION 3: UTILITIES
+// ═══════════════════════════════════════════════════════
+function norm(s) {
+  return String(s ?? '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function parseNum(s, warnings, context) {
+  if (s === null || s === undefined || s === '') return 0;
+  if (typeof s === 'number') return isFinite(s) ? s : 0;
+  const cleaned = String(s).replace(/[₽\s]/g, '').replace(',', '.');
+  const result = parseFloat(cleaned);
+  if (isNaN(result)) {
+    if (warnings && context) warnings.push(`Не удалось разобрать число "${s}" в поле "${context}"`);
+    return 0;
+  }
+  return result;
+}
+
+function fmtM(n)  { return (Number(n)||0).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2})+' ₽'; }
+function fmtS(n)  { return (n>=0?'+':'')+fmtM(n); }
+function fmtP(n)  { return (Number(n)||0).toFixed(1)+'%'; }
+const $ = id => document.getElementById(id);
+
+// ═══════════════════════════════════════════════════════
+// SECTION 4: XML ENTITY FIX
+// ═══════════════════════════════════════════════════════
+async function fixXlsxEntities(buffer) {
+  if (typeof JSZip === 'undefined') {
+    console.warn('[fixXlsxEntities] JSZip не загружен');
+    return buffer;
+  }
+  try {
+    const zip = await JSZip.loadAsync(buffer);
+    const entityRe = /&#x([0-9A-Fa-f]+);|&#([0-9]+);/g;
+    for (const [path, entry] of Object.entries(zip.files)) {
+      if (!path.endsWith('.xml')) continue;
+      const text = await entry.async('string');
+      if (!text.includes('&#')) continue;
+      entityRe.lastIndex = 0;
+      zip.file(path, text.replace(entityRe, (_, hex, dec) => {
+        try { return String.fromCodePoint(hex ? parseInt(hex, 16) : parseInt(dec, 10)); } catch { return _; }
+      }));
+    }
+    return await zip.generateAsync({ type: 'arraybuffer' });
+  } catch (e) {
+    console.error('[fixXlsxEntities]', e);
+    return buffer;
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// SECTION 5: ReportDetector
+// ═══════════════════════════════════════════════════════
+const ReportDetector = {
+  SIGNALS: {
+    accrual: {
+      required: [
+        a => a.some(s => s.includes('тип начислен')),
+        a => a.some(s => s.includes('сумма итого') || s.includes('итого, руб') || s.includes('сумма, руб')),
+      ],
+      bonus: [
+        a => a.some(s => s.includes('артикул')),
+        a => a.some(s => s.includes('sku') || s.includes('скю')),
+        a => a.some(s => s.includes('вознаграждение')),
+        a => a.some(s => s.includes('логистик')),
+        a => a.some(s => s.includes('количество')),
+      ],
+    },
+    realization: {
+      // Строка заголовка реализации должна содержать «Артикул» И «Реализовано»
+      // (не «Итого реализовано» из строки итогов, а именно заголовок «Реализовано»).
+      // Это отличает «Отчёт о реализации» от «Показного отчёта» и прочих таблиц.
+      required: [
+        a => a.some(s => s === 'реализовано' || s.startsWith('реализован')),
+        a => a.some(s => s === 'артикул' || s.startsWith('артикул')),
+        // Не должно быть «тип начислен» — это accrual, не realization
+      ],
+      // Бонусы — повышают уверенность при наличии характерных колонок
+      bonus: [
+        a => a.some(s => s.includes('кол-во') || s.includes('количество')),
+        a => a.some(s => s.includes('штрих-код') || s.includes('баркод')),
+        a => a.some(s => s.includes('sku') || s.includes('скю')),
+        a => a.some(s => s.includes('название товара') || s.includes('наименование')),
+        a => a.some(s => s.startsWith('№') || s.includes('п/п')),
+      ],
+      // Стоп-слова: если header содержит эти признаки — это НЕ отчёт о реализации
+      exclude: [
+        a => a.some(s => s.includes('тип начислен')),   // → accrual report
+        a => a.some(s => s.includes('показной')),        // → показной отчёт
+      ],
+    },
+  },
+
+  detect(wb) {
+    const MAX_SCAN = 60;
+    const results = [];
+
+    for (const sheetName of wb.SheetNames) {
+      const ws = wb.Sheets[sheetName];
+      const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+
+      for (let i = 0; i < Math.min(raw.length, MAX_SCAN); i++) {
+        const normRow = (raw[i] ?? []).map(c => norm(c));
+
+        for (const [reportType, sig] of Object.entries(this.SIGNALS)) {
+          // Обязательные сигналы — все должны быть найдены
+          if (!sig.required.every(fn => fn(normRow))) continue;
+
+          // Стоп-слова — если хотя бы одно сработало, пропускаем
+          if (sig.exclude?.some(fn => fn(normRow))) continue;
+
+          // Бонусные — повышают уверенность
+          const bonus = sig.bonus.filter(fn => fn(normRow)).length;
+
+          // Базовая уверенность 100 + 10 за каждый бонус
+          // Строки, найденные раньше, получают небольшой бонус (ближе к началу = скорее заголовок)
+          const posBonus = Math.max(0, 5 - i); // первые строки = +5..+0
+          results.push({
+            reportType, sheetName, raw,
+            headerIdx: i, row: raw[i],
+            confidence: 100 + bonus * 10 + posBonus,
+          });
+        }
+      }
+    }
+
+    if (!results.length) return null;
+
+    // Лучший кандидат: наибольшая уверенность, при равенстве — ранняя строка
+    results.sort((a, b) => b.confidence - a.confidence || a.headerIdx - b.headerIdx);
+    return results[0];
+  },
+};
+
+// ═══════════════════════════════════════════════════════
+// SECTION 6: AccrualReportParser
+// ═══════════════════════════════════════════════════════
+const AccrualReportParser = {
+  COL_ALIASES: {
+    type:  ['тип начислен'],
+    sum:   ['сумма итого', 'итого, руб', 'сумма, руб'],
+    art:   ['артикул'],
+    sku:   ['sku', 'скю'],
+    name:  ['название товара', 'наименование товара', 'название', 'наименование'],
+    qty:   ['количество', 'кол-во', 'кол во'],
+    group: ['группа услуг', 'группа'],
+    id:    ['id начислен', 'номер начислен'],
+    price: ['цена продавца', 'цена'],
+  },
+  REQUIRED_COLS: ['type', 'sum'],
+
+  findColIdx(row, aliases) {
+    for (let j = 0; j < row.length; j++) {
+      const c = norm(row[j]);
+      if (!c) continue;
+      for (const a of aliases) { if (c.includes(a)) return j; }
+    }
+    return -1;
+  },
+
+  buildColMap(row) {
+    const map = {};
+    for (const [colName, aliases] of Object.entries(this.COL_ALIASES)) {
+      const idx = this.findColIdx(row, aliases);
+      if (idx >= 0) map[colName] = idx;
+    }
+    return map;
+  },
+
+  extractPeriod(raw, headerIdx) {
+    const dateRe = /(\d{2}\.\d{2}\.\d{4})/g;
+    for (let i = 0; i < headerIdx; i++) {
+      for (const cell of (raw[i] ?? [])) {
+        const s = String(cell ?? '');
+        if (!s) continue;
+        if (s.toLowerCase().includes('период') || dateRe.test(s)) {
+          dateRe.lastIndex = 0;
+          const period = s.replace(/^период:\s*/i, '').trim();
+          const dates = [...s.matchAll(/(\d{2}\.\d{2}\.\d{4})/g)].map(m => m[1]);
+          return { period, periodStart: dates[0] || '', periodEnd: dates[1] || dates[0] || '' };
+        }
+      }
+    }
+    return { period: '', periodStart: '', periodEnd: '' };
+  },
+
+  parse(detection) {
+    const { sheetName, raw, headerIdx, row: headerRow } = detection;
+    const data = makeNormalizedData('accrual');
+    data._sheetName = sheetName;
+    data._headerIdx = headerIdx;
+
+    Object.assign(data, this.extractPeriod(raw, headerIdx));
+
+    const colMap = this.buildColMap(headerRow);
+    for (const req of this.REQUIRED_COLS) {
+      if (colMap[req] === undefined) {
+        throw new Error(
+          `Не найдена обязательная колонка «${req}» в отчёте по начислениям.\n` +
+          `Лист: "${sheetName}", строка заголовков: ${headerIdx + 1}.\n` +
+          `Проверьте, что загружен «Отчёт по начислениям» Ozon.`
+        );
+      }
+    }
+
+    const C = colMap;
+    for (let i = headerIdx + 1; i < raw.length; i++) {
+      const r = raw[i] ?? [];
+      if (!r.some(v => v !== '' && v !== null && v !== undefined)) continue;
+
+      const typeRaw  = C.type !== undefined ? String(r[C.type] ?? '').trim() : '';
+      const typeNorm = norm(typeRaw);
+      const sumVal   = C.sum !== undefined ? parseNum(r[C.sum], data.warnings, 'Сумма итого') : 0;
+
+      data.autoTotal += sumVal;
+      if (typeRaw) data.byType[typeRaw] = (data.byType[typeRaw] ?? 0) + sumVal;
+
+      if (typeNorm === 'выручка') {
+        const art  = C.art  !== undefined ? String(r[C.art]  ?? '').trim() : '';
+        const sku  = C.sku  !== undefined ? String(r[C.sku]  ?? '').trim() : '';
+        const name = C.name !== undefined ? String(r[C.name] ?? '').trim() : '';
+        const qty  = C.qty  !== undefined ? (parseInt(String(r[C.qty] ?? '')) || 1) : 1;
+        const costPerUnit = art ? (COST_MAP[art] ?? null) : null;
+        const hasCost = costPerUnit !== null;
+        const effectiveCost = hasCost ? costPerUnit : 0;
+
+        if (!hasCost && art) {
+          const ex = data.missingCost.find(m => m.article === art);
+          if (ex) ex.qty += qty;
+          else data.missingCost.push({ article: art, sku, name, qty });
+        }
+
+        data.costSales += effectiveCost * qty;
+
+        if (art) {
+          if (!data.byArticle[art]) {
+            data.byArticle[art] = { name, sku, qty: 0, revenue: 0, cost: effectiveCost, totalCost: 0, hasCost };
+          }
+          data.byArticle[art].qty       += qty;
+          data.byArticle[art].revenue   += sumVal;
+          data.byArticle[art].totalCost += effectiveCost * qty;
+        }
+      }
+    }
+
+    data.revenueBase = data.byType['Выручка'] ?? 0;
+    return data;
+  },
+};
+
+// ═══════════════════════════════════════════════════════
+// SECTION 7: RealizationReportParser
+//
+// Парсер «Отчёта о реализации» (месячный).
+// Структура файла Ozon:
+//   Строки 0-11 : информационная шапка (плательщик, период, реквизиты)
+//   Строка  12  : главный заголовок таблицы (Артикул, Название, SKU…)
+//   Строка  13  : под-заголовок (Реализовано на сумму, Кол-во…)
+//   Строка  14  : нумерация столбцов (1, 2, 3…)
+//   Строки  15+ : данные (col[0] = № строки)
+//   Где-то в конце : «Итого реализовано…» и «Всего выплат от партнёров…»
+//
+// Все позиции определяются СЕМАНТИЧЕСКИ, не по номерам строк.
+// ═══════════════════════════════════════════════════════
+const RealizationReportParser = {
+
+  // Алиасы для колонок главного заголовка (строка с "Артикул")
+  MAIN_COL_ALIASES: {
+    num:  ['№ п/п', '№', 'номер'],
+    name: ['название товара', 'наименование товара', 'название', 'наименование'],
+    art:  ['артикул'],
+    sku:  ['sku', 'скю'],
+    bar:  ['штрих-код'],
+  },
+
+  // Алиасы для под-заголовка (строка сразу после главного заголовка)
+  SUB_COL_ALIASES: {
+    rev:  ['реализовано на сумму', 'реализован', 'на сумму, руб'],
+    pay:  ['выплаты по механикам', 'выплаты'],
+    qty:  ['кол-во', 'количество', 'кол во'],
+  },
+
+  // Паттерны для строк итогов
+  SUMMARY_PATTERNS: {
+    realized: ['итого реализовано', 'итого реализован'],
+    payments: ['всего выплат от партнёров', 'всего выплат', 'выплат от партнёров'],
+  },
+
+  /** Найти строку главного заголовка таблицы.
+   *  Критерий: «артикул» + («название» или «№ п/п» или «sku»). */
+  findMainHeaderIdx(raw) {
+    for (let i = 0; i < Math.min(raw.length, 50); i++) {
+      const nr = (raw[i] ?? []).map(c => norm(c));
+      const hasArt  = nr.some(c => c.includes('артикул'));
+      const hasName = nr.some(c => c.includes('название') || c.includes('наименование'));
+      const hasNum  = nr.some(c => c.startsWith('№') || c.includes('п/п'));
+      const hasSku  = nr.some(c => c.includes('sku') || c.includes('скю'));
+      if (hasArt && (hasName || hasNum || hasSku)) return i;
+    }
+    return -1;
+  },
+
+  /** Построить colMap из ДВУХ строк: главный заголовок + под-заголовок. */
+  buildColMap(raw, mainHeaderIdx) {
+    const map = {};
+    const rows = [raw[mainHeaderIdx], raw[mainHeaderIdx + 1]].filter(Boolean);
+    const allAliases = { ...this.MAIN_COL_ALIASES, ...this.SUB_COL_ALIASES };
+
+    for (const [colName, aliases] of Object.entries(allAliases)) {
+      for (const row of rows) {
+        if (map[colName] !== undefined) break; // уже нашли
+        for (let j = 0; j < row.length; j++) {
+          const c = norm(row[j]);
+          if (!c) continue;
+          if (aliases.some(a => c.includes(norm(a)))) { map[colName] = j; break; }
+        }
+      }
+    }
+    return map;
+  },
+
+  /** Найти индекс первой строки данных.
+   *  Данные начинаются там, где col NUM — положительное целое. */
+  findDataStart(raw, mainHeaderIdx, colMap) {
+    const numCol = colMap.num ?? 0;
+    for (let i = mainHeaderIdx + 1; i < Math.min(raw.length, mainHeaderIdx + 6); i++) {
+      const r = raw[i] ?? [];
+      const v = parseInt(String(r[numCol] ?? '').trim());
+      if (!isNaN(v) && v > 0) return i;
+    }
+    return mainHeaderIdx + 3; // фоллбэк: header + sub + нумерация
+  },
+
+  /** Найти итоговые значения. Поиск по тексту в любой строке/ячейке. */
+  findSummaryValues(raw) {
+    let realized = null, payments = null;
+    for (const row of raw) {
+      if (!row) continue;
+      for (let j = 0; j < row.length; j++) {
+        const s = norm(row[j] ?? '');
+        if (!s) continue;
+
+        if (this.SUMMARY_PATTERNS.realized.some(p => s.includes(p))) {
+          // Значение — в следующей ячейке той же строки
+          const val = parseNum(row[j + 1]);
+          if (val > 0) realized = val;
+        }
+        if (this.SUMMARY_PATTERNS.payments.some(p => s.includes(p))) {
+          const val = parseNum(row[j + 1]);
+          if (val >= 0) payments = val;
+        }
+      }
+    }
+    return { realized, payments };
+  },
+
+  /**
+   * Главный метод парсера.
+   * @param {Object} detection — результат ReportDetector.detect()
+   * @returns {NormalizedReportData}
+   */
+  parse(detection) {
+    const { sheetName, raw, headerIdx } = detection;
+    const data = makeNormalizedData('realization');
+    data._sheetName = sheetName;
+    data._headerIdx = headerIdx;
+
+    // Период из информационной шапки (строки до заголовка таблицы)
+    Object.assign(data, AccrualReportParser.extractPeriod(raw, headerIdx));
+    if (!data.period) {
+      // Дополнительный поиск: строка «Реализация товаров за период»
+      for (let i = 0; i < headerIdx; i++) {
+        for (const cell of (raw[i] ?? [])) {
+          const s = String(cell ?? '');
+          if (s.toLowerCase().includes('реализация') && s.toLowerCase().includes('период')) {
+            data.period = s.replace(/^реализация\s+товаров\s+за\s+период\s*/i, '').trim();
+            break;
+          }
+        }
+        if (data.period) break;
+      }
+    }
+
+    // Карта колонок (семантически из 2 строк)
+    const colMap = this.buildColMap(raw, headerIdx);
+
+    if (colMap.art === undefined) {
+      throw new Error(
+        `В отчёте о реализации не найдена колонка «Артикул».\n` +
+        `Лист: "${sheetName}", строка заголовков: ${headerIdx + 1}.\n` +
+        `Проверьте, что загружен «Отчёт о реализации» Ozon.`
+      );
+    }
+
+    // Стартовая строка данных
+    const dataStart = this.findDataStart(raw, headerIdx, colMap);
+
+    // Итоговые строки (Итого реализовано + Всего выплат)
+    const { realized, payments } = this.findSummaryValues(raw);
+
+    if (realized === null) {
+      data.warnings.push(
+        'В отчёте о реализации не найден показатель «Итого реализовано (за вычетом возвратов)». ' +
+        'Используется сумма строк данных. Проверьте файл.'
+      );
+    }
+    if (payments === null) {
+      data.warnings.push('Не найден показатель «Всего выплат от партнёров» — принято как 0.');
+    }
+
+    const totalRealized = realized ?? 0;
+    const totalPayments = payments ?? 0;
+
+    // autoTotal = реализовано + выплаты партнёров
+    data.autoTotal   = totalRealized + totalPayments;
+    data.revenueBase = totalRealized; // база для %, маржи
+
+    // Разбивка по типам для отображения
+    if (totalRealized > 0) data.byType['Итого реализовано (за вычетом возвратов)'] = totalRealized;
+    if (totalPayments > 0) data.byType['Всего выплат от партнёров'] = totalPayments;
+
+    const C = colMap;
+
+    // Парсинг строк данных
+    for (let i = dataStart; i < raw.length; i++) {
+      const r = raw[i] ?? [];
+      if (!r.some(v => v !== '' && v !== null && v !== undefined)) continue;
+
+      // Данные строки: col NUM должен быть целым положительным числом
+      const numRaw = C.num !== undefined ? r[C.num] : r[0];
+      const rowNum = parseInt(String(numRaw ?? '').trim());
+      if (isNaN(rowNum) || rowNum <= 0) continue;
+
+      const art  = C.art  !== undefined ? String(r[C.art]  ?? '').trim() : '';
+      const name = C.name !== undefined ? String(r[C.name] ?? '').trim() : '';
+      const sku  = C.sku  !== undefined ? String(r[C.sku]  ?? '').trim() : '';
+      const qty  = C.qty  !== undefined
+        ? (parseInt(String(r[C.qty] ?? '')) || 1)
+        : 1;
+      const rev  = C.rev  !== undefined
+        ? parseNum(r[C.rev], data.warnings, 'Реализовано на сумму')
+        : 0;
+
+      const costPerUnit   = art ? (COST_MAP[art] ?? null) : null;
+      const hasCost       = costPerUnit !== null;
+      const effectiveCost = hasCost ? costPerUnit : 0;
+
+      if (!hasCost && art) {
+        const ex = data.missingCost.find(m => m.article === art);
+        if (ex) ex.qty += qty;
+        else data.missingCost.push({ article: art, sku, name, qty });
+      }
+
+      data.costSales += effectiveCost * qty;
+
+      if (art) {
+        if (!data.byArticle[art]) {
+          data.byArticle[art] = { name, sku, qty: 0, revenue: 0, cost: effectiveCost, totalCost: 0, hasCost };
+        }
+        data.byArticle[art].qty       += qty;
+        data.byArticle[art].revenue   += rev;
+        data.byArticle[art].totalCost += effectiveCost * qty;
+      }
+    }
+
+    // Если «Итого реализовано» не найдено, считаем из строк данных
+    if (realized === null) {
+      const sumFromRows = Object.values(data.byArticle).reduce((s, d) => s + d.revenue, 0);
+      data.autoTotal   = sumFromRows + totalPayments;
+      data.revenueBase = sumFromRows;
+      if (sumFromRows > 0) data.byType['Итого реализовано (за вычетом возвратов)'] = sumFromRows;
+    }
+
+    return data;
+  },
+};
+
+// ═══════════════════════════════════════════════════════
+// SECTION 8: PnLEngine
+//
+// Чистая функция — не знает ничего об Excel.
+// Вход: NormalizedReportData + параметры пользователя.
+// Выход: PnLResult.
+// Используется одинаково для всех типов отчётов.
+// ═══════════════════════════════════════════════════════
+const PnLEngine = {
+
+  /**
+   * Основной расчёт P&L.
+   * @param {NormalizedReportData} data
+   * @param {{ vatMult:number, taxRate:number, manualTotal:number|null }} params
+   * @returns {PnLResult}
+   */
+  compute(data, params) {
+    const { vatMult, taxRate, manualTotal } = params;
+    const autoTotal       = data.autoTotal;
+    const effectiveTotal  = manualTotal !== null ? manualTotal : autoTotal;
+    const revenueBase     = data.revenueBase;
+    const costSales       = data.costSales;
+
+    const owed            = costSales * vatMult;
+    const profitBeforeTax = effectiveTotal - owed;
+    const tax             = Math.max(0, profitBeforeTax * taxRate);
+    const net             = effectiveTotal - owed - tax;
+
+    // Маржа = net / revenueBase × 100; null если нет выручки (защита от /0)
+    const margin = revenueBase > 0 ? (net / revenueBase * 100) : null;
+
+    const validationWarnings = this.validate(data, { effectiveTotal, owed, net, revenueBase });
+
+    return { effectiveTotal, autoTotal, revenueBase, costSales, owed, profitBeforeTax, tax, net, margin, vatMult, taxRate, validationWarnings };
+  },
+
+  /**
+   * Проверка данных — возвращает массив понятных предупреждений.
+   * @param {NormalizedReportData} data
+   * @param {{ effectiveTotal, owed, net, revenueBase }} computed
+   * @returns {string[]}
+   */
+  validate(data, computed = {}) {
+    const w = [];
+    const { effectiveTotal = 0, owed = 0, revenueBase = 0 } = computed;
+
+    if (revenueBase === 0) {
+      w.push('Выручка (Ozon gross revenue) равна нулю — в файле нет строк с типом «Выручка». Расчёт маржинальности невозможен.');
+    }
+
+    if (Object.keys(data.byArticle).length === 0) {
+      w.push('Ни одного товара с типом «Выручка» не найдено.');
+    }
+
+    if (data.missingCost.length > 0) {
+      const totalQty = data.missingCost.reduce((s, m) => s + m.qty, 0);
+      w.push(
+        `Не определена себестоимость для ${data.missingCost.length} артикулов (${totalQty} шт.) — ` +
+        `долг поставщику занижен, прибыль завышена.`
+      );
+    }
+
+    if (effectiveTotal > 0 && owed > effectiveTotal * 3) {
+      w.push('⚠ Долг поставщику в 3 раза больше суммы от Ozon — проверьте коэффициент НДС в параметрах.');
+    }
+
+    if (Object.keys(data.byType).length === 0) {
+      w.push('Данных в отчёте не обнаружено — возможно, период пустой.');
+    }
+
+    return w;
+  },
+};
+
+/** Вспомогательная функция: берёт параметры из DOM и вызывает PnLEngine.compute() */
+function computePnL() {
+  if (!STATE.normalizedData) return null;
+  return PnLEngine.compute(STATE.normalizedData, {
+    vatMult:     parseNum($('p-vat').value) || 1.22,
+    taxRate:     parseNum($('p-tax').value) || 0.20,
+    manualTotal: STATE.manualTotal,
+  });
+}
+
+// ═══════════════════════════════════════════════════════
+// SECTION 9: RENDER FUNCTIONS
+// ═══════════════════════════════════════════════════════
+
+function renderAll() {
+  const pnl = computePnL();
+  if (!pnl) return;
+  renderSummaryBar(pnl);
+  renderMetrics(pnl);
+  renderCalcSteps(pnl);
+  renderTypes(pnl);
+  // renderSales не нужен здесь — данные не меняются при пересчёте
+}
+
+/** Summary bar: 5 ключевых KPI одним взглядом */
+function renderSummaryBar(pnl) {
+  const { effectiveTotal, revenueBase, owed, tax, net, margin, taxRate } = pnl;
+
+  $('sb-revenue').textContent  = fmtM(revenueBase);
+  $('sb-received').textContent = fmtM(effectiveTotal);
+  $('sb-cogs').textContent     = fmtM(owed);
+  $('sb-tax').textContent      = fmtM(tax);
+  $('sb-tax-sub').textContent  = tax > 0 ? `УСН ${(taxRate*100).toFixed(0)}%` : 'база ≤ 0 → 0';
+
+  // Остаток
+  const netEl    = $('sb-net');
+  const marginEl = $('sb-margin');
+  const cellEl   = $('sb-result-cell');
+
+  netEl.textContent    = fmtM(net);
+  netEl.className      = 'sbar-val ' + (net >= 0 ? 'g' : 'r-c');
+  cellEl.className     = 'sbar-cell result-cell' + (net < 0 ? ' neg' : '');
+
+  if (margin !== null) {
+    marginEl.textContent = `Маржа: ${fmtP(margin)}`;
+    marginEl.className   = 'sbar-margin ' + (margin >= 0 ? 'g' : 'r-c');
+  } else {
+    marginEl.textContent = 'Маржа: —';
+    marginEl.className   = 'sbar-margin m';
+  }
+
+  // Цвет "получено от Ozon" зависит от знака
+  const recvEl = $('sb-received');
+  recvEl.className = 'sbar-val ' + (effectiveTotal >= 0 ? '' : 'r-c');
+}
+
+function renderMetrics(pnl) {
+  const { effectiveTotal, owed, profitBeforeTax, tax, net, margin, vatMult, taxRate } = pnl;
+  const { costSales } = STATE.normalizedData;
+
+  const marginStr = margin !== null ? fmtP(margin) : '—';
+  const marginCls = margin !== null ? (margin >= 0 ? 'g' : 'r-c') : 'm';
+
+  const items = [
+    { label: 'Получу от Ozon',           val: fmtM(effectiveTotal), cls: effectiveTotal>=0?'g':'r-c', sub: 'После всех начислений Ozon' },
+    { label: 'Себестоимость (без НДС)',   val: fmtM(costSales),      cls: '',                          sub: 'По строкам «Выручка»' },
+    { label: `Долг поставщику ×${vatMult}`, val: fmtM(owed),         cls: 'r-c',                       sub: 'Себестоимость × НДС' },
+    { label: 'Прибыль до налога',         val: fmtS(profitBeforeTax),cls: profitBeforeTax>=0?'bl':'r-c', sub: 'Получу − долг' },
+    { label: `Налог УСН ${(taxRate*100).toFixed(0)}%`, val: fmtM(tax), cls: 'y',                      sub: profitBeforeTax<=0?'База ≤ 0 → 0':'% от прибыли' },
+    { label: 'Маржинальность',            val: marginStr,            cls: marginCls,                   sub: 'Чистая прибыль / Выручка' },
+  ];
+
+  $('metrics').innerHTML = items.map(({ label, val, cls, sub }, i) => `
+    <div class="metric ${i===5 ? (net>=0?'hl':'hl-neg') : ''}">
+      <div class="m-label">${label}</div>
+      <div class="m-val ${cls}">${val}</div>
+      <div class="m-sub">${sub}</div>
+    </div>`).join('');
+}
+
+function renderCalcSteps(pnl) {
+  const { effectiveTotal, owed, profitBeforeTax, tax, net, vatMult, taxRate } = pnl;
+  const { costSales } = STATE.normalizedData;
+
+  const steps = [
+    { label: 'Сумма к получению от Ozon',                              val: fmtM(effectiveTotal),      cls: '',                          bold: false, sep: false },
+    { label: `Себестоимость (${fmtM(costSales)}) × ${vatMult} = долг`, val: '−' + fmtM(owed),          cls: 'r-c',                       bold: false, sep: false },
+    { label: '= Прибыль до налога',                                     val: fmtS(profitBeforeTax),     cls: profitBeforeTax>=0?'bl':'r-c', bold: false, sep: true  },
+    { label: `Налог ${(taxRate*100).toFixed(0)}% × max(0, прибыль)`,   val: '−' + fmtM(tax),           cls: 'y',                         bold: false, sep: false },
+    { label: '= Остаток тебе (чистая прибыль)',                         val: fmtM(net),                 cls: net>=0?'g':'r-c',            bold: true,  sep: false },
+  ];
+
+  $('calc-steps').innerHTML = steps.map(s =>
+    `${s.sep ? '<div class="step-divider"></div>' : ''}
+     <div class="step ${s.bold ? 'bold' : ''}">
+       <span class="step-label">${s.label}</span>
+       <span class="mono ${s.cls}">${s.val}</span>
+     </div>`
+  ).join('');
+}
+
+function renderTypes(pnl) {
+  const { effectiveTotal, owed, profitBeforeTax, tax, net, margin, vatMult, taxRate } = pnl;
+  const { byType, revenueBase } = STATE.normalizedData;
+  const rb = revenueBase || 1;
+
+  const entries = Object.entries(byType);
+  const pos = entries.filter(([,v]) => v >  0).sort((a,b) => b[1]-a[1]);
+  const neg = entries.filter(([,v]) => v <= 0).sort((a,b) => a[1]-b[1]);
+
+  // ── % внутри секции: каждая группа суммируется в 100% ──────────
+  // Это исключает ситуацию когда «Выручка 100% + Баллы 86% + ...» → >100%.
+  const posSum = pos.reduce((s, [,v]) => s + v, 0) || 1;
+  const negSum = neg.reduce((s, [,v]) => s + Math.abs(v), 0) || 1;
+  const pctInPos = v =>  fmtP(v / posSum * 100);          // % от суммы доходов
+  const pctInNeg = v =>  fmtP(Math.abs(v) / negSum * 100); // % от суммы расходов
+
+  // Для P&L-секции (долг, прибыль, налог, остаток) — % от Выручки (revenueBase)
+  const pctOfRev   = v => fmtP(Math.abs(v) / rb * 100);
+  const pctRevSign = v => (v >= 0 ? '+' : '−') + pctOfRev(v);
+
+  // Итого к получению — % от суммы доходов (сколько дошло до seller)
+  const pctReceived = fmtP(Math.abs(effectiveTotal) / posSum * 100);
+
+  const mkRowPos = (label, val, cls, extra = '') => `
+    <div class="trow ${extra}">
+      <span>${label}</span>
+      <span class="pct m">${pctInPos(val)}</span>
+      <span class="mono amt ${cls}">${fmtS(val)}</span>
+    </div>`;
+
+  const mkRowNeg = (label, val, cls, extra = '') => `
+    <div class="trow ${extra}">
+      <span>${label}</span>
+      <span class="pct m">${pctInNeg(val)}</span>
+      <span class="mono amt ${cls}">${fmtS(val)}</span>
+    </div>`;
+
+  const mkRowRev = (label, val, cls, extra = '') => `
+    <div class="trow ${extra}">
+      <span>${label}</span>
+      <span class="pct m">${pctOfRev(val)}</span>
+      <span class="mono amt ${cls}">${fmtS(val)}</span>
+    </div>`;
+
+  let html = `<div class="type-hdr">
+    <span>Тип начисления</span>
+    <span class="r">% секции</span>
+    <span class="r">Сумма</span>
+  </div>`;
+
+  // Доходы — суммируются в 100%
+  if (pos.length) {
+    const posTotalStr = fmtM(posSum);
+    html += `<div class="section-label">Доходы · итого ${posTotalStr}</div>`;
+    for (const [name, val] of pos) {
+      html += mkRowPos(name, val, 'g', norm(name) === 'выручка' || norm(name).includes('итого реализ') ? 'bold' : '');
+    }
+  }
+
+  // Расходы Ozon — суммируются в 100%
+  if (neg.length) {
+    const negTotalStr = fmtM(negSum);
+    html += `<div class="section-label" style="margin-top:8px">Расходы Ozon · итого ${negTotalStr}</div>`;
+    for (const [name, val] of neg) html += mkRowNeg(name, val, 'r-c');
+  }
+
+  // Итого к получению
+  html += `<div class="types-divider"></div>
+  <div class="trow section-total bold">
+    <span>Итого к получению от Ozon</span>
+    <span class="pct">${pctReceived}</span>
+    <span class="mono ${effectiveTotal>=0?'g':'r-c'}">${fmtS(effectiveTotal)}</span>
+  </div>`;
+
+  // P&L расчёт — % от Выручки (revenueBase)
+  html += `<div class="section-label" style="margin-top:10px">P&amp;L · % от Выручки (${fmtM(rb)})</div>`;
+  html += mkRowRev(`Долг поставщику (×${vatMult})`, -owed, 'r-c');
+
+  html += `<div class="trow profit-row">
+    <span class="bl bold">Прибыль до налога</span>
+    <span class="pct bl">${pctRevSign(profitBeforeTax)}</span>
+    <span class="mono bl bold">${fmtS(profitBeforeTax)}</span>
+  </div>`;
+
+  html += mkRowRev(`Налог УСН ${(taxRate*100).toFixed(0)}%`, -tax, 'y');
+
+  const marginStr = margin !== null ? ` · Маржа: ${fmtP(margin)}` : '';
+  html += `<div class="trow ${net>=0?'net-pos':'net-neg'}">
+    <span class="${net>=0?'g':'r-c'} bold">Остаток тебе${marginStr}</span>
+    <span class="pct ${net>=0?'g':'r-c'}">${pctRevSign(net)}</span>
+    <span class="mono ${net>=0?'g':'r-c'} bold">${fmtM(net)}</span>
+  </div>`;
+
+  $('types-section').innerHTML = html;
+  $('types-title').textContent = '📑 Начисления по типам и P&L';
+}
+
+function renderSales() {
+  const { byArticle } = STATE.normalizedData;
+  const entries = Object.entries(byArticle).sort((a,b) => b[1].revenue - a[1].revenue);
+  $('sales-title').textContent = `📦 Продажи по товарам — ${entries.length} позиций`;
+  $('sales-body').innerHTML = entries.map(([art, d]) => `
+    <tr>
+      <td class="mono sm">${art}</td>
+      <td class="trunc">${d.name.replace('Подшипник ', '')}</td>
+      <td class="r">${d.qty}</td>
+      <td class="r g">${fmtM(d.revenue)}</td>
+      <td class="r ${!d.hasCost?'r-c':''}">${!d.hasCost ? '❌ нет' : fmtM(d.cost)}</td>
+      <td class="r m">${fmtM(d.totalCost)}</td>
+    </tr>`).join('');
+}
+
+function renderWarning() {
+  const { missingCost, warnings: parserWarnings } = STATE.normalizedData;
+  const pnl = computePnL();
+  const engineWarnings = pnl?.validationWarnings ?? [];
+  const box = $('warn-box');
+  const parts = [];
+
+  // Объединяем предупреждения парсера и движка (дедупликация)
+  const allWarnings = [...new Set([...parserWarnings, ...engineWarnings])];
+  if (allWarnings.length) {
+    parts.push(
+      `<b class="y">ℹ Предупреждения (${allWarnings.length})</b>` +
+      `<ul style="margin-top:6px;padding-left:16px;font-size:12px;color:var(--m)">` +
+      allWarnings.map(w => `<li>${w}</li>`).join('') + `</ul>`
+    );
+  }
+
+  // Детализация товаров без себестоимости
+  if (missingCost.length) {
+    const rows = missingCost.map(m => {
+      const p = [m.article];
+      if (m.sku && m.sku !== m.article) p.push(`SKU:${m.sku}`);
+      if (m.name) p.push(m.name.replace('Подшипник ', ''));
+      p.push(`${m.qty} шт.`);
+      return p.join(' · ');
+    }).join('\n');
+    parts.push(
+      `<b class="y">⚠ Нет себестоимости для ${missingCost.length} артикулов — долг занижен</b>` +
+      `<pre style="margin-top:8px;font-size:11px;color:var(--m);white-space:pre-wrap;line-height:1.8">${rows}</pre>`
+    );
+  }
+
+  if (parts.length) {
+    box.classList.remove('hidden');
+    box.innerHTML = parts.join('<hr style="border-color:var(--b);margin:10px 0">');
+  } else {
+    box.classList.add('hidden');
+  }
+}
+
+function showResults() {
+  const { normalizedData } = STATE;
+  $('sec-upload').classList.add('hidden');
+  $('sec-result').classList.remove('hidden');
+  $('period-label').textContent = normalizedData.period || '';
+  $('report-badge').textContent =
+    normalizedData.reportType === 'accrual' ? 'Начисления · Недельный' : 'Реализация · Месячный';
+  renderWarning();
+  renderSales();
+  renderAll();
+  syncTotalInput();
+}
+
+// ═══════════════════════════════════════════════════════
+// SECTION 10: TOTAL INPUT SYNC
+// ═══════════════════════════════════════════════════════
+function syncTotalInput() {
+  const { autoTotal, manualTotal } = STATE;
+  const inp      = $('inp-total');
+  const btnReset = $('btn-reset-total');
+  const hint     = $('total-hint');
+
+  const effective = manualTotal !== null ? manualTotal : autoTotal;
+  inp.value = effective.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  if (manualTotal !== null) {
+    inp.classList.add('manual');
+    btnReset.style.display = 'inline-block';
+    hint.textContent = `Авторасчёт: ${fmtM(autoTotal)}`;
+  } else {
+    inp.classList.remove('manual');
+    btnReset.style.display = 'none';
+    hint.textContent = 'Рассчитано автоматически из файла';
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// SECTION 11: MAIN FILE PROCESSING
+// ═══════════════════════════════════════════════════════
+async function processFile(file) {
+  setLoading(true);
+  hideError();
+  STATE.normalizedData = null;
+  STATE.manualTotal    = null;
+
+  try {
+    const buffer      = await file.arrayBuffer();
+    const fixedBuffer = await fixXlsxEntities(buffer);
+
+    let wb;
+    try {
+      wb = XLSX.read(fixedBuffer, { type: 'array', cellFormulas: false, raw: false });
+    } catch (e) {
+      throw new Error(`Не удалось открыть файл Excel: ${e.message}\n\nПопробуйте пересохранить файл и загрузить снова.`);
+    }
+
+    if (!wb.SheetNames?.length) throw new Error('Файл не содержит листов.');
+
+    const detection = ReportDetector.detect(wb);
+    if (!detection) {
+      throw new Error(
+        'Не удалось определить тип отчёта.\n\n' +
+        'Поддерживаются:\n' +
+        '• Отчёт по начислениям (Финансы → Отчёт по начислениям)\n' +
+        '• Отчёт о реализации — будет добавлен в следующей версии\n\n' +
+        `Листы в файле: ${wb.SheetNames.join(', ')}`
+      );
+    }
+
+    let normalizedData;
+    if (detection.reportType === 'accrual') {
+      normalizedData = AccrualReportParser.parse(detection);
+    } else if (detection.reportType === 'realization') {
+      normalizedData = RealizationReportParser.parse(detection);
+    } else {
+      throw new Error(`Неизвестный тип отчёта: ${detection.reportType}`);
+    }
+
+    if (Object.keys(normalizedData.byType).length === 0) {
+      throw new Error(
+        `Таблица найдена, но строк с данными нет.\n` +
+        `Лист: "${normalizedData._sheetName}", заголовок: строка ${normalizedData._headerIdx + 1}.\n` +
+        `Проверьте, что файл содержит данные за выбранный период.`
+      );
+    }
+
+    STATE.normalizedData = normalizedData;
+    STATE.autoTotal      = normalizedData.autoTotal;
+
+    console.info(
+      `[processFile] ✅ тип:${detection.reportType} / лист:"${detection.sheetName}" / ` +
+      `уверенность:${detection.confidence} / типов начислений:${Object.keys(normalizedData.byType).length}`
+    );
+
+    showResults();
+
+  } catch (e) {
+    showError(e.message || String(e));
+    console.error('[processFile]', e);
+  } finally {
+    setLoading(false);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// SECTION 12: UI HELPERS
+// ═══════════════════════════════════════════════════════
+function setLoading(on) {
+  $('drop-icon').textContent  = on ? '⏳' : '📁';
+  $('drop-title').textContent = on ? 'Обрабатываю файл…' : 'Перетащи файл или нажми для выбора';
+}
+function showError(msg) { const b=$('err-box'); b.textContent='⚠ '+msg; b.style.display='block'; }
+function hideError()    { $('err-box').style.display='none'; }
+
+// ═══════════════════════════════════════════════════════
+// SECTION 13: EVENT HANDLERS
+// ═══════════════════════════════════════════════════════
+const dropZone  = $('drop-zone');
+const fileInput = $('file-input');
+
+dropZone.addEventListener('click',     () => fileInput.click());
+fileInput.addEventListener('change',   e  => { if (e.target.files[0]) processFile(e.target.files[0]); });
+dropZone.addEventListener('dragover',  e  => { e.preventDefault(); dropZone.classList.add('drag'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
+dropZone.addEventListener('drop',      e  => {
+  e.preventDefault();
+  dropZone.classList.remove('drag');
+  if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]);
+});
+
+$('btn-back').addEventListener('click', () => {
+  $('sec-result').classList.add('hidden');
+  $('sec-upload').classList.remove('hidden');
+  fileInput.value = '';
+  hideError();
+});
+
+// Ручной ввод суммы
+$('inp-total').addEventListener('input', e => {
+  const raw = e.target.value.replace(/\s/g, '').replace(',', '.');
+  const val = parseFloat(raw);
+  STATE.manualTotal = (!isNaN(val) && isFinite(val)) ? val : null;
+  // Обновляем кнопку/подсказку, не перезаписываем поле ввода
+  const btn  = $('btn-reset-total');
+  const hint = $('total-hint');
+  if (STATE.manualTotal !== null) {
+    $('inp-total').classList.add('manual');
+    btn.style.display  = 'inline-block';
+    hint.textContent   = `Авторасчёт: ${fmtM(STATE.autoTotal)}`;
+  } else {
+    $('inp-total').classList.remove('manual');
+    btn.style.display  = 'none';
+    hint.textContent   = 'Рассчитано автоматически из файла';
+  }
+  renderAll();
+});
+$('inp-total').addEventListener('blur', () => syncTotalInput());
+
+$('btn-reset-total').addEventListener('click', () => {
+  STATE.manualTotal = null;
+  syncTotalInput();
+  renderAll();
+});
+
+// Параметры — живой пересчёт
+$('p-vat').addEventListener('input',  () => { if (STATE.normalizedData) renderAll(); });
+$('p-tax').addEventListener('input',  () => { if (STATE.normalizedData) renderAll(); });
+
+// Проверка загрузки библиотек (работа без VPN)
+window.addEventListener('load', () => {
+  if (typeof JSZip === 'undefined' || typeof XLSX === 'undefined') {
+    showError(
+      'Не удалось загрузить библиотеки обработки Excel.\n\n' +
+      'Проверьте интернет-соединение и перезагрузите страницу.\n' +
+      'Файл работает через cdn.jsdelivr.net (не требует VPN).'
+    );
+  }
+});
+
+// ═══════════════════════════════════════════════════════
+// SECTION 14: ТЕСТЫ
+// ═══════════════════════════════════════════════════════
+function runTests() {
+  const tests = [
+    // norm()
+    ['norm: NBSP',           () => norm('  Тип\u00a0Начисления  ') === 'тип начисления'],
+    ['norm: tab',            () => norm('сумма  итого\t')          === 'сумма итого'],
+    ['norm: null',           () => norm(null) === ''],
+
+    // parseNum()
+    ['parseNum: запятая',   () => parseNum('1 234,56') === 1234.56],
+    ['parseNum: точка',     () => parseNum('1234.56')  === 1234.56],
+    ['parseNum: с ₽',       () => parseNum('1 234 ₽')  === 1234],
+    ['parseNum: отриц.',    () => parseNum('-304.01')   === -304.01],
+    ['parseNum: пусто',     () => parseNum('')  === 0],
+    ['parseNum: null',      () => parseNum(null) === 0],
+    ['parseNum: число',     () => parseNum(42.5) === 42.5],
+    ['parseNum: warning',   () => { const w=[]; parseNum('abc',w,'тест'); return w.length===1 && w[0].includes('тест'); }],
+
+    // AccrualReportParser.buildColMap()
+    ['colMap: тип начисления', () => {
+      const cm = AccrualReportParser.buildColMap(['ID','Дата','Группа','Тип начисления','Артикул']);
+      return cm.type === 3;
+    }],
+    ['colMap: артикул',      () => {
+      const cm = AccrualReportParser.buildColMap(['ID','Дата','Группа','Тип','Артикул']);
+      return cm.art === 4;
+    }],
+    ['colMap: сумма итого',  () => {
+      const row = new Array(16).fill('x'); row[15] = 'Сумма итого, руб.';
+      return AccrualReportParser.buildColMap(row).sum === 15;
+    }],
+    ['colMap: sku',          () => {
+      const cm = AccrualReportParser.buildColMap(['Артикул','SKU','Тип']);
+      return cm.sku === 1;
+    }],
+    ['colMap: наименование', () => {
+      const cm = AccrualReportParser.buildColMap(['X','Наименование товара']);
+      return cm.name === 1;
+    }],
+
+    // COST_MAP
+    ['COST_MAP: 6001-2RS.C3.SRL.NAC.TH', () => COST_MAP['6001-2RS.C3.SRL.NAC.TH'] === 164],
+    ['COST_MAP: unknown',                 () => COST_MAP['UNKNOWN_ART'] === undefined],
+
+    // makeNormalizedData
+    ['NormalizedReportData defaults', () => {
+      const d = makeNormalizedData('accrual');
+      return d.reportType==='accrual' && d.autoTotal===0 && Array.isArray(d.missingCost);
+    }],
+
+    // PnLEngine.compute()
+    ['PnLEngine: basic calc', () => {
+      const data = makeNormalizedData('accrual');
+      data.autoTotal  = 10000;
+      data.costSales  = 5000;
+      data.revenueBase = 20000;
+      const r = PnLEngine.compute(data, { vatMult: 1.22, taxRate: 0.20, manualTotal: null });
+      return Math.abs(r.owed - 6100) < 0.01 &&
+             Math.abs(r.profitBeforeTax - 3900) < 0.01 &&
+             Math.abs(r.tax - 780) < 0.01 &&
+             Math.abs(r.net - 3120) < 0.01;
+    }],
+    ['PnLEngine: manualTotal', () => {
+      const data = makeNormalizedData('accrual');
+      data.autoTotal = 5000; data.costSales = 0; data.revenueBase = 1;
+      const r = PnLEngine.compute(data, { vatMult: 1.22, taxRate: 0.20, manualTotal: 9999 });
+      return r.effectiveTotal === 9999 && r.autoTotal === 5000;
+    }],
+    ['PnLEngine: margin null when revenueBase=0', () => {
+      const data = makeNormalizedData('accrual');
+      data.autoTotal = 1000; data.costSales = 0; data.revenueBase = 0;
+      const r = PnLEngine.compute(data, { vatMult: 1.22, taxRate: 0.20, manualTotal: null });
+      return r.margin === null;
+    }],
+    ['PnLEngine: tax=0 when profit negative', () => {
+      const data = makeNormalizedData('accrual');
+      data.autoTotal = 1000; data.costSales = 2000; data.revenueBase = 5000;
+      const r = PnLEngine.compute(data, { vatMult: 1.22, taxRate: 0.20, manualTotal: null });
+      return r.tax === 0 && r.net < 0;
+    }],
+    ['PnLEngine: validate warns on empty byType', () => {
+      const data = makeNormalizedData('accrual');
+      const w = PnLEngine.validate(data, { effectiveTotal:0, owed:0, revenueBase:0 });
+      return w.some(s => s.includes('нулю'));
+    }],
+
+    // ReportDetector signals
+    ['ReportDetector: accrual signals', () => ReportDetector.SIGNALS.accrual.required.length >= 2],
+    ['ReportDetector: realization signals', () => ReportDetector.SIGNALS.realization.required.length >= 2],
+    ['ReportDetector: realization has exclude', () => Array.isArray(ReportDetector.SIGNALS.realization.exclude)],
+
+    // RealizationReportParser.buildColMap — проверяем обнаружение колонок из двух строк
+    ['RealizationParser: colMap из mainHeader', () => {
+      const mainRow = ['№ п/п', 'Название товара', 'Артикул', 'SKU', 'Штрих-код товара', 'Реализовано'];
+      const subRow  = [null, null, null, null, null, 'Реализовано на сумму, руб.', 'Выплаты', 'Кол-во'];
+      const mockRaw = [mainRow, subRow];
+      const cm = RealizationReportParser.buildColMap(mockRaw, 0);
+      return cm.art === 2 && cm.name === 1 && cm.qty === 7 && cm.rev === 5;
+    }],
+    ['RealizationParser: colMap SKU найден', () => {
+      const mainRow = ['№', 'Название', 'Артикул', 'SKU'];
+      const cm = RealizationReportParser.buildColMap([mainRow, []], 0);
+      return cm.sku === 3;
+    }],
+
+    // RealizationReportParser.findMainHeaderIdx
+    ['RealizationParser: findMainHeaderIdx', () => {
+      const raw = [
+        ['Информация', null],
+        ['Плательщик:', null],
+        ['№ п/п', 'Название товара', 'Артикул', 'SKU', 'Штрих-код', 'Реализовано'],
+      ];
+      return RealizationReportParser.findMainHeaderIdx(raw) === 2;
+    }],
+
+    // RealizationReportParser.findSummaryValues
+    ['RealizationParser: findSummaryValues realized', () => {
+      const raw = [
+        [null, null],
+        [null, 'Итого реализовано (за вычетом возвратов) (руб.):', '37461.65'],
+        [null, 'Всего выплат от партнёров (руб.):', '341.7'],
+      ];
+      const { realized, payments } = RealizationReportParser.findSummaryValues(raw);
+      return Math.abs(realized - 37461.65) < 0.01 && Math.abs(payments - 341.7) < 0.01;
+    }],
+    ['RealizationParser: findSummaryValues нет значений', () => {
+      const { realized, payments } = RealizationReportParser.findSummaryValues([[null, 'Текст без итогов']]);
+      return realized === null && payments === null;
+    }],
+
+    // Полный парсинг через mock-данные
+    ['RealizationParser: parse mock data', () => {
+      const mockRaw = [
+        // Строки до заголовка
+        [null, null, 'Реализация товаров за период с 01.08.2026 по 31.08.2026'],
+        [null, null],
+        // Заголовок [2]
+        ['№ п/п', 'Название товара', 'Артикул', 'SKU', 'Штрих-код', 'Реализовано'],
+        // Под-заголовок [3]
+        [null, null, null, null, null, 'Реализовано на сумму, руб.', 'Выплаты', 'Кол-во'],
+        // Нумерация столбцов [4]
+        [null, '1', '2', '3', '4', '5', '6', '7'],
+        // Данные [5]
+        ['1', 'Подшипник A', '6001-2RS.C3.SRL.NAC.TH', 'SKU1', 'BAR1', '500', '5', '2'],
+        ['2', 'Без себест.', 'UNKNOWN_ART', 'SKU2', 'BAR2', '200', '2', '1'],
+        // Итоги
+        [null, 'Итого реализовано (за вычетом возвратов) (руб.):', '700'],
+        [null, 'Всего выплат от партнёров (руб.):', '7'],
+      ];
+      const detection = { sheetName: 'Тест', raw: mockRaw, headerIdx: 2, row: mockRaw[2] };
+      const d = RealizationReportParser.parse(detection);
+
+      const artFound   = d.byArticle['6001-2RS.C3.SRL.NAC.TH'];
+      const hasCost    = artFound?.hasCost === true;
+      const missingLen = d.missingCost.length === 1 && d.missingCost[0].article === 'UNKNOWN_ART';
+      const totalOk    = Math.abs(d.autoTotal - 707) < 0.01;
+      const cogsOk     = Math.abs(d.costSales - 164 * 2) < 0.01; // qty=2, cost=164
+
+      return hasCost && missingLen && totalOk && cogsOk;
+    }],
+
+    // Detect не путает accrual с realization
+    ['Detect: accrual строка НЕ матчит realization', () => {
+      const accrualRow = ['ID начисления', 'Дата', 'Группа', 'Тип начисления', 'Артикул', 'SKU', 'Сумма итого, руб.'].map(s => norm(s));
+      const sig = ReportDetector.SIGNALS.realization;
+      return !sig.required.every(fn => fn(accrualRow));
+    }],
+    ['Detect: realization строка НЕ матчит accrual', () => {
+      const realRow = ['№ п/п', 'Название товара', 'Артикул', 'SKU', 'Штрих-код', 'Реализовано'].map(s => norm(s));
+      const sig = ReportDetector.SIGNALS.accrual;
+      return !sig.required.every(fn => fn(realRow));
+    }],
+  ];
+
+  let passed = 0, failed = 0;
+  for (const [name, fn] of tests) {
+    try {
+      if (fn()) { passed++; }
+      else { console.error(`❌ FAIL: ${name}`); failed++; }
+    } catch (e) {
+      console.error(`💥 ERROR: ${name}`, e.message);
+      failed++;
+    }
+  }
+  console.info(`[Tests] ${passed}/${passed+failed} — ${failed===0?'✅ все прошли':'⚠ есть падения'}`);
+}
+
+runTests();
+</script>
+</body>
+</html>
