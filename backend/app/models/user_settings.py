@@ -24,7 +24,8 @@ class UserSettings(Base):
 
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     theme: Mapped[str] = mapped_column(String(8), nullable=False, default=DEFAULT_THEME)
-    # подпись себестоимости с НДС в P&L (шаг 3.3); дальше — оплата поставщику в платёжном календаре (3.10)
+    # подпись себестоимости с НДС в P&L (шаг 3.3); дальше — «Откуда товар» с отсрочкой и своим производством (3.8)
+    # и генератор оплаты поставщику в платёжном календаре (3.9)
     supplier_payment: Mapped[str] = mapped_column(
         String(16), nullable=False, default=DEFAULT_SUPPLIER_PAYMENT, server_default=DEFAULT_SUPPLIER_PAYMENT
     )
