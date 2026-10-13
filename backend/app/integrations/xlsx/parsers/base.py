@@ -1,14 +1,37 @@
-"""Общее для парсеров: учёт продаж по артикулам и себестоимости."""
+"""Общее для парсеров: результат разбора, учёт продаж по артикулам и себестоимости."""
+from dataclasses import dataclass, field
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
 from app.integrations.xlsx.costs import CostProvider
-from app.schemas.report import ArticleSales, MissingCost
+from app.schemas.report import ArticleSales, MissingCost, NormalizedReportData
 
 CENT = Decimal("0.01")
 
 
 def money(value: Decimal) -> Decimal:
     return value.quantize(CENT, ROUND_HALF_UP)
+
+
+@dataclass
+class AccrualLine:
+    """Строка отчёта по начислениям как есть — для сохранения в accruals (source='xlsx')."""
+
+    row_no: int  # строка в Excel (с 1)
+    accrual_date: date | None
+    type_name: str
+    posting_number: str  # «ID начисления»: номер отправления, ID рекламной кампании или пусто
+    offer_id: str
+    sku: int | None
+    quantity: int | None
+    amount: Decimal
+    raw: dict[str, str]  # все колонки строки: заголовок → текст ячейки
+
+
+@dataclass
+class ParsedReport:
+    data: NormalizedReportData
+    accrual_lines: list[AccrualLine] = field(default_factory=list)  # только у отчёта по начислениям
 
 
 class SalesLedger:

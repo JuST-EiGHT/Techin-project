@@ -2,7 +2,8 @@
 
 Суммы — в рублях, Decimal (в JSON — строкой). Себестоимость — без НДС.
 """
-from datetime import date
+import uuid
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
@@ -43,3 +44,58 @@ class NormalizedReportData(BaseModel):
     sheet_name: str
     header_row: int = Field(description="Строка заголовков таблицы в Excel (с 1)")
     rows_count: int = Field(description="Строк с товарами: «Выручка» в начислениях, строки таблицы в реализации")
+
+
+# ---------- сохранённые отчёты (шаг 2.2) ----------
+
+
+class ReportItem(BaseModel):
+    id: uuid.UUID
+    filename: str
+    report_type: ReportType
+    period: str
+    period_start: date | None
+    period_end: date | None
+    status: Literal["processing", "ready", "error"]
+    error_message: str | None  # ready — нет; error — почему не удалось перечитать файл (итоги прежние)
+    uploaded_at: datetime
+    parsed_at: datetime
+    auto_total: Decimal  # сколько придёт от Ozon по отчёту
+    manual_total: Decimal | None  # правка пользователя «сколько реально пришло»
+    effective_total: Decimal  # manual_total, если задан, иначе auto_total
+    revenue_base: Decimal
+    cost_sales: Decimal
+    vat_multiplier: Decimal
+    tax_rate: Decimal
+    rows_count: int
+    missing_cost_count: int  # артикулов без себестоимости
+    warnings_count: int
+
+
+class ReportDetail(ReportItem):
+    file_size: int
+    summary: NormalizedReportData
+
+
+class ReportsPage(BaseModel):
+    items: list[ReportItem]
+    total: int
+
+
+class ReportUpdate(BaseModel):
+    """Правки пользователя. Не переданное поле не меняется; manual_total=null — вернуться к авто,
+    vat_multiplier/tax_rate=null — значения по умолчанию (1.22 и 0.20)."""
+
+    manual_total: Decimal | None = Field(None, ge=-100_000_000, le=100_000_000, decimal_places=2)
+    vat_multiplier: Decimal | None = Field(None, ge=1, le=2)
+    tax_rate: Decimal | None = Field(None, ge=0, lt=1)
+
+
+class ReportConflictItem(BaseModel):
+    id: uuid.UUID
+    filename: str
+    period: str
+    period_start: date | None
+    period_end: date | None
+    uploaded_at: datetime
+    same_file: bool

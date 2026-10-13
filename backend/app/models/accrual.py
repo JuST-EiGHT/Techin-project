@@ -47,6 +47,7 @@ class Accrual(Base):
     отправления (`posting:<номер>`) или все начисления дня без отправления (`day:<дата>`).
     При повторной синхронизации область целиком заменяется; уникальный индекс
     (user_id, source, sync_scope, line_no) не даёт записать её дважды.
+    Строки XLSX: область `report:<id>` — все строки одного загруженного отчёта.
     """
 
     __tablename__ = "accruals"
@@ -63,7 +64,13 @@ class Accrual(Base):
     )
     posting_number: Mapped[str | None] = mapped_column(String(64))
     sku: Mapped[int | None] = mapped_column(BigInteger)
-    accrual_type_id: Mapped[int] = mapped_column(Integer, ForeignKey("accrual_types.id"), nullable=False)
+    # API — тип из справочника Ozon; XLSX — название из отчёта (type_name) и тип справочника, если нашёлся
+    accrual_type_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("accrual_types.id"))
+    type_name: Mapped[str | None] = mapped_column(String(255))
+    offer_id: Mapped[str | None] = mapped_column(String(100))  # артикул (в XLSX есть всегда, в API — нет)
+    report_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("reports.id", ondelete="CASCADE"), index=True
+    )  # строки XLSX: из какого отчёта
     accrual_date: Mapped[date] = mapped_column(Date, nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)  # + доход, − расход
     quantity: Mapped[int | None] = mapped_column(Integer)

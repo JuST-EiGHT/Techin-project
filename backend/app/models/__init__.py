@@ -5,3 +5,4 @@ from app.models.sync_run import SyncRun  # noqa: F401
 from app.models.warehouse import ProductStock, Warehouse  # noqa: F401
 from app.models.accrual import Accrual, AccrualDay, AccrualType  # noqa: F401
 from app.models.promotion import Promotion, PromotionProduct  # noqa: F401
+from app.models.report import Report, ReportFile  # noqa: F401

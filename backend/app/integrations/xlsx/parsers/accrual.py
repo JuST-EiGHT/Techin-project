@@ -18,12 +18,13 @@ from app.integrations.xlsx.common import (
     is_empty_row,
     limit_warnings,
     norm,
+    parse_date,
     parse_number,
     parse_qty,
 )
 from app.integrations.xlsx.costs import CostProvider
 from app.integrations.xlsx.detector import Detection
-from app.integrations.xlsx.parsers.base import SalesLedger, money
+from app.integrations.xlsx.parsers.base import AccrualLine, ParsedReport, SalesLedger, money
 from app.schemas.report import NormalizedReportData
 
 COL_ALIASES: dict[str, tuple[str, ...]] = {
@@ -33,6 +34,8 @@ COL_ALIASES: dict[str, tuple[str, ...]] = {
     "sku": ("sku", "скю"),
     "name": ("название товара", "наименование товара", "название", "наименование"),
     "qty": ("количество", "кол-во", "кол во"),
+    "date": ("дата начислен",),
+    "id": ("id начислен", "номер начислен"),
 }
 REQUIRED = {"type": "Тип начисления", "sum": "Сумма итого, руб."}
 REVENUE_TYPE = "выручка"
@@ -52,9 +55,16 @@ def column_map(header: Row) -> dict[str, int]:
     return {name: idx for name, idx in found.items() if idx is not None}
 
 
-def parse_accrual(rows: Sequence[Row], detection: Detection, costs: CostProvider) -> NormalizedReportData:
+def _to_int(value) -> int | None:
+    number = parse_number(value)
+    return int(number) if number is not None and number == number.to_integral_value() else None
+
+
+def parse_accrual(rows: Sequence[Row], detection: Detection, costs: CostProvider) -> ParsedReport:
     header_idx = detection.header_idx
-    cols = column_map(rows[header_idx])
+    header = rows[header_idx]
+    cols = column_map(header)
+    titles = [(j, cell_text(v)) for j, v in enumerate(header) if cell_text(v)]
     for key, title in REQUIRED.items():
         if key not in cols:
             raise ReportParseError(
@@ -70,6 +80,7 @@ def parse_accrual(rows: Sequence[Row], detection: Detection, costs: CostProvider
     revenue_base = Decimal(0)
     by_type: dict[str, Decimal] = {}
     untyped_rows, untyped_total = 0, Decimal(0)
+    lines: list[AccrualLine] = []
 
     for i in range(header_idx + 1, len(rows)):
         row = rows[i]
@@ -84,9 +95,22 @@ def parse_accrual(rows: Sequence[Row], detection: Detection, costs: CostProvider
                 untyped_rows += 1
                 untyped_total += untyped
             continue
-        amount = parse_number(cell(row, cols["sum"]), warnings, "Сумма итого", where) or Decimal(0)
+        parsed = parse_number(cell(row, cols["sum"]), warnings, "Сумма итого", where)
+        amount = parsed or Decimal(0)
         auto_total += amount
         by_type[type_raw] = by_type.get(type_raw, Decimal(0)) + amount
+        if parsed is not None:  # пустая или нечитаемая сумма — не операция с суммой 0
+            lines.append(AccrualLine(
+                row_no=i + 1,
+                accrual_date=parse_date(cell(row, cols.get("date"))),
+                type_name=type_raw,
+                posting_number=cell_text(cell(row, cols.get("id"))),
+                offer_id=cell_text(cell(row, cols.get("art"))),
+                sku=_to_int(cell(row, cols.get("sku"))),
+                quantity=_to_int(cell(row, cols.get("qty"))),
+                amount=parsed,
+                raw={title: text for j, title in titles if (text := cell_text(cell(row, j)))},
+            ))
         if norm(type_raw) != REVENUE_TYPE:
             continue
         revenue_base += amount
@@ -112,7 +136,7 @@ def parse_accrual(rows: Sequence[Row], detection: Detection, costs: CostProvider
         warnings.append("В отчёте нет строк с типом «Выручка» — продаж за период нет, маржу посчитать нельзя.")
     warnings.extend(ledger.warnings("«Выручка»"))
 
-    return NormalizedReportData(
+    data = NormalizedReportData(
         report_type="accrual",
         period=period,
         period_start=start,
@@ -128,3 +152,4 @@ def parse_accrual(rows: Sequence[Row], detection: Detection, costs: CostProvider
         header_row=header_idx + 1,
         rows_count=ledger.rows,
     )
+    return ParsedReport(data, lines)

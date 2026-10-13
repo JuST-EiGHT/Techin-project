@@ -103,7 +103,8 @@ pip install -r requirements-dev.txt && pytest
 | 1.4 | Финансовые начисления из API (by-day + postings, Celery, /finance) | ✅ готово, 171 тест всего |
 | 1.5 | Акции Ozon (v2-методы, автодобавление, маржа, /dashboard/promotions) | ✅ готово, 197 тестов всего |
 | 2.1 | Парсер XLSX-отчётов Ozon (детектор, начисления, реализация, POST /reports/parse) | ✅ готово, 242 теста всего |
-| 2.2 … 9.2 | см. `docs/ROADMAP.md` | ⏳ |
+| 2.2 | Загрузка отчётов и история (/dashboard/reports, конфликты периода, скрытие, перечитывание) | ✅ готово, 254 теста всего |
+| 2.3 … 9.2 | см. `docs/ROADMAP.md` | ⏳ |
 
 Детали сделанного в 0.2: access-токен 24 ч, refresh 30 дней; refresh одноразовый
 (ротация); logout отзывает токены через чёрный список в Redis (в тестах — в памяти);
@@ -239,9 +240,32 @@ Celery: `sync_promotions_all` каждые 3 ч (:33). API: `GET /api/v1/promoti
 `integrations/xlsx/costs.CostProvider` (`cost_of(article)`); сейчас `services/costs.get_cost_provider`
 читает `COST_PRICES_CSV` (по умолчанию `reference/cost_prices.csv`, в Docker смонтирован в
 `/reference`); на шаге 2.3 меняется только эта зависимость. API: `POST /api/v1/reports/parse`
-(multipart `file`, ≤ `REPORT_MAX_SIZE_MB`=20 → иначе 413, ошибки разбора — 400 с русским
-текстом), без сохранения (шаг 2.2). nginx: `client_max_body_size 21m`. P&L (owed, налог, net) —
-шаг 3.1.
+(multipart `file`, ≤ `REPORT_MAX_SIZE_MB` → иначе 413, ошибки разбора — 400 с русским
+текстом), без сохранения. P&L (owed, налог, net) — шаг 3.1.
+
+Детали сделанного в 2.2 (решения согласованы с владельцем: без остатка и маржи до шага 3.1;
+удаление — скрытие): миграция 0007 — `reports` (тип, период, status ready|error|processing,
+summary_json = NormalizedReportData, manual_total, vat_multiplier 1.22, tax_rate 0.20, sha256 и
+размер файла, uploaded_at/parsed_at, deleted_at, replaced_by_id), `report_files` (исходный файл
+отдельно от списков); в `accruals`: `accrual_type_id` теперь nullable, + `type_name`, `offer_id`,
+`report_id` (строки XLSX: source='xlsx', область `report:<id>`, line_no = строка Excel, raw_json —
+вся строка по заголовкам; тип справочника Ozon и товар — если нашлись по названию / артикулу или
+SKU; без даты — дата начала периода). Парсер: `parse_report_full` → `ParsedReport(data,
+accrual_lines)`; сумма строк = auto_total. Сервис `services/reports.py`: конфликт — видимый отчёт
+с тем же sha256 или того же типа с пересекающимся периодом; `on_conflict` ask (409 + conflicts) |
+replace (старые скрываются, `replaced_by_id`) | keep. Скрытие удаляет строки accruals отчёта
+(файл и запись остаются), восстановление и перечитывание пересобирают их из файла; перечитывание
+не удалось — итоги прежние, status=error + error_message. Ошибка разбора при загрузке — 400,
+ничего не сохраняется. API `/api/v1/reports`: POST `/upload` (только .xlsx, ≤ 10 МБ, 201),
+GET (report_type, limit/offset → items+total), GET/PATCH/DELETE `/{id}` (PATCH: не переданное
+не меняется, null — к авто/умолчаниям; DELETE — 204, скрытие), POST `/{id}/restore`,
+`/{id}/reparse`; `/parse` остался. Начисления из XLSX в `/api/v1/finance/*` (только API) не
+попадают; выбор источника для P&L — шаг 3.2. Фронт: `/dashboard/reports` (вкладки «Недельные» /
+«Месячные», карточки: продано, пришло от Ozon, себестоимость, бейджи; удаление с «Отменить»),
+`/dashboard/reports/upload` (drag&drop, прогресс, диалог «Заменить / Оставить оба»,
+предпросмотр), `/dashboard/reports/[id]` (товары, начисления по типам, «Перечитать файл»);
+общие компоненты — `components/reports.tsx`. Ручная правка «сколько пришло» в интерфейсе — шаг 3.3
+(бэкенд PATCH готов). nginx: `client_max_body_size 11m`.
 
 ## Где что искать
 

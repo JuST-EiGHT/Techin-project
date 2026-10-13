@@ -27,7 +27,7 @@ from app.integrations.xlsx.common import (
 )
 from app.integrations.xlsx.costs import CostProvider
 from app.integrations.xlsx.detector import Detection
-from app.integrations.xlsx.parsers.base import SalesLedger, money
+from app.integrations.xlsx.parsers.base import ParsedReport, SalesLedger, money
 from app.schemas.report import NormalizedReportData
 
 # порядок важен: колонка достаётся первому подходящему названию, сначала в главной строке заголовка
@@ -92,7 +92,7 @@ def find_summary(rows: Sequence[Row]) -> dict[str, Decimal | None]:
     return found
 
 
-def parse_realization(rows: Sequence[Row], detection: Detection, costs: CostProvider) -> NormalizedReportData:
+def parse_realization(rows: Sequence[Row], detection: Detection, costs: CostProvider) -> ParsedReport:
     header_idx = detection.header_idx
     cols = column_map(rows, header_idx)
     if "art" not in cols:
@@ -143,7 +143,7 @@ def parse_realization(rows: Sequence[Row], detection: Detection, costs: CostProv
         )
     warnings.extend(ledger.warnings("таблицы"))
 
-    return NormalizedReportData(
+    return ParsedReport(NormalizedReportData(
         report_type="realization",
         period=period,
         period_start=start,
@@ -158,4 +158,4 @@ def parse_realization(rows: Sequence[Row], detection: Detection, costs: CostProv
         sheet_name=detection.sheet_name,
         header_row=header_idx + 1,
         rows_count=ledger.rows,
-    )
+    ))

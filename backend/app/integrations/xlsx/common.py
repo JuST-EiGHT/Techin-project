@@ -184,6 +184,27 @@ def _to_date(match: re.Match) -> date | None:
         return None
 
 
+_ISO_DATE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+
+
+def parse_date(value: Any) -> date | None:
+    """Дата из ячейки: дата Excel, «07.09.2026» или «2026-09-07»; иначе None."""
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = cell_text(value)
+    if m := _DATE.search(text):
+        return _to_date(m)
+    if m := _ISO_DATE.search(text):
+        y, mth, d = (int(g) for g in m.groups())
+        try:
+            return date(y, mth, d)
+        except ValueError:
+            return None
+    return None
+
+
 def extract_period(rows: Sequence[Row]) -> tuple[str, date | None, date | None]:
     """Период из шапки отчёта (строки над таблицей).
 

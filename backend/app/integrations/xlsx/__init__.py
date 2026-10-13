@@ -3,6 +3,7 @@ from app.integrations.xlsx.common import ReportParseError, Workbook
 from app.integrations.xlsx.costs import CostProvider, MappingCostProvider  # noqa: F401
 from app.integrations.xlsx.detector import MAX_SCAN, detect
 from app.integrations.xlsx.parsers import parse_accrual, parse_realization
+from app.integrations.xlsx.parsers.base import AccrualLine, ParsedReport  # noqa: F401
 from app.schemas.report import NormalizedReportData
 
 SUPPORTED = (
@@ -14,6 +15,11 @@ _PARSERS = {"accrual": parse_accrual, "realization": parse_realization}
 
 def parse_report(content: bytes, costs: CostProvider, filename: str | None = None) -> NormalizedReportData:
     """Разобрать файл отчёта. Ошибки — ReportParseError с текстом для пользователя."""
+    return parse_report_full(content, costs, filename).data
+
+
+def parse_report_full(content: bytes, costs: CostProvider, filename: str | None = None) -> ParsedReport:
+    """Итоги отчёта и (для отчёта по начислениям) его строки для сохранения в accruals."""
     with Workbook(content) as wb:
         if not wb.sheet_names:
             raise ReportParseError("В файле нет ни одного листа.")

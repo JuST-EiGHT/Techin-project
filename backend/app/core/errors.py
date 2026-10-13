@@ -34,6 +34,12 @@ _FIELD_NAMES = {
     "participating": "Участие",
     "include_finished": "Закончившиеся акции",
     "file": "Файл",
+    "report_id": "Отчёт",
+    "report_type": "Тип отчёта",
+    "on_conflict": "Действие при совпадении периода",
+    "manual_total": "Сумма от Ozon",
+    "vat_multiplier": "Коэффициент НДС",
+    "tax_rate": "Ставка налога",
 }
 
 
@@ -57,6 +63,13 @@ def _humanize(err: dict) -> str:
         return f"{name}: нужно true или false"
     if t in ("int_parsing", "int_type"):
         return f"{name}: нужно целое число"
+    if t in ("decimal_parsing", "decimal_type", "float_parsing", "float_type"):
+        return f"{name}: нужно число"
+    if t == "decimal_max_places":
+        return f"{name}: не больше {err.get('ctx', {}).get('decimal_places')} знаков после запятой"
+    if t in ("less_than", "greater_than"):
+        ctx = err.get("ctx", {})
+        return f"{name}: {'меньше' if t == 'less_than' else 'больше'} {ctx.get('lt', ctx.get('gt'))}"
     if t in ("less_than_equal", "greater_than_equal"):
         ctx = err.get("ctx", {})
         bound = ctx.get("le", ctx.get("ge"))

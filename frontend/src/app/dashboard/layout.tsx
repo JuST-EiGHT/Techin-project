@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext'
 
 const NAV = [
   { href: '/dashboard', label: 'Главная' },
+  { href: '/dashboard/reports', label: 'Отчёты' },
   { href: '/dashboard/warehouses', label: 'Склады' },
   { href: '/dashboard/promotions', label: 'Акции' },
   { href: '/dashboard/settings/api-keys', label: 'API-ключи' },
@@ -46,7 +47,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <Link
               key={item.href}
               href={item.href}
-              className={pathname === item.href ? 'text-accent' : 'text-slate-400 hover:text-slate-200'}
+              className={
+                pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(`${item.href}/`))
+                  ? 'text-accent'
+                  : 'text-slate-400 hover:text-slate-200'
+              }
             >
               {item.label}
             </Link>

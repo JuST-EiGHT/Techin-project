@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     # Себестоимость для разбора XLSX-отчётов до справочника в БД (шаг 2.3).
     # По умолчанию reference/cost_prices.csv в корне репозитория (в Docker — /reference, см. docker-compose).
     COST_PRICES_CSV: str = str(Path(__file__).resolve().parents[3] / "reference" / "cost_prices.csv")
-    REPORT_MAX_SIZE_MB: int = 20  # предел размера загружаемого отчёта
+    REPORT_MAX_SIZE_MB: int = 10  # предел размера загружаемого отчёта (промпт 2.2)
 
     # В .env задаётся строкой через запятую
     ALLOWED_ORIGINS: list[str] | str = ["http://localhost:3000", "http://127.0.0.1:3000"]
