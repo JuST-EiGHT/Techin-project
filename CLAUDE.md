@@ -219,7 +219,7 @@ add_mode, first_seen_at; участники is_active=true и кандидаты
 пояснение. Min-цена: `min_seller_price`, иначе мин. цена товара; 0 = «не задана» → null.
 Celery: `sync_promotions_all` каждые 3 ч (:33). API: `GET /api/v1/promotions`
 (include_finished), `/{id}/products` (participating), `/auto-added`, `POST /api/v1/sync/promotions`.
-Выход товара из акции пока удаляет строку участия — история появится на шаге 1.6.
+Выход товара из акции пока удаляет строку участия — история появится на шаге 4.3.
 
 Детали сделанного в 2.1 (`app/integrations/xlsx/`): `parse_report(content, costs, filename)` →
 `schemas/report.NormalizedReportData` (+ sheet_name, header_row с 1, rows_count; суммы — Decimal,
