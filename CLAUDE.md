@@ -84,6 +84,10 @@ pip install -r requirements-dev.txt && pytest
     документацией: её выгрузка — `docs/ozon/seller_api_2026-10.txt` (docs.ozon.ru из облачной
     среды недоступен). `docs/OZON_API.md` — наша выжимка, при расхождении обнови её.
 11. Не коммить `.env`, ключи и реальные выгрузки клиентов (кроме fixtures в tests/).
+12. **История данных — главная ценность.** Исходные данные (снимки цен и остатков, начисления,
+    участие в акциях, файлы отчётов, себестоимость) не удалять и не перезаписывать: изменение —
+    новая запись. Итоги — производные, их можно пересчитать. Нет данных ≠ 0.
+    Подробно — `docs/DATA_HISTORY.md`.
 
 ## Текущий статус
 
@@ -198,7 +202,7 @@ by-day; отправление, которого `/postings` не вернул, 
 `GET /api/v1/finance/accruals/by-day` (+ missing_periods), `POST /api/v1/finance/sync`;
 в ответах `data_source: "api"` и предупреждение о расхождении с кабинетом.
 `services/stocks.avg_daily_sales` к начислениям пока не подключён — продажи из API есть по
-товарам, но не по складам; решить на шаге 5.x или по запросу владельца.
+товарам, но не по складам; подключается на шаге 3.5 (продажи по дням).
 
 Детали сделанного в 1.5: миграция 0006 — `promotions` (+ action_type, discount_value,
 auto_add_dates, whole_stock) и `promotion_products` (+ price, max_action_price, stock,
@@ -215,6 +219,7 @@ add_mode, first_seen_at; участники is_active=true и кандидаты
 пояснение. Min-цена: `min_seller_price`, иначе мин. цена товара; 0 = «не задана» → null.
 Celery: `sync_promotions_all` каждые 3 ч (:33). API: `GET /api/v1/promotions`
 (include_finished), `/{id}/products` (participating), `/auto-added`, `POST /api/v1/sync/promotions`.
+Выход товара из акции пока удаляет строку участия — история появится на шаге 1.6.
 
 Детали сделанного в 2.1 (`app/integrations/xlsx/`): `parse_report(content, costs, filename)` →
 `schemas/report.NormalizedReportData` (+ sheet_name, header_row с 1, rows_count; суммы — Decimal,
@@ -245,6 +250,7 @@ Celery: `sync_promotions_all` каждые 3 ч (:33). API: `GET /api/v1/promoti
   для тестов → `docs/BUSINESS_LOGIC.md`
 - Эндпоинты Ozon Seller API, лимиты, устаревшие методы → `docs/OZON_API.md`
 - Официальная документация Ozon Seller API (выгрузка, октябрь 2026) → `docs/ozon/seller_api_2026-10.txt`
+- История данных: что храним, откуда, как не потерять, бэкапы → `docs/DATA_HISTORY.md`
 - План по фазам и шагам → `docs/ROADMAP.md`
 - Готовые промпты на каждый шаг → `docs/prompts/`
 - Рабочий JS-калькулятор P&L (логика парсинга двух типов отчётов) →
