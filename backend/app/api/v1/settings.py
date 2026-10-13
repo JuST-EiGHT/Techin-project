@@ -1,6 +1,4 @@
-"""Основные настройки сервиса: тема и расчёты по умолчанию."""
-from decimal import Decimal
-
+"""Основные настройки сервиса: тема. Налог и НДС — в налоговом профиле (tax_profile.py)."""
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,12 +13,7 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 
 def _response(s: UserSettings) -> SettingsResponse:
-    # одинаковый вид чисел для PostgreSQL и SQLite — масштаб колонки
-    return SettingsResponse(
-        theme=s.theme, tax_base=s.tax_base,
-        vat_multiplier=Decimal(s.vat_multiplier).quantize(Decimal("0.001")),
-        tax_rate=Decimal(s.tax_rate).quantize(Decimal("0.0001")),
-    )
+    return SettingsResponse(theme=s.theme)
 
 
 @router.get("", response_model=SettingsResponse)

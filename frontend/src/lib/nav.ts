@@ -39,6 +39,7 @@ export const NAV: NavSection[] = [
 export const ACCOUNT_MENU: NavItem[] = [
   { href: '/dashboard/settings/account', label: 'Аккаунт' },
   { href: '/dashboard/settings/api-keys', label: 'API-ключи Ozon' },
+  { href: '/dashboard/settings/taxes', label: 'Налоги и НДС' },
   { href: '/dashboard/settings', label: 'Основные настройки' },
 ]
 

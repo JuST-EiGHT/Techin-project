@@ -81,7 +81,7 @@ async def test_upload_accrual_report_saves_summary_file_and_lines(client, tokens
     assert (body["period_start"], body["period_end"]) == ("2026-09-07", "2026-09-13")
     assert (body["auto_total"], body["effective_total"], body["manual_total"]) == ("10955.83", "10955.83", None)
     assert (body["revenue_base"], body["cost_sales"]) == ("23712.03", "10143.36")
-    assert (body["vat_multiplier"], body["tax_rate"]) == ("1.220", "0.2000")
+    assert (body["vat_multiplier"], body["tax_base"], body["tax_rate"]) == (None, None, None)  # по налоговому профилю
     assert body["missing_cost_count"] == 0 and body["summary"]["by_type"]["Выручка"] == "23712.03"
     assert body["file_size"] == len(content)
 
@@ -195,11 +195,11 @@ async def test_patch_manual_total_vat_and_tax(client, tokens):
     # правки сохраняются: вернуться к отчёту позже
     again = (await client.get(f"/api/v1/reports/{report_id}", headers=auth(tokens))).json()
     assert again["manual_total"] == "11000.50"
-    # не переданные поля не меняются; null — вернуться к авто и значениям по умолчанию
+    # не переданные поля не меняются; null — вернуться к авто и к налоговому профилю
     body = (await patch({"manual_total": None})).json()
     assert (body["manual_total"], body["effective_total"], body["tax_rate"]) == (None, "10955.83", "0.0600")
     body = (await patch({"vat_multiplier": None, "tax_rate": None})).json()
-    assert (body["vat_multiplier"], body["tax_rate"]) == ("1.220", "0.2000")
+    assert (body["vat_multiplier"], body["tax_rate"]) == (None, None)
 
     for bad, text in [
         ({"vat_multiplier": "2.5"}, "Коэффициент НДС: не больше 2"),

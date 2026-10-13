@@ -208,7 +208,7 @@ async def test_import_xlsx_russian_headers_cp1251_csv_and_row_errors(client, tok
         "1.220",
         "2026-09-01",
     )
-    assert rows[5]["vat_multiplier"] is None  # не указан — как в «Основных настройках»
+    assert rows[5]["vat_multiplier"] is None  # не указан — как в налоговом профиле
     assert rows[6]["message"] == "Себестоимость должна быть больше 0"
     assert rows[7]["message"] == "Не указан артикул"
     assert rows[8]["message"] == "Артикул уже есть в строке 5"
@@ -306,6 +306,13 @@ async def test_cost_prices_for_promotions(client, tokens, sessions):
         )
         await db.commit()
     await client.put(f"/api/v1/costs/{ART}", json={"cost_price": "164"}, headers=auth(tokens))
+    async with sessions() as db:  # НДС поставщика не указан, профиля нет — общая ставка 22 %
+        assert await costs_svc.cost_prices_with_vat(db, user_id) == {product.id: Decimal("200.08")}
+    profile = {"legal_form": "ip", "regime": "usn_income", "supplier_vat_pct": "0"}  # поставщик без НДС
+    assert (await client.put("/api/v1/tax-profile", json=profile, headers=auth(tokens))).status_code == 200
     async with sessions() as db:
-        assert await costs_svc.cost_prices(db, user_id) == {product.id: Decimal("164.00")}
+        assert await costs_svc.cost_prices_with_vat(db, user_id) == {product.id: Decimal("164.00")}
+    await client.put(f"/api/v1/costs/{ART}", json={"cost_price": "164", "vat_multiplier": "1.1"}, headers=auth(tokens))
+    async with sessions() as db:  # своя ставка в записи себестоимости важнее профиля
+        assert await costs_svc.cost_prices_with_vat(db, user_id) == {product.id: Decimal("180.40")}
 

@@ -34,11 +34,14 @@ def load(name: str) -> dict:
 
 # ── расчёты ──
 def test_margin_in_promo_simple_formula():
-    # (459 × (1 − 0.38 − 0.015) − 164 × 1.22) / 459 = (277.695 − 200.08) / 459 = 16.91 %
-    assert margin_in_promo(Decimal("459"), Decimal("164"), Decimal("38"), Decimal("1.5")) == Decimal("16.91")
+    # себестоимость с НДС поставщика: 164 × 1,22 = 200,08 (ставка — из себестоимости или налогового профиля)
+    # (459 × (1 − 0.38 − 0.015) − 200.08) / 459 = (277.695 − 200.08) / 459 = 16.91 %
+    assert margin_in_promo(Decimal("459"), Decimal("200.08"), Decimal("38"), Decimal("1.5")) == Decimal("16.91")
     # без эквайринга: (459 × 0.62 − 200.08) / 459 = 18.41 %
-    assert margin_in_promo(Decimal("459"), Decimal("164"), Decimal("38")) == Decimal("18.41")
-    assert margin_in_promo(Decimal("200"), Decimal("164"), Decimal("38")) < 0  # в минус
+    assert margin_in_promo(Decimal("459"), Decimal("200.08"), Decimal("38")) == Decimal("18.41")
+    assert margin_in_promo(Decimal("200"), Decimal("200.08"), Decimal("38")) < 0  # в минус
+    # поставщик без НДС: (459 × 0.62 − 164) / 459 = 26.27 %
+    assert margin_in_promo(Decimal("459"), Decimal("164"), Decimal("38")) == Decimal("26.27")
 
 
 @pytest.mark.parametrize("args", [
@@ -199,10 +202,10 @@ async def test_margin_with_costs(sessions, ozon, monkeypatch):
     async with sessions() as db:
         ids = {p.ozon_product_id: p.id for p in (await db.execute(select(Product))).scalars()}
 
-    async def fake_costs(db, uid):
-        return {ids[1001]: Decimal("164"), ids[1003]: Decimal("400")}
+    async def fake_costs(db, uid):  # себестоимость с НДС поставщика
+        return {ids[1001]: Decimal("200.08"), ids[1003]: Decimal("488")}
 
-    monkeypatch.setattr(sync_mod, "cost_prices", fake_costs)
+    monkeypatch.setattr(sync_mod, "cost_prices_with_vat", fake_costs)
     await sync(sessions, user_id)
     rows = await promo_rows(sessions, user_id)
     assert rows[(71001, 1001)].margin_in_promo == Decimal("16.91")

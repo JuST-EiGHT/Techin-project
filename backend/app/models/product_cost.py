@@ -26,7 +26,7 @@ class ProductCost(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     offer_id: Mapped[str] = mapped_column(String(100), nullable=False)
     cost_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)  # за единицу, без НДС
-    # коэффициент НДС к себестоимости; None — как в «Основных настройках» пользователя
+    # коэффициент НДС к себестоимости; None — как в налоговом профиле пользователя (шаг 2.5)
     vat_multiplier: Mapped[Decimal | None] = mapped_column(Numeric(5, 3))
     effective_from: Mapped[date] = mapped_column(Date, nullable=False)
     note: Mapped[str | None] = mapped_column(String(255))

@@ -3,20 +3,11 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.user_settings import (
-    DEFAULT_TAX_BASE,
-    DEFAULT_TAX_RATE,
-    DEFAULT_THEME,
-    DEFAULT_VAT_MULTIPLIER,
-    UserSettings,
-)
+from app.models.user_settings import DEFAULT_THEME, UserSettings
 
 
 def defaults(user_id: uuid.UUID) -> UserSettings:
-    return UserSettings(
-        user_id=user_id, theme=DEFAULT_THEME, vat_multiplier=DEFAULT_VAT_MULTIPLIER,
-        tax_base=DEFAULT_TAX_BASE, tax_rate=DEFAULT_TAX_RATE,
-    )
+    return UserSettings(user_id=user_id, theme=DEFAULT_THEME)
 
 
 async def get_settings(db: AsyncSession, user_id: uuid.UUID) -> UserSettings:

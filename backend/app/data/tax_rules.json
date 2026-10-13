@@ -1,0 +1,26 @@
+{
+  "_about": "Ставки, пороги и лимиты, которые меняет закон (шаг 2.5, docs/TAXES.md). Новое значение — новая запись с from; старые не удалять: прошлые периоды считаются по своим ставкам.",
+  "rates": {
+    "usn_income": [{"from": "2026-01-01", "rate": 6}],
+    "usn_income_expense": [{"from": "2026-01-01", "rate": 15, "min_rate": 1}],
+    "ausn_income": [{"from": "2026-01-01", "rate": 8}],
+    "ausn_income_expense": [{"from": "2026-01-01", "rate": 20, "min_rate": 3}],
+    "osn_ooo": [{"from": "2026-01-01", "rate": 25}],
+    "osn_ip": [{"from": "2026-01-01", "rate": 13, "_note": "НДФЛ прогрессивный — в docs/TAXES.md шкалы нет, 13 % — нижняя ставка, пользователь указывает свою"}],
+    "npd": [{"from": "2026-01-01", "rate": 4, "rate_companies": 6}],
+    "eshn": [{"from": "2026-01-01", "rate": 6}]
+  },
+  "vat": [
+    {"from": "2026-01-01", "general": [22, 10, 0], "special": [5, 7], "supplier_default": 22}
+  ],
+  "limits": [
+    {
+      "from": "2026-01-01",
+      "usn_income": 490500000, "usn_staff": 130, "usn_vat_free_income": 20000000,
+      "ausn_income": 60000000, "ausn_staff": 5,
+      "psn_income": 20000000, "psn_staff": 15,
+      "npd_income": 2400000,
+      "eshn_vat_free_income": 60000000
+    }
+  ]
+}

@@ -18,6 +18,7 @@ from app.integrations.xlsx.common import cell_text
 from app.services.costs import CostHistory, add_cost, known_articles, load_cost_history
 from app.services.report_costs import recost_reports
 from app.services.sync.finance import today_msk
+from app.services.tax_profile import supplier_vat_multiplier
 from app.services.templates import (
     ERROR_COLUMN,
     RATE_CHOICES,
@@ -35,7 +36,6 @@ from app.services.templates import (
     rate_text,
     read_table,
 )
-from app.services.user_settings import get_settings
 
 MAX_ROWS = 20_000
 MAX_COST = Decimal("100000000")
@@ -110,7 +110,7 @@ COST_SPEC = TemplateSpec(
             ),
             exclude=("себестоимость", "цена", "cost", "справочно"),
             hint="Ставка НДС в цене поставщика: 22 %, 10 %, 7 %, 5 % или «без НДС». "
-            "Пусто — как в «Основных настройках».",
+            "Пусто — как в налоговом профиле («Налоги и НДС»).",
         ),
         Column(
             "effective_from",
@@ -288,8 +288,7 @@ class ImportResult:
 
 
 async def _parse_for_user(db: AsyncSession, user_id: uuid.UUID, content: bytes, filename: str) -> ParsedFile:
-    settings = await get_settings(db, user_id)
-    return parse_cost_file(content, filename, Decimal(settings.vat_multiplier))
+    return parse_cost_file(content, filename, await supplier_vat_multiplier(db, user_id))
 
 
 async def import_costs(

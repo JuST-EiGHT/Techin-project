@@ -18,7 +18,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.models.user_settings import DEFAULT_TAX_BASE, DEFAULT_TAX_RATE, DEFAULT_VAT_MULTIPLIER
 
 PROCESSING, READY, ERROR = "processing", "ready", "error"
 
@@ -49,9 +48,11 @@ class Report(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
     summary_json: Mapped[dict] = mapped_column(JSON, nullable=False)  # NormalizedReportData
     manual_total: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))  # «сколько реально пришло»
-    vat_multiplier: Mapped[Decimal] = mapped_column(Numeric(5, 3), nullable=False, default=DEFAULT_VAT_MULTIPLIER)
-    tax_base: Mapped[str] = mapped_column(String(8), nullable=False, default=DEFAULT_TAX_BASE)  # profit | revenue
-    tax_rate: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False, default=DEFAULT_TAX_RATE)
+    # налог и НДС — по налоговому профилю на дату периода (шаг 2.5); значение — ручная поправка для
+    # этого отчёта: свой коэффициент НДС поставщика и «свой процент» от прибыли или дохода
+    vat_multiplier: Mapped[Decimal | None] = mapped_column(Numeric(5, 3))
+    tax_base: Mapped[str | None] = mapped_column(String(8))  # profit | revenue
+    tax_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
     file_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

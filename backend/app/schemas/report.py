@@ -65,9 +65,10 @@ class ReportItem(BaseModel):
     effective_total: Decimal  # manual_total, если задан, иначе auto_total
     revenue_base: Decimal
     cost_sales: Decimal
-    vat_multiplier: Decimal
-    tax_base: Literal["profit", "revenue"]  # налог от прибыли или от дохода
-    tax_rate: Decimal
+    # null — по налоговому профилю на дату периода (шаг 2.5); значение — ручная поправка в этом отчёте
+    vat_multiplier: Decimal | None  # НДС поставщика коэффициентом
+    tax_base: Literal["profit", "revenue"] | None  # свой процент: от прибыли или от дохода
+    tax_rate: Decimal | None
     rows_count: int
     missing_cost_count: int  # артикулов без себестоимости
     warnings_count: int
@@ -85,7 +86,7 @@ class ReportsPage(BaseModel):
 
 class ReportUpdate(BaseModel):
     """Правки пользователя. Не переданное поле не меняется; manual_total=null — вернуться к авто,
-    vat_multiplier/tax_base/tax_rate=null — значения из «Основных настроек» пользователя."""
+    vat_multiplier/tax_base/tax_rate=null — по налоговому профилю пользователя."""
 
     manual_total: Decimal | None = Field(None, ge=-100_000_000, le=100_000_000, decimal_places=2)
     vat_multiplier: Decimal | None = Field(None, ge=1, le=2)

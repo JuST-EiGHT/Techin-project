@@ -23,7 +23,6 @@ from app.models.accrual import SOURCE_XLSX, Accrual, AccrualType
 from app.models.product import Product
 from app.models.report import ERROR, READY, Report, ReportFile
 from app.services.report_costs import apply_costs
-from app.services.user_settings import get_settings
 
 OnConflict = Literal["ask", "replace", "keep"]
 
@@ -115,10 +114,9 @@ async def create_report(
         raise ReportConflict(conflicts)
 
     now = _now()
-    prefs = await get_settings(db, user_id)  # расчёты по умолчанию — из настроек пользователя
-    report = Report(
+    report = Report(  # налог и НДС — по налоговому профилю на дату периода, пока в отчёте не поправили
         id=uuid.uuid4(), user_id=user_id, filename=filename, file_sha256=file_hash, file_size=len(content),
-        uploaded_at=now, vat_multiplier=prefs.vat_multiplier, tax_base=prefs.tax_base, tax_rate=prefs.tax_rate,
+        uploaded_at=now,
     )
     _apply_parsed(report, parsed, now)
     db.add(report)

@@ -21,8 +21,8 @@ export type ReportItem = {
   effective_total: string
   revenue_base: string
   cost_sales: string
-  vat_multiplier: string
-  tax_rate: string
+  vat_multiplier: string | null // null — по налоговому профилю
+  tax_rate: string | null
   rows_count: number
   missing_cost_count: number
   warnings_count: number

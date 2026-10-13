@@ -70,7 +70,7 @@ const toNumber = (text: string) => {
   return text.trim() && Number.isFinite(n) ? n : null
 }
 function vatText(v: string | null): string {
-  if (v === null) return 'как в настройках'
+  if (v === null) return 'по профилю'
   const pct = Math.round((Number(v) - 1) * 1000) / 10
   return pct === 0 ? 'без НДС' : `${pct.toLocaleString('ru-RU')} %`
 }
@@ -161,7 +161,7 @@ function EditRow({ row, onSaved, onCancel }: { row: CostRow; onSaved: (row: Cost
       </td>
       <td className="px-4 py-2">
         <select aria-label="Ставка НДС" value={vat} onChange={(e) => setVat(e.target.value)} onKeyDown={keys} className={`${input} w-40`}>
-          <option value="">как в настройках</option>
+          <option value="">как в налоговом профиле</option>
           {vat && !VAT_OPTIONS.some((o) => o.value === vat) && <option value={vat}>{vatText(vat)}</option>}
           {VAT_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>

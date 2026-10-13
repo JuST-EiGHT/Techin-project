@@ -33,7 +33,7 @@ from app.engine.promotions import is_whole_stock, margin_in_promo
 from app.integrations.ozon.client import OzonClient
 from app.models.product import Product
 from app.models.promotion import Promotion, PromotionProduct
-from app.services.costs import cost_prices
+from app.services.costs import cost_prices_with_vat
 from app.services.sync.parsing import to_count, to_decimal, to_id, to_str
 from app.services.sync.products import latest_prices
 
@@ -171,7 +171,7 @@ async def sync_promotions(db: AsyncSession, user_id: uuid.UUID, client: OzonClie
 
     products = {p.ozon_product_id: p for p in (await db.execute(select(Product).where(Product.user_id == user_id))).scalars()}
     prices = await latest_prices(db, [p.id for p in products.values()])  # комиссия и эквайринг для маржи
-    costs = await cost_prices(db, user_id)
+    costs = await cost_prices_with_vat(db, user_id)
 
     existing = {
         p.ozon_action_id: p

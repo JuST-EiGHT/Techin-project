@@ -14,40 +14,30 @@ def auth(tokens):
 async def test_settings_defaults_and_update(client, tokens):
     get = lambda: client.get("/api/v1/settings", headers=auth(tokens))  # noqa: E731
     assert (await client.get("/api/v1/settings")).status_code == 401
-    defaults = {"theme": "dark", "vat_multiplier": "1.220", "tax_base": "profit", "tax_rate": "0.2000"}
-    assert (await get()).json() == defaults
+    assert (await get()).json() == {"theme": "dark"}  # налог и НДС — в налоговом профиле (шаг 2.5)
 
     r = await client.patch("/api/v1/settings", json={"theme": "light"}, headers=auth(tokens))
-    assert r.status_code == 200 and r.json()["theme"] == "light" and r.json()["tax_rate"] == "0.2000"
-    calc = {"vat_multiplier": "1.2", "tax_base": "revenue", "tax_rate": "0.06"}
-    r = await client.patch("/api/v1/settings", json=calc, headers=auth(tokens))
-    assert r.json() == {"theme": "light", "vat_multiplier": "1.200", "tax_base": "revenue", "tax_rate": "0.0600"}
+    assert r.status_code == 200 and r.json() == {"theme": "light"}
     assert (await get()).json()["theme"] == "light"  # сохраняется — одинаково на всех устройствах
+    r = await client.patch("/api/v1/settings", json={}, headers=auth(tokens))
+    assert r.json()["theme"] == "light"  # не переданное не меняется
 
-    for bad, text in [
-        ({"theme": "blue"}, "Тема: недопустимое значение"),
-        ({"tax_base": "income"}, "Налог считается: недопустимое значение"),
-        ({"vat_multiplier": "2.5"}, "Коэффициент НДС: не больше 2"),
-        ({"tax_rate": "1"}, "Ставка налога: меньше 1"),
-    ]:
-        r = await client.patch("/api/v1/settings", json=bad, headers=auth(tokens))
-        assert (r.status_code, r.json()["detail"]) == (400, text)
+    r = await client.patch("/api/v1/settings", json={"theme": "blue"}, headers=auth(tokens))
+    assert (r.status_code, r.json()["detail"]) == (400, "Тема: недопустимое значение")
 
 
-async def test_new_reports_take_defaults_from_settings(client, tokens):
-    calc = {"vat_multiplier": "1.1", "tax_base": "revenue", "tax_rate": "0.06"}
-    await client.patch("/api/v1/settings", json=calc, headers=auth(tokens))
+async def test_new_reports_follow_tax_profile_until_edited(client, tokens):
     r = await client.post(
         "/api/v1/reports/upload", headers=auth(tokens), files={"file": ("a.xlsx", FIXTURE.read_bytes(), XLSX_TYPE)}
     )
     body = r.json()
-    assert (body["vat_multiplier"], body["tax_base"], body["tax_rate"]) == ("1.100", "revenue", "0.0600")
-    # в отчёте можно поменять, null — вернуть значение из настроек
+    assert (body["vat_multiplier"], body["tax_base"], body["tax_rate"]) == (None, None, None)
+    # в отчёте можно поправить, null — снова по налоговому профилю
     url = f"/api/v1/reports/{body['id']}"
     body = (await client.patch(url, json={"tax_base": "profit", "tax_rate": "0.15"}, headers=auth(tokens))).json()
     assert (body["tax_base"], body["tax_rate"]) == ("profit", "0.1500")
     body = (await client.patch(url, json={"tax_base": None, "tax_rate": None}, headers=auth(tokens))).json()
-    assert (body["tax_base"], body["tax_rate"]) == ("revenue", "0.0600")
+    assert (body["tax_base"], body["tax_rate"]) == (None, None)
 
 
 async def test_update_profile_name(client, tokens):

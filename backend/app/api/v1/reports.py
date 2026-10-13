@@ -24,7 +24,6 @@ from app.schemas.report import (
 from app.services import reports as svc
 from app.services.auth import get_current_user
 from app.services.costs import get_cost_provider
-from app.services.user_settings import get_settings
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -158,18 +157,15 @@ async def update_report(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Ручные правки: сколько реально пришло, коэффициент НДС, налог (база и ставка)."""
+    """Ручные правки: сколько реально пришло, коэффициент НДС поставщика, свой процент налога.
+    null — вернуться к налоговому профилю."""
     report = await _owned(db, user, report_id)
     fields = data.model_fields_set
     if "manual_total" in fields:
         report.manual_total = data.manual_total
-    prefs = await get_settings(db, user.id)  # null — вернуть значение из «Основных настроек»
-    if "vat_multiplier" in fields:
-        report.vat_multiplier = data.vat_multiplier if data.vat_multiplier is not None else prefs.vat_multiplier
-    if "tax_base" in fields:
-        report.tax_base = data.tax_base if data.tax_base is not None else prefs.tax_base
-    if "tax_rate" in fields:
-        report.tax_rate = data.tax_rate if data.tax_rate is not None else prefs.tax_rate
+    for name in ("vat_multiplier", "tax_base", "tax_rate"):
+        if name in fields:
+            setattr(report, name, getattr(data, name))
     await db.commit()
     return _detail(report)
 

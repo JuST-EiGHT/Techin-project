@@ -12,7 +12,7 @@ class CostRow(BaseModel):
     name: str | None
     sku: str | None
     cost_price: Decimal | None  # за единицу, без НДС, на сегодня
-    vat_multiplier: Decimal | None  # None — как в «Основных настройках»
+    vat_multiplier: Decimal | None  # None — как в налоговом профиле (НДС поставщика по умолчанию)
     effective_from: date | None  # 2000-01-01 — «с начала учёта»
     note: str | None
     updated_at: datetime | None

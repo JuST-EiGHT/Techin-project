@@ -302,10 +302,11 @@ async def test_cost_with_vat_column(client, tokens):
     body = (await import_file(client, tokens, "costs.csv", content.encode())).json()
     rows = {r["offer_id"]: r for r in body["rows"]}
     assert (rows["A"]["cost_price"], rows["A"]["cost_with_vat"]) == ("200.00", "244")
-    assert rows["B"]["cost_price"] == "100.00"  # ставка не указана — как в «Основных настройках» (1,22)
+    assert rows["B"]["cost_price"] == "100.00"  # ставка не указана, профиля нет — общая ставка 22 %
     assert rows["C"]["cost_price"] == "150.00"
-    # своя ставка в настройках
-    await client.patch("/api/v1/settings", json={"vat_multiplier": "1.1"}, headers=auth(tokens))
+    # НДС поставщика по умолчанию — из налогового профиля
+    profile = {"legal_form": "ip", "regime": "usn_income", "supplier_vat_pct": "10"}
+    assert (await client.put("/api/v1/tax-profile", json=profile, headers=auth(tokens))).status_code == 200
     content = "Артикул;Себестоимость с НДС\nD;110\n".encode()
     assert (await import_file(client, tokens, "d.csv", content)).json()["rows"][0]["cost_price"] == "100.00"
 
