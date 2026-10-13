@@ -18,7 +18,7 @@ from app.engine.pnl import PnLEngine, PnLParams, PnLResult
 from app.engine.tax import Profile, pct
 from app.models.report import Report
 from app.models.tax_profile import TaxProfile
-from app.schemas.report import NormalizedReportData
+from app.schemas.report import NormalizedReportData, PnLOut
 from app.services.costs import CostHistory, load_cost_history
 from app.services.report_costs import cost_date
 from app.services.tax_profile import default_supplier_vat_pct, load_profiles, profile_on, profile_title
@@ -74,3 +74,23 @@ def report_pnl(data: NormalizedReportData, ctx: PnLContext, report: Report | Non
         day=day,
     )
     return ReportPnL(ENGINE.compute(data, params), title, supplier.quantize(Decimal("0.001")))
+
+
+def to_out(p: ReportPnL) -> PnLOut:
+    r = p.result
+    return PnLOut(
+        effective_total=r.effective_total,
+        owed=r.owed,
+        profit_before_tax=r.profit_before_tax,
+        tax=r.tax,
+        vat=r.vat,
+        net=r.net,
+        margin=r.margin,
+        tax_title=p.tax_title,
+        tax_lines=r.tax_lines,
+        supplier_vat=p.supplier_vat,
+        pct_of_revenue=r.pct_of_revenue,
+        by_type_pct=r.by_type_pct,
+        warnings=r.warnings,
+        data_source=r.data_source,
+    )

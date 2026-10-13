@@ -9,3 +9,4 @@ from app.models.report import Report, ReportFile  # noqa: F401
 from app.models.user_settings import UserSettings  # noqa: F401
 from app.models.product_cost import ProductCost  # noqa: F401
 from app.models.tax_profile import TaxProfile  # noqa: F401
+from app.models.pnl_snapshot import PnLSnapshot  # noqa: F401

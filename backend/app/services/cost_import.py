@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.integrations.xlsx.common import cell_text
 from app.services.costs import CostHistory, add_cost, known_articles, load_cost_history
+from app.services.pnl_stale import affected_period, invalidate
 from app.services.report_costs import recost_reports
 from app.services.sync.finance import today_msk
 from app.services.tax_profile import supplier_vat_multiplier
@@ -300,9 +301,10 @@ async def import_costs(
     if not apply:
         return ImportResult(rows, applied=False)
     changed: list[str] = []
+    periods: list[tuple[date | None, date | None]] = []
     for row in rows:
         if row.status in ("new", "changed"):
-            await add_cost(
+            record, _ = await add_cost(
                 db,
                 user_id,
                 row.offer_id,
@@ -314,8 +316,15 @@ async def import_costs(
                 history=history,
             )
             changed.append(row.offer_id)
+            periods.append(affected_period(history.dates(row.offer_id), record.effective_from))
     await db.flush()
-    recosted = await recost_reports(db, user_id, changed) if changed else 0
+    recosted = 0
+    if changed:
+        recosted = await recost_reports(db, user_id, changed)
+        starts, ends = [a for a, _ in periods], [b for _, b in periods]
+        start = None if None in starts else min(starts)
+        end = None if None in ends else max(ends)
+        await invalidate(db, user_id, start, end, f"Себестоимость из файла: {len(changed)} артикулов")
     await db.commit()
     return ImportResult(rows, applied=True, recosted_reports=recosted)
 

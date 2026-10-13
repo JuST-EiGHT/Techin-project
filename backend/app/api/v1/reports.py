@@ -27,7 +27,7 @@ from app.schemas.report import (
 from app.services import reports as svc
 from app.services.auth import get_current_user
 from app.services.costs import get_cost_provider
-from app.services.report_pnl import PnLContext, load_context, report_pnl
+from app.services.report_pnl import PnLContext, load_context, report_pnl, to_out
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -67,24 +67,7 @@ def _q(value: Decimal | None, places: str) -> Decimal | None:
 
 
 def _pnl(data: NormalizedReportData, ctx: PnLContext, report: Report | None = None) -> PnLOut:
-    p = report_pnl(data, ctx, report)
-    r = p.result
-    return PnLOut(
-        effective_total=r.effective_total,
-        owed=r.owed,
-        profit_before_tax=r.profit_before_tax,
-        tax=r.tax,
-        vat=r.vat,
-        net=r.net,
-        margin=r.margin,
-        tax_title=p.tax_title,
-        tax_lines=r.tax_lines,
-        supplier_vat=p.supplier_vat,
-        pct_of_revenue=r.pct_of_revenue,
-        by_type_pct=r.by_type_pct,
-        warnings=r.warnings,
-        data_source=r.data_source,
-    )
+    return to_out(report_pnl(data, ctx, report))
 
 
 def _item(r: Report, ctx: PnLContext) -> dict:
@@ -216,6 +199,8 @@ async def update_report(
     for name in ("vat_multiplier", "tax_base", "tax_rate"):
         if name in fields:
             setattr(report, name, getattr(data, name))
+    if fields:
+        await svc.stale_pnl(db, report, "Отчёт исправлен")
     await db.commit()
     return await _detail(db, report)
 

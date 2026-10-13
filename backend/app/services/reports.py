@@ -22,6 +22,7 @@ from app.integrations.xlsx.parsers.base import money
 from app.models.accrual import SOURCE_XLSX, Accrual, AccrualType
 from app.models.product import Product
 from app.models.report import ERROR, READY, Report, ReportFile
+from app.services.pnl_stale import invalidate
 from app.services.report_costs import apply_costs
 
 OnConflict = Literal["ask", "replace", "keep"]
@@ -125,9 +126,16 @@ async def create_report(
     if on_conflict == "replace":
         for c in conflicts:
             await _hide(db, c.report, now, replaced_by=report.id)
+            await stale_pnl(db, c.report, "Отчёт заменён")
     await _write_accruals(db, report, parsed.accrual_lines)
+    await stale_pnl(db, report, "Загружен отчёт")
     await db.commit()
     return report
+
+
+async def stale_pnl(db: AsyncSession, report: Report, reason: str) -> None:
+    """Итоги P&L за период отчёта устарели (шаг 3.2)."""
+    await invalidate(db, report.user_id, report.period_start, report.period_end, f"{reason}: {report.period}")
 
 
 def _apply_parsed(report: Report, parsed: ParsedReport, now: datetime) -> None:
@@ -197,6 +205,7 @@ async def _hide(db: AsyncSession, report: Report, now: datetime, replaced_by: uu
 
 async def hide_report(db: AsyncSession, report: Report) -> None:
     await _hide(db, report, _now())
+    await stale_pnl(db, report, "Отчёт удалён")
     await db.commit()
 
 
@@ -214,6 +223,7 @@ async def restore_report(db: AsyncSession, report: Report, costs: CostProvider) 
     report.deleted_at = None
     report.replaced_by_id = None
     await _write_accruals(db, report, parsed.accrual_lines)
+    await stale_pnl(db, report, "Отчёт восстановлен")
     await db.commit()
     return report
 
@@ -228,8 +238,12 @@ async def reparse_report(db: AsyncSession, report: Report, costs: CostProvider) 
         report.error_message = str(exc)
         await db.commit()
         raise
+    old_start, old_end = report.period_start, report.period_end
     _apply_parsed(report, parsed, _now())
     await _write_accruals(db, report, parsed.accrual_lines)
+    if (old_start, old_end) != (report.period_start, report.period_end):
+        await invalidate(db, report.user_id, old_start, old_end, f"Отчёт перечитан: {report.period}")
+    await stale_pnl(db, report, "Отчёт перечитан")
     await db.commit()
     return report
 

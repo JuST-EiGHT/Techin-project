@@ -1,6 +1,18 @@
 from fastapi import APIRouter
 
-from app.api.v1 import auth, costs, credentials, finance, promotions, reports, settings, stocks, sync, tax_profile
+from app.api.v1 import (
+    auth,
+    costs,
+    credentials,
+    finance,
+    pnl,
+    promotions,
+    reports,
+    settings,
+    stocks,
+    sync,
+    tax_profile,
+)
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(auth.router)
@@ -14,3 +26,4 @@ api_router.include_router(reports.router)
 api_router.include_router(settings.router)
 api_router.include_router(costs.router)
 api_router.include_router(tax_profile.router)
+api_router.include_router(pnl.router)

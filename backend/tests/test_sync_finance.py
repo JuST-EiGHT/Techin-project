@@ -15,6 +15,7 @@ from app.integrations.ozon.client import OzonClient
 from app.integrations.ozon.errors import OzonAPIError
 from app.models.accrual import Accrual, AccrualDay, AccrualType
 from app.models.api_credential import ApiCredential
+from app.models.pnl_snapshot import PnLSnapshot
 from app.models.product import Product
 from app.models.sync_run import SUCCESS
 from app.models.user import User
@@ -143,6 +144,22 @@ async def test_sync_day(sessions, ozon):
     ]
     assert all(r.posting_number is None and r.product_id is None for r in day)
     assert {r.source for r in rows} == {"api"}
+
+
+async def test_sync_marks_pnl_snapshots_stale(sessions, ozon):
+    """Догруженные начисления за день — сохранённые итоги P&L, чей период его задевает, устарели (шаг 3.2)."""
+    user_id = await make_user(sessions)
+    now = datetime.now(timezone.utc)
+    async with sessions() as db:
+        for start, end in ((date(2026, 9, 1), date(2026, 9, 30)), (date(2026, 10, 1), date(2026, 10, 31))):
+            db.add(PnLSnapshot(user_id=user_id, date_from=start, date_to=end, source="auto", data_json={},
+                               calculated_at=now))
+        await db.commit()
+    await sync(sessions, user_id, DAY, DAY)
+    async with sessions() as db:
+        snaps = {s.date_from.month: s for s in (await db.execute(select(PnLSnapshot))).scalars()}
+    assert snaps[9].stale is False
+    assert snaps[10].stale is True and snaps[10].stale_reason == "Начисления из Ozon API за 10.10.2026"
 
 
 async def test_types_and_categories(sessions, ozon):

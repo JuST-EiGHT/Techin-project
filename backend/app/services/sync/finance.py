@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.integrations.ozon.client import OzonClient
 from app.models.accrual import EXPENSE, INCOME, SOURCE_API, Accrual, AccrualDay, AccrualType
 from app.models.product import Product
+from app.services.pnl_stale import invalidate
 from app.services.sync.parsing import to_decimal, to_id, to_str
 
 log = logging.getLogger(__name__)
@@ -271,6 +272,7 @@ async def _sync_day(
         db.add(AccrualDay(user_id=user_id, day=day, synced_at=datetime.now(timezone.utc), entries=len(entries)))
     else:
         mark.synced_at, mark.entries = datetime.now(timezone.utc), len(entries)
+    await invalidate(db, user_id, day, day, f"Начисления из Ozon API за {day:%d.%m.%Y}")
     await db.commit()
     stats.days += 1
     stats.entries += len(entries)

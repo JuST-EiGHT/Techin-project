@@ -24,6 +24,7 @@ from app.schemas.costs import (
 from app.services import costs as svc
 from app.services.auth import get_current_user
 from app.services.cost_import import TEMPLATE_NAMES, CostImportError, cost_template, error_file, import_costs
+from app.services.pnl_stale import affected_period, invalidate
 from app.services.report_costs import recost_reports
 from app.services.sync.finance import today_msk
 from app.services.templates import MEDIA_TYPES
@@ -102,11 +103,16 @@ async def set_cost(
     offer_id = offer_id.strip()
     if not offer_id or len(offer_id) > 100:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Артикул: от 1 до 100 символов")
-    _, created = await svc.add_cost(
-        db, user.id, offer_id, data.cost_price, data.vat_multiplier, data.note, data.effective_from
+    history = await svc.load_cost_history(db, user.id)
+    record, created = await svc.add_cost(
+        db, user.id, offer_id, data.cost_price, data.vat_multiplier, data.note, data.effective_from, history=history
     )
     await db.flush()
-    recosted = await recost_reports(db, user.id, [offer_id]) if created else 0
+    recosted = 0
+    if created:
+        recosted = await recost_reports(db, user.id, [offer_id])
+        start, end = affected_period(history.dates(offer_id), record.effective_from)
+        await invalidate(db, user.id, start, end, f"Себестоимость {offer_id}")
     await db.commit()
     history = await svc.load_cost_history(db, user.id)
     info = (await svc.known_articles(db, user.id, history)).get(offer_id) or svc.ArticleInfo(offer_id)

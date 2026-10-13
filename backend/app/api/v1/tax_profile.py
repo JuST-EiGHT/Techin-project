@@ -25,6 +25,7 @@ from app.schemas.tax import (
 )
 from app.services import tax_profile as svc
 from app.services.auth import get_current_user
+from app.services.pnl_stale import affected_period, invalidate
 from app.services.sync.finance import today_msk
 from app.services.templates.values import VAT_RATES
 
@@ -80,10 +81,14 @@ async def save_tax_profile(
     body: TaxProfileIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
     """Новый профиль — новая запись в истории; прошлые периоды считаются по прежнему профилю."""
+    dates = [p.effective_from for p in await svc.load_profiles(db, user.id)]
     try:
-        _, created = await svc.save_profile(db, user.id, _data(body), body.effective_from)
+        record, created = await svc.save_profile(db, user.id, _data(body), body.effective_from)
     except svc.TaxProfileError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    if created:
+        start, end = affected_period(dates, record.effective_from)
+        await invalidate(db, user.id, start, end, "Изменён налоговый профиль")
     await db.commit()
     return await _state(db, user, created)
 

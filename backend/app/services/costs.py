@@ -61,6 +61,9 @@ class CostHistory:
     def offers(self) -> list[str]:
         return list(self._records)
 
+    def dates(self, offer_id: str) -> list[date]:
+        return [r.effective_from for r in self._records.get(offer_id, [])]
+
 
 def _money(value: Decimal) -> Decimal:
     return Decimal(value).quantize(Decimal("0.01"))  # одинаково для PostgreSQL и SQLite

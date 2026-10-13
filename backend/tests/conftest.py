@@ -16,6 +16,7 @@ import app.models  # noqa: E402,F401
 from app.db.base import Base  # noqa: E402
 from app.db.session import get_db  # noqa: E402
 from app.main import app  # noqa: E402
+from app.services.pnl_cache import cache as pnl_cache  # noqa: E402
 from app.services.token_blacklist import blacklist  # noqa: E402
 
 
@@ -39,6 +40,7 @@ async def client(sessions):
 
     app.dependency_overrides[get_db] = _get_db
     blacklist._memory.clear()
+    pnl_cache.clear_memory()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
     app.dependency_overrides.clear()
