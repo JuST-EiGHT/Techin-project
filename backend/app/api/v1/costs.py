@@ -1,8 +1,11 @@
-"""Справочник себестоимости: список артикулов, правка с историей, импорт CSV/XLSX (шаг 2.3)."""
+"""Справочник себестоимости: список артикулов, правка с историей, импорт CSV/XLSX (шаг 2.3),
+шаблоны «скачал → заполнил → загрузил» и файл строк с ошибками (шаг 2.4)."""
 
 from decimal import Decimal
+from typing import Literal
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -20,9 +23,10 @@ from app.schemas.costs import (
 )
 from app.services import costs as svc
 from app.services.auth import get_current_user
-from app.services.cost_import import CostImportError, import_costs
+from app.services.cost_import import TEMPLATE_NAMES, CostImportError, cost_template, error_file, import_costs
 from app.services.report_costs import recost_reports
 from app.services.sync.finance import today_msk
+from app.services.templates import MEDIA_TYPES
 
 router = APIRouter(prefix="/costs", tags=["costs"])
 
@@ -60,14 +64,34 @@ async def list_costs(
     history = await svc.load_cost_history(db, user.id)
     articles = await svc.known_articles(db, user.id, history)
     rows = [_row(info, history) for info in articles.values()]
-    missing_count = sum(r.cost_price is None for r in rows)
+    all_count, missing_count = len(rows), sum(r.cost_price is None for r in rows)
     if missing:
         rows = [r for r in rows if r.cost_price is None]
     if search and (q := search.strip().lower()):
         rows = [r for r in rows if q in r.offer_id.lower() or q in (r.name or "").lower()]
     # без себестоимости, но продавались — первыми: их надо заполнить в первую очередь
     rows.sort(key=lambda r: (r.cost_price is not None, -r.report_qty, r.offer_id))
-    return CostsPage(items=rows, total=len(rows), missing_count=missing_count)
+    return CostsPage(items=rows, total=len(rows), all_count=all_count, missing_count=missing_count)
+
+
+def _file(content: bytes, fmt: str, name: str, fallback: str) -> Response:
+    # имя по-русски — в filename*, латиницей — для старых браузеров
+    disposition = f"attachment; filename=\"{fallback}.{fmt}\"; filename*=UTF-8''{quote(f'{name}.{fmt}')}"
+    return Response(content, media_type=MEDIA_TYPES[fmt], headers={"Content-Disposition": disposition})
+
+
+@router.get("/template", response_class=Response)
+async def download_template(
+    fmt: Literal["xlsx", "csv"] = Query("xlsx", alias="format", description="xlsx или csv"),
+    rows: Literal["all", "missing", "empty"] = Query(
+        "all", description="all — все товары с текущими ценами, missing — без себестоимости, empty — пустой"
+    ),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Шаблон себестоимости с товарами пользователя: скачал → заполнил → загрузил в /import."""
+    content = await cost_template(db, user.id, rows, fmt)
+    return _file(content, fmt, f"Себестоимость — {TEMPLATE_NAMES[rows]} {today_msk():%d.%m.%Y}", "costs")
 
 
 @router.put("/{offer_id:path}", response_model=CostSaved)
@@ -108,6 +132,16 @@ async def cost_history(offer_id: str, user: User = Depends(get_current_user), db
     ]
 
 
+async def _read_upload(file: UploadFile) -> bytes:
+    limit = MAX_FILE_MB * 1024 * 1024
+    content = await file.read(limit + 1)
+    if len(content) > limit:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"Файл больше {MAX_FILE_MB} МБ")
+    if not content:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл пустой.")
+    return content
+
+
 @router.post("/import", response_model=ImportResponse)
 async def import_file(
     file: UploadFile = File(
@@ -117,19 +151,29 @@ async def import_file(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    limit = MAX_FILE_MB * 1024 * 1024
-    content = await file.read(limit + 1)
-    if len(content) > limit:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"Файл больше {MAX_FILE_MB} МБ")
-    if not content:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл пустой.")
+    content = await _read_upload(file)
     try:
         result = await import_costs(db, user.id, content, file.filename or "", apply=not dry_run)
     except CostImportError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     return ImportResponse(
         applied=result.applied,
-        counts=ImportCounts(**{s: result.count(s) for s in ("new", "changed", "unchanged", "error")}),
+        counts=ImportCounts(**{s: result.count(s) for s in ("new", "changed", "unchanged", "skipped", "error")}),
         recosted_reports=result.recosted_reports,
-        rows=[ImportRowOut(**vars(r)) for r in result.rows],
+        rows=[ImportRowOut.model_validate(r, from_attributes=True) for r in result.rows],
     )
+
+
+@router.post("/import/errors", response_class=Response)
+async def import_errors_file(
+    file: UploadFile = File(..., description="Тот же файл, что загружали в /import"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Строки с ошибками — тем же шаблоном с колонкой «Ошибка»: исправить и загрузить снова."""
+    content = await _read_upload(file)
+    try:
+        out, fmt = await error_file(db, user.id, content, file.filename or "")
+    except CostImportError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return _file(out, fmt, "Себестоимость — строки с ошибками", "costs-errors")

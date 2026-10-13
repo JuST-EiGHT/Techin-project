@@ -30,5 +30,5 @@ class ProductCost(Base):
     vat_multiplier: Mapped[Decimal | None] = mapped_column(Numeric(5, 3))
     effective_from: Mapped[date] = mapped_column(Date, nullable=False)
     note: Mapped[str | None] = mapped_column(String(255))
-    source: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")  # manual | import | seed
+    source: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")  # manual | import
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

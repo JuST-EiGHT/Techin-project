@@ -11,10 +11,8 @@ from sqlalchemy import func, select
 
 from app.models.product import Product
 from app.models.product_cost import ProductCost
-from app.models.user import User
 from app.services import costs as costs_svc
 from app.services.costs import CostHistory
-from scripts.seed_costs import seed
 from tests.conftest import REFERENCE_COSTS_CSV
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -168,7 +166,8 @@ async def test_list_shows_catalog_report_and_missing_articles(client, tokens, se
 async def test_import_reference_csv_preview_apply_and_repeat(client, tokens, sessions):
     content = REFERENCE_COSTS_CSV.read_bytes()
     preview = (await import_file(client, tokens, "cost_prices.csv", content, dry_run=True)).json()
-    assert preview["applied"] is False and preview["counts"] == {"new": 78, "changed": 0, "unchanged": 0, "error": 0}
+    assert preview["applied"] is False
+    assert preview["counts"] == {"new": 78, "changed": 0, "unchanged": 0, "skipped": 0, "error": 0}
     async with sessions() as db:
         assert (await db.execute(select(func.count()).select_from(ProductCost))).scalar_one() == 0  # предпросмотр
 
@@ -178,7 +177,7 @@ async def test_import_reference_csv_preview_apply_and_repeat(client, tokens, ses
     assert (row["cost_price"], row["vat_multiplier"], row["note"]) == ("164.00", "1.220", "перенесено из калькулятора")
 
     again = (await import_file(client, tokens, "cost_prices.csv", content)).json()
-    assert again["counts"] == {"new": 0, "changed": 0, "unchanged": 78, "error": 0}  # повтор — без дублей
+    assert again["counts"] == {"new": 0, "changed": 0, "unchanged": 78, "skipped": 0, "error": 0}  # без дублей
     async with sessions() as db:
         assert (await db.execute(select(func.count()).select_from(ProductCost))).scalar_one() == 78
 
@@ -198,10 +197,11 @@ async def test_import_xlsx_russian_headers_cp1251_csv_and_row_errors(client, tok
             ["A-4", 10, 3, None, None],
             ["A-5", "дорого", None, None, None],
             ["A-6", 10, None, None, "вчера"],
+            ["A-7", None, "1,22", "цену не знаю", None],
         ]
     )
     body = (await import_file(client, tokens, "costs.xlsx", content)).json()
-    assert body["counts"] == {"new": 2, "changed": 0, "unchanged": 0, "error": 6}
+    assert body["counts"] == {"new": 2, "changed": 0, "unchanged": 0, "skipped": 1, "error": 6}
     rows = {r["line"]: r for r in body["rows"]}
     assert (rows[4]["cost_price"], rows[4]["vat_multiplier"], rows[4]["effective_from"]) == (
         "1250.50",
@@ -212,14 +212,16 @@ async def test_import_xlsx_russian_headers_cp1251_csv_and_row_errors(client, tok
     assert rows[6]["message"] == "Себестоимость должна быть больше 0"
     assert rows[7]["message"] == "Не указан артикул"
     assert rows[8]["message"] == "Артикул уже есть в строке 5"
-    assert rows[9]["message"] == "Коэффициент НДС — число от 1 до 2, например 1,22"
-    assert rows[10]["message"] == "Себестоимость не указана или не число"
-    assert rows[11]["message"] == "Дата «действует с» — в формате ДД.ММ.ГГГГ"
+    assert rows[9]["message"] == "Ставка НДС: нужно 22 %, 20 %, 10 %, 7 %, 5 %, 0 % или «без НДС» (можно и 1,22)"
+    assert rows[10]["message"] == "Себестоимость: «дорого» — не число"
+    assert rows[11]["message"] == "«Действует с»: нужна дата ДД.ММ.ГГГГ, например 01.09.2026"
+    # пустая себестоимость — не ошибка: строку шаблона просто не заполнили
+    assert (rows[12]["status"], rows[12]["message"]) == ("skipped", "Себестоимость не указана — строка пропущена")
 
     # CSV из Excel: Windows-1251 и «;»; изменившаяся цена — changed, новая запись
     csv_1251 = "Артикул;Себестоимость\nA-1;1300\nA-7;5,5\n".encode("cp1251")
     body = (await import_file(client, tokens, "costs.csv", csv_1251)).json()
-    assert body["counts"] == {"new": 1, "changed": 1, "unchanged": 0, "error": 0}
+    assert body["counts"] == {"new": 1, "changed": 1, "unchanged": 0, "skipped": 0, "error": 0}
     assert next(r for r in body["rows"] if r["offer_id"] == "A-1")["current_cost"] == "1250.50"
 
 
@@ -307,14 +309,3 @@ async def test_cost_prices_for_promotions(client, tokens, sessions):
     async with sessions() as db:
         assert await costs_svc.cost_prices(db, user_id) == {product.id: Decimal("164.00")}
 
-
-async def test_seed_script(sessions):
-    async with sessions() as db:
-        db.add(User(email="owner@example.com", hashed_password="x"))
-        await db.commit()
-    result = await seed(sessions, "Owner@Example.com", REFERENCE_COSTS_CSV)
-    assert result.count("new") == 78 and result.count("error") == 0
-    assert (await seed(sessions, "owner@example.com", REFERENCE_COSTS_CSV)).count("unchanged") == 78
-    async with sessions() as db:
-        sources = set((await db.execute(select(ProductCost.source))).scalars())
-    assert sources == {"seed"}

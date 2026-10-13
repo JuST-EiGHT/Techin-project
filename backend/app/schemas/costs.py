@@ -24,6 +24,7 @@ class CostRow(BaseModel):
 class CostsPage(BaseModel):
     items: list[CostRow]
     total: int
+    all_count: int  # всего артикулов, без фильтров — столько строк в шаблоне «все товары»
     missing_count: int  # артикулов без себестоимости (из каталога и отчётов)
 
 
@@ -55,10 +56,11 @@ class ImportRowOut(BaseModel):
     line: int
     offer_id: str
     cost_price: Decimal | None
+    cost_with_vat: Decimal | None  # в файле цена с НДС — cost_price пересчитана по ставке
     vat_multiplier: Decimal | None
     note: str | None
     effective_from: date | None
-    status: Literal["new", "changed", "unchanged", "error"]
+    status: Literal["new", "changed", "unchanged", "skipped", "error"]
     current_cost: Decimal | None
     message: str | None
 
@@ -67,6 +69,7 @@ class ImportCounts(BaseModel):
     new: int
     changed: int
     unchanged: int
+    skipped: int  # себестоимость не указана — строка пропущена (не ошибка)
     error: int
 
 

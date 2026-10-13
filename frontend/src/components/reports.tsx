@@ -1,6 +1,8 @@
 // Общее для страниц отчётов: типы ответа API, форматирование, блоки итогов отчёта.
 import Link from 'next/link'
 
+import { CostTemplateButton } from '@/components/CostTemplateButton'
+
 export type ReportType = 'accrual' | 'realization'
 
 export type ReportItem = {
@@ -132,9 +134,12 @@ export function MissingCostTable({ items }: { items: ReportSummary['missing_cost
     <section className="rounded-xl border border-warn/40 bg-card">
       <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-2">
         <h2 className="text-sm font-semibold text-warn">Не найдена себестоимость — долг поставщику занижен, прибыль завышена</h2>
-        <Link href="/dashboard/costs?missing=1" className="ml-auto text-sm text-accent hover:underline">
-          Указать себестоимость →
-        </Link>
+        <span className="ml-auto flex flex-wrap items-center gap-4">
+          <CostTemplateButton rows="missing">Скачать шаблон с этими товарами</CostTemplateButton>
+          <Link href="/dashboard/costs?missing=1" className="text-sm text-accent hover:underline">
+            Указать себестоимость →
+          </Link>
+        </span>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">

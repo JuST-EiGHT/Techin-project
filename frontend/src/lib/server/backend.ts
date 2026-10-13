@@ -26,13 +26,15 @@ export async function backendFetch(path: string, init: RequestInit): Promise<Res
   }
 }
 
-/** Пробрасывает ответ бэкенда как есть (статус, тело, тип). */
+/** Пробрасывает ответ бэкенда как есть (статус, тело, тип, имя файла). */
 export async function passThrough(res: Response): Promise<NextResponse> {
   if (res instanceof NextResponse) return res
   const body = res.status === 204 ? null : await res.arrayBuffer()
   const headers = new Headers()
-  const type = res.headers.get('content-type')
-  if (type) headers.set('content-type', type)
+  for (const name of ['content-type', 'content-disposition']) {
+    const value = res.headers.get(name)
+    if (value) headers.set(name, value) // content-disposition — имя скачиваемого файла
+  }
   return new NextResponse(body, { status: res.status, headers })
 }
 
