@@ -98,6 +98,14 @@ async def coverage(db: AsyncSession, user_id: uuid.UUID, date_from: date, date_t
     return Coverage(date_from, date_to, days, report_of_day, realization)
 
 
+def report_coverage(report: Report) -> Coverage:
+    """Дни одного отчёта — его строки, даже если за эти дни есть отчёт, загруженный позже. У отчёта о реализации
+    строк по дням нет."""
+    days = days_between(report.period_start, report.period_end)
+    source = SOURCE_XLSX if report.report_type == "accrual" else None
+    return Coverage(report.period_start, report.period_end, {d: source for d in days}, {d: report for d in days})
+
+
 @dataclass
 class Line:
     day: date

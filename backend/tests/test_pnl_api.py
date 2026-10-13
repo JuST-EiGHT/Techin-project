@@ -10,7 +10,17 @@ from app.models.pnl_snapshot import PnLSnapshot
 from app.models.product import Product
 from app.services import pnl_service
 from app.services.pnl_stale import affected_period
-from tests.test_report_pnl import MONTH, OWNER, WEEK, auth, import_reference_costs, set_profile, upload
+from tests.test_report_pnl import (
+    FIXTURES,
+    MONTH,
+    OWNER,
+    WEEK,
+    XLSX_TYPE,
+    auth,
+    import_reference_costs,
+    set_profile,
+    upload,
+)
 
 WEEK_FROM, WEEK_TO = "2026-09-07", "2026-09-13"
 
@@ -88,6 +98,33 @@ async def test_missing_days_are_gaps_not_zero(client, tokens):
                        "profit_before_tax": None}
     week = (await pnl(client, tokens, path="/by-day"))["days"]
     assert sum(Decimal(d["total"]) for d in week) == Decimal("10955.83")
+
+
+async def test_by_day_of_one_report(client, tokens):
+    """График открытого отчёта — его строки, а не отчёта, загруженного за те же дни позже."""
+    first = await upload(client, tokens, WEEK)
+    r = await client.post(
+        "/api/v1/reports/upload", params={"on_conflict": "keep"}, headers=auth(tokens),
+        files={"file": (WEEK, (FIXTURES / WEEK).read_bytes(), XLSX_TYPE)},
+    )
+    assert r.status_code == 201
+    second = r.json()
+
+    async def by_day(report_id, token=tokens):
+        return await client.get("/api/v1/pnl/by-day", params={"report_id": report_id}, headers=auth(token))
+    body = (await by_day(first["id"])).json()
+    assert (body["date_from"], body["date_to"], body["data_source"]) == (WEEK_FROM, WEEK_TO, "xlsx")
+    assert sum(Decimal(d["total"]) for d in body["days"]) == Decimal("10955.83")
+    # тот же файл, оставлены оба: в P&L периода дни берутся из загруженного позже
+    assert [r["id"] for r in (await pnl(client, tokens))["reports"]] == [second["id"]]
+    month = await upload(client, tokens, MONTH)
+    days = (await by_day(month["id"])).json()["days"]
+    assert len(days) == 31 and {d["source"] for d in days} == {None}  # у реализации строк по дням нет
+    await client.post("/api/v1/auth/register", json={"email": "other@example.com", "password": "strongpass1"})
+    login = {"email": "other@example.com", "password": "strongpass1"}
+    other = (await client.post("/api/v1/auth/login", json=login)).json()
+    r = await by_day(first["id"], other)
+    assert (r.status_code, r.json()["detail"]) == (404, "Отчёт не найден")
 
 
 async def test_nothing_for_period(client, tokens):

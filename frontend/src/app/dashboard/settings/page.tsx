@@ -5,8 +5,10 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { api, errorMessage } from '@/lib/api'
+import { type SupplierPayment, saveSettings, useSettings } from '@/lib/settings'
 import type { ThemePreference } from '@/lib/theme'
 
 const THEMES: { value: ThemePreference; label: string; hint: string; Icon: React.ComponentType<{ className?: string }> }[] = [
@@ -91,12 +93,69 @@ function TaxesSection() {
   )
 }
 
+const SUPPLIER: { value: SupplierPayment; label: string; hint: string }[] = [
+  { value: 'upfront', label: 'При закупке', hint: 'в P&L — «Себестоимость с НДС»' },
+  {
+    value: 'after_sale',
+    label: 'После продажи товара',
+    hint: 'поставщик ждёт, пока товар продастся, — в P&L «Долг поставщику»',
+  },
+]
+
+function SupplierSection() {
+  const { user } = useAuth()
+  const settings = useSettings()
+  const [error, setError] = useState<string | null>(null)
+
+  async function choose(value: SupplierPayment) {
+    if (!user) return
+    setError(null)
+    try {
+      await saveSettings(user.id, { supplier_payment: value })
+    } catch (err) {
+      setError(errorMessage(err, 'Не сохранилось — попробуйте ещё раз'))
+    }
+  }
+
+  return (
+    <Section
+      title="Когда вы платите поставщику"
+      hint="От этого зависит, как называется себестоимость с НДС в P&L и отчётах. Расчёт не меняется."
+    >
+      <FormError message={error} />
+      <div role="radiogroup" aria-label="Когда вы платите поставщику" className="grid gap-3 sm:grid-cols-2">
+        {SUPPLIER.map(({ value, label, hint }) => {
+          const active = settings?.supplier_payment === value
+          return (
+            <button
+              key={value}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              disabled={!settings}
+              onClick={() => choose(value)}
+              data-testid={`supplier-${value}`}
+              className={`rounded-xl border p-4 text-left disabled:opacity-60 ${
+                active ? 'border-accent bg-accent/10' : 'border-line hover:border-muted'
+              }`}
+            >
+              <span className="block font-medium">{label}</span>
+              <span className="block text-xs text-faint">{hint}</span>
+            </button>
+          )
+        })}
+      </div>
+    </Section>
+  )
+}
+
 export default function SettingsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <h1 className="text-2xl font-semibold">Основные настройки</h1>
       <ThemeSection />
       <TaxesSection />
+      <SupplierSection />
     </div>
   )
 }

@@ -106,7 +106,14 @@ export default function ReportPage({ params }: { params: { id: string } }) {
         <>
           <div className="flex flex-wrap items-start gap-4">
             <ReportHeading report={report} />
-            <div className="ml-auto flex gap-3">
+            <div className="ml-auto flex flex-wrap items-center gap-3">
+              <Link
+                href={`/dashboard/finance?report=${report.id}`}
+                className="rounded-lg border border-line px-4 py-2 text-sm hover:border-accent hover:text-accent"
+                title="Поправить сумму от Ozon, НДС и налог — пересчёт сразу"
+              >
+                Открыть в P&amp;L
+              </Link>
               <button
                 onClick={reparse}
                 disabled={busy}

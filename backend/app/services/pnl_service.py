@@ -10,7 +10,7 @@ get_pnl(user, date_from, date_to, source, vat_multiplier, tax_rate, tax_base, ma
 """
 import calendar
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
@@ -212,13 +212,19 @@ async def get_pnl(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest) -> dict
     return value
 
 
-async def get_by_day(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest) -> dict:
-    """По дням: продажи, сколько начислено, себестоимость с НДС, прибыль до налога. Нет данных — null."""
+async def get_by_day(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest, report: Report | None = None) -> dict:
+    """По дням: продажи, сколько начислено, себестоимость с НДС, прибыль до налога. Нет данных — null.
+    report — дни одного отчёта (график на открытом отчёте): период и строки — его."""
+    if report is not None:
+        req = replace(req, date_from=report.period_start, date_to=report.period_end, source=SOURCE_XLSX)
     req.check()
-    params = req.params()
+    params = {**req.params(), "report_id": str(report.id) if report else None}
     if (hit := await cache.get(user_id, "by-day", params)) is not None:
         return hit
-    cov = await pnl_data.coverage(db, user_id, req.date_from, req.date_to, req.source)
+    if report is not None:
+        cov = pnl_data.report_coverage(report)
+    else:
+        cov = await pnl_data.coverage(db, user_id, req.date_from, req.date_to, req.source)
     lines = await pnl_data.load_lines(db, user_id, cov)
     costs = await load_cost_history(db, user_id)
     row = profile_on(await load_profiles(db, user_id), req.date_from)

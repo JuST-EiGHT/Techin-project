@@ -14,16 +14,27 @@ def auth(tokens):
 async def test_settings_defaults_and_update(client, tokens):
     get = lambda: client.get("/api/v1/settings", headers=auth(tokens))  # noqa: E731
     assert (await client.get("/api/v1/settings")).status_code == 401
-    assert (await get()).json() == {"theme": "dark"}  # налог и НДС — в налоговом профиле (шаг 2.5)
+    # налог и НДС — в налоговом профиле (шаг 2.5)
+    assert (await get()).json() == {"theme": "dark", "supplier_payment": "upfront", "cost_label": "Себестоимость с НДС"}
 
     r = await client.patch("/api/v1/settings", json={"theme": "light"}, headers=auth(tokens))
-    assert r.status_code == 200 and r.json() == {"theme": "light"}
+    assert r.status_code == 200 and r.json()["theme"] == "light"
     assert (await get()).json()["theme"] == "light"  # сохраняется — одинаково на всех устройствах
     r = await client.patch("/api/v1/settings", json={}, headers=auth(tokens))
     assert r.json()["theme"] == "light"  # не переданное не меняется
 
     r = await client.patch("/api/v1/settings", json={"theme": "blue"}, headers=auth(tokens))
     assert (r.status_code, r.json()["detail"]) == (400, "Тема: недопустимое значение")
+
+
+async def test_supplier_payment_names_cost_in_pnl(client, tokens):
+    """Поставщик получает деньги после продажи — себестоимость с НДС в P&L называется «долг поставщику» (шаг 3.3)."""
+    r = await client.patch("/api/v1/settings", json={"supplier_payment": "after_sale"}, headers=auth(tokens))
+    assert r.json() == {"theme": "dark", "supplier_payment": "after_sale", "cost_label": "Долг поставщику"}
+    r = await client.patch("/api/v1/settings", json={"theme": "light"}, headers=auth(tokens))
+    assert r.json()["supplier_payment"] == "after_sale"  # не переданное не меняется
+    r = await client.patch("/api/v1/settings", json={"supplier_payment": "later"}, headers=auth(tokens))
+    assert (r.status_code, r.json()["detail"]) == (400, "Когда платите поставщику: недопустимое значение")
 
 
 async def test_new_reports_follow_tax_profile_until_edited(client, tokens):

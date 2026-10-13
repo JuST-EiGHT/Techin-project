@@ -1,10 +1,10 @@
-"""Основные настройки сервиса: тема. Налог и НДС — в налоговом профиле (tax_profile.py)."""
+"""Основные настройки сервиса: тема, когда платите поставщику. Налог и НДС — в налоговом профиле (tax_profile.py)."""
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.models.user import User
-from app.models.user_settings import UserSettings
+from app.models.user_settings import COST_LABELS, UserSettings
 from app.schemas.settings import SettingsResponse, SettingsUpdate
 from app.services import user_settings as svc
 from app.services.auth import get_current_user
@@ -13,7 +13,9 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 
 def _response(s: UserSettings) -> SettingsResponse:
-    return SettingsResponse(theme=s.theme)
+    return SettingsResponse(
+        theme=s.theme, supplier_payment=s.supplier_payment, cost_label=COST_LABELS[s.supplier_payment]
+    )
 
 
 @router.get("", response_model=SettingsResponse)

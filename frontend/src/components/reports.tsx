@@ -2,6 +2,7 @@
 import Link from 'next/link'
 
 import { CostTemplateButton } from '@/components/CostTemplateButton'
+import { useCostLabel } from '@/lib/settings'
 
 export type ReportType = 'accrual' | 'realization'
 
@@ -22,6 +23,7 @@ export type ReportItem = {
   revenue_base: string
   cost_sales: string
   vat_multiplier: string | null // null — по налоговому профилю
+  tax_base: 'profit' | 'revenue' | null
   tax_rate: string | null
   rows_count: number
   missing_cost_count: number
@@ -117,64 +119,127 @@ export function Badge({ tone, children, title }: { tone: 'warn' | 'muted' | 'bad
 
 export const pctText = (v: string | null) => (v === null ? '—' : `${Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} %`)
 
-/** Главные цифры отчёта: продано, пришло от Ozon, себестоимость с НДС, налог, остаток и маржа. */
-export function ReportFigures({ report }: { report: ReportItem }) {
-  const manual = report.manual_total !== null
-  const { pnl } = report
-  const vatPct = Math.round((Number(pnl.supplier_vat) - 1) * 1000) / 10
+/** Пять главных цифр P&L: откуда они взяты — подсказки под суммами. */
+export type FiguresData = {
+  revenue: string | null // продано: выручка
+  revenueHint: string
+  received: string // пришло от Ozon: ручная сумма или по начислениям
+  receivedHint: string
+  costSales: string | null // себестоимость без НДС
+  missingCostCount: number
+  pnl: PnL
+}
+
+export const vatPctText = (multiplier: string) => {
+  const pct = Math.round((Number(multiplier) - 1) * 1000) / 10
+  return pct === 0 ? 'без НДС' : `${pct.toLocaleString('ru-RU')} %`
+}
+
+/** Фактический НДС поставщика: у артикулов со своей ставкой в справочнике она своя — берём себестоимость с НДС / без. */
+const effectiveVat = (owed: string, costSales: string | null, fallback: string) =>
+  costSales !== null && Number(costSales) > 0 ? String(Number(owed) / Number(costSales)) : fallback
+
+/** Полоса из пяти цифр: продано, получено от Ozon, себестоимость с НДС, налог, остаток и маржа (самый заметный блок). */
+export function PnLFigures({ data }: { data: FiguresData }) {
+  const costLabel = useCostLabel()
+  const { pnl } = data
   const taxSet = pnl.tax !== null
+  const net = pnl.net === null ? null : Number(pnl.net)
+  const resultTone = net === null ? '' : net < 0 ? 'bg-bad/10' : 'bg-ok/10'
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5" data-testid="report-figures">
-      <Figure label="Продано" value={rub(report.revenue_base)} hint={report.report_type === 'accrual' ? 'начисления «Выручка»' : 'итого реализовано'} />
-      <Figure
-        label="Пришло от Ozon"
-        value={rub(report.effective_total)}
-        hint={manual ? `введено вручную, по отчёту ${rub(report.auto_total)}` : 'по отчёту'}
-        tone="accent"
+    <div
+      className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line sm:grid-cols-3 lg:grid-cols-[1fr_1fr_1fr_1fr_1.3fr]"
+      data-testid="report-figures"
+    >
+      <Cell label="Продано (выручка)" value={rub(data.revenue)} hint={data.revenueHint} tone="ok" testid="figure-revenue" />
+      <Cell
+        label="Получено от Ozon"
+        value={rub(data.received)}
+        hint={data.receivedHint}
+        tone={Number(data.received) < 0 ? 'bad' : undefined}
+        testid="figure-received"
       />
-      <Figure
-        label="Себестоимость с НДС"
+      <Cell
+        label={costLabel}
         value={rub(pnl.owed)}
         hint={
-          report.missing_cost_count > 0
-            ? `не найдена для ${report.missing_cost_count} арт. — занижена`
-            : `без НДС ${rub(report.cost_sales)}; НДС поставщика ${vatPct === 0 ? 'нет' : `${vatPct.toLocaleString('ru-RU')} %`}`
+          data.missingCostCount > 0
+            ? `не найдена для ${data.missingCostCount} арт. — занижена`
+            : `без НДС ${rub(data.costSales)}; НДС поставщика ${vatPctText(effectiveVat(pnl.owed, data.costSales, pnl.supplier_vat))}`
         }
-        tone={report.missing_cost_count > 0 ? 'warn' : undefined}
+        hintTone={data.missingCostCount > 0 ? 'warn' : undefined}
+        testid="figure-cost"
       />
       {taxSet ? (
-        <Figure
+        <Cell
           label={Number(pnl.vat) > 0 ? 'Налог и НДС' : 'Налог'}
           value={rub(String(Number(pnl.tax) + Number(pnl.vat ?? 0)))}
           hint={Number(pnl.vat) > 0 ? `налог ${rub(pnl.tax)}, НДС ${rub(pnl.vat)}` : (pnl.tax_title ?? '')}
+          tone="warn"
+          testid="figure-tax"
         />
       ) : (
-        <div className="rounded-xl border border-warn/40 bg-card p-4">
-          <div className="text-xs text-muted">Налог</div>
-          <div className="mt-1 text-xl font-semibold text-warn">не задан</div>
-          <Link href="/dashboard/settings/taxes" className="mt-1 block text-xs text-accent hover:underline">
+        <div className="bg-card px-4 py-3" data-testid="figure-tax">
+          <div className="text-[11px] uppercase tracking-wider text-muted">Налог</div>
+          <div className="mt-1 text-lg font-bold text-warn">не задан</div>
+          <Link href="/dashboard/settings/taxes" className="mt-0.5 block text-xs text-accent hover:underline">
             Указать систему налогообложения →
           </Link>
         </div>
       )}
-      <Figure
-        label="Остаток"
-        value={rub(pnl.net)}
-        hint={taxSet ? `маржа ${pctText(pnl.margin)}` : `до налога ${rub(pnl.profit_before_tax)}`}
-        tone={pnl.net === null ? undefined : Number(pnl.net) < 0 ? 'bad' : 'ok'}
-        testid="figure-net"
-      />
+      <div className="col-span-2 bg-card sm:col-span-2 lg:col-span-1" data-testid="figure-net">
+        <div className={`h-full px-4 py-3 ${resultTone}`}>
+          <div className="text-[11px] uppercase tracking-wider text-muted">Остаток (чистая прибыль)</div>
+          <div className={`mt-1 text-2xl font-bold tabular-nums ${net === null ? '' : net < 0 ? 'text-bad' : 'text-ok'}`}>
+            {taxSet ? rub(pnl.net) : '—'}
+          </div>
+          <div className={`text-sm font-semibold ${net === null ? 'text-muted' : net < 0 ? 'text-bad' : 'text-ok'}`}>
+            {taxSet ? `Маржа ${pctText(pnl.margin)}` : `до налога ${rub(pnl.profit_before_tax)}`}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
 
-function Figure({ label, value, hint, tone, testid }: { label: string; value: string; hint: string; tone?: 'accent' | 'warn' | 'ok' | 'bad'; testid?: string }) {
-  const valueTone = { accent: 'text-accent', ok: 'text-ok', bad: 'text-bad', warn: '' }[tone ?? 'warn']
+/** Цифры отчёта (шаг 3.1). */
+export function ReportFigures({ report }: { report: ReportItem }) {
+  return <PnLFigures data={reportFigures(report)} />
+}
+
+export function reportFigures(report: ReportItem): FiguresData {
+  return {
+    revenue: report.revenue_base,
+    revenueHint: report.report_type === 'accrual' ? 'начисления «Выручка»' : 'итого реализовано',
+    received: report.effective_total,
+    receivedHint: report.manual_total !== null ? `введено вручную, по отчёту ${rub(report.auto_total)}` : 'по отчёту',
+    costSales: report.cost_sales,
+    missingCostCount: report.missing_cost_count,
+    pnl: report.pnl,
+  }
+}
+
+function Cell({
+  label,
+  value,
+  hint,
+  tone,
+  hintTone,
+  testid,
+}: {
+  label: string
+  value: string
+  hint: string
+  tone?: 'ok' | 'bad' | 'warn'
+  hintTone?: 'warn'
+  testid?: string
+}) {
+  const valueTone = tone ? { ok: 'text-ok', bad: 'text-bad', warn: 'text-warn' }[tone] : ''
   return (
-    <div className="rounded-xl border border-line bg-card p-4" data-testid={testid}>
-      <div className="text-xs text-muted">{label}</div>
-      <div className={`mt-1 text-xl font-semibold tabular-nums ${tone ? valueTone : ''}`}>{value}</div>
-      <div className={`mt-1 text-xs ${tone === 'warn' ? 'text-warn' : 'text-faint'}`}>{hint}</div>
+    <div className="bg-card px-4 py-3" data-testid={testid}>
+      <div className="text-[11px] uppercase tracking-wider text-muted">{label}</div>
+      <div className={`mt-1 text-lg font-bold tabular-nums ${valueTone}`}>{value}</div>
+      <div className={`mt-0.5 text-xs ${hintTone === 'warn' ? 'text-warn' : 'text-faint'}`}>{hint}</div>
     </div>
   )
 }
@@ -187,9 +252,10 @@ export const pnlWarnings = (report: ReportItem) => report.pnl.warnings.filter((w
 /** Расчёт остатка по шагам: пришло от Ozon − себестоимость с НДС − налог − НДС; проценты — от выручки. */
 export function PnLBreakdown({ report }: { report: ReportItem }) {
   const { pnl } = report
+  const costLabel = useCostLabel()
   const rows: { label: string; value: string | null; pct: string | null; strong?: boolean; tone?: 'ok' | 'bad' | 'accent' }[] = [
     { label: 'Пришло от Ozon', value: pnl.effective_total, pct: null },
-    { label: '− Себестоимость с НДС поставщика', value: pnl.owed, pct: pnl.pct_of_revenue.owed },
+    { label: `− ${costLabel}`, value: pnl.owed, pct: pnl.pct_of_revenue.owed },
     { label: '= Прибыль до налога', value: pnl.profit_before_tax, pct: pnl.pct_of_revenue.profit_before_tax, strong: true, tone: 'accent' },
     { label: '− Налог', value: pnl.tax, pct: pnl.pct_of_revenue.tax },
     ...(Number(pnl.vat) > 0 ? [{ label: '− НДС к уплате', value: pnl.vat, pct: pnl.pct_of_revenue.vat }] : []),
@@ -251,7 +317,7 @@ export function MissingCostTable({ items }: { items: ReportSummary['missing_cost
   return (
     <section className="rounded-xl border border-warn/40 bg-card">
       <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-2">
-        <h2 className="text-sm font-semibold text-warn">Не найдена себестоимость — долг поставщику занижен, прибыль завышена</h2>
+        <h2 className="text-sm font-semibold text-warn">Не найдена себестоимость — прибыль завышена</h2>
         <span className="ml-auto flex flex-wrap items-center gap-4">
           <CostTemplateButton rows="missing">Скачать шаблон с этими товарами</CostTemplateButton>
           <Link href="/dashboard/costs?missing=1" className="text-sm text-accent hover:underline">
@@ -330,5 +396,126 @@ export function ReportHeading({ report, link }: { report: ReportItem; link?: boo
         {report.filename} · загружен {fmtDateTime(report.uploaded_at)}
       </p>
     </div>
+  )
+}
+
+export const rubSigned = (v: string | number | null) => {
+  if (v === null) return '—'
+  const n = Number(v)
+  return `${n < 0 ? '−' : n > 0 ? '+' : ''}${rub(String(Math.abs(n)))}`
+}
+
+const ROW = 'grid grid-cols-[1fr_3.75rem_7rem] items-center gap-2 px-3 py-1.5 text-[13px] sm:grid-cols-[1fr_6rem_9.5rem] sm:text-sm'
+
+function Row({ label, pct, value, className = '', valueClass = '', testid }: {
+  label: React.ReactNode
+  pct: string
+  value: string
+  className?: string
+  valueClass?: string
+  testid?: string
+}) {
+  return (
+    <div className={`${ROW} rounded-md ${className}`} data-testid={testid}>
+      <span className="min-w-0 hyphens-auto break-words">{label}</span>
+      <span className="text-right tabular-nums text-muted">{pct}</span>
+      <span className={`whitespace-nowrap text-right tabular-nums ${valueClass}`}>{value}</span>
+    </div>
+  )
+}
+
+const SectionLabel = ({ children }: { children: React.ReactNode }) => (
+  <div className="px-3 pb-0.5 pt-3 text-[11px] uppercase tracking-wider text-muted">{children}</div>
+)
+
+/** Начисления по типам и P&L (как в калькуляторе): доходы и расходы Ozon — каждая группа 100 %,
+ *  итог — сколько пришло от Ozon, ниже P&L с процентом от выручки: прибыль синим, остаток зелёным или красным. */
+export function PnLTable({ byType, pnl, revenue, manual }: {
+  byType: Record<string, string>
+  pnl: PnL
+  revenue: string | null
+  manual: boolean
+}) {
+  const costLabel = useCostLabel()
+  const entries = Object.entries(byType)
+  const income = entries.filter(([, v]) => Number(v) > 0).sort((a, b) => Number(b[1]) - Number(a[1]))
+  const expense = entries.filter(([, v]) => Number(v) <= 0).sort((a, b) => Number(a[1]) - Number(b[1]))
+  const incomeSum = income.reduce((s, [, v]) => s + Number(v), 0)
+  const expenseSum = expense.reduce((s, [, v]) => s + Number(v), 0)
+  const received = Number(pnl.effective_total)
+  const net = pnl.net === null ? null : Number(pnl.net)
+  const pct = (name: string) => pctText(pnl.by_type_pct[name] ?? null)
+  return (
+    <section className="rounded-xl border border-line bg-card pb-3" data-testid="pnl-table">
+      <h2 className="border-b border-line px-4 py-2 text-sm font-semibold">Начисления по типам и P&amp;L</h2>
+      <div className="px-1 sm:px-2">
+        <div className={`${ROW} border-b border-line text-[11px] uppercase tracking-wider text-muted`}>
+          <span>Тип начисления</span>
+          <span className="text-right">% группы</span>
+          <span className="text-right">Сумма</span>
+        </div>
+        {income.length > 0 && <SectionLabel>Доходы · итого {rub(String(incomeSum))}</SectionLabel>}
+        {income.map(([name, v]) => (
+          <Row
+            key={name}
+            label={name}
+            pct={pct(name)}
+            value={rubSigned(v)}
+            valueClass="text-ok"
+            className={`hover:bg-line/40 ${name.trim().toLowerCase() === 'выручка' ? 'font-semibold' : ''}`}
+            testid="type-row"
+          />
+        ))}
+        {expense.length > 0 && <SectionLabel>Расходы Ozon · итого {rub(String(Math.abs(expenseSum)))}</SectionLabel>}
+        {expense.map(([name, v]) => (
+          <Row key={name} label={name} pct={pct(name)} value={rubSigned(v)} valueClass="text-bad" className="hover:bg-line/40" testid="type-row" />
+        ))}
+        <Row
+          label={manual ? 'Итого к получению от Ozon (введено вручную)' : 'Итого к получению от Ozon'}
+          pct={incomeSum > 0 ? pctText(String((Math.abs(received) / incomeSum) * 100)) : '—'}
+          value={rubSigned(pnl.effective_total)}
+          className="mt-2 border-y border-line bg-line/40 font-semibold"
+          valueClass={received < 0 ? 'text-bad' : 'text-ok'}
+          testid="received-row"
+        />
+        <SectionLabel>P&amp;L · % от выручки{revenue !== null ? ` (${rub(revenue)})` : ''}</SectionLabel>
+        <Row label={costLabel} pct={pctText(pnl.pct_of_revenue.owed)} value={rubSigned(-Number(pnl.owed))} valueClass="text-bad" />
+        <Row
+          label="Прибыль до налога"
+          pct={pctText(pnl.pct_of_revenue.profit_before_tax)}
+          value={rubSigned(pnl.profit_before_tax)}
+          className="bg-accent/10 font-semibold text-accent"
+          testid="profit-row"
+        />
+        {pnl.tax === null ? (
+          <Row
+            label={
+              <>
+                Налог — <span className="text-warn">не задан</span>{' '}
+                <Link href="/dashboard/settings/taxes" className="text-accent hover:underline">
+                  указать →
+                </Link>
+              </>
+            }
+            pct="—"
+            value="—"
+          />
+        ) : (
+          <Row label={pnl.tax_title ? `Налог · ${pnl.tax_title}` : 'Налог'} pct={pctText(pnl.pct_of_revenue.tax)} value={rubSigned(-Number(pnl.tax))} valueClass="text-warn" />
+        )}
+        {Number(pnl.vat) > 0 && (
+          <Row label="НДС к уплате" pct={pctText(pnl.pct_of_revenue.vat)} value={rubSigned(-Number(pnl.vat))} valueClass="text-warn" />
+        )}
+        <Row
+          label={net === null ? 'Остаток — после налога' : `Остаток · маржа ${pctText(pnl.margin)}`}
+          pct={pctText(pnl.pct_of_revenue.net)}
+          value={net === null ? '—' : rub(pnl.net)}
+          className={`mt-2 border font-semibold ${
+            net === null ? 'border-line' : net < 0 ? 'border-bad bg-bad/10 text-bad' : 'border-ok bg-ok/10 text-ok'
+          }`}
+          testid="net-row"
+        />
+      </div>
+    </section>
   )
 }

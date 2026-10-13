@@ -1,4 +1,5 @@
 """P&L за любой период (шаг 3.2): по начислениям из отчётов XLSX и Ozon API, источник — в ответе."""
+import uuid
 from datetime import date
 from decimal import Decimal
 from typing import Literal
@@ -10,6 +11,7 @@ from app.db.session import get_db
 from app.models.user import User
 from app.schemas.pnl import PeriodPnL, PnLByDay, PnLPeriods, Source
 from app.services import pnl_service as svc
+from app.services import reports as reports_svc
 from app.services.auth import get_current_user
 from app.services.sync.finance import today_msk
 
@@ -54,10 +56,21 @@ async def get_pnl(
 
 @router.get("/by-day", response_model=PnLByDay)
 async def get_pnl_by_day(
-    req: svc.PnLRequest = Depends(_request), user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    req: svc.PnLRequest = Depends(_request),
+    report_id: uuid.UUID | None = Query(None, description="Дни одного отчёта по начислениям — вместо периода"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """По дням: выручка, начисления, себестоимость с НДС, прибыль до налога. Нет данных за день — null."""
-    return await svc.get_by_day(db, user.id, req)
+    report = None
+    if report_id is not None:
+        report = await reports_svc.get_report(db, user.id, report_id)
+        if report is None or report.period_start is None or report.period_end is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Отчёт не найден")
+    try:
+        return await svc.get_by_day(db, user.id, req, report)
+    except svc.PnLRequestError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
 
 @router.get("/periods", response_model=PnLPeriods)

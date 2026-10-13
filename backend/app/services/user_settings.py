@@ -3,11 +3,11 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.user_settings import DEFAULT_THEME, UserSettings
+from app.models.user_settings import DEFAULT_SUPPLIER_PAYMENT, DEFAULT_THEME, UserSettings
 
 
 def defaults(user_id: uuid.UUID) -> UserSettings:
-    return UserSettings(user_id=user_id, theme=DEFAULT_THEME)
+    return UserSettings(user_id=user_id, theme=DEFAULT_THEME, supplier_payment=DEFAULT_SUPPLIER_PAYMENT)
 
 
 async def get_settings(db: AsyncSession, user_id: uuid.UUID) -> UserSettings:
