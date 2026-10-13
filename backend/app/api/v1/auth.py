@@ -7,15 +7,28 @@ from app.core.config import settings
 from app.crud import user as crud_user
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.user import LogoutRequest, RefreshRequest, Token, UserCreate, UserLogin, UserResponse
+from app.schemas.user import (
+    LogoutRequest,
+    PasswordChange,
+    ProfileUpdate,
+    RefreshRequest,
+    Token,
+    UserCreate,
+    UserLogin,
+    UserResponse,
+)
 from app.services.auth import (
     REFRESH,
+    SESSION_ENDED,
     InvalidTokenError,
     create_access_token,
     create_refresh_token,
     decode_token,
     get_current_token_payload,
     get_current_user,
+    hash_password,
+    issued_before_revocation,
+    utcnow,
     verify_password,
 )
 from app.services.token_blacklist import blacklist
@@ -63,6 +76,8 @@ async def refresh(data: RefreshRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Пользователь не найден")
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Аккаунт деактивирован")
+    if issued_before_revocation(user, payload):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, SESSION_ENDED)
 
     # Ротация: старый refresh больше не работает
     await blacklist.revoke(payload["jti"], payload["exp"])
@@ -84,3 +99,30 @@ async def logout(data: LogoutRequest | None = None, access_payload: dict = Depen
 @router.get("/me", response_model=UserResponse)
 async def me(user: User = Depends(get_current_user)):
     return user
+
+
+@router.patch("/me", response_model=UserResponse)
+async def update_me(data: ProfileUpdate, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if "full_name" in data.model_fields_set:
+        user.full_name = (data.full_name or "").strip() or None
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    data: PasswordChange,
+    payload: dict = Depends(get_current_token_payload),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Смена пароля. Все сессии пользователя, включая текущую, завершаются — войти заново."""
+    if not verify_password(data.current_password, user.hashed_password):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Текущий пароль указан неверно")
+    if verify_password(data.new_password, user.hashed_password):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Новый пароль совпадает с текущим")
+    user.hashed_password = hash_password(data.new_password)
+    user.tokens_valid_after = utcnow()
+    await db.commit()
+    await blacklist.revoke(payload["jti"], payload["exp"])

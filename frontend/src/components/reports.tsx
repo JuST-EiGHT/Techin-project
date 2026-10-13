@@ -83,7 +83,7 @@ export function periodLabel(r: { period: string; period_start: string | null; pe
 export function Badge({ tone, children, title }: { tone: 'warn' | 'muted' | 'bad' | 'accent'; children: React.ReactNode; title?: string }) {
   const cls = {
     warn: 'bg-warn/15 text-warn',
-    muted: 'bg-line text-slate-400',
+    muted: 'bg-line text-muted',
     bad: 'bg-bad/15 text-bad',
     accent: 'bg-accent/15 text-accent',
   }[tone]
@@ -119,9 +119,9 @@ export function ReportFigures({ report }: { report: ReportItem }) {
 function Figure({ label, value, hint, tone }: { label: string; value: string; hint: string; tone?: 'accent' | 'warn' }) {
   return (
     <div className="rounded-xl border border-line bg-card p-4">
-      <div className="text-xs text-slate-400">{label}</div>
+      <div className="text-xs text-muted">{label}</div>
       <div className={`mt-1 text-xl font-semibold tabular-nums ${tone === 'accent' ? 'text-accent' : ''}`}>{value}</div>
-      <div className={`mt-1 text-xs ${tone === 'warn' ? 'text-warn' : 'text-slate-500'}`}>{hint}</div>
+      <div className={`mt-1 text-xs ${tone === 'warn' ? 'text-warn' : 'text-faint'}`}>{hint}</div>
     </div>
   )
 }
@@ -135,7 +135,7 @@ export function MissingCostTable({ items }: { items: ReportSummary['missing_cost
       </h2>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="text-left text-xs text-slate-400">
+          <thead className="text-left text-xs text-muted">
             <tr className="border-b border-line">
               <th className="px-4 py-2 font-normal">Артикул</th>
               <th className="px-4 py-2 font-normal">Название</th>
@@ -146,7 +146,7 @@ export function MissingCostTable({ items }: { items: ReportSummary['missing_cost
             {items.map((m) => (
               <tr key={m.article} className="border-b border-line last:border-b-0" data-testid="missing-cost">
                 <td className="px-4 py-2 font-medium">{m.article}</td>
-                <td className="max-w-md truncate px-4 py-2 text-slate-400">{m.name || '—'}</td>
+                <td className="max-w-md truncate px-4 py-2 text-muted">{m.name || '—'}</td>
                 <td className="px-4 py-2 text-right tabular-nums">{m.qty}</td>
               </tr>
             ))}
@@ -162,7 +162,7 @@ export function Warnings({ items }: { items: string[] }) {
   return (
     <section className="rounded-xl border border-line bg-card p-4">
       <h2 className="mb-2 text-sm font-semibold text-warn">Предупреждения</h2>
-      <ul className="list-disc space-y-1 pl-5 text-sm text-slate-300">
+      <ul className="list-disc space-y-1 pl-5 text-sm text-fg">
         {items.map((w, i) => (
           <li key={i}>{w}</li>
         ))}
@@ -198,7 +198,7 @@ export function ReportHeading({ report, link }: { report: ReportItem; link?: boo
   return (
     <div>
       <h2 className="text-lg font-semibold">{link ? <Link href={`/dashboard/reports/${report.id}`} className="hover:text-accent">{title}</Link> : title}</h2>
-      <p className="text-xs text-slate-400">
+      <p className="text-xs text-muted">
         {report.filename} · загружен {fmtDateTime(report.uploaded_at)}
       </p>
     </div>

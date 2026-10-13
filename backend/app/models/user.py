@@ -16,6 +16,8 @@ class User(Base):
     full_name: Mapped[str | None] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    # токены, выпущенные раньше, недействительны (смена пароля — выход на всех устройствах)
+    tokens_valid_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

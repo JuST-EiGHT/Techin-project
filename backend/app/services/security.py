@@ -32,7 +32,10 @@ def _create_token(user_id: uuid.UUID, token_type: str, lifetime: timedelta) -> t
     now = datetime.now(timezone.utc)
     exp = now + lifetime
     jti = uuid.uuid4().hex
-    payload = {"sub": str(user_id), "type": token_type, "jti": jti, "iat": int(now.timestamp()), "exp": int(exp.timestamp())}
+    payload = {
+        "sub": str(user_id), "type": token_type, "jti": jti, "iat": int(now.timestamp()), "exp": int(exp.timestamp()),
+        "iat_ms": int(now.timestamp() * 1000),  # точнее iat: отсечь токены, выпущенные до смены пароля
+    }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM), jti, int(exp.timestamp())
 
 

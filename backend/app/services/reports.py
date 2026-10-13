@@ -21,7 +21,8 @@ from app.integrations.xlsx.common import norm
 from app.integrations.xlsx.parsers.base import money
 from app.models.accrual import SOURCE_XLSX, Accrual, AccrualType
 from app.models.product import Product
-from app.models.report import DEFAULT_TAX_RATE, DEFAULT_VAT_MULTIPLIER, ERROR, READY, Report, ReportFile
+from app.models.report import ERROR, READY, Report, ReportFile
+from app.services.user_settings import get_settings
 
 OnConflict = Literal["ask", "replace", "keep"]
 
@@ -110,9 +111,10 @@ async def create_report(
         raise ReportConflict(conflicts)
 
     now = _now()
+    prefs = await get_settings(db, user_id)  # расчёты по умолчанию — из настроек пользователя
     report = Report(
         id=uuid.uuid4(), user_id=user_id, filename=filename, file_sha256=file_hash, file_size=len(content),
-        uploaded_at=now, vat_multiplier=DEFAULT_VAT_MULTIPLIER, tax_rate=DEFAULT_TAX_RATE,
+        uploaded_at=now, vat_multiplier=prefs.vat_multiplier, tax_base=prefs.tax_base, tax_rate=prefs.tax_rate,
     )
     _apply_parsed(report, parsed, now)
     db.add(report)

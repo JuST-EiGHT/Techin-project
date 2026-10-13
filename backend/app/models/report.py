@@ -18,10 +18,9 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.models.user_settings import DEFAULT_TAX_BASE, DEFAULT_TAX_RATE, DEFAULT_VAT_MULTIPLIER
 
 PROCESSING, READY, ERROR = "processing", "ready", "error"
-DEFAULT_VAT_MULTIPLIER = Decimal("1.22")
-DEFAULT_TAX_RATE = Decimal("0.20")
 
 
 class Report(Base):
@@ -51,6 +50,7 @@ class Report(Base):
     summary_json: Mapped[dict] = mapped_column(JSON, nullable=False)  # NormalizedReportData
     manual_total: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))  # «сколько реально пришло»
     vat_multiplier: Mapped[Decimal] = mapped_column(Numeric(5, 3), nullable=False, default=DEFAULT_VAT_MULTIPLIER)
+    tax_base: Mapped[str] = mapped_column(String(8), nullable=False, default=DEFAULT_TAX_BASE)  # profit | revenue
     tax_rate: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False, default=DEFAULT_TAX_RATE)
     file_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)

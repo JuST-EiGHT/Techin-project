@@ -12,7 +12,9 @@ import { safeNext } from '@/lib/session'
 function LoginForm() {
   const { login } = useAuth()
   const router = useRouter()
-  const next = safeNext(useSearchParams().get('next'))
+  const params = useSearchParams()
+  const next = safeNext(params.get('next'))
+  const passwordChanged = params.get('changed') === '1'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -33,6 +35,11 @@ function LoginForm() {
 
   return (
     <form onSubmit={onSubmit} noValidate>
+      {passwordChanged && !error && (
+        <p role="status" className="mb-4 rounded-lg border border-ok/40 bg-ok/10 px-3 py-2 text-sm text-ok">
+          Пароль изменён — войдите с новым паролем.
+        </p>
+      )}
       <FormError message={error} />
       <Field label="Email" id="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
       <Field label="Пароль" id="password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />

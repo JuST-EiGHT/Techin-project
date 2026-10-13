@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
 import { timeAgo } from '@/components/SyncStatus'
@@ -65,7 +66,7 @@ function Badge({ tone, children, title }: { tone: 'auto' | 'warn' | 'muted' | 'o
   const cls = {
     auto: 'bg-accent/15 text-accent',
     warn: 'bg-warn/15 text-warn',
-    muted: 'bg-line text-slate-400',
+    muted: 'bg-line text-muted',
     ok: 'bg-ok/15 text-ok',
   }[tone]
   return (
@@ -76,7 +77,7 @@ function Badge({ tone, children, title }: { tone: 'auto' | 'warn' | 'muted' | 'o
 }
 
 function Margin({ row }: { row: PromoProductRow }) {
-  if (row.margin_in_promo === null) return <span className="text-slate-500">—</span>
+  if (row.margin_in_promo === null) return <span className="text-faint">—</span>
   return <span className={`font-medium ${MARGIN[row.margin_level ?? 'ok']}`}>{row.margin_in_promo} %</span>
 }
 
@@ -88,11 +89,11 @@ function ProductCells({ row, wholeStock }: { row: PromoProductRow; wholeStock: b
           <span className="font-medium">{row.product.offer_id}</span>
           {row.added_automatically && <Badge tone="auto">Добавлен автоматически</Badge>}
         </div>
-        {row.product.name && <div className="max-w-xs truncate text-xs text-slate-400">{row.product.name}</div>}
+        {row.product.name && <div className="max-w-xs truncate text-xs text-muted">{row.product.name}</div>}
       </td>
       <td className="px-4 py-2 text-right tabular-nums">
         <div>{rub(row.action_price)}</div>
-        <div className="text-xs text-slate-500">
+        <div className="text-xs text-faint">
           {rub(row.price)}
           {row.discount_pct !== null && ` · −${row.discount_pct} %`}
         </div>
@@ -126,13 +127,13 @@ function PromotionProducts({ promotion }: { promotion: Promotion }) {
   }, [promotion.id])
 
   if (error) return <FormError message={error} />
-  if (!data) return <p className="p-4 text-sm text-slate-400">Загрузка…</p>
-  if (data.items.length === 0) return <p className="p-4 text-sm text-slate-400">Ваших товаров в этой акции нет.</p>
+  if (!data) return <p className="p-4 text-sm text-muted">Загрузка…</p>
+  if (data.items.length === 0) return <p className="p-4 text-sm text-muted">Ваших товаров в этой акции нет.</p>
 
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
-        <thead className="text-left text-xs text-slate-400">
+        <thead className="text-left text-xs text-muted">
           <tr className="border-b border-line">
             <th className="px-4 py-2 font-normal">Товар</th>
             <th className="px-4 py-2 text-right font-normal">Цена в акции</th>
@@ -175,11 +176,11 @@ function PromotionCard({ p, open, onToggle }: { p: Promotion; open: boolean; onT
               Заморожена с {fmtDate(p.freeze_date)}
             </Badge>
           )}
-          <span className="ml-auto text-sm text-slate-400">
+          <span className="ml-auto text-sm text-muted">
             {fmtDate(p.date_from)} — {fmtDate(p.date_to)}
           </span>
         </div>
-        <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm text-slate-400">
+        <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted">
           <span>Участвует товаров: {p.products_active}</span>
           <span>Могут участвовать: {p.candidates}</span>
           {p.discount_value && Number(p.discount_value) > 0 && (
@@ -222,16 +223,16 @@ function AutoAddedTable() {
   }, [])
 
   if (error) return <FormError message={error} />
-  if (!data) return <p className="text-sm text-slate-400">Загрузка…</p>
+  if (!data) return <p className="text-sm text-muted">Загрузка…</p>
   if (data.items.length === 0)
-    return <p className="text-sm text-slate-400">Товаров, добавленных в акции без вашего участия, нет.</p>
+    return <p className="text-sm text-muted">Товаров, добавленных в акции без вашего участия, нет.</p>
 
   return (
     <section className="rounded-xl border border-line bg-card">
-      {data.margin_note && <p className="border-b border-line px-4 py-2 text-sm text-slate-400">{data.margin_note}</p>}
+      {data.margin_note && <p className="border-b border-line px-4 py-2 text-sm text-muted">{data.margin_note}</p>}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="text-left text-xs text-slate-400">
+          <thead className="text-left text-xs text-muted">
             <tr className="border-b border-line">
               <th className="px-4 py-2 font-normal">Товар</th>
               <th className="px-4 py-2 text-right font-normal">Цена в акции</th>
@@ -247,7 +248,7 @@ function AutoAddedTable() {
                 <ProductCells row={row} wholeStock={row.promotion.whole_stock} />
                 <td className="px-4 py-2">
                   <div>{row.promotion.title}</div>
-                  <div className="text-xs text-slate-400">до {fmtDate(row.promotion.date_to)}</div>
+                  <div className="text-xs text-muted">до {fmtDate(row.promotion.date_to)}</div>
                 </td>
               </tr>
             ))}
@@ -259,9 +260,22 @@ function AutoAddedTable() {
 }
 
 export default function PromotionsPage() {
+  return (
+    <Suspense>
+      <Promotions />
+    </Suspense>
+  )
+}
+
+function Promotions() {
   const [promotions, setPromotions] = useState<Promotion[] | null>(null)
   const [sync, setSync] = useState<SyncStatus | null>(null)
-  const [tab, setTab] = useState<'all' | 'auto'>('all')
+  // вкладка — в адресе (?tab=auto), чтобы на неё вёл пункт меню «Добавленные автоматически»
+  const params = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
+  const tab: 'all' | 'auto' = params.get('tab') === 'auto' ? 'auto' : 'all'
+  const setTab = (t: 'all' | 'auto') => router.replace(t === 'auto' ? `${pathname}?tab=auto` : pathname, { scroll: false })
   const [openId, setOpenId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
@@ -325,7 +339,7 @@ export default function PromotionsPage() {
         <h1 className="text-2xl font-semibold">Акции Ozon</h1>
         {sync?.has_active_key && (
           <div className="ml-auto flex items-center gap-3 text-sm">
-            <span className="text-slate-400">
+            <span className="text-muted">
               {active || starting
                 ? 'Акции обновляются…'
                 : lastSuccess
@@ -363,7 +377,7 @@ export default function PromotionsPage() {
             key={t.key}
             onClick={() => setTab(t.key)}
             className={`-mb-px border-b-2 px-3 py-2 text-sm ${
-              tab === t.key ? 'border-accent text-accent' : 'border-transparent text-slate-400 hover:text-slate-200'
+              tab === t.key ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-fg'
             }`}
           >
             {t.label}
@@ -372,7 +386,7 @@ export default function PromotionsPage() {
       </div>
 
       {noCosts && (
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-muted">
           Маржа в акции появится после загрузки себестоимости товаров. Сейчас считается упрощённо: цена в акции минус
           комиссия Ozon, эквайринг и себестоимость с НДС — без логистики и рекламы.
         </p>
@@ -381,9 +395,9 @@ export default function PromotionsPage() {
       {tab === 'auto' ? (
         <AutoAddedTable key={reloadKey} />
       ) : promotions === null ? (
-        <p className="text-sm text-slate-400">Загрузка…</p>
+        <p className="text-sm text-muted">Загрузка…</p>
       ) : promotions.length === 0 ? (
-        <p className="text-sm text-slate-400">Акций пока нет — нажмите «Обновить акции».</p>
+        <p className="text-sm text-muted">Акций пока нет — нажмите «Обновить акции».</p>
       ) : (
         <div className="space-y-3">
           {promotions.map((p) => (

@@ -26,7 +26,7 @@ function ArticlesTable({ byArticle }: { byArticle: Record<string, ArticleSales> 
       <h2 className="border-b border-line px-4 py-2 text-sm font-semibold">Продажи по товарам</h2>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="text-left text-xs text-slate-400">
+          <thead className="text-left text-xs text-muted">
             <tr className="border-b border-line">
               <th className="px-4 py-2 font-normal">Артикул</th>
               <th className="px-4 py-2 text-right font-normal">Шт.</th>
@@ -40,7 +40,7 @@ function ArticlesTable({ byArticle }: { byArticle: Record<string, ArticleSales> 
               <tr key={article} className="border-b border-line last:border-b-0" data-testid="article-row">
                 <td className="px-4 py-2">
                   <div className="font-medium">{article}</div>
-                  {a.name && <div className="max-w-md truncate text-xs text-slate-400">{a.name}</div>}
+                  {a.name && <div className="max-w-md truncate text-xs text-muted">{a.name}</div>}
                 </td>
                 <td className="px-4 py-2 text-right tabular-nums">{a.qty}</td>
                 <td className="whitespace-nowrap px-4 py-2 text-right tabular-nums">{rub(a.revenue)}</td>
@@ -95,11 +95,11 @@ export default function ReportPage({ params }: { params: { id: string } }) {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <Link href="/dashboard/reports" className="text-sm text-slate-400 hover:text-slate-200">
+      <Link href="/dashboard/reports" className="text-sm text-muted hover:text-fg">
         ← Все отчёты
       </Link>
       <FormError message={error} />
-      {!report && !error && <p className="text-sm text-slate-400">Загрузка…</p>}
+      {!report && !error && <p className="text-sm text-muted">Загрузка…</p>}
       {report && (
         <>
           <div className="flex flex-wrap items-start gap-4">
@@ -124,7 +124,7 @@ export default function ReportPage({ params }: { params: { id: string } }) {
             </p>
           )}
           <ReportFigures report={report} />
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-faint">
             Разобран {fmtDateTime(report.parsed_at)} · лист «{report.summary.sheet_name}», строка заголовков {report.summary.header_row}.
             Остаток, налог и маржа появятся с расчётом P&amp;L.
           </p>

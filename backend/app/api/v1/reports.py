@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.db.session import get_db
 from app.integrations.xlsx import CostProvider, ReportParseError, parse_report
-from app.models.report import DEFAULT_TAX_RATE, DEFAULT_VAT_MULTIPLIER, Report
+from app.models.report import Report
 from app.models.user import User
 from app.schemas.report import (
     NormalizedReportData,
@@ -25,6 +25,7 @@ from app.schemas.report import (
 from app.services import reports as svc
 from app.services.auth import get_current_user
 from app.services.costs import get_cost_provider
+from app.services.user_settings import get_settings
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -71,7 +72,7 @@ def _item(r: Report) -> dict:
         parsed_at=r.parsed_at, auto_total=Decimal(s["auto_total"]), manual_total=_q(r.manual_total, "0.01"),
         effective_total=_q(svc.effective_total(r), "0.01"), revenue_base=Decimal(s["revenue_base"]),
         cost_sales=Decimal(s["cost_sales"]), vat_multiplier=_q(r.vat_multiplier, "0.001"),
-        tax_rate=_q(r.tax_rate, "0.0001"),
+        tax_base=r.tax_base, tax_rate=_q(r.tax_rate, "0.0001"),
         rows_count=s["rows_count"], missing_cost_count=len(s["missing_cost"]), warnings_count=len(s["warnings"]),
     )
 
@@ -158,15 +159,18 @@ async def update_report(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Ручные правки: сколько реально пришло, коэффициент НДС, ставка налога."""
+    """Ручные правки: сколько реально пришло, коэффициент НДС, налог (база и ставка)."""
     report = await _owned(db, user, report_id)
     fields = data.model_fields_set
     if "manual_total" in fields:
         report.manual_total = data.manual_total
+    prefs = await get_settings(db, user.id)  # null — вернуть значение из «Основных настроек»
     if "vat_multiplier" in fields:
-        report.vat_multiplier = data.vat_multiplier if data.vat_multiplier is not None else DEFAULT_VAT_MULTIPLIER
+        report.vat_multiplier = data.vat_multiplier if data.vat_multiplier is not None else prefs.vat_multiplier
+    if "tax_base" in fields:
+        report.tax_base = data.tax_base if data.tax_base is not None else prefs.tax_base
     if "tax_rate" in fields:
-        report.tax_rate = data.tax_rate if data.tax_rate is not None else DEFAULT_TAX_RATE
+        report.tax_rate = data.tax_rate if data.tax_rate is not None else prefs.tax_rate
     await db.commit()
     return _detail(report)
 

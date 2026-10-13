@@ -40,6 +40,10 @@ _FIELD_NAMES = {
     "manual_total": "Сумма от Ozon",
     "vat_multiplier": "Коэффициент НДС",
     "tax_rate": "Ставка налога",
+    "tax_base": "Налог считается",
+    "theme": "Тема",
+    "current_password": "Текущий пароль",
+    "new_password": "Новый пароль",
 }
 
 

@@ -5,14 +5,14 @@ export function AuthCard({ title, children, footer }: { title: string; children:
   return (
     <main className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
-        <Link href="/" className="block text-center text-sm text-slate-400 mb-6">
+        <Link href="/" className="block text-center text-sm text-muted mb-6">
           Ozon Analytics
         </Link>
         <div className="bg-card border border-line rounded-xl p-6">
           <h1 className="text-xl font-semibold mb-5">{title}</h1>
           {children}
         </div>
-        <p className="text-center text-sm text-slate-400 mt-4">{footer}</p>
+        <p className="text-center text-sm text-muted mt-4">{footer}</p>
       </div>
     </main>
   )
@@ -23,10 +23,10 @@ type FieldProps = React.InputHTMLAttributes<HTMLInputElement> & { label: string 
 export function Field({ label, id, ...props }: FieldProps) {
   return (
     <label htmlFor={id} className="block mb-4">
-      <span className="block text-sm text-slate-400 mb-1">{label}</span>
+      <span className="block text-sm text-muted mb-1">{label}</span>
       <input
         id={id}
-        className="w-full rounded-lg bg-bg border border-line px-3 py-2 outline-none focus:border-accent"
+        className="w-full rounded-lg bg-bg border border-line px-3 py-2 outline-none focus:border-accent disabled:opacity-60"
         {...props}
       />
     </label>

@@ -82,7 +82,7 @@ export default function UploadReportPage() {
     <div className="mx-auto max-w-5xl space-y-6">
       <div className="flex flex-wrap items-center gap-4">
         <h1 className="text-2xl font-semibold">Загрузка отчёта</h1>
-        <Link href="/dashboard/reports" className="ml-auto text-sm text-slate-400 hover:text-slate-200">
+        <Link href="/dashboard/reports" className="ml-auto text-sm text-muted hover:text-fg">
           ← Все отчёты
         </Link>
       </div>
@@ -100,7 +100,7 @@ export default function UploadReportPage() {
         }`}
       >
         <p className="text-lg">Перетащите сюда XLSX-отчёт Ozon</p>
-        <p className="mt-1 text-sm text-slate-400">
+        <p className="mt-1 text-sm text-muted">
           «Отчёт по начислениям» (Финансы → Отчёт по начислениям) или «Отчёт о реализации» (Финансы → Отчёт о
           реализации), до {MAX_MB} МБ
         </p>
@@ -125,7 +125,7 @@ export default function UploadReportPage() {
             <div className="h-2 overflow-hidden rounded bg-line">
               <div className="h-full bg-accent transition-all" style={{ width: `${progress}%` }} />
             </div>
-            <p className="mt-2 text-sm text-slate-400">{progress! < 100 ? `Загрузка… ${progress}%` : 'Разбираем отчёт…'}</p>
+            <p className="mt-2 text-sm text-muted">{progress! < 100 ? `Загрузка… ${progress}%` : 'Разбираем отчёт…'}</p>
           </div>
         )}
       </div>
@@ -136,8 +136,8 @@ export default function UploadReportPage() {
         <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true">
           <div className="w-full max-w-lg rounded-xl border border-line bg-card p-6" data-testid="conflict-dialog">
             <h2 className="text-lg font-semibold">Отчёт за этот период уже есть</h2>
-            <p className="mt-2 text-sm text-slate-300">{conflict.detail}</p>
-            <ul className="mt-3 space-y-1 text-sm text-slate-400">
+            <p className="mt-2 text-sm text-fg">{conflict.detail}</p>
+            <ul className="mt-3 space-y-1 text-sm text-muted">
               {conflict.conflicts.map((c) => (
                 <li key={c.id}>
                   {c.filename} · {periodLabel(c)} · загружен {fmtDateTime(c.uploaded_at)}
@@ -145,11 +145,11 @@ export default function UploadReportPage() {
                 </li>
               ))}
             </ul>
-            <p className="mt-3 text-xs text-slate-500">
+            <p className="mt-3 text-xs text-faint">
               Заменённый отчёт пропадёт из списка и расчётов, но не удалится — его можно будет вернуть.
             </p>
             <div className="mt-5 flex flex-wrap justify-end gap-3">
-              <button onClick={() => setConflict(null)} className="rounded-lg border border-line px-4 py-2 text-sm hover:border-slate-400">
+              <button onClick={() => setConflict(null)} className="rounded-lg border border-line px-4 py-2 text-sm hover:border-muted">
                 Отмена
               </button>
               <button onClick={() => send(conflict.file, 'keep')} className="rounded-lg border border-line px-4 py-2 text-sm hover:border-accent hover:text-accent">
@@ -183,7 +183,7 @@ export default function UploadReportPage() {
             </div>
           </div>
           <ReportFigures report={report} />
-          <p className="text-xs text-slate-500">Остаток, налог и маржа появятся в отчёте с расчётом P&amp;L.</p>
+          <p className="text-xs text-faint">Остаток, налог и маржа появятся в отчёте с расчётом P&amp;L.</p>
           <MissingCostTable items={report.summary.missing_cost} />
           <Warnings items={report.summary.warnings} />
           <ByTypeTable byType={report.summary.by_type} />

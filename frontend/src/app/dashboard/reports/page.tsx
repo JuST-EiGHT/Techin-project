@@ -126,7 +126,7 @@ export default function ReportsPage() {
           <button
             key={t.type}
             onClick={() => setTab(t.type)}
-            className={`-mb-px border-b-2 px-4 py-2 text-sm ${tab === t.type ? 'border-accent text-accent' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+            className={`-mb-px border-b-2 px-4 py-2 text-sm ${tab === t.type ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-fg'}`}
           >
             {t.label}
           </button>
@@ -139,7 +139,7 @@ export default function ReportsPage() {
           <button onClick={undo} className="text-accent hover:underline">
             Отменить
           </button>
-          <button onClick={() => setDeleted(null)} className="ml-auto text-slate-500 hover:text-slate-300" aria-label="Закрыть">
+          <button onClick={() => setDeleted(null)} className="ml-auto text-faint hover:text-fg" aria-label="Закрыть">
             ×
           </button>
         </div>
@@ -147,9 +147,9 @@ export default function ReportsPage() {
 
       <FormError message={error} />
 
-      {!page && !error && <p className="text-sm text-slate-400">Загрузка…</p>}
+      {!page && !error && <p className="text-sm text-muted">Загрузка…</p>}
       {page && page.items.length === 0 && (
-        <div className="rounded-xl border border-line bg-card p-6 text-sm text-slate-400">
+        <div className="rounded-xl border border-line bg-card p-6 text-sm text-muted">
           {tab === 'accrual'
             ? 'Недельных отчётов пока нет. Загрузите «Отчёт по начислениям» из личного кабинета Ozon (Финансы → Отчёт по начислениям).'
             : 'Месячных отчётов пока нет. Загрузите «Отчёт о реализации» из личного кабинета Ozon (Финансы → Отчёт о реализации).'}
@@ -157,7 +157,7 @@ export default function ReportsPage() {
       )}
       {page && page.items.length > 0 && (
         <>
-          <p className="text-xs text-slate-500">Остаток, налог и маржа появятся в карточках с расчётом P&amp;L.</p>
+          <p className="text-xs text-faint">Остаток, налог и маржа появятся в карточках с расчётом P&amp;L.</p>
           <div className="space-y-4">
             {page.items.map((r) => (
               <ReportCard key={r.id} report={r} onDelete={() => remove(r)} />

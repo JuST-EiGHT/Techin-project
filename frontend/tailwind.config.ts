@@ -1,18 +1,24 @@
 import type { Config } from 'tailwindcss'
 
-// Палитра тёмной темы — из CLAUDE.md, правило 9
+// Цвета — токены темы из CSS-переменных (src/app/globals.css): тёмная и светлая.
+// В компонентах только они — без жёстких hex и slate-* (CLAUDE.md, правило 9).
+const token = (name: string) => `rgb(var(--${name}) / <alpha-value>)`
+
 export default {
   content: ['./src/**/*.{ts,tsx}'],
   theme: {
     extend: {
       colors: {
-        bg: '#0f1117',
-        card: '#1a1d27',
-        line: '#2a2d3a',
-        accent: '#4f8ef7',
-        ok: '#22c55e',
-        bad: '#f87171',
-        warn: '#fbbf24',
+        bg: token('bg'),
+        card: token('card'),
+        line: token('line'),
+        fg: token('fg'),
+        muted: token('muted'),
+        faint: token('faint'),
+        accent: token('accent'),
+        ok: token('ok'),
+        bad: token('bad'),
+        warn: token('warn'),
       },
     },
   },

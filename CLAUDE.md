@@ -81,10 +81,11 @@ pip install -r requirements-dev.txt && pytest
    (см. `core/errors.py`).
 9. **Интерфейс — на русском**, тёмная тема по умолчанию (фон #0f1117, карточки #1a1d27,
    рамки #2a2d3a, акцент #4f8ef7, зелёный #22c55e, красный #f87171, жёлтый #fbbf24) и
-   светлая — переключается в «Основных настройках» (шаг 0.5). После шага 0.5 цвета — только
-   токенами темы (bg, card, line, fg, muted, accent, ok, bad, warn), без жёстких hex и
-   `slate-*`; новая страница добавляется в общее меню (`src/lib/nav.ts`), её настройки — в
-   меню аккаунта.
+   светлая (фон #f6f7fb, карточки #ffffff, рамки #e3e6ee, акцент #2563eb, зелёный #15803d,
+   красный #dc2626, жёлтый #b45309) — переключается в «Основных настройках». Цвета — только
+   токенами темы (bg, card, line, fg, muted, faint, accent, ok, bad, warn), без жёстких hex и
+   `slate-*` (белый текст на цветной кнопке допустим); новая страница добавляется в общее меню
+   (`src/lib/nav.ts`), её настройки — в меню аккаунта.
 10. **Ozon API меняется.** Перед реализацией интеграции сверяй эндпоинты с официальной
     документацией: её выгрузка — `docs/ozon/seller_api_2026-10.txt` (docs.ozon.ru из облачной
     среды недоступен). `docs/OZON_API.md` — наша выжимка, при расхождении обнови её.
@@ -105,6 +106,7 @@ pip install -r requirements-dev.txt && pytest
 | 0.2 | Авторизация на бэкенде (JWT, register/login/refresh/logout/me) | ✅ готово, 21 тест |
 | 0.3 | Авторизация на фронтенде (httpOnly cookies, /login, /register, /dashboard) | ✅ готово |
 | 0.4 | Хранение API-ключей Ozon (шифрование, /dashboard/settings/api-keys) | ✅ готово, 42 теста всего |
+| 0.5 | Каркас интерфейса: меню с выпадающими списками, меню аккаунта, настройки, светлая тема | ✅ готово, 259 тестов всего |
 | 1.1 | Универсальный клиент Ozon (retry, rate limit, фабрика) | ✅ готово, 68 тестов всего |
 | 1.2 | Синхронизация товаров и цен (Celery, Beat, /sync, статус в шапке) | ✅ готово, 91 тест всего |
 | 1.3 | Склады и остатки (FBO по складам и кластерам, FBS/rFBS, /dashboard/warehouses) | ✅ готово, 139 тестов всего |
@@ -274,6 +276,24 @@ GET (report_type, limit/offset → items+total), GET/PATCH/DELETE `/{id}` (PATCH
 предпросмотр), `/dashboard/reports/[id]` (товары, начисления по типам, «Перечитать файл»);
 общие компоненты — `components/reports.tsx`. Ручная правка «сколько пришло» в интерфейсе — шаг 3.3
 (бэкенд PATCH готов). nginx: `client_max_body_size 11m`.
+
+Детали сделанного в 0.5: миграция 0008 — `user_settings` (theme dark|light|system, vat_multiplier
+1.22, tax_base profit|revenue, tax_rate 0.20; нет строки — значения по умолчанию,
+`services/user_settings.get_settings`), `users.tokens_valid_after`, `reports.tax_base`. API:
+GET/PATCH `/api/v1/settings` (не переданное не меняется), PATCH `/api/v1/auth/me` (имя),
+POST `/api/v1/auth/change-password` (204; неверный текущий / совпадает с текущим — 400) —
+ставит `tokens_valid_after`, токены, выпущенные раньше (`iat_ms` в JWT, точность до мс), не
+принимаются в `get_current_user` и `/auth/refresh` — выход на всех устройствах. Новые отчёты
+берут НДС и налог из настроек, PATCH отчёта с null — значения из настроек. Фронт: токены темы —
+CSS-переменные в `globals.css` (`:root` тёмная, `[data-theme=light]`), Tailwind через
+`rgb(var(--…) / <alpha-value>)`; тема ставится скриптом в `<head>` из localStorage (без вспышки),
+`contexts/ThemeContext.tsx` после входа берёт тему из аккаунта, «как в системе» следит за
+`prefers-color-scheme`. Меню — `src/lib/nav.ts` (NAV, ACCOUNT_MENU; пункты будущих шагов перечислены
+в комментарии) и `components/AppHeader.tsx`: выпадающие списки по наведению мышью (закрытие с
+задержкой 150 мс), нажатием на сенсорных экранах, с клавиатуры (↓, ↑, Esc); меню аккаунта
+(инициалы ▾): аккаунт, API-ключи, основные настройки, выйти; бургер на узком экране. Страницы
+`/dashboard/settings` (тема, расчёты по умолчанию) и `/dashboard/settings/account` (имя, смена
+пароля → `/login?changed=1`). Вкладка акций — в адресе (`/dashboard/promotions?tab=auto`).
 
 ## Где что искать
 

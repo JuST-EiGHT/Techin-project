@@ -33,7 +33,7 @@ function ExpiryNote({ days, expiresAt }: { days: number; expiresAt: string }) {
         Истекает через {days} дн. ({fmtDate(expiresAt)}) — заранее создайте новый ключ в кабинете Ozon
       </span>
     )
-  return <span className="text-slate-400">Действует до {fmtDate(expiresAt)}</span>
+  return <span className="text-muted">Действует до {fmtDate(expiresAt)}</span>
 }
 
 function CredentialRow({ cred, onChanged, onDeleted }: { cred: Credential; onChanged: (c: Credential) => void; onDeleted: (id: string) => void }) {
@@ -81,12 +81,12 @@ function CredentialRow({ cred, onChanged, onDeleted }: { cred: Credential; onCha
               {cred.is_active ? 'Работает' : 'Не работает'}
             </span>
           </div>
-          <div className="mt-1 text-sm text-slate-400">Client-Id {cred.client_id_masked}</div>
+          <div className="mt-1 text-sm text-muted">Client-Id {cred.client_id_masked}</div>
           <div className="mt-1 text-sm">
             <ExpiryNote days={cred.days_until_expiry} expiresAt={cred.expires_at} />
           </div>
           {cred.last_used_at && (
-            <div className="mt-1 text-xs text-slate-500">Последнее использование: {fmtDateTime(cred.last_used_at)}</div>
+            <div className="mt-1 text-xs text-faint">Последнее использование: {fmtDateTime(cred.last_used_at)}</div>
           )}
           {result && <div className={`mt-2 text-sm ${result.ok ? 'text-ok' : 'text-bad'}`}>{result.text}</div>}
         </div>
@@ -94,7 +94,7 @@ function CredentialRow({ cred, onChanged, onDeleted }: { cred: Credential; onCha
         <div className="flex gap-2">
           {confirming ? (
             <>
-              <span className="self-center text-sm text-slate-400">Удалить ключ?</span>
+              <span className="self-center text-sm text-muted">Удалить ключ?</span>
               <button
                 onClick={remove}
                 disabled={busy !== null}
@@ -105,7 +105,7 @@ function CredentialRow({ cred, onChanged, onDeleted }: { cred: Credential; onCha
               <button
                 onClick={() => setConfirming(false)}
                 disabled={busy !== null}
-                className="rounded-lg border border-line px-3 py-1.5 text-sm hover:border-slate-400"
+                className="rounded-lg border border-line px-3 py-1.5 text-sm hover:border-muted"
               >
                 Отмена
               </button>
@@ -173,7 +173,7 @@ function AddForm({ onAdded }: { onAdded: (c: Credential) => void }) {
   return (
     <form onSubmit={onSubmit} noValidate className="bg-card border border-line rounded-xl p-6">
       <h2 className="text-lg font-semibold mb-1">Добавить ключ</h2>
-      <p className="text-sm text-slate-400 mb-5">
+      <p className="text-sm text-muted mb-5">
         Ключ создаётся в кабинете Ozon: Настройки → Seller API, живёт 3 месяца. Для аналитики хватает прав на чтение. Перед сохранением
         ключ проверяется запросом к Ozon и хранится только в зашифрованном виде.
       </p>
@@ -225,8 +225,8 @@ export default function ApiKeysPage() {
       <section className="bg-card border border-line rounded-xl p-6">
         <h2 className="text-lg font-semibold mb-2">Подключённые ключи</h2>
         <FormError message={loadError} />
-        {items === null && !loadError && <p className="text-slate-400 text-sm">Загрузка…</p>}
-        {items?.length === 0 && <p className="text-slate-400 text-sm">Ключей пока нет — добавьте первый ниже.</p>}
+        {items === null && !loadError && <p className="text-muted text-sm">Загрузка…</p>}
+        {items?.length === 0 && <p className="text-muted text-sm">Ключей пока нет — добавьте первый ниже.</p>}
         {items && items.length > 0 && (
           <ul>
             {items.map((c) => (

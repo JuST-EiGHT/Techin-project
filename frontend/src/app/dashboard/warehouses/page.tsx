@@ -45,7 +45,7 @@ const STATUS: Record<string, { label: string; badge: string; row: string }> = {
   low: { label: 'Мало', badge: 'bg-warn/15 text-warn', row: 'border-l-warn bg-warn/5' },
   normal: { label: 'Норма', badge: 'bg-ok/15 text-ok', row: 'border-l-ok' },
   excess: { label: 'Избыток', badge: 'bg-accent/15 text-accent', row: 'border-l-accent bg-accent/5' },
-  none: { label: 'Нет данных', badge: 'bg-line text-slate-400', row: 'border-l-transparent' },
+  none: { label: 'Нет данных', badge: 'bg-line text-muted', row: 'border-l-transparent' },
 }
 
 const STATUS_FILTERS = [
@@ -137,7 +137,7 @@ export default function WarehousesPage() {
         <h1 className="text-2xl font-semibold">Склады и остатки</h1>
         {sync?.has_active_key && (
           <div className="ml-auto flex items-center gap-3 text-sm">
-            <span className="text-slate-400">
+            <span className="text-muted">
               {active || starting
                 ? 'Остатки обновляются…'
                 : lastSuccess
@@ -178,14 +178,14 @@ export default function WarehousesPage() {
                   filters.warehouse_id === w.id ? 'border-accent' : 'border-line'
                 }`}
               >
-                <div className="text-xs text-slate-400">
+                <div className="text-xs text-muted">
                   {w.type}
                   {w.cluster_name ? ` · ${w.cluster_name}` : ''}
                 </div>
                 <div className="mt-1 truncate font-medium" title={w.name}>
                   {w.name}
                 </div>
-                <div className="mt-2 text-sm text-slate-400">
+                <div className="mt-2 text-sm text-muted">
                   {w.total_present} шт. · товаров: {w.products_in_stock}
                   {w.total_in_transit > 0 && ` · в пути ${w.total_in_transit}`}
                 </div>
@@ -222,7 +222,7 @@ export default function WarehousesPage() {
               </option>
             ))}
           </select>
-          <label className="flex items-center gap-2 text-sm text-slate-400">
+          <label className="flex items-center gap-2 text-sm text-muted">
             <input
               type="checkbox"
               checked={filters.include_empty}
@@ -230,26 +230,26 @@ export default function WarehousesPage() {
             />
             Показывать нулевые остатки
           </label>
-          {stocks && <span className="ml-auto text-sm text-slate-500">Строк: {stocks.length}</span>}
+          {stocks && <span className="ml-auto text-sm text-faint">Строк: {stocks.length}</span>}
         </div>
 
         {noSalesYet && (
-          <p className="border-b border-line px-4 py-2 text-sm text-slate-400">
+          <p className="border-b border-line px-4 py-2 text-sm text-muted">
             Продажи за 30 дней, дни запаса и статус появятся, когда подключим финансовые данные Ozon. Пока у всех строк —
             «Нет данных».
           </p>
         )}
 
         {stocks === null ? (
-          <p className="p-4 text-sm text-slate-400">Загрузка…</p>
+          <p className="p-4 text-sm text-muted">Загрузка…</p>
         ) : stocks.length === 0 ? (
-          <p className="p-4 text-sm text-slate-400">
+          <p className="p-4 text-sm text-muted">
             Остатков нет{filters.warehouse_id || filters.status ? ' по выбранным фильтрам' : ' — нажмите «Обновить остатки»'}.
           </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="text-left text-xs text-slate-400">
+              <thead className="text-left text-xs text-muted">
                 <tr className="border-b border-line">
                   <th className="px-4 py-2 font-normal">Товар</th>
                   <th className="px-4 py-2 font-normal">Склад</th>
@@ -273,11 +273,11 @@ export default function WarehousesPage() {
                     >
                       <td className="px-4 py-2">
                         <div className="font-medium">{s.product.offer_id}</div>
-                        {s.product.name && <div className="max-w-xs truncate text-xs text-slate-400">{s.product.name}</div>}
+                        {s.product.name && <div className="max-w-xs truncate text-xs text-muted">{s.product.name}</div>}
                       </td>
                       <td className="px-4 py-2">
                         <div>{s.warehouse.name}</div>
-                        <div className="text-xs text-slate-400">
+                        <div className="text-xs text-muted">
                           {s.warehouse.type}
                           {s.warehouse.cluster_name ? ` · ${s.warehouse.cluster_name}` : ''}
                         </div>

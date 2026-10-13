@@ -122,7 +122,7 @@ export function SyncStatus() {
           Ошибка: {error}
         </span>
       )}
-      <span className="text-slate-400">
+      <span className="text-muted">
         {busy ? 'Обновляется…' : lastSuccess ? `Обновлено ${timeAgo(lastSuccess)}` : 'Данные ещё не загружались'}
       </span>
       <button
