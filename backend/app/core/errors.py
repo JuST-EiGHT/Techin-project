@@ -33,6 +33,7 @@ _FIELD_NAMES = {
     "promotion_id": "Акция",
     "participating": "Участие",
     "include_finished": "Закончившиеся акции",
+    "file": "Файл",
 }
 
 

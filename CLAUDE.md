@@ -98,7 +98,8 @@ pip install -r requirements-dev.txt && pytest
 | 1.3 | Склады и остатки (FBO по складам и кластерам, FBS/rFBS, /dashboard/warehouses) | ✅ готово, 139 тестов всего |
 | 1.4 | Финансовые начисления из API (by-day + postings, Celery, /finance) | ✅ готово, 171 тест всего |
 | 1.5 | Акции Ozon (v2-методы, автодобавление, маржа, /dashboard/promotions) | ✅ готово, 197 тестов всего |
-| 2.1 … 9.2 | см. `docs/ROADMAP.md` | ⏳ |
+| 2.1 | Парсер XLSX-отчётов Ozon (детектор, начисления, реализация, POST /reports/parse) | ✅ готово, 242 теста всего |
+| 2.2 … 9.2 | см. `docs/ROADMAP.md` | ⏳ |
 
 Детали сделанного в 0.2: access-токен 24 ч, refresh 30 дней; refresh одноразовый
 (ротация); logout отзывает токены через чёрный список в Redis (в тестах — в памяти);
@@ -214,6 +215,28 @@ add_mode, first_seen_at; участники is_active=true и кандидаты
 пояснение. Min-цена: `min_seller_price`, иначе мин. цена товара; 0 = «не задана» → null.
 Celery: `sync_promotions_all` каждые 3 ч (:33). API: `GET /api/v1/promotions`
 (include_finished), `/{id}/products` (participating), `/auto-added`, `POST /api/v1/sync/promotions`.
+
+Детали сделанного в 2.1 (`app/integrations/xlsx/`): `parse_report(content, costs, filename)` →
+`schemas/report.NormalizedReportData` (+ sheet_name, header_row с 1, rows_count; суммы — Decimal,
+в JSON строкой). `common.py`: чтение книги (openpyxl read_only + data_only, `reset_dimensions`,
+.xls распознаётся по сигнатуре), `norm` (переносы/NBSP/пробелы, нижний регистр, ё→е),
+`parse_number` (пробелы, ₽/руб., запятая/точка, «−», скобки; пусто → None; нечитаемое → None и
+предупреждение с номером строки; > 20 таких — сворачиваются), `extract_period`. `detector.detect`
+— сигналы и уверенность как в эталоне (60 строк каждого листа), «показной» ищется и выше заголовка,
+имя файла — только при равной уверенности. Парсеры `parsers/accrual.py`, `parsers/realization.py`
+— логика `reference/ozon_calculator.html`; учёт товаров и себестоимости — `parsers/base.SalesLedger`
+(неизвестный артикул → missing_cost, cost=None, в cost_sales не входит, предупреждение; строки без
+артикула — предупреждение). Отличия от эталона (баги/ручные данные): период реализации — из
+«…за период с … по …», а не из «Отчет … от <даты>»; строки начислений без «Тип начисления» (ручные
+пометки под таблицей) в auto_total не входят — предупреждение; итог реализации берётся и при ≤ 0;
+строка нумерации столбцов не считается товаром. Нет «Всего выплат от партнёров» — предупреждение
+и 0 (как в эталоне), нет «Итого реализовано» — сумма строк и предупреждение. Себестоимость —
+`integrations/xlsx/costs.CostProvider` (`cost_of(article)`); сейчас `services/costs.get_cost_provider`
+читает `COST_PRICES_CSV` (по умолчанию `reference/cost_prices.csv`, в Docker смонтирован в
+`/reference`); на шаге 2.3 меняется только эта зависимость. API: `POST /api/v1/reports/parse`
+(multipart `file`, ≤ `REPORT_MAX_SIZE_MB`=20 → иначе 413, ошибки разбора — 400 с русским
+текстом), без сохранения (шаг 2.2). nginx: `client_max_body_size 21m`. P&L (owed, налог, net) —
+шаг 3.1.
 
 ## Где что искать
 
