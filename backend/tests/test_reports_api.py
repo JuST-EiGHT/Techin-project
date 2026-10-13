@@ -8,6 +8,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import openpyxl
+import pytest
 from sqlalchemy import func, select
 
 from app.integrations.xlsx import MappingCostProvider
@@ -16,11 +17,19 @@ from app.models.accrual import SOURCE_XLSX, Accrual, AccrualType
 from app.models.product import Product
 from app.models.report import Report, ReportFile
 from app.services.costs import get_cost_provider
+from tests.conftest import reference_costs
 
 FIXTURES = Path(__file__).parent / "fixtures"
 ACCRUAL = "accrual_2026-09-07_13.xlsx"
 REALIZATION = "realization_2026-08.xlsx"
 XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+@pytest.fixture(autouse=True)
+def owner_costs(client):
+    """Эталонные цифры BUSINESS_LOGIC §3 считаются с себестоимостью владельца (справочник — test_costs.py)."""
+    costs = reference_costs()
+    app.dependency_overrides[get_cost_provider] = lambda: costs
 
 
 def fixture(name: str) -> bytes:

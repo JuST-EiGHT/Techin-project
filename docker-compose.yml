@@ -30,7 +30,7 @@ services:
       REDIS_URL: redis://redis:6379/0
     volumes:
       - ./backend:/app
-      - ./reference:/reference:ro   # cost_prices.csv для разбора отчётов (до справочника в БД, шаг 2.3)
+      - ./reference:/reference:ro   # cost_prices.csv для сид-скрипта: python -m scripts.seed_costs --email …
     depends_on:
       db: { condition: service_healthy }
       redis: { condition: service_healthy }

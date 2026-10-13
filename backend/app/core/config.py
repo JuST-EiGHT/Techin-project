@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -25,9 +23,6 @@ class Settings(BaseSettings):
     OZON_TIMEOUT_SECONDS: float = 30.0
     OZON_RATE_LIMIT_PER_SECOND: int = 50  # запросов на все методы с одного Client ID (docs/OZON_API.md)
 
-    # Себестоимость для разбора XLSX-отчётов до справочника в БД (шаг 2.3).
-    # По умолчанию reference/cost_prices.csv в корне репозитория (в Docker — /reference, см. docker-compose).
-    COST_PRICES_CSV: str = str(Path(__file__).resolve().parents[3] / "reference" / "cost_prices.csv")
     REPORT_MAX_SIZE_MB: int = 10  # предел размера загружаемого отчёта (промпт 2.2)
 
     # В .env задаётся строкой через запятую

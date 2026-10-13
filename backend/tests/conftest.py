@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 os.environ["REDIS_URL"] = "redis://127.0.0.1:1/0"  # недоступен → in-memory blacklist
@@ -62,3 +63,17 @@ async def tokens(client):
     await client.post("/api/v1/auth/register", json=USER)
     r = await client.post("/api/v1/auth/login", json={"email": USER["email"], "password": USER["password"]})
     return r.json()
+
+
+REFERENCE_COSTS_CSV = Path(__file__).resolve().parents[2] / "reference" / "cost_prices.csv"
+
+
+def reference_costs():
+    """Себестоимость владельца из reference/cost_prices.csv — для эталонных цифр BUSINESS_LOGIC §3."""
+    import csv
+    from decimal import Decimal
+
+    from app.integrations.xlsx import MappingCostProvider
+
+    with open(REFERENCE_COSTS_CSV, encoding="utf-8-sig", newline="") as f:
+        return MappingCostProvider({r["offer_id"]: Decimal(r["cost_price"]) for r in csv.DictReader(f)})

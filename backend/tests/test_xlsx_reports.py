@@ -8,15 +8,16 @@ import openpyxl
 import pytest
 
 from app.core.config import settings
+from tests.conftest import REFERENCE_COSTS_CSV, reference_costs
 from app.integrations.xlsx import MappingCostProvider, ReportParseError, parse_report
 from app.integrations.xlsx.common import extract_period, limit_warnings, norm, parse_number
 from app.integrations.xlsx.detector import detect
 from app.main import app
-from app.services.costs import get_cost_provider, load_cost_csv
+from app.services.costs import get_cost_provider
 
 FIXTURES = Path(__file__).parent / "fixtures"
 VAT = Decimal("1.22")
-COSTS = load_cost_csv(settings.COST_PRICES_CSV)
+COSTS = reference_costs()
 
 
 def fixture(name: str) -> bytes:
@@ -314,16 +315,6 @@ def test_detector_filename_is_only_a_tiebreaker():
     assert detect({"A": [["Артикул", "Цена"]]}) is None
 
 
-def test_cost_csv_missing_file_and_bad_lines(tmp_path):
-    assert len(load_cost_csv(tmp_path / "нет.csv")) == 0
-    path = tmp_path / "costs.csv"
-    path.write_text("offer_id,cost_price\nA,10,5\nB,abc\n,5\nC,-1\nD,7\n", encoding="utf-8")
-    costs = load_cost_csv(path)
-    assert (costs.cost_of("A"), costs.cost_of("B"), costs.cost_of("C"), costs.cost_of("D")) == (
-        Decimal("10"), None, None, Decimal("7")
-    )
-
-
 # ---------- API ----------
 
 
@@ -344,6 +335,10 @@ async def test_api_parse_requires_auth(client):
 
 
 async def test_api_parse_reference_files(client, tokens):
+    # себестоимость — из справочника пользователя в БД (шаг 2.3): импортируем эталонный CSV
+    r = await client.post("/api/v1/costs/import", params={"dry_run": False}, headers=auth(tokens),
+                          files={"file": ("cost_prices.csv", REFERENCE_COSTS_CSV.read_bytes(), "text/csv")})
+    assert r.json()["counts"]["new"] == 78
     r = await client.post("/api/v1/reports/parse", headers=auth(tokens),
                           files=upload("accrual.xlsx", fixture("accrual_2026-09-07_13.xlsx")))
     assert r.status_code == 200, r.text
@@ -359,7 +354,7 @@ async def test_api_parse_reference_files(client, tokens):
 
 
 async def test_api_cost_provider_is_replaceable(client, tokens):
-    """Подмена источника себестоимости (шаг 2.3) — без правки парсеров."""
+    """Источник себестоимости подменяется без правки парсеров."""
     app.dependency_overrides[get_cost_provider] = lambda: MappingCostProvider({})
     r = await client.post("/api/v1/reports/parse", headers=auth(tokens),
                           files=upload("a.xlsx", fixture("accrual_2026-09-07_13.xlsx")))

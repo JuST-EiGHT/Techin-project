@@ -22,6 +22,7 @@ from app.integrations.xlsx.parsers.base import money
 from app.models.accrual import SOURCE_XLSX, Accrual, AccrualType
 from app.models.product import Product
 from app.models.report import ERROR, READY, Report, ReportFile
+from app.services.report_costs import apply_costs
 from app.services.user_settings import get_settings
 
 OnConflict = Literal["ask", "replace", "keep"]
@@ -71,7 +72,10 @@ def sha256(content: bytes) -> str:
 
 async def parse_file(content: bytes, costs: CostProvider, filename: str | None) -> ParsedReport:
     # openpyxl синхронный — разбор в отдельном потоке, чтобы не держать event loop
-    return await asyncio.to_thread(parse_report_full, content, costs, filename)
+    parsed = await asyncio.to_thread(parse_report_full, content, costs, filename)
+    # себестоимость — на дату начала периода отчёта (история цен справочника, шаг 2.3)
+    parsed.data = apply_costs(parsed.data, costs)
+    return parsed
 
 
 async def find_conflicts(

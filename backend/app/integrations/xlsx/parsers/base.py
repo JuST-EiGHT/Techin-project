@@ -7,6 +7,7 @@ from app.integrations.xlsx.costs import CostProvider
 from app.schemas.report import ArticleSales, MissingCost, NormalizedReportData
 
 CENT = Decimal("0.01")
+MISSING_COST_WARNING = "Не найдена себестоимость для"  # начало предупреждения — его пересобирают при смене цен
 
 
 def money(value: Decimal) -> Decimal:
@@ -88,7 +89,7 @@ class SalesLedger:
         if self._missing:
             qty = sum(m["qty"] for m in self._missing.values())
             out.append(
-                f"Не найдена себестоимость для {len(self._missing)} артикулов ({qty} шт.) — долг поставщику "
+                f"{MISSING_COST_WARNING} {len(self._missing)} артикулов ({qty} шт.) — долг поставщику "
                 "занижен, прибыль завышена. Добавьте их себестоимость в справочник."
             )
         if self.rows_without_article:

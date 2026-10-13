@@ -44,6 +44,13 @@ _FIELD_NAMES = {
     "theme": "Тема",
     "current_password": "Текущий пароль",
     "new_password": "Новый пароль",
+    "cost_price": "Себестоимость",
+    "note": "Комментарий",
+    "effective_from": "Действует с",
+    "search": "Поиск",
+    "missing": "Без себестоимости",
+    "dry_run": "Предпросмотр",
+    "offer_id": "Артикул",
 }
 
 

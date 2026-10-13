@@ -1,5 +1,4 @@
 """Отчёты Ozon (XLSX): разбор без сохранения, загрузка и история загруженных отчётов."""
-import asyncio
 import posixpath
 import uuid
 from decimal import Decimal
@@ -11,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.db.session import get_db
-from app.integrations.xlsx import CostProvider, ReportParseError, parse_report
+from app.integrations.xlsx import CostProvider, ReportParseError
 from app.models.report import Report
 from app.models.user import User
 from app.schemas.report import (
@@ -97,7 +96,7 @@ async def parse_report_file(
     """Разобрать файл без сохранения."""
     name, content = await _read_upload(file)
     try:
-        return await asyncio.to_thread(parse_report, content, costs, name)
+        return (await svc.parse_file(content, costs, name)).data
     except ReportParseError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 

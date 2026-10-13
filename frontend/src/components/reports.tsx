@@ -130,9 +130,12 @@ export function MissingCostTable({ items }: { items: ReportSummary['missing_cost
   if (items.length === 0) return null
   return (
     <section className="rounded-xl border border-warn/40 bg-card">
-      <h2 className="border-b border-line px-4 py-2 text-sm font-semibold text-warn">
-        Не найдена себестоимость — долг поставщику занижен, прибыль завышена
-      </h2>
+      <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-2">
+        <h2 className="text-sm font-semibold text-warn">Не найдена себестоимость — долг поставщику занижен, прибыль завышена</h2>
+        <Link href="/dashboard/costs?missing=1" className="ml-auto text-sm text-accent hover:underline">
+          Указать себестоимость →
+        </Link>
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="text-left text-xs text-muted">

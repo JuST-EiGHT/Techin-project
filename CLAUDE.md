@@ -114,7 +114,8 @@ pip install -r requirements-dev.txt && pytest
 | 1.5 | Акции Ozon (v2-методы, автодобавление, маржа, /dashboard/promotions) | ✅ готово, 197 тестов всего |
 | 2.1 | Парсер XLSX-отчётов Ozon (детектор, начисления, реализация, POST /reports/parse) | ✅ готово, 242 теста всего |
 | 2.2 | Загрузка отчётов и история (/dashboard/reports, конфликты периода, скрытие, перечитывание) | ✅ готово, 254 теста всего |
-| 2.3 … 9.2 | см. `docs/ROADMAP.md` | ⏳ |
+| 2.3 | Справочник себестоимости (история цен, импорт CSV/XLSX, /dashboard/costs, пересчёт отчётов) | ✅ готово, 269 тестов всего |
+| 3.1 … 9.2 | см. `docs/ROADMAP.md` | ⏳ |
 
 Детали сделанного в 0.2: access-токен 24 ч, refresh 30 дней; refresh одноразовый
 (ротация); logout отзывает токены через чёрный список в Redis (в тестах — в памяти);
@@ -226,8 +227,8 @@ add_mode, first_seen_at; участники is_active=true и кандидаты
 `whole_stock` («Эластичный бустинг», «Скидка на сток», BUSINESS_LOGIC §9) — по названию и
 типу акции; в API предупреждение и наш остаток товара (`stock_on_hand`). Маржа —
 `app/engine/promotions.py` (простая: цена − комиссия − эквайринг − себестоимость × 1,22);
-себестоимости в БД нет до шага 2.3 (`services/costs.cost_prices` пустой) → margin null и
-пояснение. Min-цена: `min_seller_price`, иначе мин. цена товара; 0 = «не задана» → null.
+себестоимость — `services/costs.cost_prices` (справочник 2.3, цена на сегодня); нет цены → margin
+null и пояснение. Min-цена: `min_seller_price`, иначе мин. цена товара; 0 = «не задана» → null.
 Celery: `sync_promotions_all` каждые 3 ч (:33). API: `GET /api/v1/promotions`
 (include_finished), `/{id}/products` (participating), `/auto-added`, `POST /api/v1/sync/promotions`.
 Выход товара из акции пока удаляет строку участия — история появится на шаге 4.3.
@@ -247,9 +248,8 @@ Celery: `sync_promotions_all` каждые 3 ч (:33). API: `GET /api/v1/promoti
 пометки под таблицей) в auto_total не входят — предупреждение; итог реализации берётся и при ≤ 0;
 строка нумерации столбцов не считается товаром. Нет «Всего выплат от партнёров» — предупреждение
 и 0 (как в эталоне), нет «Итого реализовано» — сумма строк и предупреждение. Себестоимость —
-`integrations/xlsx/costs.CostProvider` (`cost_of(article)`); сейчас `services/costs.get_cost_provider`
-читает `COST_PRICES_CSV` (по умолчанию `reference/cost_prices.csv`, в Docker смонтирован в
-`/reference`); на шаге 2.3 меняется только эта зависимость. API: `POST /api/v1/reports/parse`
+`integrations/xlsx/costs.CostProvider` (`cost_of(article)`); с шага 2.3 `services/costs.get_cost_provider`
+даёт справочник пользователя из БД (CSV-настройка `COST_PRICES_CSV` убрана). API: `POST /api/v1/reports/parse`
 (multipart `file`, ≤ `REPORT_MAX_SIZE_MB` → иначе 413, ошибки разбора — 400 с русским
 текстом), без сохранения. P&L (owed, налог, net) — шаг 3.1.
 
@@ -295,6 +295,34 @@ CSS-переменные в `globals.css` (`:root` тёмная, `[data-theme=li
 `/dashboard/settings` (тема, расчёты по умолчанию) и `/dashboard/settings/account` (имя, смена
 пароля → `/login?changed=1`). Вкладка акций — в адресе (`/dashboard/promotions?tab=auto`).
 
+Детали сделанного в 2.3: миграция 0009 — `product_costs` (user_id, offer_id, cost_price без НДС,
+vat_multiplier — NULL = «как в основных настройках», effective_from, note, source
+manual|import|seed, created_at; индекс user_id+offer_id+effective_from). Записи не меняются и не
+удаляются: новая цена — новая запись. Цена на дату D — последняя с effective_from ≤ D (при равных
+датах — записанная позже); для дат раньше первой записи — первая. Без даты: первая цена артикула —
+«с начала учёта» (`BEGINNING` = 2000-01-01, действует и для старых отчётов), следующие — с сегодня
+(МСК); та же цена, что уже действует, новой записи не создаёт. `services/costs.py`: `CostHistory`
+(`record_at`, `at(день)` → `MappingCostProvider`, `cost_of` — на сегодня), `get_cost_provider`
+(зависимость FastAPI), `cost_prices` (акции), `add_cost`, `known_articles` (справочник + каталог
+Ozon + товары видимых отчётов). Себестоимость отчёта — на дату начала его периода
+(`services/report_costs.cost_date`). Итоги отчётов — производные: после изменения цены
+`recost_reports` пересчитывает summary_json видимых отчётов с этими артикулами (повтор
+`SalesLedger` по by_article, без перечитывания файла; предупреждения «Не найдена себестоимость»
+заменяются). Импорт — `services/cost_import.py`: CSV (UTF-8/Windows-1251, разделитель ; , или
+табуляция) или XLSX, колонки по заголовкам (артикул/offer_id, себестоимость/cost_price, коэф. НДС,
+комментарий, «действует с»), каждая строка проверяется отдельно (цена > 0, НДС 1…2, дата
+ДД.ММ.ГГГГ, повтор артикула), статусы new/changed/unchanged/error. API `/api/v1/costs`: GET (search,
+missing → items, total, missing_count; сначала без цены, потом по продажам), PUT
+`/{offer_id}` (артикул со «/» допустим; ответ — запись, created, recosted_reports), GET
+`/{offer_id}/history` (новые сверху, нет записей — 404), POST `/import` (≤ 5 МБ, `dry_run`
+по умолчанию true — предпросмотр). Сид: `docker compose exec api python -m scripts.seed_costs
+--email <почта> [--file …]` (по умолчанию `/reference/cost_prices.csv`, source=seed, повторный запуск
+ничего не меняет). Фронт `/dashboard/costs` (Финансы ▾ → Себестоимость): вкладки «Все» / «Без
+себестоимости (N)» (`?missing=1`), поиск, правка в строке (цена, НДС, «действует с», комментарий;
+Enter / Esc), история цен, импорт с предпросмотром и шаблоном CSV; в отчёте у таблицы «не найдена
+себестоимость» — ссылка «Указать себестоимость →». Свой vat_multiplier артикула в P&L учитывается
+на шаге 3.1.
+
 ## Где что искать
 
 - Описание проекта целиком → `docs/PROJECT.md`
@@ -309,5 +337,5 @@ CSS-переменные в `globals.css` (`:root` тёмная, `[data-theme=li
 - Готовые промпты на каждый шаг → `docs/prompts/`
 - Рабочий JS-калькулятор P&L (логика парсинга двух типов отчётов) →
   `reference/ozon_calculator.html`
-- Себестоимости 78 артикулов → `reference/cost_prices.csv`
+- Себестоимости 78 артикулов владельца (для сид-скрипта и тестов) → `reference/cost_prices.csv`
 - Образцовые отчёты Ozon → `backend/tests/fixtures/`
