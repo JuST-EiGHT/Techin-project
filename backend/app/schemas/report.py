@@ -2,6 +2,7 @@
 
 Суммы — в рублях, Decimal (в JSON — строкой). Себестоимость — без НДС.
 """
+
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
@@ -46,6 +47,31 @@ class NormalizedReportData(BaseModel):
     rows_count: int = Field(description="Строк с товарами: «Выручка» в начислениях, строки таблицы в реализации")
 
 
+class PnLOut(BaseModel):
+    """P&L отчёта (шаг 3.1, BUSINESS_LOGIC §3). Налог не задан — tax, vat, net, margin = null, а не 0."""
+
+    effective_total: Decimal  # сколько пришло от Ozon: ручная сумма или по отчёту
+    owed: Decimal  # себестоимость с НДС поставщика (долг поставщику)
+    profit_before_tax: Decimal
+    tax: Decimal | None
+    vat: Decimal | None  # НДС к уплате; 0 — не платит
+    net: Decimal | None  # остаток
+    margin: Decimal | None  # % от revenue_base; null — выручки нет или налог не задан
+    tax_title: str | None  # по какому профилю посчитан налог
+    tax_lines: list[str]  # расчёт налога по шагам
+    supplier_vat: Decimal  # НДС поставщика по умолчанию, коэффициентом
+    pct_of_revenue: dict[str, Decimal | None]  # owed, profit_before_tax, tax, vat, net — % от revenue_base
+    by_type_pct: dict[str, Decimal]  # доходы и расходы — каждая группа в 100 % отдельно
+    warnings: list[str]  # проверки P&L и налога
+    data_source: str
+
+
+class ParsedReport(NormalizedReportData):
+    """Разбор без сохранения: данные отчёта и P&L."""
+
+    pnl: PnLOut
+
+
 # ---------- сохранённые отчёты (шаг 2.2) ----------
 
 
@@ -72,6 +98,7 @@ class ReportItem(BaseModel):
     rows_count: int
     missing_cost_count: int  # артикулов без себестоимости
     warnings_count: int
+    pnl: PnLOut  # остаток, налог, маржа — шаг 3.1
 
 
 class ReportDetail(ReportItem):

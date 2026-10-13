@@ -1,4 +1,5 @@
 """Отчёты Ozon (XLSX): разбор без сохранения, загрузка и история загруженных отчётов."""
+
 import posixpath
 import uuid
 from decimal import Decimal
@@ -15,6 +16,8 @@ from app.models.report import Report
 from app.models.user import User
 from app.schemas.report import (
     NormalizedReportData,
+    ParsedReport,
+    PnLOut,
     ReportConflictItem,
     ReportDetail,
     ReportItem,
@@ -24,6 +27,7 @@ from app.schemas.report import (
 from app.services import reports as svc
 from app.services.auth import get_current_user
 from app.services.costs import get_cost_provider
+from app.services.report_pnl import PnLContext, load_context, report_pnl
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -62,21 +66,60 @@ def _q(value: Decimal | None, places: str) -> Decimal | None:
     return None if value is None else Decimal(value).quantize(Decimal(places))
 
 
-def _item(r: Report) -> dict:
-    s = r.summary_json
-    return dict(
-        id=r.id, filename=r.filename, report_type=r.report_type, period=r.period, period_start=r.period_start,
-        period_end=r.period_end, status=r.status, error_message=r.error_message, uploaded_at=r.uploaded_at,
-        parsed_at=r.parsed_at, auto_total=Decimal(s["auto_total"]), manual_total=_q(r.manual_total, "0.01"),
-        effective_total=_q(svc.effective_total(r), "0.01"), revenue_base=Decimal(s["revenue_base"]),
-        cost_sales=Decimal(s["cost_sales"]), vat_multiplier=_q(r.vat_multiplier, "0.001"),
-        tax_base=r.tax_base, tax_rate=_q(r.tax_rate, "0.0001"),
-        rows_count=s["rows_count"], missing_cost_count=len(s["missing_cost"]), warnings_count=len(s["warnings"]),
+def _pnl(data: NormalizedReportData, ctx: PnLContext, report: Report | None = None) -> PnLOut:
+    p = report_pnl(data, ctx, report)
+    r = p.result
+    return PnLOut(
+        effective_total=r.effective_total,
+        owed=r.owed,
+        profit_before_tax=r.profit_before_tax,
+        tax=r.tax,
+        vat=r.vat,
+        net=r.net,
+        margin=r.margin,
+        tax_title=p.tax_title,
+        tax_lines=r.tax_lines,
+        supplier_vat=p.supplier_vat,
+        pct_of_revenue=r.pct_of_revenue,
+        by_type_pct=r.by_type_pct,
+        warnings=r.warnings,
+        data_source=r.data_source,
     )
 
 
-def _detail(r: Report) -> ReportDetail:
-    return ReportDetail(**_item(r), file_size=r.file_size, summary=NormalizedReportData.model_validate(r.summary_json))
+def _item(r: Report, ctx: PnLContext) -> dict:
+    s = r.summary_json
+    return dict(
+        id=r.id,
+        filename=r.filename,
+        report_type=r.report_type,
+        period=r.period,
+        period_start=r.period_start,
+        period_end=r.period_end,
+        status=r.status,
+        error_message=r.error_message,
+        uploaded_at=r.uploaded_at,
+        parsed_at=r.parsed_at,
+        auto_total=Decimal(s["auto_total"]),
+        manual_total=_q(r.manual_total, "0.01"),
+        effective_total=_q(svc.effective_total(r), "0.01"),
+        revenue_base=Decimal(s["revenue_base"]),
+        cost_sales=Decimal(s["cost_sales"]),
+        vat_multiplier=_q(r.vat_multiplier, "0.001"),
+        tax_base=r.tax_base,
+        tax_rate=_q(r.tax_rate, "0.0001"),
+        rows_count=s["rows_count"],
+        missing_cost_count=len(s["missing_cost"]),
+        warnings_count=len(s["warnings"]),
+        pnl=_pnl(NormalizedReportData.model_validate(s), ctx, r),
+    )
+
+
+async def _detail(db: AsyncSession, r: Report) -> ReportDetail:
+    ctx = await load_context(db, r.user_id)
+    return ReportDetail(
+        **_item(r, ctx), file_size=r.file_size, summary=NormalizedReportData.model_validate(r.summary_json)
+    )
 
 
 async def _owned(db: AsyncSession, user: User, report_id: uuid.UUID, deleted: bool = False) -> Report:
@@ -86,18 +129,20 @@ async def _owned(db: AsyncSession, user: User, report_id: uuid.UUID, deleted: bo
     return report
 
 
-@router.post("/parse", response_model=NormalizedReportData)
+@router.post("/parse", response_model=ParsedReport)
 async def parse_report_file(
     file: UploadFile = File(..., description=FILE_DESCRIPTION),
     user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     costs: CostProvider = Depends(get_cost_provider),
 ):
-    """Разобрать файл без сохранения."""
+    """Разобрать файл без сохранения: данные отчёта и P&L."""
     name, content = await _read_upload(file)
     try:
-        return (await svc.parse_file(content, costs, name)).data
+        data = (await svc.parse_file(content, costs, name)).data
     except ReportParseError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return ParsedReport(**data.model_dump(), pnl=_pnl(data, await load_context(db, user.id)))
 
 
 @router.post("/upload", response_model=ReportDetail, status_code=status.HTTP_201_CREATED)
@@ -118,9 +163,13 @@ async def upload_report(
     except svc.ReportConflict as exc:
         conflicts = [
             ReportConflictItem(
-                id=c.report.id, filename=c.report.filename, period=c.report.period,
-                period_start=c.report.period_start, period_end=c.report.period_end,
-                uploaded_at=c.report.uploaded_at, same_file=c.same_file,
+                id=c.report.id,
+                filename=c.report.filename,
+                period=c.report.period,
+                period_start=c.report.period_start,
+                period_end=c.report.period_end,
+                uploaded_at=c.report.uploaded_at,
+                same_file=c.same_file,
             ).model_dump(mode="json")
             for c in exc.conflicts
         ]
@@ -128,7 +177,7 @@ async def upload_report(
             {"detail": str(exc), "code": status.HTTP_409_CONFLICT, "conflicts": conflicts},
             status_code=status.HTTP_409_CONFLICT,
         )
-    return _detail(report)
+    return await _detail(db, report)
 
 
 @router.get("", response_model=ReportsPage)
@@ -142,12 +191,13 @@ async def list_reports(
     db: AsyncSession = Depends(get_db),
 ):
     reports, total = await svc.list_reports(db, user.id, report_type, limit, offset)
-    return ReportsPage(items=[ReportItem(**_item(r)) for r in reports], total=total)
+    ctx = await load_context(db, user.id)
+    return ReportsPage(items=[ReportItem(**_item(r, ctx)) for r in reports], total=total)
 
 
 @router.get("/{report_id}", response_model=ReportDetail)
 async def get_report(report_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    return _detail(await _owned(db, user, report_id))
+    return await _detail(db, await _owned(db, user, report_id))
 
 
 @router.patch("/{report_id}", response_model=ReportDetail)
@@ -167,7 +217,7 @@ async def update_report(
         if name in fields:
             setattr(report, name, getattr(data, name))
     await db.commit()
-    return _detail(report)
+    return await _detail(db, report)
 
 
 @router.delete("/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -189,7 +239,7 @@ async def restore_report(
     """Вернуть скрытый (удалённый или заменённый) отчёт."""
     report = await _owned(db, user, report_id, deleted=True)
     try:
-        return _detail(await svc.restore_report(db, report, costs))
+        return await _detail(db, await svc.restore_report(db, report, costs))
     except ReportParseError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
@@ -204,6 +254,6 @@ async def reparse_report(
     """Перечитать сохранённый файл текущей версией парсера и себестоимости; ручные правки сохраняются."""
     report = await _owned(db, user, report_id)
     try:
-        return _detail(await svc.reparse_report(db, report, costs))
+        return await _detail(db, await svc.reparse_report(db, report, costs))
     except ReportParseError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc

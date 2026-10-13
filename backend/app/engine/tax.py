@@ -217,10 +217,27 @@ class TaxResult:
     base: Decimal | None  # налоговая база: доход или доход − расходы; у патента — нет
     lines: list[str] = field(default_factory=list)  # расчёт по шагам, с цифрами
     warnings: list[str] = field(default_factory=list)
+    tax_exact: Decimal = ZERO  # без округления — для P&L: округляем один раз, в конце (как калькулятор)
+    vat_exact: Decimal = ZERO
 
     @property
     def total(self) -> Decimal:
         return self.tax + self.vat
+
+
+def _result(
+    profile: "Profile", tax: Decimal, vat: Decimal, base: Decimal | None, lines: list[str], warnings: list[str]
+) -> TaxResult:
+    return TaxResult(
+        profile.regime,
+        _money(tax),
+        _money(vat),
+        None if base is None else _money(base),
+        lines,
+        warnings,
+        tax_exact=tax,
+        vat_exact=vat,
+    )
 
 
 def uses_costs(profile: Profile) -> bool:
@@ -312,7 +329,7 @@ def compute_tax(profile: Profile, data: TaxInput, day: date) -> TaxResult:
             )
         tax = max(base, ZERO) * rate / 100
         lines.append(f"Налог {pct(rate)}: {rub(max(base, ZERO))} × {pct(rate)} = {rub(tax)}")
-        return TaxResult(profile.regime, _money(tax), ZERO, _money(base), lines, warnings)
+        return _result(profile, tax, ZERO, base, lines, warnings)
 
     # НДС: входит в цену продажи; доход для налога — без него
     vat_pct = profile.vat_rate_pct if profile.vat_mode != "none" else ZERO
@@ -355,7 +372,7 @@ def compute_tax(profile: Profile, data: TaxInput, day: date) -> TaxResult:
         cost = profile.patent_cost_year or ZERO
         tax = cost * data.days / 365
         lines.append(f"Патент: {rub(cost)} в год × {data.days}/365 = {rub(tax)}")
-        return TaxResult(profile.regime, _money(tax), ZERO, None, lines, warnings)
+        return _result(profile, tax, ZERO, None, lines, warnings)
 
     if regime.kind == "income":
         base = income_net
@@ -369,7 +386,7 @@ def compute_tax(profile: Profile, data: TaxInput, day: date) -> TaxResult:
             limit = "" if full else "; с сотрудниками и у ООО — не больше половины налога"
             lines.append(f"Минус {contributions_text}: −{rub(reduction)}{limit}")
             lines.append(f"Налог к уплате: {rub(tax)}")
-        return TaxResult(profile.regime, _money(tax), _money(vat), _money(base), lines, warnings)
+        return _result(profile, tax, vat, base, lines, warnings)
 
     # profit: доход − расходы
     ozon_net = data.ozon_expenses - ozon_vat
@@ -400,7 +417,7 @@ def compute_tax(profile: Profile, data: TaxInput, day: date) -> TaxResult:
             "В отчёте о реализации нет удержаний Ozon (вознаграждение, логистика) — они в отчёте по начислениям. "
             "Здесь в расходах только себестоимость, поэтому налог завышен."
         )
-    return TaxResult(profile.regime, _money(tax), _money(vat), _money(base), lines, warnings)
+    return _result(profile, tax, vat, base, lines, warnings)
 
 
 # ---------- как считаем — для подсказки «?» ----------

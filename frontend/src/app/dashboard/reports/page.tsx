@@ -157,7 +157,6 @@ export default function ReportsPage() {
       )}
       {page && page.items.length > 0 && (
         <>
-          <p className="text-xs text-faint">Остаток, налог и маржа появятся в карточках с расчётом P&amp;L.</p>
           <div className="space-y-4">
             {page.items.map((r) => (
               <ReportCard key={r.id} report={r} onDelete={() => remove(r)} />

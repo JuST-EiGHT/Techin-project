@@ -38,20 +38,6 @@ def _q(value: Decimal | None) -> Decimal | None:
     return None if value is None else Decimal(value).quantize(Decimal("0.01"))
 
 
-def title(p: TaxProfile | svc.ProfileData) -> str:
-    regime = engine.REGIMES[p.regime]
-    if regime.kind == "custom":
-        base = "от дохода" if p.custom_base == "revenue" else "от прибыли"
-        return f"Свой процент: {engine.pct(p.rate_pct)} {base}"
-    parts = [engine.FORMS[p.legal_form]] if p.legal_form else []
-    if regime.kind == "patent":
-        parts.append(f"{regime.title}, {engine.rub(p.patent_cost_year)} в год")
-    else:
-        parts.append(f"{regime.title} {engine.pct(p.rate_pct)}")
-    parts.append("без НДС" if p.vat_mode == "none" else f"НДС {engine.pct(p.vat_rate_pct)}")
-    return " · ".join(parts)
-
-
 def _out(p: TaxProfile) -> TaxProfileOut:
     return TaxProfileOut(
         id=p.id,
@@ -67,7 +53,7 @@ def _out(p: TaxProfile) -> TaxProfileOut:
         has_employees=p.has_employees,
         patent_cost_year=_q(p.patent_cost_year),
         created_at=p.created_at,
-        title=title(p),
+        title=svc.profile_title(p),
     )
 
 
@@ -209,7 +195,7 @@ async def preview_tax(body: TaxProfileIn, user: User = Depends(get_current_user)
     )
     heading = "Продажа на 10 000 ₽: Ozon удержал 4 000 ₽, закупка 3 000 ₽ без НДС, за месяц"
     return TaxPreview(
-        title=title(data),
+        title=svc.profile_title(data),
         how=engine.how(profile, day),
         example=_example(heading, sample, engine.compute_tax(profile, sample, day)),
         report_example=await _report_example(db, user, data),

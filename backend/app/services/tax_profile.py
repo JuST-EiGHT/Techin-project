@@ -12,7 +12,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.engine.tax import FORMS, REGIMES, default_rate, vat_rates, vat_rules
+from app.engine.tax import FORMS, REGIMES, default_rate, pct, rub, vat_rates, vat_rules
 from app.models.product_cost import BEGINNING
 from app.models.tax_profile import TaxProfile
 from app.services.sync.finance import today_msk
@@ -161,3 +161,18 @@ async def save_profile(
     )
     db.add(record)
     return record, True
+
+
+def profile_title(p: "TaxProfile | ProfileData") -> str:
+    """Коротко: «ИП · УСН «Доходы» 6 % · без НДС», «Свой процент: 20 % от прибыли»."""
+    regime = REGIMES[p.regime]
+    if regime.kind == "custom":
+        base = "от дохода" if p.custom_base == "revenue" else "от прибыли"
+        return f"Свой процент: {pct(p.rate_pct)} {base}"
+    parts = [FORMS[p.legal_form]] if p.legal_form else []
+    if regime.kind == "patent":
+        parts.append(f"{regime.title}, {rub(p.patent_cost_year)} в год")
+    else:
+        parts.append(f"{regime.title} {pct(p.rate_pct)}")
+    parts.append("без НДС" if p.vat_mode == "none" else f"НДС {pct(p.vat_rate_pct)}")
+    return " · ".join(parts)

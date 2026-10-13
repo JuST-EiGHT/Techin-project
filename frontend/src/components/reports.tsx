@@ -26,6 +26,25 @@ export type ReportItem = {
   rows_count: number
   missing_cost_count: number
   warnings_count: number
+  pnl: PnL
+}
+
+/** P&L отчёта (шаг 3.1). Налог не задан — tax, vat, net, margin = null, а не 0. */
+export type PnL = {
+  effective_total: string
+  owed: string // себестоимость с НДС поставщика
+  profit_before_tax: string
+  tax: string | null
+  vat: string | null
+  net: string | null
+  margin: string | null
+  tax_title: string | null
+  tax_lines: string[]
+  supplier_vat: string
+  pct_of_revenue: Record<'owed' | 'profit_before_tax' | 'tax' | 'vat' | 'net', string | null>
+  by_type_pct: Record<string, string>
+  warnings: string[]
+  data_source: string
 }
 
 export type ArticleSales = {
@@ -96,11 +115,16 @@ export function Badge({ tone, children, title }: { tone: 'warn' | 'muted' | 'bad
   )
 }
 
-/** Главные цифры отчёта. Остаток и маржа появятся с расчётом P&L (шаг 3.1). */
+export const pctText = (v: string | null) => (v === null ? '—' : `${Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} %`)
+
+/** Главные цифры отчёта: продано, пришло от Ozon, себестоимость с НДС, налог, остаток и маржа. */
 export function ReportFigures({ report }: { report: ReportItem }) {
   const manual = report.manual_total !== null
+  const { pnl } = report
+  const vatPct = Math.round((Number(pnl.supplier_vat) - 1) * 1000) / 10
+  const taxSet = pnl.tax !== null
   return (
-    <div className="grid gap-3 sm:grid-cols-3">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5" data-testid="report-figures">
       <Figure label="Продано" value={rub(report.revenue_base)} hint={report.report_type === 'accrual' ? 'начисления «Выручка»' : 'итого реализовано'} />
       <Figure
         label="Пришло от Ozon"
@@ -109,22 +133,116 @@ export function ReportFigures({ report }: { report: ReportItem }) {
         tone="accent"
       />
       <Figure
-        label="Себестоимость проданного"
-        value={rub(report.cost_sales)}
-        hint={report.missing_cost_count > 0 ? `без НДС; не найдена для ${report.missing_cost_count} арт.` : 'без НДС'}
+        label="Себестоимость с НДС"
+        value={rub(pnl.owed)}
+        hint={
+          report.missing_cost_count > 0
+            ? `не найдена для ${report.missing_cost_count} арт. — занижена`
+            : `без НДС ${rub(report.cost_sales)}; НДС поставщика ${vatPct === 0 ? 'нет' : `${vatPct.toLocaleString('ru-RU')} %`}`
+        }
         tone={report.missing_cost_count > 0 ? 'warn' : undefined}
+      />
+      {taxSet ? (
+        <Figure
+          label={Number(pnl.vat) > 0 ? 'Налог и НДС' : 'Налог'}
+          value={rub(String(Number(pnl.tax) + Number(pnl.vat ?? 0)))}
+          hint={Number(pnl.vat) > 0 ? `налог ${rub(pnl.tax)}, НДС ${rub(pnl.vat)}` : (pnl.tax_title ?? '')}
+        />
+      ) : (
+        <div className="rounded-xl border border-warn/40 bg-card p-4">
+          <div className="text-xs text-muted">Налог</div>
+          <div className="mt-1 text-xl font-semibold text-warn">не задан</div>
+          <Link href="/dashboard/settings/taxes" className="mt-1 block text-xs text-accent hover:underline">
+            Указать систему налогообложения →
+          </Link>
+        </div>
+      )}
+      <Figure
+        label="Остаток"
+        value={rub(pnl.net)}
+        hint={taxSet ? `маржа ${pctText(pnl.margin)}` : `до налога ${rub(pnl.profit_before_tax)}`}
+        tone={pnl.net === null ? undefined : Number(pnl.net) < 0 ? 'bad' : 'ok'}
+        testid="figure-net"
       />
     </div>
   )
 }
 
-function Figure({ label, value, hint, tone }: { label: string; value: string; hint: string; tone?: 'accent' | 'warn' }) {
+function Figure({ label, value, hint, tone, testid }: { label: string; value: string; hint: string; tone?: 'accent' | 'warn' | 'ok' | 'bad'; testid?: string }) {
+  const valueTone = { accent: 'text-accent', ok: 'text-ok', bad: 'text-bad', warn: '' }[tone ?? 'warn']
   return (
-    <div className="rounded-xl border border-line bg-card p-4">
+    <div className="rounded-xl border border-line bg-card p-4" data-testid={testid}>
       <div className="text-xs text-muted">{label}</div>
-      <div className={`mt-1 text-xl font-semibold tabular-nums ${tone === 'accent' ? 'text-accent' : ''}`}>{value}</div>
+      <div className={`mt-1 text-xl font-semibold tabular-nums ${tone ? valueTone : ''}`}>{value}</div>
       <div className={`mt-1 text-xs ${tone === 'warn' ? 'text-warn' : 'text-faint'}`}>{hint}</div>
     </div>
+  )
+}
+
+const TONE = { ok: 'text-ok', bad: 'text-bad', accent: 'text-accent' } as const
+
+/** Предупреждения P&L для списка на странице: «налог не задан» уже видно в цифрах — не повторяем. */
+export const pnlWarnings = (report: ReportItem) => report.pnl.warnings.filter((w) => !w.startsWith('Налог не задан'))
+
+/** Расчёт остатка по шагам: пришло от Ozon − себестоимость с НДС − налог − НДС; проценты — от выручки. */
+export function PnLBreakdown({ report }: { report: ReportItem }) {
+  const { pnl } = report
+  const rows: { label: string; value: string | null; pct: string | null; strong?: boolean; tone?: 'ok' | 'bad' | 'accent' }[] = [
+    { label: 'Пришло от Ozon', value: pnl.effective_total, pct: null },
+    { label: '− Себестоимость с НДС поставщика', value: pnl.owed, pct: pnl.pct_of_revenue.owed },
+    { label: '= Прибыль до налога', value: pnl.profit_before_tax, pct: pnl.pct_of_revenue.profit_before_tax, strong: true, tone: 'accent' },
+    { label: '− Налог', value: pnl.tax, pct: pnl.pct_of_revenue.tax },
+    ...(Number(pnl.vat) > 0 ? [{ label: '− НДС к уплате', value: pnl.vat, pct: pnl.pct_of_revenue.vat }] : []),
+    {
+      label: '= Остаток',
+      value: pnl.net,
+      pct: pnl.pct_of_revenue.net,
+      strong: true,
+      tone: pnl.net === null ? undefined : Number(pnl.net) < 0 ? ('bad' as const) : ('ok' as const),
+    },
+  ]
+  return (
+    <section className="rounded-xl border border-line bg-card" data-testid="pnl-breakdown">
+      <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-2">
+        <h2 className="text-sm font-semibold">Остаток и маржа</h2>
+        <span className="text-xs text-muted">{pnl.tax_title ? `налог: ${pnl.tax_title}` : 'налог не задан'}</span>
+        {pnl.tax_title === null && (
+          <Link href="/dashboard/settings/taxes" className="ml-auto text-xs text-accent hover:underline">
+            Указать систему налогообложения →
+          </Link>
+        )}
+      </div>
+      <table className="w-full text-sm">
+        <thead className="text-left text-xs text-faint">
+          <tr>
+            <th className="px-4 pt-2 font-normal" />
+            <th className="px-4 pt-2 text-right font-normal">₽</th>
+            <th className="px-4 pt-2 text-right font-normal">% от выручки</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.label} className={r.strong ? 'font-semibold' : ''}>
+              <td className="px-4 py-1.5">{r.label}</td>
+              <td className={`whitespace-nowrap px-4 py-1.5 text-right tabular-nums ${r.tone ? TONE[r.tone] : ''}`}>
+                {r.value === null ? 'не задан' : rub(r.value)}
+              </td>
+              <td className="whitespace-nowrap px-4 py-1.5 text-right tabular-nums text-muted">{pctText(r.pct)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {pnl.tax_lines.length > 0 && (
+        <details className="border-t border-line px-4 py-2 text-sm">
+          <summary className="cursor-pointer text-muted hover:text-fg">Как посчитан налог</summary>
+          <ul className="mt-2 space-y-1 text-muted" data-testid="tax-lines">
+            {pnl.tax_lines.map((line, i) => (
+              <li key={i}>{line}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </section>
   )
 }
 
@@ -179,7 +297,8 @@ export function Warnings({ items }: { items: string[] }) {
   )
 }
 
-export function ByTypeTable({ byType }: { byType: Record<string, string> }) {
+/** Начисления по типам; pct — доля в своей группе (доходы и расходы — каждая 100 %). */
+export function ByTypeTable({ byType, pct }: { byType: Record<string, string>; pct?: Record<string, string> }) {
   const rows = Object.entries(byType)
   const income = rows.filter(([, v]) => Number(v) >= 0).sort((a, b) => Number(b[1]) - Number(a[1]))
   const expense = rows.filter(([, v]) => Number(v) < 0).sort((a, b) => Number(a[1]) - Number(b[1]))
@@ -192,6 +311,7 @@ export function ByTypeTable({ byType }: { byType: Record<string, string> }) {
             <tr key={name} className="border-b border-line last:border-b-0">
               <td className="px-4 py-1.5">{name}</td>
               <td className={`whitespace-nowrap px-4 py-1.5 text-right tabular-nums ${Number(value) < 0 ? 'text-bad' : 'text-ok'}`}>{rub(value)}</td>
+              {pct && <td className="w-20 whitespace-nowrap px-4 py-1.5 text-right tabular-nums text-muted">{pctText(pct[name] ?? null)}</td>}
             </tr>
           ))}
         </tbody>

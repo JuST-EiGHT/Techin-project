@@ -8,6 +8,8 @@ import { FormError } from '@/components/AuthForm'
 import {
   type ArticleSales,
   ByTypeTable,
+  PnLBreakdown,
+  pnlWarnings,
   MissingCostTable,
   ReportFigures,
   ReportHeading,
@@ -126,12 +128,12 @@ export default function ReportPage({ params }: { params: { id: string } }) {
           <ReportFigures report={report} />
           <p className="text-xs text-faint">
             Разобран {fmtDateTime(report.parsed_at)} · лист «{report.summary.sheet_name}», строка заголовков {report.summary.header_row}.
-            Остаток, налог и маржа появятся с расчётом P&amp;L.
           </p>
+          <PnLBreakdown report={report} />
           <MissingCostTable items={report.summary.missing_cost} />
-          <Warnings items={report.summary.warnings} />
+          <Warnings items={[...report.summary.warnings, ...pnlWarnings(report)]} />
           <ArticlesTable byArticle={report.summary.by_article} />
-          <ByTypeTable byType={report.summary.by_type} />
+          <ByTypeTable byType={report.summary.by_type} pct={report.pnl.by_type_pct} />
         </>
       )}
     </div>

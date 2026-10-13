@@ -7,6 +7,7 @@ import { useRef, useState } from 'react'
 import { FormError } from '@/components/AuthForm'
 import {
   ByTypeTable,
+  pnlWarnings,
   type Conflict,
   MissingCostTable,
   ReportFigures,
@@ -183,10 +184,9 @@ export default function UploadReportPage() {
             </div>
           </div>
           <ReportFigures report={report} />
-          <p className="text-xs text-faint">Остаток, налог и маржа появятся в отчёте с расчётом P&amp;L.</p>
           <MissingCostTable items={report.summary.missing_cost} />
-          <Warnings items={report.summary.warnings} />
-          <ByTypeTable byType={report.summary.by_type} />
+          <Warnings items={[...report.summary.warnings, ...pnlWarnings(report)]} />
+          <ByTypeTable byType={report.summary.by_type} pct={report.pnl.by_type_pct} />
         </div>
       )}
     </div>
