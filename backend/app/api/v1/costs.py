@@ -3,11 +3,11 @@
 
 from decimal import Decimal
 from typing import Literal
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.files import attachment
 from app.db.session import get_db
 from app.models.product_cost import ProductCost
 from app.models.user import User
@@ -76,9 +76,7 @@ async def list_costs(
 
 
 def _file(content: bytes, fmt: str, name: str, fallback: str) -> Response:
-    # имя по-русски — в filename*, латиницей — для старых браузеров
-    disposition = f"attachment; filename=\"{fallback}.{fmt}\"; filename*=UTF-8''{quote(f'{name}.{fmt}')}"
-    return Response(content, media_type=MEDIA_TYPES[fmt], headers={"Content-Disposition": disposition})
+    return attachment(content, MEDIA_TYPES[fmt], f"{name}.{fmt}", f"{fallback}.{fmt}")
 
 
 @router.get("/template", response_class=Response)

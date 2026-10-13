@@ -4,15 +4,19 @@ from datetime import date
 from decimal import Decimal
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.pnl import PeriodPnL, PnLByDay, PnLPeriods, Source
+from app.core.files import attachment
+from app.models.user_settings import COST_LABELS
+from app.schemas.pnl import PeriodPnL, PnLByDay, PnLPeriods, ProductsPage, Source
 from app.services import pnl_service as svc
+from app.services import product_pnl
 from app.services import reports as reports_svc
 from app.services.auth import get_current_user
+from app.services.user_settings import get_settings
 from app.services.sync.finance import today_msk
 
 router = APIRouter(prefix="/pnl", tags=["pnl"])
@@ -54,6 +58,67 @@ async def get_pnl(
     return await svc.get_pnl(db, user.id, req)
 
 
+async def _report(db: AsyncSession, user: User, report_id: uuid.UUID | None):
+    if report_id is None:
+        return None
+    report = await reports_svc.get_report(db, user.id, report_id)
+    if report is None or report.period_start is None or report.period_end is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Отчёт не найден")
+    return report
+
+
+SortField = Literal["revenue", "profit", "margin", "qty", "total"]
+
+
+async def _products(db: AsyncSession, user: User, req: svc.PnLRequest, report_id: uuid.UUID | None) -> dict:
+    try:
+        return await product_pnl.compute(db, user.id, req, await _report(db, user, report_id))
+    except svc.PnLRequestError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.get("/by-product", response_model=ProductsPage)
+async def get_pnl_by_product(
+    req: svc.PnLRequest = Depends(_request),
+    report_id: uuid.UUID | None = Query(None, description="Товары одного отчёта по начислениям — вместо периода"),
+    search: str | None = Query(None, max_length=100, description="Артикул или название"),
+    sort: SortField = Query("revenue"),
+    order: Literal["asc", "desc"] = Query("desc"),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Прибыль по товарам: продано, выручка, комиссия, логистика, прочее, себестоимость, прибыль до налога, маржа.
+    Начисления без товара — в «Не распределено»; итоги — по всем товарам периода."""
+    value = await _products(db, user, req, report_id)
+    rows = product_pnl.select_rows(value["items"], search, sort, order)
+    return {**value, "items": rows[offset:offset + limit], "total": len(rows), "limit": limit, "offset": offset}
+
+
+@router.get("/by-product/export", response_class=Response)
+async def export_pnl_by_product(
+    req: svc.PnLRequest = Depends(_request),
+    report_id: uuid.UUID | None = Query(None),
+    search: str | None = Query(None, max_length=100),
+    sort: SortField = Query("revenue"),
+    order: Literal["asc", "desc"] = Query("desc"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Таблица «По товарам» в CSV для Excel — все строки по тому же поиску и сортировке."""
+    value = await _products(db, user, req, report_id)
+    rows = product_pnl.select_rows(value["items"], search, sort, order)
+    if value["cost_basis"] == product_pnl.WITHOUT_VAT:
+        cost_title = "Себестоимость без НДС, руб."
+    else:
+        cost_title = f"{COST_LABELS[(await get_settings(db, user.id)).supplier_payment]}, руб."
+    period = f"{value['date_from'][8:10]}.{value['date_from'][5:7]}.{value['date_from'][:4]}–" \
+             f"{value['date_to'][8:10]}.{value['date_to'][5:7]}.{value['date_to'][:4]}"
+    content = product_pnl.to_csv(value, rows, cost_title)
+    return attachment(content, "text/csv; charset=utf-8", f"Прибыль по товарам {period}.csv", "products-pnl.csv")
+
+
 @router.get("/by-day", response_model=PnLByDay)
 async def get_pnl_by_day(
     req: svc.PnLRequest = Depends(_request),
@@ -62,11 +127,7 @@ async def get_pnl_by_day(
     db: AsyncSession = Depends(get_db),
 ):
     """По дням: выручка, начисления, себестоимость с НДС, прибыль до налога. Нет данных за день — null."""
-    report = None
-    if report_id is not None:
-        report = await reports_svc.get_report(db, user.id, report_id)
-        if report is None or report.period_start is None or report.period_end is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Отчёт не найден")
+    report = await _report(db, user, report_id)
     try:
         return await svc.get_by_day(db, user.id, req, report)
     except svc.PnLRequestError as exc:

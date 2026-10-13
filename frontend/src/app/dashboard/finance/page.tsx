@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { ProductsView } from '@/components/products-pnl'
 import {
   type CalcParams,
   type Coverage,
@@ -105,17 +106,45 @@ function Finance() {
       .catch(() => undefined)
   }, [])
 
-  const go = (query: string) => router.replace(`/dashboard/finance${query ? `?${query}` : ''}`, { scroll: false })
+  const tab: 'pnl' | 'products' = params.get('tab') === 'products' ? 'products' : 'pnl'
+  const open = (query: string, t = tab) => {
+    const q = [query, t === 'products' ? 'tab=products' : ''].filter(Boolean).join('&')
+    router.replace(`/dashboard/finance${q ? `?${q}` : ''}`, { scroll: false })
+  }
+  const go = (query: string) => open(query)
   const goRange = (r: Range) => go(`period=custom&from=${r.from}&to=${r.to}`)
+  const current = reportId ? `report=${reportId}` : preset === 'custom' ? `period=custom&from=${range.from}&to=${range.to}` : `period=${preset}`
+  const report = periods?.reports.find((r) => r.id === reportId)
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
+    <div className={`mx-auto space-y-5 ${tab === 'products' ? 'max-w-7xl' : 'max-w-5xl'}`}>
       <div>
         <h1 className="text-2xl font-semibold">P&amp;L — прибыль и убытки</h1>
         <p className="mt-1 text-sm text-muted">
           По начислениям Ozon — за что и когда заработано, а не когда деньги пришли на счёт. Деньги на счетах (ДДС) —
           отдельный отчёт в разделе «Планирование» (скоро).
         </p>
+      </div>
+
+      <div className="flex gap-1 border-b border-line" role="tablist" aria-label="Что показать">
+        {(
+          [
+            ['pnl', 'P&L за период'],
+            ['products', 'По товарам'],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={tab === value}
+            onClick={() => open(current, value)}
+            className={`-mb-px border-b-2 px-4 py-2 text-sm ${tab === value ? 'border-accent font-medium text-fg' : 'border-transparent text-muted hover:text-fg'}`}
+            data-testid={`tab-${value}`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -154,7 +183,42 @@ function Finance() {
 
       {!reportId && preset === 'custom' && <CustomRange range={range} onApply={goRange} />}
 
-      {reportId ? (
+      {tab === 'products' ? (
+        reportId ? (
+          <>
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <span className="font-semibold" data-testid="range-label">
+                {report ? `${report.report_type === 'accrual' ? 'Отчёт по начислениям' : 'Отчёт о реализации'} · ${periodLabel(report)}` : 'Отчёт'}
+              </span>
+              <button type="button" onClick={() => go(`period=${preset}`)} className="ml-auto text-muted hover:text-fg" data-testid="close-report">
+                ✕ Закрыть отчёт
+              </button>
+            </div>
+            {report?.report_type === 'realization' ? (
+              <section className="rounded-xl border border-line bg-card p-6 text-sm text-muted" data-testid="realization-note">
+                В отчёте о реализации нет удержаний Ozon по товарам (комиссии, логистики) — прибыль по товарам считается по отчётам
+                по начислениям и данным Ozon API. Продажи и себестоимость по товарам этого отчёта —{' '}
+                <Link href={`/dashboard/reports/${reportId}`} className="text-accent hover:underline">
+                  на странице отчёта
+                </Link>
+                .
+              </section>
+            ) : (
+              <ProductsView key={reportId} query={{ report_id: reportId }} showSource={false} />
+            )}
+          </>
+        ) : (
+          <>
+            <div className="text-sm">
+              <span className="font-semibold" data-testid="range-label">
+                {fmtDay(range.from)} – {fmtDay(range.to)}
+              </span>
+              <span className="text-muted"> · {daysWord(daysCount(range))}</span>
+            </div>
+            <ProductsView key={`${range.from}:${range.to}`} query={{ date_from: range.from, date_to: range.to }} showSource />
+          </>
+        )
+      ) : reportId ? (
         <ReportView key={reportId} id={reportId} onClose={() => go(`period=${preset}`)} />
       ) : (
         <PeriodView key={`${range.from}:${range.to}`} range={range} periods={periods} onRange={goRange} onReport={(id) => go(`report=${id}`)} />

@@ -106,3 +106,68 @@ class PnLPeriods(BaseModel):
     first_day: date | None
     last_day: date | None
     months: list[MonthCoverage]
+
+
+class ProductRow(BaseModel):
+    """Товар за период (шаг 3.4). Нет себестоимости — cost, profit, margin = null, а не 0."""
+
+    offer_id: str
+    name: str
+    sku: str
+    qty: int  # продано, шт. (строки «Выручка»)
+    returned_qty: int
+    revenue: Decimal
+    avg_price: Decimal | None
+    commission: Decimal  # вознаграждение Ozon (+ его возврат)
+    logistics: Decimal
+    other: Decimal  # баллы за скидки, эквайринг, продвижение, возвраты выручки и др.
+    total: Decimal  # начислено Ozon по товару
+    by_posting: Decimal  # из них отнесено к товару по номеру отправления
+    cost: Decimal | None
+    unit_cost: Decimal | None
+    cost_missing: bool
+    profit: Decimal | None  # до налога: начислено Ozon − себестоимость
+    margin: Decimal | None  # % от выручки
+    by_type: dict[str, Decimal]
+
+
+class ProductTotals(BaseModel):
+    products: int
+    qty: int
+    revenue: Decimal
+    commission: Decimal
+    logistics: Decimal
+    other: Decimal
+    total: Decimal
+    cost: Decimal  # по товарам с себестоимостью
+    profit: Decimal
+    margin: Decimal | None
+    missing_cost: int
+
+
+class Unallocated(BaseModel):
+    """Начисления без товара (хранение, подписки, страхование, отправления с несколькими товарами)."""
+
+    total: Decimal
+    lines: int
+    multi_product: Decimal
+    by_type: dict[str, Decimal]
+
+
+class ProductsPage(BaseModel):
+    date_from: date
+    date_to: date
+    source: Source
+    report_id: uuid.UUID | None
+    data_source: DataSource
+    coverage: Coverage
+    cost_basis: Literal["with_vat", "without_vat"]  # без НДС — у плательщиков НДС с вычетом
+    supplier_vat: Decimal
+    items: list[ProductRow]
+    total: int  # товаров после поиска
+    limit: int
+    offset: int
+    totals: ProductTotals  # по всем товарам периода
+    unallocated: Unallocated
+    period_total: Decimal  # все начисления периода = товары + не распределено
+    warnings: list[str]

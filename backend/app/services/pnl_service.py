@@ -78,6 +78,39 @@ def _ranges_text(ranges: list[tuple[date, date]], limit: int = 4) -> str:
     return ", ".join(parts) + more
 
 
+def coverage_warnings(cov: pnl_data.Coverage) -> list[str]:
+    """Откуда данные периода: дни из API, дни без данных, отчёты о реализации, которые по дням не делятся."""
+    warnings: list[str] = []
+    api_days, missing = cov.count(SOURCE_API), cov.missing
+    if api_days:
+        warnings.append(
+            f"По данным Ozon API — {api_days} дн. из {len(cov.days)}: они могут расходиться с личным кабинетом "
+            "(оговорка Ozon). Для точного P&L загрузите отчёт по начислениям за эти дни."
+        )
+    if missing and cov.data_source != "none":
+        days = sum((b - a).days + 1 for a, b in missing)
+        warnings.append(
+            f"Нет данных за {days} дн.: {_ranges_text(missing)} — P&L неполный. Загрузите отчёт по начислениям "
+            "или синхронизируйте начисления из Ozon API."
+        )
+    for r in cov.realization:
+        warnings.append(
+            f"Отчёт о реализации {_fmt(r.period_start)}–{_fmt(r.period_end)} по дням не делится и в P&L периода "
+            "не входит — его остаток и маржа на странице отчёта."
+        )
+    return warnings
+
+
+def coverage_out(cov: pnl_data.Coverage) -> dict:
+    return {
+        "days_total": len(cov.days),
+        "xlsx_days": cov.count(SOURCE_XLSX),
+        "api_days": cov.count(SOURCE_API),
+        "missing_days": cov.count(None),
+        "missing": [{"date_from": a.isoformat(), "date_to": b.isoformat()} for a, b in cov.missing],
+    }
+
+
 async def compute(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest) -> dict:
     cov = await pnl_data.coverage(db, user_id, req.date_from, req.date_to, req.source)
     lines = await pnl_data.load_lines(db, user_id, cov)
@@ -107,23 +140,7 @@ async def compute(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest) -> dict
         names = ", ".join(r.period for r in adjusted)
         warnings.append(f"Учтены ручные суммы «сколько пришло» из отчётов: {names}.")
 
-    api_days, missing = cov.count(SOURCE_API), cov.missing
-    if api_days:
-        warnings.append(
-            f"По данным Ozon API — {api_days} дн. из {len(cov.days)}: они могут расходиться с личным кабинетом "
-            "(оговорка Ozon). Для точного P&L загрузите отчёт по начислениям за эти дни."
-        )
-    if missing and cov.data_source != "none":
-        days = sum((b - a).days + 1 for a, b in missing)
-        warnings.append(
-            f"Нет данных за {days} дн.: {_ranges_text(missing)} — P&L неполный. Загрузите отчёт по начислениям "
-            "или синхронизируйте начисления из Ozon API."
-        )
-    for r in cov.realization:
-        warnings.append(
-            f"Отчёт о реализации {_fmt(r.period_start)}–{_fmt(r.period_end)} по дням не делится и в P&L периода "
-            "не входит — его остаток и маржа на странице отчёта."
-        )
+    warnings += coverage_warnings(cov)
     changed = [p for p in profiles if req.date_from < p.effective_from <= req.date_to]
     if changed and req.tax_rate is None:
         warnings.append(
@@ -151,13 +168,7 @@ async def compute(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest) -> dict
         "date_to": req.date_to.isoformat(),
         "source": req.source,
         "data_source": cov.data_source,
-        "coverage": {
-            "days_total": len(cov.days),
-            "xlsx_days": cov.count(SOURCE_XLSX),
-            "api_days": api_days,
-            "missing_days": cov.count(None),
-            "missing": [{"date_from": a.isoformat(), "date_to": b.isoformat()} for a, b in missing],
-        },
+        "coverage": coverage_out(cov),
         "reports": [
             {
                 "id": str(r.id), "period": r.period, "period_start": r.period_start.isoformat(),
