@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1 import sync as sync_api
 from app.crud import credential as crud
 from app.db.session import get_db
 from app.models.api_credential import ApiCredential
@@ -13,6 +14,7 @@ from app.schemas.credential import CredentialCreate, CredentialResponse, VerifyR
 from app.services.auth import get_current_user
 from app.services.encryption import DecryptionError, decrypt
 from app.services.ozon_auth import verify_ozon_credentials
+from app.services.sync.runner import SyncAlreadyRunning
 
 router = APIRouter(prefix="/credentials", tags=["credentials"])
 
@@ -33,7 +35,18 @@ async def add_credential(data: CredentialCreate, user: User = Depends(get_curren
     if not result.ok:
         code = status.HTTP_503_SERVICE_UNAVAILABLE if result.reason == "unavailable" else status.HTTP_400_BAD_REQUEST
         raise HTTPException(code, f"Ключ не сохранён: {result.message}")
-    return CredentialResponse.from_model(await crud.create(db, user.id, data, result.expires_at))
+    cred = await crud.create(db, user.id, data, result.expires_at)
+    await _start_finance_backfill(db, user.id)
+    return CredentialResponse.from_model(cred)
+
+
+async def _start_finance_backfill(db: AsyncSession, user_id: uuid.UUID) -> None:
+    """Ключ подключён — разово загружаем начисления за последние 90 дней (уже загруженные дни
+    пропускаются). Сбой очереди не мешает сохранить ключ: догрузит плановая задача раз в 6 часов."""
+    try:
+        await sync_api.queue_sync(db, user_id, "finance")
+    except (SyncAlreadyRunning, sync_api.QueueUnavailable):
+        pass
 
 
 @router.get("", response_model=list[CredentialResponse])

@@ -352,7 +352,7 @@ async def test_api_isolation(sessions, client, tokens, ozon):
 
 async def test_api_manual_stocks_sync(sessions, client, tokens, ozon, monkeypatch):
     calls = []
-    monkeypatch.setattr(sync_api, "enqueue_sync", lambda kind, u, r: calls.append(kind))
+    monkeypatch.setattr(sync_api, "enqueue_sync", lambda kind, u, r, params=None: calls.append(kind))
     await api_user(sessions, client, tokens, ozon)
     r = await client.post("/api/v1/sync/stocks", headers=auth(tokens))
     assert r.status_code == 202 and r.json()["kind"] == "stocks" and calls == ["stocks"]

@@ -43,6 +43,17 @@ async def client(sessions):
     app.dependency_overrides.clear()
 
 
+@pytest.fixture(autouse=True)
+def no_celery(monkeypatch):
+    """Постановка задач в Celery — заглушка (брокера в тестах нет). Тесты, которым важно,
+    что поставлено в очередь, подменяют enqueue_sync сами и читают этот список."""
+    from app.api.v1 import sync as sync_api
+
+    queued: list[tuple] = []
+    monkeypatch.setattr(sync_api, "enqueue_sync", lambda *args: queued.append(args))
+    return queued
+
+
 USER = {"email": "Seller@Example.com", "password": "strongpass1", "full_name": "Радимир"}
 
 

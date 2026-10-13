@@ -1,0 +1,33 @@
+{
+  "accruals": [
+    {
+      "accrual_id": 101, "accrued_category": "SALE", "date": "2026-10-10", "unit_number": "0123456789-0001-1",
+      "total_amount": {"amount": "271.80", "currency": "RUB"},
+      "posting": {
+        "delivery_schema": "FBO", "delivery_speed": 0,
+        "products": [{
+          "sku": 900001001,
+          "commission": {
+            "sale_amount": {"amount": "540.00", "currency": "RUB"}, "sale_commission": {"amount": "-205.20", "currency": "RUB"},
+            "commission_ratio": "0.38", "sale_price": {"amount": "512.30", "currency": "RUB"},
+            "seller_price": {"amount": "540.00", "currency": "RUB"}, "bonus": {"amount": "0", "currency": "RUB"},
+            "coinvestment": {"amount": "0", "currency": "RUB"}, "commission": {"amount": "-205.20", "currency": "RUB"}
+          },
+          "delivery": {"services": [{"accrued": {"amount": "-63.00", "currency": "RUB"}, "type_id": 103}],
+                       "total_accrued": {"amount": "-63.00", "currency": "RUB"}}
+        }]
+      },
+      "item_fees": {"fees": [{"sku": 900001001, "fees": [
+        {"accrued": {"amount": "540.00", "currency": "RUB"}, "type_id": 101},
+        {"accrued": {"amount": "-205.20", "currency": "RUB"}, "type_id": 102},
+        {"accrued": {"amount": "-63.00", "currency": "RUB"}, "type_id": 103}
+      ]}]}
+    },
+    {
+      "accrual_id": 201, "accrued_category": "SERVICES", "date": "2026-10-10", "unit_number": "",
+      "total_amount": {"amount": "-1990.00", "currency": "RUB"},
+      "non_item_fee": {"accrued": {"amount": "-1990.00", "currency": "RUB"}, "type_id": 201}
+    }
+  ],
+  "last_id": "p2"
+}

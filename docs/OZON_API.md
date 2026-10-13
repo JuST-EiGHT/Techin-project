@@ -112,6 +112,19 @@ HTTP-коды для этих текстов в документации не у
 (продажи в день за 28 дней), `idc` (дни запаса), `turnover_grade` — пока не используем:
 дни запаса считаем по своим продажам (появятся на шаге 1.4).
 
+### Начисления (шаг 1.4)
+
+Методы `/v1/finance/accrual/*` в документации помечены как **бета**; вложенные поля by-day
+описаны не полностью (свёрнуты в выгрузке), поэтому сырой ответ храним в `accruals.raw_json`.
+
+| Что | Откуда | Примечание |
+|---|---|---|
+| справочник типов | `/v1/finance/accrual/types` → `accrual_types[]{id, name, description}` | категории доход/расход нет — ставим по знаку сумм |
+| записи дня | `/v1/finance/accrual/by-day` (`date`, `last_id`) → `accruals[]` | один день за запрос; `last_id` живёт 15 мин, с ним передаётся тот же `date`; `accrual_id` — бывший `type_id` |
+| признак отправления | `unit_number` + непустые `posting.products` или `item_fees.fees` | иначе — начисление без товара: `non_item_fee`, `container_fees[]`, иначе `total_amount` |
+| строки отправления | `/v1/finance/accrual/postings` (`posting_numbers` 1–200) → `posting_accruals[].accruals[]{accrual_date, type_id, sku, quantity, accrued.amount}` | полный список начислений отправления за все даты |
+| сумма | `accrued.amount` (строка) | знак как у Ozon: + доход, − расход |
+
 Пригодится позже: `price.net_price` — себестоимость, которую продавец может передать в Ozon
 через `/v1/product/import/prices` (`prices.net_price`); `/v1/product/prices/details` — цена
 для покупателя (`customer_price`), но только с подпиской Premium Pro.

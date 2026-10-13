@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.crud import credential as crud_credential
 from app.db.session import get_db
 from app.integrations.ozon.errors import OzonNotConfiguredError
-from app.models.sync_run import SUCCESS
+from app.models.sync_run import SUCCESS, SyncRun
 from app.models.user import User
 from app.schemas.sync import KindStatus, SyncRunResponse, SyncStatusResponse, utc
 from app.services.auth import get_current_user
@@ -21,25 +21,37 @@ router = APIRouter(prefix="/sync", tags=["sync"])
 QUEUE_UNAVAILABLE = "Фоновые задачи сейчас недоступны, попробуйте позже"
 
 
-def enqueue_sync(kind: str, user_id: uuid.UUID, run_id: uuid.UUID) -> None:
+def enqueue_sync(kind: str, user_id: uuid.UUID, run_id: uuid.UUID, params: dict | None = None) -> None:
     """Ставит задачу в Celery. Вынесено отдельно — в тестах подменяется."""
     from app.tasks.sync import FOR_USER_TASKS
 
-    FOR_USER_TASKS[kind].delay(str(user_id), str(run_id))
+    FOR_USER_TASKS[kind].delay(str(user_id), str(run_id), **(params or {}))
 
 
-async def _sync_now(kind: str, user: User, db: AsyncSession) -> SyncRunResponse:
+class QueueUnavailable(Exception):
+    pass
+
+
+async def queue_sync(db: AsyncSession, user_id: uuid.UUID, kind: str, params: dict | None = None) -> SyncRun:
+    """Создаёт запуск и ставит задачу в очередь. SyncAlreadyRunning — уже идёт; QueueUnavailable — нет брокера."""
+    run = await start_run(db, user_id, kind)
+    try:
+        await run_in_threadpool(enqueue_sync, kind, user_id, run.id, params)
+    except Exception as e:  # noqa: BLE001 — брокер недоступен
+        log.exception("Не удалось поставить синхронизацию %s в очередь", kind)
+        await fail_run(db, run, QUEUE_UNAVAILABLE)
+        raise QueueUnavailable from e
+    return run
+
+
+async def _sync_now(kind: str, user: User, db: AsyncSession, params: dict | None = None) -> SyncRunResponse:
     if not await crud_credential.has_active(db, user.id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, OzonNotConfiguredError().message)
     try:
-        run = await start_run(db, user.id, kind)
+        run = await queue_sync(db, user.id, kind, params)
     except SyncAlreadyRunning:
         raise HTTPException(status.HTTP_409_CONFLICT, "Синхронизация уже идёт, дождитесь окончания") from None
-    try:
-        await run_in_threadpool(enqueue_sync, kind, user.id, run.id)
-    except Exception:  # noqa: BLE001 — брокер недоступен
-        log.exception("Не удалось поставить синхронизацию %s в очередь", kind)
-        await fail_run(db, run, QUEUE_UNAVAILABLE)
+    except QueueUnavailable:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, QUEUE_UNAVAILABLE) from None
     return SyncRunResponse.from_model(run)
 
@@ -70,4 +82,5 @@ async def sync_status(user: User = Depends(get_current_user), db: AsyncSession =
         has_active_key=await crud_credential.has_active(db, user.id),
         products=await _kind_status(db, user.id, "products"),
         stocks=await _kind_status(db, user.id, "stocks"),
+        finance=await _kind_status(db, user.id, "finance"),
     )

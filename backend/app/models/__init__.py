@@ -3,3 +3,4 @@ from app.models.api_credential import ApiCredential  # noqa: F401
 from app.models.product import Product, ProductPrice  # noqa: F401
 from app.models.sync_run import SyncRun  # noqa: F401
 from app.models.warehouse import ProductStock, Warehouse  # noqa: F401
+from app.models.accrual import Accrual, AccrualDay, AccrualType  # noqa: F401

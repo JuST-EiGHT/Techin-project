@@ -323,7 +323,7 @@ def auth(tokens):
 @pytest.fixture
 def enqueued(monkeypatch):
     calls = []
-    monkeypatch.setattr(sync_api, "enqueue_sync", lambda kind, u, r: calls.append((u, r)) if kind == "products" else None)
+    monkeypatch.setattr(sync_api, "enqueue_sync", lambda kind, u, r, params=None: calls.append((u, r)) if kind == "products" else None)
     return calls
 
 
@@ -348,7 +348,7 @@ async def test_api_sync_without_key(client, tokens, enqueued):
     assert r.status_code == 400 and "API-ключ" in r.json()["detail"] and enqueued == []
     status = (await client.get("/api/v1/sync/status", headers=auth(tokens))).json()
     empty = {"last_run": None, "last_success_at": None}
-    assert status == {"has_active_key": False, "products": empty, "stocks": empty}
+    assert status == {"has_active_key": False, "products": empty, "stocks": empty, "finance": empty}
 
 
 async def test_api_manual_sync_flow(sessions, client, tokens, enqueued, ozon):

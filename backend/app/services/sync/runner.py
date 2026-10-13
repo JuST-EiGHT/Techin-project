@@ -9,7 +9,7 @@
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -20,6 +20,7 @@ from app.integrations.ozon.errors import OzonAPIError
 from app.integrations.ozon.factory import get_ozon_client
 from app.models.sync_run import ACTIVE_STATUSES, FAILED, QUEUED, RUNNING, SUCCESS, SyncRun
 from app.services.sync.products import sync_products
+from app.services.sync.finance import sync_finance
 from app.services.sync.stocks import sync_stocks
 
 log = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ log = logging.getLogger(__name__)
 STALE_AFTER = timedelta(minutes=30)
 INTERNAL_ERROR = "Внутренняя ошибка синхронизации, попробуйте позже"
 
-Job = Callable[[AsyncSession, uuid.UUID, OzonClient], Awaitable[Any]]
+Job = Callable[..., Awaitable[Any]]  # (db, user_id, client, **params) -> stats
 
 
 async def _products_job(db: AsyncSession, user_id: uuid.UUID, client: OzonClient) -> dict:
@@ -38,7 +39,14 @@ async def _stocks_job(db: AsyncSession, user_id: uuid.UUID, client: OzonClient) 
     return (await sync_stocks(db, user_id, client)).as_dict()
 
 
-JOBS: dict[str, Job] = {"products": _products_job, "stocks": _stocks_job}
+async def _finance_job(
+    db: AsyncSession, user_id: uuid.UUID, client: OzonClient, date_from: str | None = None, date_to: str | None = None
+) -> dict:
+    period = (date.fromisoformat(date_from), date.fromisoformat(date_to)) if date_from and date_to else (None, None)
+    return (await sync_finance(db, user_id, client, *period)).as_dict()
+
+
+JOBS: dict[str, Job] = {"products": _products_job, "stocks": _stocks_job, "finance": _finance_job}
 
 
 class SyncAlreadyRunning(Exception):
@@ -88,9 +96,11 @@ async def run_sync(
     user_id: uuid.UUID,
     session_factory: async_sessionmaker[AsyncSession],
     run_id: uuid.UUID | None = None,
+    params: dict[str, Any] | None = None,
 ) -> SyncRun | None:
     """Выполняет синхронизацию вида kind. run_id — запуск, созданный API (ручной);
-    без него (по расписанию) запуск создаётся здесь. Возвращает None, если запуск пропущен."""
+    без него (по расписанию) запуск создаётся здесь. params — аргументы задачи
+    (например, период начислений). Возвращает None, если запуск пропущен."""
     job = JOBS[kind]
     async with session_factory() as db:
         if run_id is not None:
@@ -109,7 +119,7 @@ async def run_sync(
         await db.commit()
         try:
             async with await get_ozon_client(user_id, db) as client:
-                stats = await job(db, user_id, client)
+                stats = await job(db, user_id, client, **(params or {}))
         except OzonAPIError as e:
             await db.rollback()
             log.warning("Синхронизация %s у пользователя %s: %s (%s)", kind, user_id, e.message, e.ozon_message)

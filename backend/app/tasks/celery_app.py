@@ -18,6 +18,8 @@ celery_app.conf.update(
         "sync-products-hourly": {"task": "tasks.sync_products_all", "schedule": crontab(minute=7)},
         # каждые 30 минут, со сдвигом от синхронизации товаров
         "sync-stocks-every-30-min": {"task": "tasks.sync_stocks_all", "schedule": crontab(minute="13,43")},
+        # начисления: каждые 6 часов — вчера и сегодня (плюс незагруженные дни за 90 дней)
+        "sync-finance-every-6h": {"task": "tasks.sync_finance_all", "schedule": crontab(minute=23, hour="*/6")},
     },
 )
 

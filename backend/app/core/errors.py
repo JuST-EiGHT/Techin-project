@@ -24,6 +24,12 @@ _FIELD_NAMES = {
     "warehouse_id": "Склад",
     "product_id": "Товар",
     "status": "Статус",
+    "date_from": "Дата начала",
+    "date_to": "Дата окончания",
+    "type_id": "Тип начисления",
+    "posting_number": "Номер отправления",
+    "limit": "Лимит",
+    "offset": "Смещение",
 }
 
 
@@ -41,6 +47,14 @@ def _humanize(err: dict) -> str:
         return f"{name}: некорректный адрес"
     if t in ("literal_error", "enum"):
         return f"{name}: недопустимое значение"
+    if t in ("date_from_datetime_parsing", "date_parsing", "date_type"):
+        return f"{name}: дата в формате ГГГГ-ММ-ДД"
+    if t in ("int_parsing", "int_type"):
+        return f"{name}: нужно целое число"
+    if t in ("less_than_equal", "greater_than_equal"):
+        ctx = err.get("ctx", {})
+        bound = ctx.get("le", ctx.get("ge"))
+        return f"{name}: {'не больше' if t == 'less_than_equal' else 'не меньше'} {bound}"
     if t == "uuid_parsing":
         return f"{name}: некорректный идентификатор"
     if t == "value_error" and "error" in err.get("ctx", {}):

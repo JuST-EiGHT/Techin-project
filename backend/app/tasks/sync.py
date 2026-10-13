@@ -47,9 +47,9 @@ async def users_with_active_keys(db: AsyncSession) -> list[uuid.UUID]:
     return list(res.scalars())
 
 
-async def _sync_for_user(kind: str, user_id: str, run_id: str | None) -> dict:
+async def _sync_for_user(kind: str, user_id: str, run_id: str | None, params: dict | None = None) -> dict:
     async with task_sessions() as sessions:
-        run = await run_sync(kind, uuid.UUID(user_id), sessions, uuid.UUID(run_id) if run_id else None)
+        run = await run_sync(kind, uuid.UUID(user_id), sessions, uuid.UUID(run_id) if run_id else None, params)
     if run is None:
         return {"status": "skipped"}
     return {"status": run.status, "stats": run.stats, "error": run.error}
@@ -93,5 +93,23 @@ def sync_stocks_all() -> int:
     return _fan_out("stocks", sync_stocks_for_user)
 
 
+@celery_app.task(name="tasks.sync_finance_for_user")
+def sync_finance_for_user(
+    user_id: str, run_id: str | None = None, date_from: str | None = None, date_to: str | None = None
+) -> dict:
+    """Без периода: вчера, сегодня и незагруженные дни за 90 дней; с периодом — он заново."""
+    params = {"date_from": date_from, "date_to": date_to} if date_from and date_to else None
+    return asyncio.run(_sync_for_user("finance", user_id, run_id, params))
+
+
+@celery_app.task(name="tasks.sync_finance_all")
+def sync_finance_all() -> int:
+    return _fan_out("finance", sync_finance_for_user)
+
+
 # Задача Celery для каждого вида синхронизации — для ручного запуска из API
-FOR_USER_TASKS = {"products": sync_products_for_user, "stocks": sync_stocks_for_user}
+FOR_USER_TASKS = {
+    "products": sync_products_for_user,
+    "stocks": sync_stocks_for_user,
+    "finance": sync_finance_for_user,
+}

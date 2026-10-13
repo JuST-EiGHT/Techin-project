@@ -96,7 +96,8 @@ pip install -r requirements-dev.txt && pytest
 | 1.1 | Универсальный клиент Ozon (retry, rate limit, фабрика) | ✅ готово, 68 тестов всего |
 | 1.2 | Синхронизация товаров и цен (Celery, Beat, /sync, статус в шапке) | ✅ готово, 91 тест всего |
 | 1.3 | Склады и остатки (FBO по складам и кластерам, FBS/rFBS, /dashboard/warehouses) | ✅ готово, 139 тестов всего |
-| 1.4 … 9.2 | см. `docs/ROADMAP.md` | ⏳ |
+| 1.4 | Финансовые начисления из API (by-day + postings, Celery, /finance) | ✅ готово, 171 тест всего |
+| 1.5 … 9.2 | см. `docs/ROADMAP.md` | ⏳ |
 
 Детали сделанного в 0.2: access-токен 24 ч, refresh 30 дней; refresh одноразовый
 (ротация); logout отзывает токены через чёрный список в Redis (в тестах — в памяти);
@@ -175,6 +176,27 @@ low < 14, excess > 60 дней). Продаж пока нет: `services/stocks.
 status=critical|low|normal|excess|no_data, include_empty), `POST /api/v1/sync/stocks`.
 Общий код синхронизаций: `runner.JOBS`, `tasks.sync.FOR_USER_TASKS`, `api/v1/sync._sync_now`;
 разбор ответов — `services/sync/parsing.py`.
+
+Детали сделанного в 1.4 (схема согласована с владельцем): миграция 0005 — `accrual_types`
+(справочник Ozon, общий; `category` income/expense — по знаку первой ненулевой суммы, Ozon
+её не отдаёт), `accruals` (+ sku, quantity, sync_scope, line_no) и `accrual_days`
+(загруженные дни → `get_missing_periods`). Методы — бета: `/v1/finance/accrual/types`,
+`/by-day` (ОДИН день, пагинация last_id с тем же date, не раньше 2022-01-01) и
+`/postings` (по 200 номеров). Записи by-day с товарами → номер отправления (`unit_number`)
+→ строки из `/postings` (товар — по SKU строки); без товаров (подписка, хранение) — из
+by-day; отправление, которого `/postings` не вернул, — из `item_fees` by-day
+(`raw_json.fallback`). Дубли: строки пишутся областями `posting:<номер>` / `day:<дата>`
+(замена целиком + уникальный индекс user_id+source+sync_scope+line_no). Каждый день —
+своя транзакция. `days_to_sync`: без периода — вчера, сегодня и незагруженные дни за
+90 дней; с периодом — он заново (≤ 92 дней). Даты — по Москве (UTC+3). Celery:
+`sync_finance_all` каждые 6 ч (:23), загрузка за 90 дней ставится при добавлении ключа
+(`credentials._start_finance_backfill`, сбой очереди не мешает сохранить ключ).
+`runner.run_sync(..., params)` передаёт период в задачу. API: `GET /api/v1/finance/accruals`
+(период ≤ 366 дней, type_id, product_id, posting_number, limit/offset, итоги по фильтру),
+`GET /api/v1/finance/accruals/by-day` (+ missing_periods), `POST /api/v1/finance/sync`;
+в ответах `data_source: "api"` и предупреждение о расхождении с кабинетом.
+`services/stocks.avg_daily_sales` к начислениям пока не подключён — продажи из API есть по
+товарам, но не по складам; решить на шаге 5.x или по запросу владельца.
 
 ## Где что искать
 
