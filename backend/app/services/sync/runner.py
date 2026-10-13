@@ -20,6 +20,7 @@ from app.integrations.ozon.errors import OzonAPIError
 from app.integrations.ozon.factory import get_ozon_client
 from app.models.sync_run import ACTIVE_STATUSES, FAILED, QUEUED, RUNNING, SUCCESS, SyncRun
 from app.services.sync.products import sync_products
+from app.services.sync.promotions import sync_promotions
 from app.services.sync.finance import sync_finance
 from app.services.sync.stocks import sync_stocks
 
@@ -46,7 +47,16 @@ async def _finance_job(
     return (await sync_finance(db, user_id, client, *period)).as_dict()
 
 
-JOBS: dict[str, Job] = {"products": _products_job, "stocks": _stocks_job, "finance": _finance_job}
+async def _promotions_job(db: AsyncSession, user_id: uuid.UUID, client: OzonClient) -> dict:
+    return (await sync_promotions(db, user_id, client)).as_dict()
+
+
+JOBS: dict[str, Job] = {
+    "products": _products_job,
+    "stocks": _stocks_job,
+    "finance": _finance_job,
+    "promotions": _promotions_job,
+}
 
 
 class SyncAlreadyRunning(Exception):

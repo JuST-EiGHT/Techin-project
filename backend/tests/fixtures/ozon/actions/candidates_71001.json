@@ -1,0 +1,9 @@
+{
+  "products": [
+    {"id": 1003, "price": {"amount": "499", "currency": "RUB"}, "action_price": {"amount": "424", "currency": "RUB"},
+     "max_action_price": {"amount": "430", "currency": "RUB"}, "min_stock": 1, "recommended_stock": 2,
+     "min_seller_price": {"amount": "0", "currency": "RUB"}, "is_quarantined": false}
+  ],
+  "total": 1,
+  "last_id": ""
+}

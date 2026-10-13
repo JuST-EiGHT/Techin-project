@@ -1,0 +1,32 @@
+{
+  "result": [
+    {
+      "id": 71001, "title": "Скидка на сток", "action_type": "DISCOUNT", "description": "Скидка на товары с большим остатком",
+      "date_start": "2026-10-01T00:00:00Z", "date_end": "2099-12-31T20:59:59Z",
+      "auto_add_dates": ["2026-10-01T00:00:00Z", "2099-12-01T00:00:00Z"], "freeze_date": "",
+      "potential_products_count": 3, "participating_products_count": 2, "is_participating": true,
+      "is_voucher_action": false, "banned_products_count": 0, "with_targeting": false,
+      "order_amount": 0, "discount_type": "PERCENT", "discount_value": 15
+    },
+    {
+      "id": 71002, "title": "Эластичный бустинг", "action_type": "ELASTIC_BOOSTING",
+      "date_start": "2026-10-05T00:00:00Z", "date_end": "2099-11-30T20:59:59Z",
+      "auto_add_dates": [], "freeze_date": "2026-10-10T00:00:00Z",
+      "potential_products_count": 1, "participating_products_count": 1, "is_participating": true,
+      "discount_type": "UNKNOWN", "discount_value": 0
+    },
+    {
+      "id": 71003, "title": "Осенняя распродажа", "action_type": "DISCOUNT",
+      "date_start": "2026-10-20T00:00:00Z", "date_end": "2099-10-31T20:59:59Z",
+      "auto_add_dates": [], "freeze_date": "",
+      "potential_products_count": 2, "participating_products_count": 0, "is_participating": false,
+      "discount_type": "PERCENT", "discount_value": 20
+    },
+    {
+      "id": 71004, "title": "Летние скидки (закончилась)", "action_type": "DISCOUNT",
+      "date_start": "2026-06-01T00:00:00Z", "date_end": "2026-08-31T20:59:59Z",
+      "auto_add_dates": [], "freeze_date": "", "is_participating": false,
+      "potential_products_count": 0, "participating_products_count": 0
+    }
+  ]
+}

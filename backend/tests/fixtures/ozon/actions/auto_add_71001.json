@@ -1,0 +1,9 @@
+{
+  "products": [
+    {"product_id": 1002, "sku": 900001002, "offer_id": "ACB305523.NAC.JP", "name": "Подшипник ACB305523 NACHI",
+     "action_price_to_auto_add": {"amount": "1800", "currency": "RUB"}, "add_mode": true,
+     "base_price": {"amount": "2150", "currency": "RUB"}, "currency": "RUB", "quantity_to_auto_add": 2,
+     "min_seller_price": {"amount": "1900", "currency": "RUB"}}
+  ],
+  "total": 1
+}

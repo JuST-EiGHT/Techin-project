@@ -40,3 +40,4 @@ class SyncStatusResponse(BaseModel):
     products: KindStatus
     stocks: KindStatus
     finance: KindStatus
+    promotions: KindStatus

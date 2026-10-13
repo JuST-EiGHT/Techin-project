@@ -1,0 +1,22 @@
+{
+  "products": [
+    {
+      "id": 1001, "price": {"amount": "540", "currency": "RUB"}, "action_price": {"amount": "459", "currency": "RUB"},
+      "max_action_price": {"amount": "470", "currency": "RUB"}, "add_mode": "SELLER", "stock": 0, "min_stock": 1,
+      "recommended_stock": 10, "marketplace_seller_price": {"amount": "459", "currency": "RUB"},
+      "alert_max_action_price_failed": false, "alert_max_action_price": {"amount": "470", "currency": "RUB"},
+      "current_boost": 0, "min_seller_price": {"amount": "420", "currency": "RUB"}, "is_quarantined": false
+    },
+    {
+      "id": 1002, "price": {"amount": "2150", "currency": "RUB"}, "action_price": {"amount": "1800", "currency": "RUB"},
+      "max_action_price": {"amount": "1900", "currency": "RUB"}, "add_mode": "NOT_SET", "stock": 0,
+      "min_seller_price": {"amount": "1900", "currency": "RUB"}, "is_quarantined": false
+    },
+    {
+      "id": 9999, "price": {"amount": "100", "currency": "RUB"}, "action_price": {"amount": "90", "currency": "RUB"},
+      "add_mode": "SELLER"
+    }
+  ],
+  "total": 3,
+  "last_id": ""
+}

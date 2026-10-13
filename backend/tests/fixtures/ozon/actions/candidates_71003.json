@@ -1,0 +1,8 @@
+{
+  "products": [
+    {"id": 1001, "price": {"amount": "540", "currency": "RUB"}, "action_price": {"amount": "432", "currency": "RUB"}},
+    {"id": 1002, "price": {"amount": "2150", "currency": "RUB"}, "action_price": {"amount": "1720", "currency": "RUB"}}
+  ],
+  "total": 2,
+  "last_id": ""
+}

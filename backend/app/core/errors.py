@@ -30,6 +30,9 @@ _FIELD_NAMES = {
     "posting_number": "Номер отправления",
     "limit": "Лимит",
     "offset": "Смещение",
+    "promotion_id": "Акция",
+    "participating": "Участие",
+    "include_finished": "Закончившиеся акции",
 }
 
 
@@ -49,6 +52,8 @@ def _humanize(err: dict) -> str:
         return f"{name}: недопустимое значение"
     if t in ("date_from_datetime_parsing", "date_parsing", "date_type"):
         return f"{name}: дата в формате ГГГГ-ММ-ДД"
+    if t in ("bool_parsing", "bool_type"):
+        return f"{name}: нужно true или false"
     if t in ("int_parsing", "int_type"):
         return f"{name}: нужно целое число"
     if t in ("less_than_equal", "greater_than_equal"):

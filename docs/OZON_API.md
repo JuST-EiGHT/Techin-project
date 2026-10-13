@@ -125,6 +125,20 @@ HTTP-коды для этих текстов в документации не у
 | строки отправления | `/v1/finance/accrual/postings` (`posting_numbers` 1–200) → `posting_accruals[].accruals[]{accrual_date, type_id, sku, quantity, accrued.amount}` | полный список начислений отправления за все даты |
 | сумма | `accrued.amount` (строка) | знак как у Ozon: + доход, − расход |
 
+### Акции (шаг 1.5)
+
+| Что | Откуда | Примечание |
+|---|---|---|
+| список акций | GET `/v1/actions` → `result[]` | `id`, `title`, `action_type`, `date_start`/`date_end`, `freeze_date`, `auto_add_dates`, `is_participating`, `discount_type`/`discount_value` |
+| товары в акции | `/v2/actions/products` (`action_id`, `last_id`, `limit` ≤ 100) → `products[]` | `id` = product_id; цены — объекты `{amount, currency}` (в v1 были числа); `add_mode` — кто добавил |
+| кандидаты | `/v2/actions/candidates` (те же параметры) | |
+| автодобавление | `/v2/actions/auto-add/products/list` (`action_id`, `auto_add_date`, `offset`, `limit` 1–100) | `product_id`, `quantity_to_auto_add` |
+| мин. цена | `min_seller_price` | 0 = не задана |
+
+Перечня значений `add_mode` и `action_type` в выгрузке нет (в примерах `SELLER`, `MANUAL`,
+`NOT_SET`; `DISCOUNT`) — правила в `services/sync/promotions.py`, сырое `add_mode` хранится.
+`/v1/actions` в документации не помечен устаревшим.
+
 Пригодится позже: `price.net_price` — себестоимость, которую продавец может передать в Ozon
 через `/v1/product/import/prices` (`prices.net_price`); `/v1/product/prices/details` — цена
 для покупателя (`customer_price`), но только с подпиской Premium Pro.

@@ -1,0 +1,10 @@
+{
+  "result": {
+    "products": [
+      {"id": 1003, "price": 499, "action_price": 380, "max_action_price": 400, "add_mode": "AUTO_ADDED",
+       "stock": 0, "current_boost": 12, "price_min_elastic": 350, "price_max_elastic": 420}
+    ],
+    "total": 1,
+    "last_id": ""
+  }
+}

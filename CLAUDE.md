@@ -97,7 +97,8 @@ pip install -r requirements-dev.txt && pytest
 | 1.2 | Синхронизация товаров и цен (Celery, Beat, /sync, статус в шапке) | ✅ готово, 91 тест всего |
 | 1.3 | Склады и остатки (FBO по складам и кластерам, FBS/rFBS, /dashboard/warehouses) | ✅ готово, 139 тестов всего |
 | 1.4 | Финансовые начисления из API (by-day + postings, Celery, /finance) | ✅ готово, 171 тест всего |
-| 1.5 … 9.2 | см. `docs/ROADMAP.md` | ⏳ |
+| 1.5 | Акции Ozon (v2-методы, автодобавление, маржа, /dashboard/promotions) | ✅ готово, 197 тестов всего |
+| 2.1 … 9.2 | см. `docs/ROADMAP.md` | ⏳ |
 
 Детали сделанного в 0.2: access-токен 24 ч, refresh 30 дней; refresh одноразовый
 (ротация); logout отзывает токены через чёрный список в Redis (в тестах — в памяти);
@@ -197,6 +198,22 @@ by-day; отправление, которого `/postings` не вернул, 
 в ответах `data_source: "api"` и предупреждение о расхождении с кабинетом.
 `services/stocks.avg_daily_sales` к начислениям пока не подключён — продажи из API есть по
 товарам, но не по складам; решить на шаге 5.x или по запросу владельца.
+
+Детали сделанного в 1.5: миграция 0006 — `promotions` (+ action_type, discount_value,
+auto_add_dates, whole_stock) и `promotion_products` (+ price, max_action_price, stock,
+add_mode, first_seen_at; участники is_active=true и кандидаты false). `/v1/actions/products`
+и `/candidates` из промпта Ozon отключает 13.10.2026 — используются `/v2/actions/products`,
+`/v2/actions/candidates` (last_id, limit ≤ 100) и `/v2/actions/auto-add/products/list`;
+список акций — GET `/v1/actions`. `added_automatically`: add_mode SELLER/MANUAL → нет,
+с AUTO → да; NOT_SET/неизвестно → да, если товар в автодобавлении на наступившую дату
+или уже был отмечен (перечня add_mode в документации нет, сырое значение хранится).
+`whole_stock` («Эластичный бустинг», «Скидка на сток», BUSINESS_LOGIC §9) — по названию и
+типу акции; в API предупреждение и наш остаток товара (`stock_on_hand`). Маржа —
+`app/engine/promotions.py` (простая: цена − комиссия − эквайринг − себестоимость × 1,22);
+себестоимости в БД нет до шага 2.3 (`services/costs.cost_prices` пустой) → margin null и
+пояснение. Min-цена: `min_seller_price`, иначе мин. цена товара; 0 = «не задана» → null.
+Celery: `sync_promotions_all` каждые 3 ч (:33). API: `GET /api/v1/promotions`
+(include_finished), `/{id}/products` (participating), `/auto-added`, `POST /api/v1/sync/promotions`.
 
 ## Где что искать
 

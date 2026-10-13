@@ -107,9 +107,20 @@ def sync_finance_all() -> int:
     return _fan_out("finance", sync_finance_for_user)
 
 
+@celery_app.task(name="tasks.sync_promotions_for_user")
+def sync_promotions_for_user(user_id: str, run_id: str | None = None) -> dict:
+    return asyncio.run(_sync_for_user("promotions", user_id, run_id))
+
+
+@celery_app.task(name="tasks.sync_promotions_all")
+def sync_promotions_all() -> int:
+    return _fan_out("promotions", sync_promotions_for_user)
+
+
 # Задача Celery для каждого вида синхронизации — для ручного запуска из API
 FOR_USER_TASKS = {
     "products": sync_products_for_user,
     "stocks": sync_stocks_for_user,
     "finance": sync_finance_for_user,
+    "promotions": sync_promotions_for_user,
 }

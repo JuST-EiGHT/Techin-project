@@ -167,7 +167,7 @@ async def fetch_prices(client: OzonClient, ids: list[int]) -> dict[int, dict]:
 
 
 # ── запись в БД ──
-async def _latest_prices(db: AsyncSession, product_ids: list[uuid.UUID]) -> dict[uuid.UUID, ProductPrice]:
+async def latest_prices(db: AsyncSession, product_ids: list[uuid.UUID]) -> dict[uuid.UUID, ProductPrice]:
     if not product_ids:
         return {}
     latest = (
@@ -200,7 +200,7 @@ async def sync_products(db: AsyncSession, user_id: uuid.UUID, client: OzonClient
             select(Product).where(Product.user_id == user_id, Product.ozon_product_id.in_(batch))
         )
         existing = {p.ozon_product_id: p for p in res.scalars()}
-        last_prices = await _latest_prices(db, [p.id for p in existing.values()])
+        last_prices = await latest_prices(db, [p.id for p in existing.values()])
 
         for pid in batch:
             attrs = _product_attrs(listed[pid], info.get(pid))

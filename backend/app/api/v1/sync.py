@@ -66,6 +66,11 @@ async def sync_stocks_now(user: User = Depends(get_current_user), db: AsyncSessi
     return await _sync_now("stocks", user, db)
 
 
+@router.post("/promotions", response_model=SyncRunResponse, status_code=status.HTTP_202_ACCEPTED)
+async def sync_promotions_now(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    return await _sync_now("promotions", user, db)
+
+
 async def _kind_status(db: AsyncSession, user_id: uuid.UUID, kind: str) -> KindStatus:
     await active_run(db, user_id, kind)  # помечает зависшие запуски проваленными
     last = await latest_run(db, user_id, kind)
@@ -83,4 +88,5 @@ async def sync_status(user: User = Depends(get_current_user), db: AsyncSession =
         products=await _kind_status(db, user.id, "products"),
         stocks=await _kind_status(db, user.id, "stocks"),
         finance=await _kind_status(db, user.id, "finance"),
+        promotions=await _kind_status(db, user.id, "promotions"),
     )
