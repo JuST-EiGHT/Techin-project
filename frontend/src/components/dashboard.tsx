@@ -149,6 +149,7 @@ export function RevenueChart({ series, against }: { series: OzonDashboard['serie
             />
             {/* дни без данных — разрыв линии, а не ноль; точки — чтобы был виден и одиночный день с данными */}
             <Line
+              type="monotone" // плавная, но без выбросов ниже нуля и выше точек
               dataKey="revenue"
               stroke={colors.accent}
               strokeWidth={2}
@@ -158,6 +159,7 @@ export function RevenueChart({ series, against }: { series: OzonDashboard['serie
               isAnimationActive={false}
             />
             <Line
+              type="monotone"
               dataKey="prev"
               stroke={colors.muted}
               strokeDasharray="4 3"
