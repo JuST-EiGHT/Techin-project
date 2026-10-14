@@ -7,6 +7,7 @@ from app.api.v1 import (
     dashboard,
     finance,
     ozon,
+    planning,
     pnl,
     promotions,
     reports,
@@ -33,3 +34,4 @@ api_router.include_router(pnl.router)
 api_router.include_router(sales.router)
 api_router.include_router(ozon.router)
 api_router.include_router(dashboard.router)
+api_router.include_router(planning.router)

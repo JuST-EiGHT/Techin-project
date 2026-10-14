@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { api, errorMessage } from '@/lib/api'
 import { type SupplierPayment, saveSettings, useSettings } from '@/lib/settings'
+import { SUPPLIER_OPTIONS, SUPPLIER_WHY } from '@/lib/supplier'
 import type { ThemePreference } from '@/lib/theme'
 
 const THEMES: { value: ThemePreference; label: string; hint: string; Icon: React.ComponentType<{ className?: string }> }[] = [
@@ -93,39 +94,50 @@ function TaxesSection() {
   )
 }
 
-const SUPPLIER: { value: SupplierPayment; label: string; hint: string }[] = [
-  { value: 'upfront', label: 'При закупке', hint: 'в P&L — «Себестоимость с НДС»' },
-  {
-    value: 'after_sale',
-    label: 'После продажи товара',
-    hint: 'поставщик ждёт, пока товар продастся, — в P&L «Долг поставщику»',
-  },
-]
-
 function SupplierSection() {
   const { user } = useAuth()
   const settings = useSettings()
   const [error, setError] = useState<string | null>(null)
+  const [deferred, setDeferred] = useState(false) // выбрали отсрочку — сначала спросить, сколько дней
+  const [days, setDays] = useState('')
 
-  async function choose(value: SupplierPayment) {
+  useEffect(() => {
+    if (settings?.supplier_deferral_days) setDays(String(settings.supplier_deferral_days))
+  }, [settings?.supplier_deferral_days])
+
+  async function save(value: SupplierPayment, deferralDays?: number) {
     if (!user) return
     setError(null)
     try {
-      await saveSettings(user.id, { supplier_payment: value })
+      await saveSettings(user.id, { supplier_payment: value, ...(deferralDays ? { supplier_deferral_days: deferralDays } : {}) })
+      setDeferred(false)
     } catch (err) {
       setError(errorMessage(err, 'Не сохранилось — попробуйте ещё раз'))
     }
   }
 
+  function choose(value: SupplierPayment) {
+    if (value === 'deferred' && !settings?.supplier_deferral_days) {
+      setDeferred(true) // без числа дней не сохраняем
+      return
+    }
+    setDeferred(false)
+    save(value)
+  }
+
+  function saveDays() {
+    const n = Number(days)
+    if (!Number.isInteger(n) || n < 1 || n > 365) return setError('Отсрочка — целое число дней от 1 до 365')
+    save('deferred', n)
+  }
+
+  const showDays = deferred || settings?.supplier_payment === 'deferred'
   return (
-    <Section
-      title="Когда вы платите поставщику"
-      hint="От этого зависит, как называется себестоимость с НДС в P&L и отчётах. Расчёт не меняется."
-    >
+    <Section title="Откуда товар" hint={SUPPLIER_WHY}>
       <FormError message={error} />
-      <div role="radiogroup" aria-label="Когда вы платите поставщику" className="grid gap-3 sm:grid-cols-2">
-        {SUPPLIER.map(({ value, label, hint }) => {
-          const active = settings?.supplier_payment === value
+      <div role="radiogroup" aria-label="Откуда товар" className="grid gap-3 sm:grid-cols-2">
+        {SUPPLIER_OPTIONS.map(({ value, label, effect }) => {
+          const active = deferred ? value === 'deferred' : settings?.supplier_payment === value
           return (
             <button
               key={value}
@@ -140,11 +152,84 @@ function SupplierSection() {
               }`}
             >
               <span className="block font-medium">{label}</span>
-              <span className="block text-xs text-faint">{hint}</span>
+              <span className="mt-0.5 block text-xs text-faint">{effect}</span>
             </button>
           )
         })}
       </div>
+      {showDays && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm" data-testid="deferral">
+          <label htmlFor="deferral-days" className="text-muted">
+            Отсрочка оплаты, дней
+          </label>
+          <input
+            id="deferral-days"
+            inputMode="numeric"
+            value={days}
+            onChange={(e) => setDays(e.target.value.replace(/\D/g, ''))}
+            onKeyDown={(e) => e.key === 'Enter' && saveDays()}
+            className="w-20 rounded-lg border border-line bg-bg px-3 py-1.5 outline-none focus:border-accent"
+            data-testid="deferral-days"
+          />
+          <button type="button" onClick={saveDays} className="rounded-lg border border-line px-3 py-1.5 hover:border-accent hover:text-accent" data-testid="deferral-save">
+            Сохранить
+          </button>
+          <span className="text-xs text-faint">через сколько дней после закупки платите — по нему встанут платежи в календаре</span>
+        </div>
+      )}
+    </Section>
+  )
+}
+
+type PlanningState = { enabled: boolean; setup_done: boolean }
+
+function PlanningSection() {
+  const [state, setState] = useState<PlanningState | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    api
+      .get<PlanningState>('/planning/settings')
+      .then(({ data }) => setState(data))
+      .catch((err) => setError(errorMessage(err)))
+  }, [])
+
+  async function toggle(enabled: boolean) {
+    setError(null)
+    try {
+      const { data } = await api.put<PlanningState>('/planning/settings', { enabled })
+      setState(data)
+    } catch (err) {
+      setError(errorMessage(err))
+    }
+  }
+
+  return (
+    <Section
+      title="Планирование"
+      hint="Необязательный раздел: свои счета, расходы и доходы, прогноз денег. «Финансы Ozon» работают и без него."
+    >
+      <FormError message={error} />
+      <div className="flex flex-wrap items-center gap-3 text-sm" data-testid="planning-setting">
+        <span>{state === null ? 'Загрузка…' : state.enabled ? 'Включено' : state.setup_done ? 'Выключено — данные сохранены' : 'Не включалось'}</span>
+        {state?.enabled && (
+          <button type="button" onClick={() => toggle(false)} className="ml-auto rounded-lg border border-line px-3 py-1.5 hover:border-bad hover:text-bad" data-testid="planning-off">
+            Выключить
+          </button>
+        )}
+        {state && !state.enabled && state.setup_done && (
+          <button type="button" onClick={() => toggle(true)} className="ml-auto rounded-lg border border-line px-3 py-1.5 hover:border-accent hover:text-accent" data-testid="planning-on">
+            Включить снова
+          </button>
+        )}
+        {state && !state.enabled && !state.setup_done && (
+          <Link href="/dashboard/planning" className="ml-auto text-accent hover:underline">
+            Начать →
+          </Link>
+        )}
+      </div>
+      {state?.enabled && (
+        <p className="mt-2 text-xs text-faint">Выключите — раздел перестанет показываться, счета и операции останутся; включить можно в любой момент.</p>
+      )}
     </Section>
   )
 }
@@ -156,6 +241,7 @@ export default function SettingsPage() {
       <ThemeSection />
       <TaxesSection />
       <SupplierSection />
+      <PlanningSection />
     </div>
   )
 }

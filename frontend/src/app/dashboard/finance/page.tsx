@@ -126,7 +126,11 @@ function Finance() {
         <h1 className="text-2xl font-semibold">P&amp;L — прибыль и убытки</h1>
         <p className="mt-1 text-sm text-muted">
           По начислениям Ozon — за что и когда заработано, а не когда деньги пришли на счёт. Деньги на счетах (ДДС) —
-          отдельный отчёт в разделе «Планирование» (скоро).
+          отдельный раздел{' '}
+          <Link href="/dashboard/planning" className="text-accent hover:underline">
+            «Планирование»
+          </Link>
+          .
         </p>
       </div>
 

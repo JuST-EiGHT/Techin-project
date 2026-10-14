@@ -52,7 +52,11 @@ async def _balance_job(
     db: AsyncSession, user_id: uuid.UUID, client: OzonClient, date_from: str | None = None, date_to: str | None = None
 ) -> dict:
     period = (date.fromisoformat(date_from), date.fromisoformat(date_to)) if date_from and date_to else (None, None)
-    return (await sync_balance(db, user_id, client, *period)).as_dict()
+    stats = (await sync_balance(db, user_id, client, *period)).as_dict()
+    from app.services.planning import sync_ozon_operations  # выплаты → операции планирования (шаг 3.8), если включено
+
+    stats["planning_operations"] = await sync_ozon_operations(db, user_id)
+    return stats
 
 
 async def _promotions_job(db: AsyncSession, user_id: uuid.UUID, client: OzonClient) -> dict:

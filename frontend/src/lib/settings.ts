@@ -5,10 +5,15 @@ import { useAuth } from '@/contexts/AuthContext'
 import { api } from '@/lib/api'
 import type { ThemePreference } from '@/lib/theme'
 
-/** Когда поставщик получает деньги: upfront — при закупке, after_sale — после продажи товара. */
-export type SupplierPayment = 'upfront' | 'after_sale'
+/** «Откуда товар»: при закупке, после продажи, с отсрочкой, своё производство, по-разному (варианты — lib/supplier.ts). */
+export type SupplierPayment = 'upfront' | 'after_sale' | 'deferred' | 'own_production' | 'mixed'
 
-export type UserSettings = { theme: ThemePreference; supplier_payment: SupplierPayment; cost_label: string }
+export type UserSettings = {
+  theme: ThemePreference
+  supplier_payment: SupplierPayment
+  supplier_deferral_days: number | null
+  cost_label: string
+}
 
 /** Как называется себестоимость с НДС в P&L (подпись приходит с бэкенда — это запасной вариант). */
 export const DEFAULT_COST_LABEL = 'Себестоимость с НДС'
@@ -53,7 +58,7 @@ export function useSettings(): UserSettings | null {
   return settings
 }
 
-/** «Себестоимость с НДС» или «Долг поставщику» — как пользователь выбрал в «Основных настройках». */
+/** «Себестоимость с НДС», «Долг поставщику» или «Себестоимость производства» — по «Откуда товар». */
 export function useCostLabel(): string {
   return useSettings()?.cost_label ?? DEFAULT_COST_LABEL
 }

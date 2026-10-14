@@ -15,7 +15,8 @@ async def test_settings_defaults_and_update(client, tokens):
     get = lambda: client.get("/api/v1/settings", headers=auth(tokens))  # noqa: E731
     assert (await client.get("/api/v1/settings")).status_code == 401
     # налог и НДС — в налоговом профиле (шаг 2.5)
-    assert (await get()).json() == {"theme": "dark", "supplier_payment": "upfront", "cost_label": "Себестоимость с НДС"}
+    assert (await get()).json() == {"theme": "dark", "supplier_payment": "upfront", "supplier_deferral_days": None,
+                                    "cost_label": "Себестоимость с НДС"}
 
     r = await client.patch("/api/v1/settings", json={"theme": "light"}, headers=auth(tokens))
     assert r.status_code == 200 and r.json()["theme"] == "light"
@@ -30,11 +31,31 @@ async def test_settings_defaults_and_update(client, tokens):
 async def test_supplier_payment_names_cost_in_pnl(client, tokens):
     """Поставщик получает деньги после продажи — себестоимость с НДС в P&L называется «долг поставщику» (шаг 3.3)."""
     r = await client.patch("/api/v1/settings", json={"supplier_payment": "after_sale"}, headers=auth(tokens))
-    assert r.json() == {"theme": "dark", "supplier_payment": "after_sale", "cost_label": "Долг поставщику"}
+    assert r.json() == {"theme": "dark", "supplier_payment": "after_sale", "supplier_deferral_days": None,
+                        "cost_label": "Долг поставщику"}
     r = await client.patch("/api/v1/settings", json={"theme": "light"}, headers=auth(tokens))
     assert r.json()["supplier_payment"] == "after_sale"  # не переданное не меняется
     r = await client.patch("/api/v1/settings", json={"supplier_payment": "later"}, headers=auth(tokens))
-    assert (r.status_code, r.json()["detail"]) == (400, "Когда платите поставщику: недопустимое значение")
+    assert (r.status_code, r.json()["detail"]) == (400, "Откуда товар: недопустимое значение")
+
+
+async def test_where_goods_come_from(client, tokens):
+    """«Откуда товар» (шаг 3.8): своё производство — «Себестоимость производства», отсрочка — с числом дней."""
+    patch = lambda body: client.patch("/api/v1/settings", json=body, headers=auth(tokens))  # noqa: E731
+    r = await patch({"supplier_payment": "own_production"})
+    assert r.json()["cost_label"] == "Себестоимость производства"
+    r = await patch({"supplier_payment": "deferred"})
+    assert (r.status_code, r.json()["detail"]) == (
+        400, "Укажите отсрочку оплаты поставщику — через сколько дней после закупки платите"
+    )
+    r = await patch({"supplier_payment": "deferred", "supplier_deferral_days": 30})
+    assert (r.json()["supplier_deferral_days"], r.json()["cost_label"]) == (30, "Себестоимость с НДС")
+    r = await patch({"supplier_deferral_days": 45})
+    assert r.json()["supplier_deferral_days"] == 45
+    r = await patch({"supplier_payment": "mixed"})
+    assert (r.json()["supplier_payment"], r.json()["supplier_deferral_days"]) == ("mixed", None)  # отсрочка сброшена
+    r = await patch({"supplier_deferral_days": 400})
+    assert r.status_code == 400
 
 
 async def test_new_reports_follow_tax_profile_until_edited(client, tokens):

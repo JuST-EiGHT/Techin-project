@@ -1,17 +1,19 @@
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 Theme = Literal["dark", "light", "system"]
-SupplierPayment = Literal["upfront", "after_sale"]
+# «Откуда товар»: при закупке, после продажи, с отсрочкой, своё производство, по-разному
+SupplierPayment = Literal["upfront", "after_sale", "deferred", "own_production", "mixed"]
 
 
 class SettingsResponse(BaseModel):
     """Налог и НДС — в налоговом профиле (/api/v1/tax-profile, шаг 2.5)."""
 
     theme: Theme
-    supplier_payment: SupplierPayment  # upfront — платите поставщику при закупке, after_sale — после продажи
-    cost_label: str  # как называется себестоимость с НДС в P&L: «Себестоимость с НДС» / «Долг поставщику»
+    supplier_payment: SupplierPayment
+    supplier_deferral_days: int | None = None  # отсрочка оплаты поставщику, дней — у deferred
+    cost_label: str  # как называется себестоимость в P&L: «Себестоимость с НДС» / «Долг поставщику» / «… производства»
 
 
 class SettingsUpdate(BaseModel):
@@ -19,3 +21,4 @@ class SettingsUpdate(BaseModel):
 
     theme: Theme | None = None
     supplier_payment: SupplierPayment | None = None
+    supplier_deferral_days: int | None = Field(None, ge=1, le=365)
