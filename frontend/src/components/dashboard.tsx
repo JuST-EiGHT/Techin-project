@@ -1,7 +1,7 @@
 'use client'
 // Главная — дашборд Ozon (шаг 3.7): цифры со сравнением и график выручки рядом с прошлым периодом.
 import Link from 'next/link'
-import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { type Coverage, type DataSource, compact, useTokenColors } from '@/components/finance'
 import type { ForecastItem, WeekBar } from '@/components/payouts'
@@ -125,7 +125,7 @@ export function RevenueChart({ series, against }: { series: OzonDashboard['serie
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1">
         <h2 className="text-sm font-semibold">Выручка {week ? 'по неделям' : 'по дням'}</h2>
         <span className="flex items-center gap-1.5 text-xs text-muted">
-          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-accent" /> этот период
+          <span className="inline-block h-0 w-3 border-t-2 border-accent" /> этот период
         </span>
         <span className="flex items-center gap-1.5 text-xs text-muted">
           <span className="inline-block h-0 w-3 border-t-2 border-dashed border-muted" /> {against.replace(/^к /, '')}
@@ -138,12 +138,25 @@ export function RevenueChart({ series, against }: { series: OzonDashboard['serie
       </div>
       <div className="h-60">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={rows} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+          <LineChart data={rows} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
             <CartesianGrid vertical={false} stroke={colors.line} />
             <XAxis dataKey="label" tick={{ fill: colors.muted, fontSize: 11 }} tickLine={false} axisLine={{ stroke: colors.line }} minTickGap={8} />
             <YAxis tick={{ fill: colors.muted, fontSize: 11 }} tickFormatter={compact} tickLine={false} axisLine={false} width={64} />
-            <Tooltip content={<RevenueTooltip week={week} />} cursor={{ fill: colors.line, opacity: 0.4 }} />
-            <Bar dataKey="revenue" fill={colors.accent} radius={[3, 3, 0, 0]} isAnimationActive={false} />
+            <Tooltip
+              content={<RevenueTooltip week={week} />}
+              cursor={{ stroke: colors.faint, strokeDasharray: '3 3' }}
+              isAnimationActive={false} // подсказка сразу у курсора, без «выезда» из угла графика
+            />
+            {/* дни без данных — разрыв линии, а не ноль; точки — чтобы был виден и одиночный день с данными */}
+            <Line
+              dataKey="revenue"
+              stroke={colors.accent}
+              strokeWidth={2}
+              dot={{ r: 2, fill: colors.accent, strokeWidth: 0 }}
+              activeDot={{ r: 4 }}
+              connectNulls={false}
+              isAnimationActive={false}
+            />
             <Line
               dataKey="prev"
               stroke={colors.muted}
@@ -153,7 +166,7 @@ export function RevenueChart({ series, against }: { series: OzonDashboard['serie
               connectNulls={false}
               isAnimationActive={false}
             />
-          </ComposedChart>
+          </LineChart>
         </ResponsiveContainer>
       </div>
     </section>
