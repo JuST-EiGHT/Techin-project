@@ -29,6 +29,24 @@ export type ProductRow = {
   profit: string | null
   margin: string | null
   by_type: Record<string, string>
+  per_unit: PerUnit | null // штук не продано — null
+}
+
+/** Юнит-экономика (шаг 3.7a): на 1 проданную штуку; *_pct — доля от цены, %. */
+export type PerUnit = {
+  price: string
+  commission: string
+  commission_pct: string | null
+  logistics: string
+  logistics_pct: string | null
+  other: string
+  other_pct: string | null
+  total: string
+  total_pct: string | null
+  cost: string | null
+  cost_pct: string | null
+  profit: string | null
+  profit_pct: string | null
 }
 
 type ProductsPage = {
@@ -55,6 +73,7 @@ type ProductsPage = {
   }
   unallocated: { total: string; lines: number; multi_product: string; by_type: Record<string, string> }
   period_total: string
+  period_by_type: Record<string, string> // все начисления периода по статьям, удержания — первыми
   warnings: string[]
 }
 
@@ -69,8 +88,9 @@ export const marginTone = (m: string | null) =>
 const signTone = (v: string) => (Number(v) < 0 ? 'text-bad' : Number(v) > 0 ? 'text-ok' : 'text-muted')
 
 /** Прибыль по товарам: таблица с сортировкой, поиском, страницами, экспортом CSV и карточкой товара. */
-export function ProductsView({ query, showSource }: { query: Record<string, string>; showSource: boolean }) {
+export function ProductsView({ query, showSource, pnlHref }: { query: Record<string, string>; showSource: boolean; pnlHref: string }) {
   const costLabel = useCostLabel()
+  const [unit, setUnit] = useState(false) // «На 1 шт.» — юнит-экономика
   const [sort, setSort] = useState<Sort>('revenue')
   const [order, setOrder] = useState<'asc' | 'desc'>('desc')
   const [searchText, setSearchText] = useState('')
@@ -187,93 +207,187 @@ export function ProductsView({ query, showSource }: { query: Record<string, stri
                 </>
               )}
             </span>
-            <button type="button" onClick={exportCsv} className="ml-auto rounded-lg border border-line px-3 py-2 text-sm hover:border-accent hover:text-accent" data-testid="products-export">
+            <div
+              className="ml-auto flex gap-1 rounded-lg border border-line bg-card p-1"
+              role="group"
+              aria-label="Как показать суммы"
+              title="«На 1 шт.» — юнит-экономика: сколько с одной проданной штуки забирает Ozon и сколько остаётся вам"
+            >
+              {(
+                [
+                  [false, 'Всего', 'view-total'],
+                  [true, 'На 1 шт.', 'view-unit'],
+                ] as const
+              ).map(([value, label, testid]) => (
+                <button
+                  key={label}
+                  type="button"
+                  aria-pressed={unit === value}
+                  onClick={() => setUnit(value)}
+                  className={`rounded-md px-3 py-1 text-sm ${unit === value ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`}
+                  data-testid={testid}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <button type="button" onClick={exportCsv} className="rounded-lg border border-line px-3 py-2 text-sm hover:border-accent hover:text-accent" data-testid="products-export">
               Скачать CSV
             </button>
           </div>
 
           <section className="overflow-hidden rounded-xl border border-line bg-card">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[60rem] text-[13px]" data-testid="products-table">
+              <table className="w-full min-w-[60rem] text-[13px]" data-testid="products-table" data-view={unit ? 'unit' : 'total'}>
                 <thead className="border-b border-line text-left text-xs text-muted">
-                  <tr>
-                    <th className={th}>Товар</th>
-                    <SortTh s="qty">Шт.</SortTh>
-                    <SortTh s="revenue">Выручка</SortTh>
-                    <th className={`${th} text-right`}>Ср. цена</th>
-                    <th className={`${th} text-right`}>Комиссия</th>
-                    <th className={`${th} text-right`}>Логистика</th>
-                    <th className={`${th} text-right`} title="Баллы за скидки, эквайринг, возвраты, продвижение и др.">
-                      Прочее
-                    </th>
-                    <th className={`${th} text-right`}>{costTitle}</th>
-                    <SortTh s="profit">Прибыль</SortTh>
-                    <SortTh s="margin">Маржа</SortTh>
-                  </tr>
+                  {unit ? (
+                    <tr>
+                      <th className={th}>Товар</th>
+                      <SortTh s="qty">Шт.</SortTh>
+                      <th className={`${th} text-right`}>Цена</th>
+                      <th className={`${th} text-right`}>Комиссия</th>
+                      <th className={`${th} text-right`}>Логистика</th>
+                      <th className={`${th} text-right`} title="Баллы за скидки, эквайринг, возвраты, продвижение и др.">
+                        Прочее
+                      </th>
+                      <th className={`${th} text-right`} title="Сколько Ozon начислил за штуку после удержаний">
+                        От Ozon
+                      </th>
+                      <th className={`${th} text-right`}>{costTitle}</th>
+                      <th className={`${th} text-right`}>Прибыль</th>
+                      <SortTh s="margin">Маржа</SortTh>
+                    </tr>
+                  ) : (
+                    <tr>
+                      <th className={th}>Товар</th>
+                      <SortTh s="qty">Шт.</SortTh>
+                      <SortTh s="revenue">Выручка</SortTh>
+                      <th className={`${th} text-right`}>Ср. цена</th>
+                      <th className={`${th} text-right`}>Комиссия</th>
+                      <th className={`${th} text-right`}>Логистика</th>
+                      <th className={`${th} text-right`} title="Баллы за скидки, эквайринг, возвраты, продвижение и др.">
+                        Прочее
+                      </th>
+                      <th className={`${th} text-right`}>{costTitle}</th>
+                      <SortTh s="profit">Прибыль</SortTh>
+                      <SortTh s="margin">Маржа</SortTh>
+                    </tr>
+                  )}
                 </thead>
                 <tbody>
-                  {data.items.map((r) => (
-                    <tr
-                      key={r.offer_id}
-                      onClick={() => setSelected(r)}
-                      className="cursor-pointer border-b border-line last:border-b-0 hover:bg-line/40"
-                      data-testid="product-row"
-                    >
-                      <td className="max-w-[13rem] px-3 py-2">
-                        <div className="truncate font-medium">{r.offer_id}</div>
-                        {r.name && <div className="truncate text-xs text-muted">{r.name}</div>}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums">
-                        {r.qty}
-                        {r.returned_qty > 0 && <span className="text-xs text-warn"> −{r.returned_qty}</span>}
-                      </td>
-                      <Num v={r.revenue} />
-                      <Num v={r.avg_price} muted />
-                      <Num v={r.commission} />
-                      <Num v={r.logistics} />
-                      <Num v={r.other} />
-                      <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${r.cost_missing ? 'text-warn' : ''}`}>
-                        {r.cost_missing ? 'нет' : rub(r.cost)}
-                      </td>
-                      <td className={`whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums ${r.profit === null ? 'text-muted' : signTone(r.profit)}`}>
-                        {rub(r.profit)}
-                      </td>
-                      <td className={`whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums ${marginTone(r.margin)}`} data-testid="margin">
-                        {pctText(r.margin)}
-                      </td>
-                    </tr>
-                  ))}
+                  {data.items.map((r) => {
+                    const u = r.per_unit
+                    return (
+                      <tr
+                        key={r.offer_id}
+                        onClick={() => setSelected(r)}
+                        className="cursor-pointer border-b border-line last:border-b-0 hover:bg-line/40"
+                        data-testid="product-row"
+                      >
+                        <td className="max-w-[13rem] px-3 py-2">
+                          <div className="truncate font-medium">{r.offer_id}</div>
+                          {r.name && <div className="truncate text-xs text-muted">{r.name}</div>}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {r.qty}
+                          {r.returned_qty > 0 && <span className="text-xs text-warn"> −{r.returned_qty}</span>}
+                        </td>
+                        {unit ? (
+                          <>
+                            <Num v={u?.price ?? null} />
+                            <Num v={u?.commission ?? null} share={u?.commission_pct} />
+                            <Num v={u?.logistics ?? null} share={u?.logistics_pct} />
+                            <Num v={u?.other ?? null} share={u?.other_pct} />
+                            <Num v={u?.total ?? null} share={u?.total_pct} />
+                            <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${r.cost_missing ? 'text-warn' : ''}`}>
+                              {r.cost_missing ? 'нет' : rub(u?.cost ?? null)}
+                              {u?.cost_pct && <Share v={u.cost_pct} />}
+                            </td>
+                            <td
+                              className={`whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums ${u?.profit == null ? 'text-muted' : signTone(u.profit)}`}
+                              data-testid="unit-profit"
+                            >
+                              {rub(u?.profit ?? null)}
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <Num v={r.revenue} />
+                            <Num v={r.avg_price} muted />
+                            <Num v={r.commission} />
+                            <Num v={r.logistics} />
+                            <Num v={r.other} />
+                            <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${r.cost_missing ? 'text-warn' : ''}`}>
+                              {r.cost_missing ? 'нет' : rub(r.cost)}
+                            </td>
+                            <td className={`whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums ${r.profit === null ? 'text-muted' : signTone(r.profit)}`}>
+                              {rub(r.profit)}
+                            </td>
+                          </>
+                        )}
+                        <td className={`whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums ${marginTone(r.margin)}`} data-testid="margin">
+                          {pctText(r.margin)}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
                 <tfoot className="border-t border-line text-sm">
-                  <tr className="bg-line/40 font-semibold" data-testid="totals-row">
-                    <td className="px-3 py-2">Итого по товарам</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{t.qty}</td>
-                    <Num v={t.revenue} />
-                    <td />
-                    <Num v={t.commission} />
-                    <Num v={t.logistics} />
-                    <Num v={t.other} />
-                    <Num v={t.cost} />
-                    <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${signTone(t.profit)}`}>{rub(t.profit)}</td>
-                    <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${marginTone(t.margin)}`}>{pctText(t.margin)}</td>
-                  </tr>
-                  <tr onClick={() => setSelected('unallocated')} className="cursor-pointer text-muted hover:bg-line/40" data-testid="unallocated-row">
-                    <td className="px-3 py-2" colSpan={8}>
-                      − Не распределено: начисления без товара — хранение, подписки и др. ({data.unallocated.lines} строк) →
-                    </td>
-                    <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${signTone(data.unallocated.total)}`}>
-                      {rub(data.unallocated.total)}
-                    </td>
-                    <td />
-                  </tr>
-                  {t.missing_cost === 0 && (
-                    <tr className="font-semibold" data-testid="period-profit-row">
-                      <td className="px-3 py-2" colSpan={8}>
-                        = Прибыль периода до налога (как на вкладке P&amp;L)
-                      </td>
-                      <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${signTone(periodProfit)}`}>{rub(periodProfit)}</td>
-                      <td />
-                    </tr>
+                  {unit ? (
+                    <>
+                      <tr className="bg-line/40 font-semibold" data-testid="unit-totals-row">
+                        <td className="px-3 py-2">В среднем на 1 шт.</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{t.qty}</td>
+                        <Num v={perQty(t.revenue, t.qty)} />
+                        <Num v={perQty(t.commission, t.qty)} />
+                        <Num v={perQty(t.logistics, t.qty)} />
+                        <Num v={perQty(t.other, t.qty)} />
+                        <Num v={perQty(t.total, t.qty)} />
+                        {/* не у всех товаров есть себестоимость — среднее было бы занижено */}
+                        <Num v={t.missing_cost === 0 ? perQty(t.cost, t.qty) : null} />
+                        <Num v={t.missing_cost === 0 ? perQty(t.profit, t.qty) : null} />
+                        <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${marginTone(t.margin)}`}>{pctText(t.margin)}</td>
+                      </tr>
+                      <tr className="text-xs text-muted">
+                        <td className="px-3 py-2" colSpan={10}>
+                          На 1 шт. — суммы товара за период, делённые на проданные штуки; под суммой — доля от цены. «Не распределено»
+                          (хранение, подписки) на штуки не делится — оно в режиме «Всего».
+                        </td>
+                      </tr>
+                    </>
+                  ) : (
+                    <>
+                      <tr className="bg-line/40 font-semibold" data-testid="totals-row">
+                        <td className="px-3 py-2">Итого по товарам</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{t.qty}</td>
+                        <Num v={t.revenue} />
+                        <td />
+                        <Num v={t.commission} />
+                        <Num v={t.logistics} />
+                        <Num v={t.other} />
+                        <Num v={t.cost} />
+                        <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${signTone(t.profit)}`}>{rub(t.profit)}</td>
+                        <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${marginTone(t.margin)}`}>{pctText(t.margin)}</td>
+                      </tr>
+                      <tr onClick={() => setSelected('unallocated')} className="cursor-pointer text-muted hover:bg-line/40" data-testid="unallocated-row">
+                        <td className="px-3 py-2" colSpan={8}>
+                          − Не распределено: начисления без товара — хранение, подписки и др. ({data.unallocated.lines} строк) →
+                        </td>
+                        <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${signTone(data.unallocated.total)}`}>
+                          {rub(data.unallocated.total)}
+                        </td>
+                        <td />
+                      </tr>
+                      {t.missing_cost === 0 && (
+                        <tr className="font-semibold" data-testid="period-profit-row">
+                          <td className="px-3 py-2" colSpan={8}>
+                            = Прибыль периода до налога (как на вкладке P&amp;L)
+                          </td>
+                          <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${signTone(periodProfit)}`}>{rub(periodProfit)}</td>
+                          <td />
+                        </tr>
+                      )}
+                    </>
                   )}
                 </tfoot>
               </table>
@@ -296,6 +410,7 @@ export function ProductsView({ query, showSource }: { query: Record<string, stri
             Прибыль по товару — до налога: всё, что Ozon начислил по товару, минус {costTitle.charAt(0).toLowerCase() + costTitle.slice(1)} проданного. Налог и НДС
             считаются на весь период — вкладка «P&amp;L». Маржа: красным — в минус, жёлтым — до {LOW_MARGIN} %, зелёным — выше.
           </p>
+          <MoneyWent data={data} costTitle={costTitle} pnlHref={pnlHref} />
           <Warnings items={data.warnings} />
         </>
       )}
@@ -314,11 +429,77 @@ function Stat({ label, value, hint, tone = '' }: { label: string; value: string;
   )
 }
 
-function Num({ v, muted }: { v: string | null; muted?: boolean }) {
+function Num({ v, muted, share }: { v: string | null; muted?: boolean; share?: string | null }) {
   return (
     <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${muted ? 'text-muted' : ''}`}>
       {rub(v)}
+      {share && <Share v={share} />}
     </td>
+  )
+}
+
+/** Доля от цены под суммой на 1 шт. */
+const Share = ({ v }: { v: string }) => <div className="text-[11px] text-faint">{pctText(v)} цены</div>
+
+/** Сумма периода на 1 проданную штуку; штук нет — null («—»). */
+const perQty = (v: string, qty: number) => (qty > 0 ? (Number(v) / qty).toFixed(2) : null)
+
+/** «На что ушли деньги»: удержания Ozon за период по статьям (все начисления периода, не только по товарам). */
+function MoneyWent({ data, costTitle, pnlHref }: { data: ProductsPage; costTitle: string; pnlHref: string }) {
+  const expenses = Object.entries(data.period_by_type).filter(([, v]) => Number(v) < 0)
+  if (expenses.length === 0) return null
+  // база долей — всё начисленное в плюс: «Выручка» у Ozon — цена после его скидки, разницу он доплачивает баллами,
+  // поэтому доля от одной «Выручки» бывает больше 100 %
+  const plus = Object.values(data.period_by_type).reduce((sum, v) => sum + Math.max(Number(v), 0), 0)
+  const total = expenses.reduce((sum, [, v]) => sum + Number(v), 0)
+  const max = Math.max(...expenses.map(([, v]) => Math.abs(Number(v))))
+  const share = (v: number) => (plus > 0 ? `${((Math.abs(v) / plus) * 100).toLocaleString('ru-RU', { maximumFractionDigits: 1 })} %` : '')
+  const row = ([name, v]: [string, string]) => (
+    <li key={name} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 py-1.5 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_auto_3.5rem]">
+      <span className="truncate" title={name}>
+        {name}
+      </span>
+      <span className="col-span-2 row-start-2 h-1.5 rounded-full bg-line sm:col-span-1 sm:row-start-auto">
+        <span className="block h-1.5 rounded-full bg-bad/70" style={{ width: `${(Math.abs(Number(v)) / max) * 100}%` }} />
+      </span>
+      <span className="whitespace-nowrap text-right tabular-nums text-bad">{rub(v)}</span>
+      <span className="hidden text-right text-xs tabular-nums text-faint sm:block">{share(Number(v))}</span>
+    </li>
+  )
+  const top = expenses.slice(0, 8)
+  const rest = expenses.slice(8)
+  return (
+    <section className="rounded-xl border border-line bg-card p-4" data-testid="money-went">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 className="text-sm font-semibold">На что ушли деньги</h2>
+        <span className="text-xs text-muted">
+          удержания Ozon за период: <span className="tabular-nums text-bad">{rub(total.toFixed(2))}</span>
+          {plus > 0 && (
+            <span title="Начислено в плюс — выручка, баллы за скидки и другие компенсации Ozon" data-testid="money-went-share">
+              {' '}
+              — {share(total)} от начисленного в плюс ({rub(plus.toFixed(2))})
+            </span>
+          )}
+        </span>
+        <Link href={pnlHref} className="ml-auto text-xs text-accent hover:underline" data-testid="money-went-pnl">
+          Все начисления — P&amp;L →
+        </Link>
+      </div>
+      <ul className="mt-2 divide-y divide-line text-sm">{top.map(row)}</ul>
+      {rest.length > 0 && (
+        <details className="text-sm">
+          <summary className="cursor-pointer py-1.5 text-xs text-muted hover:text-fg">Ещё {rest.length} статей</summary>
+          <ul className="divide-y divide-line">{rest.map(row)}</ul>
+        </details>
+      )}
+      {Number(data.totals.cost) > 0 && (
+        <p className="mt-2 border-t border-line pt-2 text-sm">
+          И {costTitle.charAt(0).toLowerCase() + costTitle.slice(1)} проданных товаров:{' '}
+          <span className="tabular-nums">{rub(data.totals.cost)}</span>
+          {data.totals.missing_cost > 0 && <span className="text-warn"> — без товаров, у которых она не указана</span>}
+        </p>
+      )}
+    </section>
   )
 }
 
@@ -416,6 +597,8 @@ function ProductCard({
           </p>
         )}
 
+        {!un && row.per_unit && <UnitEconomics u={row.per_unit} costTitle={costTitle} />}
+
         <h3 className="mt-5 text-xs uppercase tracking-wider text-muted">Начисления по типам</h3>
         <table className="mt-1 w-full text-sm" data-testid="card-by-type">
           <tbody>
@@ -434,5 +617,37 @@ function ProductCard({
         )}
       </div>
     </div>
+  )
+}
+
+/** Юнит-экономика товара: из чего складывается цена одной проданной штуки. */
+function UnitEconomics({ u, costTitle }: { u: PerUnit; costTitle: string }) {
+  const line = (label: string, v: string | null, pct: string | null, opts: { strong?: boolean; tone?: string; testid?: string } = {}) => (
+    <tr className={`border-b border-line last:border-b-0 ${opts.strong ? 'font-semibold' : ''}`} data-testid={opts.testid}>
+      <td className="py-1.5 pr-3">{label}</td>
+      <td className={`whitespace-nowrap py-1.5 text-right tabular-nums ${opts.tone ?? ''}`}>{v === null ? 'не указана' : rub(v)}</td>
+      <td className="w-16 whitespace-nowrap py-1.5 text-right text-xs tabular-nums text-faint">{pct === null ? '' : pctText(pct)}</td>
+    </tr>
+  )
+  return (
+    <>
+      <h3 className="mt-5 text-xs uppercase tracking-wider text-muted">Юнит-экономика — на 1 шт.</h3>
+      <table className="mt-1 w-full text-sm" data-testid="card-unit">
+        <tbody>
+          {line('Цена (средняя)', u.price, '100')}
+          {line('Комиссия Ozon', u.commission, u.commission_pct, { tone: signTone(u.commission) })}
+          {line('Логистика', u.logistics, u.logistics_pct, { tone: signTone(u.logistics) })}
+          {line('Прочее: баллы, эквайринг, возвраты', u.other, u.other_pct, { tone: signTone(u.other) })}
+          {line('= Начислено Ozon', u.total, u.total_pct, { strong: true })}
+          {line(`− ${costTitle}`, u.cost, u.cost_pct)}
+          {line('= Прибыль до налога', u.profit, u.profit_pct, {
+            strong: true,
+            tone: u.profit === null ? 'text-muted' : signTone(u.profit),
+            testid: 'card-unit-profit',
+          })}
+        </tbody>
+      </table>
+      <p className="mt-1 text-xs text-faint">Суммы за период, делённые на проданные штуки; справа — доля от цены.</p>
+    </>
   )
 }

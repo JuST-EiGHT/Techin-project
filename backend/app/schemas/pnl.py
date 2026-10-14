@@ -108,6 +108,24 @@ class PnLPeriods(BaseModel):
     months: list[MonthCoverage]
 
 
+class PerUnit(BaseModel):
+    """Юнит-экономика (шаг 3.7a): на 1 проданную штуку; *_pct — доля от средней цены, %."""
+
+    price: Decimal  # средняя цена
+    commission: Decimal
+    commission_pct: Decimal | None
+    logistics: Decimal
+    logistics_pct: Decimal | None
+    other: Decimal
+    other_pct: Decimal | None
+    total: Decimal  # начислено Ozon на штуку
+    total_pct: Decimal | None
+    cost: Decimal | None  # себестоимость штуки; null — не указана
+    cost_pct: Decimal | None
+    profit: Decimal | None  # прибыль до налога на штуку
+    profit_pct: Decimal | None
+
+
 class ProductRow(BaseModel):
     """Товар за период (шаг 3.4). Нет себестоимости — cost, profit, margin = null, а не 0."""
 
@@ -129,6 +147,7 @@ class ProductRow(BaseModel):
     profit: Decimal | None  # до налога: начислено Ozon − себестоимость
     margin: Decimal | None  # % от выручки
     by_type: dict[str, Decimal]
+    per_unit: PerUnit | None = None  # штук не продано — null, а не 0
 
 
 class ProductTotals(BaseModel):
@@ -170,4 +189,5 @@ class ProductsPage(BaseModel):
     totals: ProductTotals  # по всем товарам периода
     unallocated: Unallocated
     period_total: Decimal  # все начисления периода = товары + не распределено
+    period_by_type: dict[str, Decimal] = {}  # все начисления периода по статьям: удержания — первыми
     warnings: list[str]

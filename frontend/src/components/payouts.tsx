@@ -1,9 +1,11 @@
 'use client'
 // Блоки страницы «Выплаты Ozon» (шаг 3.6): график выплат по неделям, таблицы, настройка графика.
+import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { Bar, CartesianGrid, ComposedChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, CartesianGrid, Cell, ComposedChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { FormError } from '@/components/AuthForm'
+import { type Drill, MoreLink, TipBox, useDrill } from '@/components/charts'
 import { compact, useTokenColors } from '@/components/finance'
 import { Badge, fmtDay, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
@@ -69,19 +71,41 @@ export const dayMonth = (iso: string) => fmtDay(iso).slice(0, 5)
 export const weekdayShort = (iso: string) => SHORT_DAYS[parseDay(iso).getUTCDay()]
 export const weekText = (from: string | null, to: string | null) => (from && to ? `${dayMonth(from)}–${dayMonth(to)}` : '—')
 
+/** Понедельник недели дня: «2026-10-21» → «2026-10-19». */
+export function mondayOf(iso: string): string {
+  const d = parseDay(iso)
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7))
+  return d.toISOString().slice(0, 10)
+}
+
+/** Товары за неделю продаж, за которую выплата: «Финансы → По товарам». */
+export const salesHref = (from: string, to: string) => `/dashboard/finance?period=custom&from=${from}&to=${to}&tab=products`
+
+/** «за продажи 28.09–04.10» — ссылкой на товары этой недели. */
+function SalesWeek({ from, to, testid }: { from: string | null; to: string | null; testid?: string }) {
+  if (!from || !to) return <>—</>
+  return (
+    <Link href={salesHref(from, to)} className="text-accent hover:underline" data-testid={testid}>
+      {weekText(from, to)}
+    </Link>
+  )
+}
+
+const rowTone = (hit: boolean) => (hit ? 'bg-accent/10' : '')
+
 const pct = (v: string | null) => (v === null ? '' : `${Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} %`)
 
 // ---------- график по неделям ----------
 
 type ChartRow = { week: string; label: string; paid: number; schedule: number; estimate: number }
 
-function WeekTooltip({ active, payload }: { active?: boolean; payload?: { payload: ChartRow }[] }) {
+function WeekTooltip({ active, payload, drill }: { active?: boolean; payload?: { payload: ChartRow }[]; drill: Drill<ChartRow> }) {
   if (!active || !payload?.length) return null
   const r = payload[0].payload
   const to = parseDay(r.week)
   to.setUTCDate(to.getUTCDate() + 6)
   return (
-    <div className="rounded-lg border border-line bg-card px-3 py-2 text-xs shadow-lg">
+    <TipBox href={drill.hrefFor(r)} touch={drill.touch}>
       <div className="mb-1 font-semibold">
         Неделя {dayMonth(r.week)}–{dayMonth(to.toISOString().slice(0, 10))}
       </div>
@@ -91,13 +115,27 @@ function WeekTooltip({ active, payload }: { active?: boolean; payload?: { payloa
         {r.estimate > 0 && <div className="text-muted">Оценка: {rub(String(r.estimate))}</div>}
         {r.paid + r.schedule + r.estimate === 0 && <div className="text-muted">выплат нет</div>}
       </div>
-    </div>
+    </TipBox>
   )
 }
 
-/** Выплаты по неделям: прошлые — сплошные, прогноз — штриховкой (по графику — акцентом, оценка — серым). */
-export function WeekChart({ weeks, today }: { weeks: WeekBar[]; today: string }) {
+/** Выплаты по неделям: прошлые — сплошные, прогноз — штриховкой (по графику — акцентом, оценка — серым).
+ * Столбец ведёт к выплатам этой недели (weekHref), «Подробнее →» — на страницу выплат; selected — выделенная неделя. */
+export function WeekChart({
+  weeks,
+  today,
+  weekHref,
+  moreHref,
+  selected,
+}: {
+  weeks: WeekBar[]
+  today: string
+  weekHref?: (weekFrom: string) => string
+  moreHref?: string
+  selected?: string | null
+}) {
   const colors = useTokenColors()
+  const drill = useDrill<ChartRow>(weekHref ? (r) => weekHref(r.week) : undefined)
   if (weeks.length === 0 || !colors) return null
   const rows: ChartRow[] = weeks.map((w) => ({
     week: w.week_from,
@@ -126,10 +164,11 @@ export function WeekChart({ weeks, today }: { weeks: WeekBar[]; today: string })
         <span className="flex items-center gap-1.5 text-xs text-muted">
           <span className="inline-block h-2.5 w-2.5 rounded-sm border border-muted bg-muted/20" /> оценка
         </span>
+        <MoreLink href={moreHref} testid="payouts-more" />
       </div>
-      <div className="h-60">
+      <div className={`h-60 ${drill.boxProps.className}`} onPointerDown={drill.boxProps.onPointerDown}>
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={rows} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+          <ComposedChart data={rows} margin={{ top: 4, right: 4, bottom: 0, left: 0 }} onClick={drill.onClick}>
             <defs>
               {hatch('hatch-schedule', colors.accent)}
               {hatch('hatch-estimate', colors.muted)}
@@ -138,10 +177,21 @@ export function WeekChart({ weeks, today }: { weeks: WeekBar[]; today: string })
             <XAxis dataKey="label" tick={{ fill: colors.muted, fontSize: 11 }} tickLine={false} axisLine={{ stroke: colors.line }} minTickGap={8} />
             <YAxis tick={{ fill: colors.muted, fontSize: 11 }} tickFormatter={compact} tickLine={false} axisLine={false} width={64} />
             {current && <ReferenceLine x={current.label} stroke={colors.faint} strokeDasharray="3 3" />}
-            <Tooltip content={<WeekTooltip />} cursor={{ fill: colors.line, opacity: 0.4 }} />
-            <Bar dataKey="paid" stackId="w" fill={colors.ok} isAnimationActive={false} />
-            <Bar dataKey="schedule" stackId="w" fill="url(#hatch-schedule)" stroke={colors.accent} isAnimationActive={false} />
-            <Bar dataKey="estimate" stackId="w" fill="url(#hatch-estimate)" stroke={colors.muted} isAnimationActive={false} />
+            <Tooltip content={<WeekTooltip drill={drill} />} cursor={{ fill: colors.line, opacity: 0.4 }} {...drill.tooltipProps} />
+            {(
+              [
+                ['paid', colors.ok, undefined],
+                ['schedule', 'url(#hatch-schedule)', colors.accent],
+                ['estimate', 'url(#hatch-estimate)', colors.muted],
+              ] as const
+            ).map(([key, fill, stroke]) => (
+              <Bar key={key} dataKey={key} stackId="w" fill={fill} stroke={stroke} isAnimationActive={false}>
+                {rows.map((r) => (
+                  // выделенная неделя — ярко, остальные приглушены
+                  <Cell key={r.week} opacity={selected && r.week !== selected ? 0.35 : 1} />
+                ))}
+              </Bar>
+            ))}
           </ComposedChart>
         </ResponsiveContainer>
       </div>
@@ -152,7 +202,7 @@ export function WeekChart({ weeks, today }: { weeks: WeekBar[]; today: string })
 
 // ---------- таблицы ----------
 
-export function ForecastTable({ items }: { items: ForecastItem[] }) {
+export function ForecastTable({ items, week }: { items: ForecastItem[]; week?: string | null }) {
   if (items.length === 0) return null
   return (
     <section className="rounded-xl border border-line bg-card p-4" data-testid="forecast-table">
@@ -172,18 +222,24 @@ export function ForecastTable({ items }: { items: ForecastItem[] }) {
             </tr>
           </thead>
           <tbody>
-            {items.map((f) => (
-              <tr key={f.date} className="border-b border-line/60 last:border-0">
+            {items.map((f) => {
+              const hit = mondayOf(f.date) === week
+              // «по графику» — неделя продаж закончилась: её товары можно открыть; «оценка» — неделя ещё идёт
+              const sales = f.kind === 'schedule' ? <SalesWeek from={f.week_from} to={f.week_to} /> : weekText(f.week_from, f.week_to)
+              return (
+              <tr key={f.date} className={`border-b border-line/60 last:border-0 ${rowTone(hit)}`} data-highlight={hit || undefined}>
                 <td className="whitespace-nowrap py-2 pr-3">
                   {fmtDay(f.date)} <span className="text-faint">{weekdayShort(f.date)}</span>
+                  {f.week_from && <div className="text-xs text-muted sm:hidden">за продажи {sales}</div>}
                 </td>
                 <td className="whitespace-nowrap py-2 pr-3 text-right tabular-nums">{f.amount === null ? '—' : rub(f.amount)}</td>
-                <td className="hidden whitespace-nowrap py-2 pr-3 text-muted sm:table-cell">{weekText(f.week_from, f.week_to)}</td>
+                <td className="hidden whitespace-nowrap py-2 pr-3 text-muted sm:table-cell">{sales}</td>
                 <td className="py-2">
                   {f.kind === 'schedule' ? <Badge tone="accent">по графику</Badge> : <Badge tone="muted">оценка</Badge>}
                 </td>
               </tr>
-            ))}
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -191,7 +247,7 @@ export function ForecastTable({ items }: { items: ForecastItem[] }) {
   )
 }
 
-export function HistoryTable({ items }: { items: PayoutFact[] }) {
+export function HistoryTable({ items, week }: { items: PayoutFact[]; week?: string | null }) {
   return (
     <section className="rounded-xl border border-line bg-card p-4" data-testid="history-table">
       <h2 className="text-sm font-semibold">История выплат за 12 недель</h2>
@@ -217,13 +273,21 @@ export function HistoryTable({ items }: { items: PayoutFact[] }) {
               <tbody>
                 {items.map((p) => {
                   const diff = p.diff === null ? null : Number(p.diff)
+                  const hit = mondayOf(p.date) === week
                   return (
-                    <tr key={p.date} className="border-b border-line/60 last:border-0">
+                    <tr key={p.date} className={`border-b border-line/60 last:border-0 ${rowTone(hit)}`} data-highlight={hit || undefined}>
                       <td className="whitespace-nowrap py-2 pr-3">
                         {fmtDay(p.date)} <span className="text-faint">{weekdayShort(p.date)}</span>
+                        {p.week_from && (
+                          <div className="text-xs text-muted sm:hidden">
+                            за продажи <SalesWeek from={p.week_from} to={p.week_to} />
+                          </div>
+                        )}
                       </td>
                       <td className="whitespace-nowrap py-2 pr-3 text-right font-semibold tabular-nums text-ok">{rub(p.amount)}</td>
-                      <td className="hidden whitespace-nowrap py-2 pr-3 text-muted sm:table-cell">{weekText(p.week_from, p.week_to)}</td>
+                      <td className="hidden whitespace-nowrap py-2 pr-3 text-muted sm:table-cell">
+                        <SalesWeek from={p.week_from} to={p.week_to} testid="history-sales" />
+                      </td>
                       <td className="hidden whitespace-nowrap py-2 pr-3 text-right tabular-nums text-muted sm:table-cell">
                         {p.expected === null ? '—' : rub(p.expected)}
                       </td>

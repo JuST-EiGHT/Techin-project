@@ -1,7 +1,8 @@
 'use client'
 // «Выплаты Ozon» (шаг 3.6) — область «Финансы Ozon»: работает без банков и планирования.
 import Link from 'next/link'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
 import {
@@ -10,6 +11,7 @@ import {
   type Payouts,
   ScheduleBlock,
   WeekChart,
+  mondayOf,
   weekText,
   weekdayShort,
 } from '@/components/payouts'
@@ -39,6 +41,44 @@ function Figure({ label, value, hint, tone, testid }: { label: string; value: st
 }
 
 export default function PayoutsPage() {
+  return (
+    <Suspense>
+      <PayoutsView />
+    </Suspense>
+  )
+}
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/
+
+/** Выбранная на графике неделя (?week=понедельник): что в ней выплачено и ожидается; строки — выделены в таблицах. */
+function WeekFocus({ week, data, onClear }: { week: string; data: Payouts; onClear: () => void }) {
+  const bar = data.weeks.find((w) => w.week_from === week)
+  const end = addDays(week, 6)
+  const paid = data.history.filter((p) => mondayOf(p.date) === week)
+  const ahead = data.forecast.filter((f) => mondayOf(f.date) === week)
+  return (
+    <section className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-accent/40 bg-accent/5 px-4 py-3 text-sm" data-testid="week-focus">
+      <span className="font-semibold">
+        Неделя {weekText(week, end)}
+      </span>
+      {bar && Number(bar.paid) > 0 && <span className="text-ok">выплачено {rub(bar.paid)}</span>}
+      {bar && Number(bar.schedule) > 0 && <span className="text-accent">ожидается по графику {rub(bar.schedule)}</span>}
+      {bar && Number(bar.estimate) > 0 && <span className="text-muted">оценка {rub(bar.estimate)}</span>}
+      <span className="text-xs text-muted">
+        {paid.length + ahead.length > 0 ? 'строки этой недели выделены в таблицах' : 'выплат на этой неделе нет'}
+      </span>
+      <button type="button" onClick={onClear} className="ml-auto text-xs text-muted hover:text-fg" data-testid="week-clear">
+        ✕ Снять выделение
+      </button>
+    </section>
+  )
+}
+
+function PayoutsView() {
+  const params = useSearchParams()
+  const router = useRouter()
+  const rawWeek = params.get('week')
+  const week = rawWeek && DAY.test(rawWeek) ? mondayOf(rawWeek) : null
   const [data, setData] = useState<Payouts | null>(null)
   const [sync, setSync] = useState<SyncStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -71,6 +111,14 @@ export default function PayoutsPage() {
     load()
     loadSync()
   }, [load, loadSync])
+
+  // выбрали неделю на графике (здесь или на главной) — показать её выплаты
+  const loaded = data !== null
+  useEffect(() => {
+    if (!week || !loaded) return
+    const target = document.querySelector('[data-highlight]') ?? document.querySelector('[data-testid=week-focus]')
+    target?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [week, loaded])
 
   const active = ['queued', 'running'].includes(sync?.balance.last_run?.status ?? '')
   useEffect(() => {
@@ -190,14 +238,15 @@ export default function PayoutsPage() {
           </div>
 
           <Warnings items={data.warnings} />
-          <WeekChart weeks={data.weeks} today={today} />
-          <ForecastTable items={data.forecast.slice(0, 8)} />
+          <WeekChart weeks={data.weeks} today={today} weekHref={(w) => `/dashboard/payouts?week=${w}`} selected={week} />
+          {week && <WeekFocus week={week} data={data} onClear={() => router.replace('/dashboard/payouts', { scroll: false })} />}
+          <ForecastTable items={data.forecast.slice(0, 8)} week={week} />
         </>
       )}
 
       {data && <ScheduleBlock schedule={data.schedule} detected={data.detected} onSaved={load} />}
 
-      {data?.has_data && <HistoryTable items={data.history} />}
+      {data?.has_data && <HistoryTable items={data.history} week={week} />}
 
       {data?.has_data && (
         <p className="text-xs text-faint">

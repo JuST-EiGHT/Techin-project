@@ -9,6 +9,7 @@
   по налоговому профилю (НДС с вычетом — без НДС: его возвращают вычетом). Нет себестоимости — прибыль
   и маржа None, а не «вся выручка — прибыль» (правило 5).
 - Начислено Ozon по товарам + «Не распределено» = все начисления периода.
+- Юнит-экономика (шаг 3.7a): те же суммы на 1 проданную штуку и доли от цены; штук нет — None.
 """
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -86,6 +87,24 @@ class ProductRow:
         if profit is None or self.revenue <= 0:
             return None
         return (profit / self.revenue * 100).quantize(CENT)
+
+
+UNIT_FIELDS = ("commission", "logistics", "other", "total", "cost", "profit")
+
+
+def per_unit(row: ProductRow) -> dict[str, Decimal | None] | None:
+    """Юнит-экономика: суммы товара на 1 проданную штуку и их доли от средней цены, %. Делим на проданные
+    штуки (строки «Выручка»), как средняя цена; штук нет — None (не 0). Себестоимости нет — cost и profit None."""
+    if row.qty <= 0:
+        return None
+    qty = Decimal(row.qty)
+    out: dict[str, Decimal | None] = {"price": (row.revenue / qty).quantize(CENT)}
+    for name in UNIT_FIELDS:
+        value = getattr(row, name)
+        out[name] = None if value is None else (value / qty).quantize(CENT)
+        share = None if value is None or row.revenue <= 0 else (value / row.revenue * 100).quantize(CENT)
+        out[f"{name}_pct"] = share
+    return out
 
 
 @dataclass

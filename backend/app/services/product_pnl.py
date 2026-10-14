@@ -128,10 +128,19 @@ async def compute(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest, report:
             "by_type": {k: _s(v) for k, v in sorted(result.unallocated.by_type.items(), key=lambda kv: kv[1])},
         },
         "period_total": _s(result.period_total),
+        # «на что ушли деньги»: все начисления периода по статьям — сначала самые большие удержания
+        "period_by_type": {k: _s(v) for k, v in sorted(_by_type(lines).items(), key=lambda kv: kv[1])},
         "warnings": warnings,
     }
     await cache.set(user_id, "by-product", params, value)
     return value
+
+
+def _by_type(lines) -> dict[str, Decimal]:
+    out: dict[str, Decimal] = {}
+    for ln in lines:
+        out[ln.type_name] = out.get(ln.type_name, Decimal(0)) + ln.amount
+    return out
 
 
 def _row(r: engine.ProductRow) -> dict:
@@ -142,6 +151,7 @@ def _row(r: engine.ProductRow) -> dict:
         "cost": _s(r.cost), "unit_cost": _s(r.unit_cost), "cost_missing": r.cost_missing,
         "profit": _s(r.profit), "margin": _s(r.margin),
         "by_type": {k: _s(v) for k, v in sorted(r.by_type.items(), key=lambda kv: -abs(kv[1]))},
+        "per_unit": engine.per_unit(r),
     }
 
 

@@ -4,7 +4,7 @@ import io
 from datetime import date
 from decimal import Decimal
 
-from app.engine.product_pnl import LineIn, compute, group_of
+from app.engine.product_pnl import LineIn, ProductRow, compute, group_of, per_unit
 from tests.test_pnl_api import add_api_day, pnl, user_id
 from tests.test_report_pnl import MONTH, OWNER, WEEK, auth, import_reference_costs, set_profile, upload
 
@@ -178,3 +178,39 @@ async def test_cache_reset_after_cost_change(client, tokens):
     after = await by_product(client, tokens, search="6004-2RS.CM")
     assert after["items"][0]["cost"] == "5215.50"  # 225 × 19 × 1,22
     assert (await pnl(client, tokens))["pnl"]["owed"] == "5215.50"  # и P&L периода тот же
+
+
+def test_per_unit_economics():
+    row = ProductRow("A", qty=4, revenue=Decimal(1000), commission=Decimal(-200), logistics=Decimal(-90),
+                     other=Decimal(10), total=Decimal(720), cost=Decimal(400))
+    u = per_unit(row)
+    assert (u["price"], u["commission"], u["logistics"], u["other"], u["total"], u["cost"], u["profit"]) == (
+        Decimal("250.00"), Decimal("-50.00"), Decimal("-22.50"), Decimal("2.50"), Decimal("180.00"), Decimal("100.00"),
+        Decimal("80.00"),
+    )
+    assert (u["commission_pct"], u["cost_pct"], u["profit_pct"]) == (Decimal("-20.00"), Decimal("40.00"), Decimal("32.00"))
+    assert per_unit(ProductRow("B", qty=0, other=Decimal(-30), total=Decimal(-30))) is None  # штук нет — не 0
+    no_cost = per_unit(ProductRow("C", qty=2, revenue=Decimal(100), total=Decimal(80), cost_missing=True))
+    assert (no_cost["cost"], no_cost["profit"], no_cost["profit_pct"]) == (None, None, None)
+
+
+async def test_reference_week_unit_economics_and_period_by_type(client, tokens):
+    await import_reference_costs(client, tokens)
+    await upload(client, tokens, WEEK)
+    body = await by_product(client, tokens, limit=500)
+    top = body["items"][0]
+    assert top["offer_id"] == "6004-2RS.CM.SRL.NAC.TH" and top["qty"] == 19
+    u = top["per_unit"]  # итог товара / 19 шт.
+    assert (u["price"], u["commission"], u["logistics"], u["total"], u["cost"], u["profit"]) == (
+        "551.95", "-482.22", "-87.25", "441.14", "274.50", "166.64"
+    )
+    assert (u["commission_pct"], u["logistics_pct"], u["cost_pct"], u["profit_pct"]) == ("-87.37", "-15.81", "49.73", "30.19")
+    assert u["profit_pct"] == top["margin"]
+    assert all(i["per_unit"] is None for i in body["items"] if i["qty"] == 0)
+    # на что ушли деньги: все начисления периода по статьям, самые большие удержания — первыми
+    by_type = body["period_by_type"]
+    assert sum(Decimal(v) for v in by_type.values()) == Decimal("10955.83")  # = все начисления периода
+    assert by_type["Выручка"] == "23712.03"
+    values = [Decimal(v) for v in by_type.values()]
+    assert values == sorted(values)
+

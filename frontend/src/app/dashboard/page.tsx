@@ -121,14 +121,22 @@ function Dashboard() {
                   {shown.compare_note}
                 </p>
               )}
-              {shown.data_source !== 'none' && <RevenueChart series={shown.series} against={preset.against} />}
+              {shown.data_source !== 'none' && (
+                <RevenueChart
+                  series={shown.series}
+                  against={preset.against}
+                  // точка → товары за её день или неделю; «Подробнее →» → товары за весь период
+                  pointHref={(p) => `/dashboard/finance?period=custom&from=${p.date}&to=${p.date_to}&tab=products`}
+                  moreHref={`${finance}&tab=products`}
+                />
+              )}
               {shown.payouts.has_data ? (
-                <div className="space-y-1">
-                  <WeekChart weeks={shown.payouts.weeks} today={today} />
-                  <Link href="/dashboard/payouts" className="block text-right text-xs text-accent hover:underline">
-                    Все выплаты и график — «Выплаты Ozon» →
-                  </Link>
-                </div>
+                <WeekChart
+                  weeks={shown.payouts.weeks}
+                  today={today}
+                  weekHref={(w) => `/dashboard/payouts?week=${w}`}
+                  moreHref="/dashboard/payouts"
+                />
               ) : (
                 <section className="rounded-xl border border-line bg-card p-4 text-sm" data-testid="payouts-empty">
                   <h2 className="font-semibold">Выплаты Ozon</h2>

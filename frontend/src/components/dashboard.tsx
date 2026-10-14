@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
+import { type Drill, MoreLink, TipBox, useDrill } from '@/components/charts'
 import { type Coverage, type DataSource, compact, useTokenColors } from '@/components/finance'
 import type { ForecastItem, WeekBar } from '@/components/payouts'
 import { fmtDay, rub } from '@/components/reports'
@@ -89,14 +90,16 @@ export const Hint = ({ children, tone }: { children: React.ReactNode; tone?: 'wa
 
 // ---------- выручка рядом с прошлым периодом ----------
 
-type Row = { label: string; revenue: number | null; prev: number | null; point: OzonDashboard['series']['points'][number] }
+type Point = OzonDashboard['series']['points'][number]
+type Row = { label: string; revenue: number | null; prev: number | null; point: Point }
 
-function RevenueTooltip({ active, payload, week }: { active?: boolean; payload?: { payload: Row }[]; week: boolean }) {
+function RevenueTooltip({ active, payload, week, drill }: { active?: boolean; payload?: { payload: Row }[]; week: boolean; drill: Drill<Row> }) {
   if (!active || !payload?.length) return null
-  const { point } = payload[0].payload
+  const row = payload[0].payload
+  const { point } = row
   const span = (from: string, to: string) => (week ? `${short(from)}–${short(to)}` : fmtDay(from))
   return (
-    <div className="rounded-lg border border-line bg-card px-3 py-2 text-xs shadow-lg">
+    <TipBox href={drill.hrefFor(row)} touch={drill.touch}>
       <div className="font-semibold">{span(point.date, point.date_to)}</div>
       <div className="tabular-nums text-accent">Выручка: {point.revenue === null ? 'нет данных' : rub(point.revenue)}</div>
       {point.prev_date && (
@@ -105,12 +108,24 @@ function RevenueTooltip({ active, payload, week }: { active?: boolean; payload?:
         </div>
       )}
       {point.partial && <div className="mt-1 text-faint">есть дни без данных</div>}
-    </div>
+    </TipBox>
   )
 }
 
-export function RevenueChart({ series, against }: { series: OzonDashboard['series']; against: string }) {
+/** Выручка линией рядом с прошлым периодом. Точка ведёт в «По товарам» за её день или неделю, «Подробнее →» — за период. */
+export function RevenueChart({
+  series,
+  against,
+  pointHref,
+  moreHref,
+}: {
+  series: OzonDashboard['series']
+  against: string
+  pointHref?: (p: Point) => string | null
+  moreHref?: string
+}) {
   const colors = useTokenColors()
+  const drill = useDrill<Row>(pointHref ? (r) => (r.point.revenue === null ? null : pointHref(r.point)) : undefined)
   if (!colors) return null
   const week = series.granularity === 'week'
   const rows: Row[] = series.points.map((p) => ({
@@ -135,18 +150,15 @@ export function RevenueChart({ series, against }: { series: OzonDashboard['serie
             без данных — {week ? `${missing} нед.` : daysWord(missing)} (пропуски, а не ноль)
           </span>
         )}
+        <MoreLink href={moreHref} />
       </div>
-      <div className="h-60">
+      <div className={`h-60 ${drill.boxProps.className}`} onPointerDown={drill.boxProps.onPointerDown}>
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={rows} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+          <LineChart data={rows} margin={{ top: 4, right: 4, bottom: 0, left: 0 }} onClick={drill.onClick}>
             <CartesianGrid vertical={false} stroke={colors.line} />
             <XAxis dataKey="label" tick={{ fill: colors.muted, fontSize: 11 }} tickLine={false} axisLine={{ stroke: colors.line }} minTickGap={8} />
             <YAxis tick={{ fill: colors.muted, fontSize: 11 }} tickFormatter={compact} tickLine={false} axisLine={false} width={64} />
-            <Tooltip
-              content={<RevenueTooltip week={week} />}
-              cursor={{ stroke: colors.faint, strokeDasharray: '3 3' }}
-              isAnimationActive={false} // подсказка сразу у курсора, без «выезда» из угла графика
-            />
+            <Tooltip content={<RevenueTooltip week={week} drill={drill} />} cursor={{ stroke: colors.faint, strokeDasharray: '3 3' }} {...drill.tooltipProps} />
             {/* дни без данных — разрыв линии, а не ноль; точки — чтобы был виден и одиночный день с данными */}
             <Line
               type="monotone" // плавная, но без выбросов ниже нуля и выше точек

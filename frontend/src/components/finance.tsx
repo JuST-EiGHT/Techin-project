@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 import { Bar, CartesianGrid, Cell, ComposedChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
+import { type Drill, MoreLink, TipBox, useDrill } from '@/components/charts'
 import { Badge, type PnL, fmtDay, rub, vatPctText } from '@/components/reports'
 import { useTheme } from '@/contexts/ThemeContext'
 import { daysWord } from '@/lib/period'
@@ -383,12 +384,13 @@ export const compact = (v: number) =>
 
 type ChartRow = { date: string; label: string; revenue: number | null; profit: number | null; day: DayPnL }
 
-function ChartTooltip({ active, payload }: { active?: boolean; payload?: { payload: ChartRow }[] }) {
+function ChartTooltip({ active, payload, drill }: { active?: boolean; payload?: { payload: ChartRow }[]; drill: Drill<ChartRow> }) {
   const costLabel = useCostLabel()
   if (!active || !payload?.length) return null
-  const { day } = payload[0].payload
+  const row = payload[0].payload
+  const { day } = row
   return (
-    <div className="rounded-lg border border-line bg-card px-3 py-2 text-xs shadow-lg">
+    <TipBox href={drill.hrefFor(row)} touch={drill.touch}>
       <div className="mb-1 font-semibold">{fmtDay(day.date)}</div>
       {day.source === null ? (
         <div className="text-muted">нет данных</div>
@@ -403,13 +405,15 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: { paylo
           <div className="text-faint">{day.source === 'xlsx' ? 'из отчёта' : 'из Ozon API'}</div>
         </div>
       )}
-    </div>
+    </TipBox>
   )
 }
 
-/** Выручка и прибыль до налога по дням. Показывается, только если дней с данными хотя бы два. */
-export function DayChart({ days }: { days: DayPnL[] }) {
+/** Выручка и прибыль до налога по дням. Показывается, только если дней с данными хотя бы два.
+ * День ведёт в «По товарам» за этот день (dayHref), «Подробнее →» — за весь период (moreHref). */
+export function DayChart({ days, dayHref, moreHref }: { days: DayPnL[]; dayHref?: (day: string) => string; moreHref?: string }) {
   const colors = useTokenColors()
+  const drill = useDrill<ChartRow>(dayHref ? (r) => (r.day.source === null ? null : dayHref(r.date)) : undefined)
   const withData = days.filter((d) => d.source !== null)
   if (withData.length < 2 || !colors) return null
   const rows: ChartRow[] = days.map((d) => ({
@@ -431,15 +435,16 @@ export function DayChart({ days }: { days: DayPnL[] }) {
           <span className="inline-block h-2.5 w-2.5 rounded-sm bg-ok" /> прибыль до налога
         </span>
         {missing > 0 && <span className="text-xs text-faint">без данных — {daysWord(missing)} (пропуски, а не ноль)</span>}
+        <MoreLink href={moreHref} />
       </div>
-      <div className="h-60">
+      <div className={`h-60 ${drill.boxProps.className}`} onPointerDown={drill.boxProps.onPointerDown}>
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={rows} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+          <ComposedChart data={rows} margin={{ top: 4, right: 4, bottom: 0, left: 0 }} onClick={drill.onClick}>
             <CartesianGrid vertical={false} stroke={colors.line} />
             <XAxis dataKey="label" tick={{ fill: colors.muted, fontSize: 11 }} tickLine={false} axisLine={{ stroke: colors.line }} minTickGap={8} />
             <YAxis tick={{ fill: colors.muted, fontSize: 11 }} tickFormatter={compact} tickLine={false} axisLine={false} width={64} />
             <ReferenceLine y={0} stroke={colors.muted} />
-            <Tooltip content={<ChartTooltip />} cursor={{ fill: colors.line, opacity: 0.4 }} />
+            <Tooltip content={<ChartTooltip drill={drill} />} cursor={{ fill: colors.line, opacity: 0.4 }} {...drill.tooltipProps} />
             <Bar dataKey="revenue" fill={colors.accent} fillOpacity={0.35} radius={[3, 3, 0, 0]} isAnimationActive={false} />
             <Bar dataKey="profit" radius={[3, 3, 0, 0]} isAnimationActive={false}>
               {rows.map((r) => (

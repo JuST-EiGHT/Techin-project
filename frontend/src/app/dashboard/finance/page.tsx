@@ -61,6 +61,9 @@ type PnLPeriods = {
 const TYPE_SHORT: Record<ReportType, string> = { accrual: 'Начисления', realization: 'Реализация' }
 const DAY = /^\d{4}-\d{2}-\d{2}$/
 
+/** День графика → «По товарам» за этот день. */
+const dayProductsHref = (day: string) => `/dashboard/finance?period=custom&from=${day}&to=${day}&tab=products`
+
 /** «Налог не задан» уже видно в цифрах — в списке предупреждений не повторяем. */
 const shown = (warnings: string[]) => warnings.filter((w) => !w.startsWith('Налог не задан'))
 
@@ -115,6 +118,7 @@ function Finance() {
   const goRange = (r: Range) => go(`period=custom&from=${r.from}&to=${r.to}`)
   const current = reportId ? `report=${reportId}` : preset === 'custom' ? `period=custom&from=${range.from}&to=${range.to}` : `period=${preset}`
   const report = periods?.reports.find((r) => r.id === reportId)
+  const productsHref = `/dashboard/finance?${current}&tab=products` // «Подробнее →» у графика по дням
 
   return (
     <div className={`mx-auto space-y-5 ${tab === 'products' ? 'max-w-7xl' : 'max-w-5xl'}`}>
@@ -204,7 +208,7 @@ function Finance() {
                 .
               </section>
             ) : (
-              <ProductsView key={reportId} query={{ report_id: reportId }} showSource={false} />
+              <ProductsView key={reportId} query={{ report_id: reportId }} showSource={false} pnlHref={`/dashboard/finance?report=${reportId}`} />
             )}
           </>
         ) : (
@@ -215,13 +219,25 @@ function Finance() {
               </span>
               <span className="text-muted"> · {daysWord(daysCount(range))}</span>
             </div>
-            <ProductsView key={`${range.from}:${range.to}`} query={{ date_from: range.from, date_to: range.to }} showSource />
+            <ProductsView
+              key={`${range.from}:${range.to}`}
+              query={{ date_from: range.from, date_to: range.to }}
+              showSource
+              pnlHref={`/dashboard/finance?${current}`}
+            />
           </>
         )
       ) : reportId ? (
-        <ReportView key={reportId} id={reportId} onClose={() => go(`period=${preset}`)} />
+        <ReportView key={reportId} id={reportId} onClose={() => go(`period=${preset}`)} productsHref={productsHref} />
       ) : (
-        <PeriodView key={`${range.from}:${range.to}`} range={range} periods={periods} onRange={goRange} onReport={(id) => go(`report=${id}`)} />
+        <PeriodView
+          key={`${range.from}:${range.to}`}
+          range={range}
+          periods={periods}
+          onRange={goRange}
+          onReport={(id) => go(`report=${id}`)}
+          productsHref={productsHref}
+        />
       )}
     </div>
   )
@@ -289,6 +305,7 @@ function PnLBody({
   warnings,
   missing,
   busy,
+  productsHref,
 }: {
   figures: FiguresData
   manual: boolean
@@ -300,6 +317,7 @@ function PnLBody({
   warnings: string[]
   missing: ReportSummary['missing_cost']
   busy: boolean
+  productsHref: string
 }) {
   return (
     <div className={`space-y-5 transition-opacity ${busy ? 'opacity-60' : ''}`} aria-busy={busy}>
@@ -308,7 +326,7 @@ function PnLBody({
       {manualBlock}
       {paramsBlock}
       <PnLTable byType={byType} pnl={figures.pnl} revenue={revenue} manual={manual} />
-      {days && <DayChart days={days} />}
+      {days && <DayChart days={days} dayHref={dayProductsHref} moreHref={productsHref} />}
       <MissingCostTable items={missing} />
     </div>
   )
@@ -319,11 +337,13 @@ function PeriodView({
   periods,
   onRange,
   onReport,
+  productsHref,
 }: {
   range: Range
   periods: PnLPeriods | null
   onRange: (r: Range) => void
   onReport: (id: string) => void
+  productsHref: string
 }) {
   const [calc, setCalc] = useState<CalcParams>(PROFILE_PARAMS)
   const [manual, setManual] = useState<string | null>(null)
@@ -407,6 +427,7 @@ function PeriodView({
           warnings={data.warnings}
           missing={data.missing_cost}
           busy={busy}
+          productsHref={productsHref}
         />
       )}
     </>
@@ -481,7 +502,7 @@ function Empty({
   )
 }
 
-function ReportView({ id, onClose }: { id: string; onClose: () => void }) {
+function ReportView({ id, onClose, productsHref }: { id: string; onClose: () => void; productsHref: string }) {
   const [report, setReport] = useState<ReportDetail | null>(null)
   const [days, setDays] = useState<DayPnL[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -576,6 +597,7 @@ function ReportView({ id, onClose }: { id: string; onClose: () => void }) {
         warnings={[...r.summary.warnings, ...r.pnl.warnings]}
         missing={r.summary.missing_cost}
         busy={busy}
+        productsHref={productsHref}
       />
     </>
   )
