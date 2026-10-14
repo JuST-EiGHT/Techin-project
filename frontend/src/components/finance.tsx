@@ -364,18 +364,21 @@ export function ParamsPanel({
 // ---------- график по дням ----------
 
 /** Цвета темы для SVG: значения CSS-переменных (меняются вместе с темой). */
-function useTokenColors() {
+export function useTokenColors() {
   const { theme } = useTheme()
   const [colors, setColors] = useState<Record<string, string> | null>(null)
   useEffect(() => {
     const css = getComputedStyle(document.documentElement)
     const c = (name: string) => `rgb(${css.getPropertyValue(`--${name}`).trim().split(/\s+/).join(',')})`
-    setColors({ accent: c('accent'), ok: c('ok'), bad: c('bad'), muted: c('muted'), line: c('line'), card: c('card'), fg: c('fg') })
+    setColors({
+      accent: c('accent'), ok: c('ok'), bad: c('bad'), warn: c('warn'), muted: c('muted'), faint: c('faint'),
+      line: c('line'), card: c('card'), fg: c('fg'),
+    })
   }, [theme])
   return colors
 }
 
-const compact = (v: number) =>
+export const compact = (v: number) =>
   Math.abs(v) >= 1000 ? `${(v / 1000).toLocaleString('ru-RU', { maximumFractionDigits: 1 })} тыс.` : v.toLocaleString('ru-RU')
 
 type ChartRow = { date: string; label: string; revenue: number | null; profit: number | null; day: DayPnL }

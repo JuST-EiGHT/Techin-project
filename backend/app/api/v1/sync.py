@@ -66,6 +66,12 @@ async def sync_stocks_now(user: User = Depends(get_current_user), db: AsyncSessi
     return await _sync_now("stocks", user, db)
 
 
+@router.post("/balance", response_model=SyncRunResponse, status_code=status.HTTP_202_ACCEPTED)
+async def sync_balance_now(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Баланс у Ozon и выплаты: вчера, сегодня и незагруженные дни за 90 дней."""
+    return await _sync_now("balance", user, db)
+
+
 @router.post("/promotions", response_model=SyncRunResponse, status_code=status.HTTP_202_ACCEPTED)
 async def sync_promotions_now(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     return await _sync_now("promotions", user, db)
@@ -89,4 +95,5 @@ async def sync_status(user: User = Depends(get_current_user), db: AsyncSession =
         stocks=await _kind_status(db, user.id, "stocks"),
         finance=await _kind_status(db, user.id, "finance"),
         promotions=await _kind_status(db, user.id, "promotions"),
+        balance=await _kind_status(db, user.id, "balance"),
     )

@@ -5,6 +5,7 @@ from app.api.v1 import (
     costs,
     credentials,
     finance,
+    ozon,
     pnl,
     promotions,
     reports,
@@ -29,3 +30,4 @@ api_router.include_router(costs.router)
 api_router.include_router(tax_profile.router)
 api_router.include_router(pnl.router)
 api_router.include_router(sales.router)
+api_router.include_router(ozon.router)

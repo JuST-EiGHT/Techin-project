@@ -20,6 +20,8 @@ celery_app.conf.update(
         "sync-stocks-every-30-min": {"task": "tasks.sync_stocks_all", "schedule": crontab(minute="13,43")},
         # начисления: каждые 6 часов — вчера и сегодня (плюс незагруженные дни за 90 дней)
         "sync-finance-every-6h": {"task": "tasks.sync_finance_all", "schedule": crontab(minute=23, hour="*/6")},
+        # баланс у Ozon и выплаты: каждые 6 часов, после начислений
+        "sync-balance-every-6h": {"task": "tasks.sync_balance_all", "schedule": crontab(minute=28, hour="*/6")},
         # акции: раз в 3 часа
         "sync-promotions-every-3h": {"task": "tasks.sync_promotions_all", "schedule": crontab(minute=33, hour="*/3")},
     },

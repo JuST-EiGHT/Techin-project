@@ -74,7 +74,7 @@ HTTP-коды для этих текстов в документации не у
 | Начисления по отправлениям | POST | `/v1/finance/accrual/postings` | `posting_numbers` 1–200 |
 | Справочник типов начислений | POST | `/v1/finance/accrual/types` | |
 | Начисления за день | POST | `/v1/finance/accrual/by-day` | `last_id` = `date` из предыдущего ответа |
-| Баланс у Ozon: начислено, выплаты, остаток (шаг 3.6) | POST | `/v1/finance/balance` | **бета**, «Финансы → Баланс»; `date_from`, `date_to` (YYYY-MM-DD), период ≤ 30 дней; `total{opening_balance, accrued, payments[], closing_balance}`, `cashflows{sales, returns, services[]}`; **дат выплат нет** — запрашиваем по одному дню (проверить на реальном ключе) |
+| Баланс у Ozon: начислено, выплаты, остаток (шаг 3.6) | POST | `/v1/finance/balance` | **бета**, «Финансы → Баланс»; `date_from`, `date_to` (YYYY-MM-DD), период ≤ 30 дней; `total{opening_balance, accrued, payments[], closing_balance}`, `cashflows{sales, returns, services[]}`; **дат выплат нет** — запрашиваем по одному дню (`services/sync/ozon_balance.py`; предположение «выплаты за день = выплата этого дня» проверить на реальном ключе, сверка по полумесяцам покажет расхождение) |
 | Финансовый отчёт по полумесяцам (шаг 3.6, сверка) | POST | `/v1/finance/cash-flow-statement/list` | только периоды 1–15 и 16–конец месяца; `date{from,to}`, `page`, `page_size`, `with_details`; `details{payments[], begin_balance_amount, end_balance_amount, …}` |
 | Отчёт о реализации за месяц | POST | `/v2/finance/realization` | не раньше августа 2023; приходит не позднее 5-го числа следующего месяца |
 | Аналитика (выручка, заказы) | POST | `/v1/analytics/data` | лимит 50/сутки без Premium Plus |

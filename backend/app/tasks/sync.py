@@ -117,10 +117,25 @@ def sync_promotions_all() -> int:
     return _fan_out("promotions", sync_promotions_for_user)
 
 
+@celery_app.task(name="tasks.sync_balance_for_user")
+def sync_balance_for_user(
+    user_id: str, run_id: str | None = None, date_from: str | None = None, date_to: str | None = None
+) -> dict:
+    """Баланс у Ozon по дням (выплаты): без периода — вчера, сегодня и незагруженные дни за 90 дней."""
+    params = {"date_from": date_from, "date_to": date_to} if date_from and date_to else None
+    return asyncio.run(_sync_for_user("balance", user_id, run_id, params))
+
+
+@celery_app.task(name="tasks.sync_balance_all")
+def sync_balance_all() -> int:
+    return _fan_out("balance", sync_balance_for_user)
+
+
 # Задача Celery для каждого вида синхронизации — для ручного запуска из API
 FOR_USER_TASKS = {
     "products": sync_products_for_user,
     "stocks": sync_stocks_for_user,
     "finance": sync_finance_for_user,
     "promotions": sync_promotions_for_user,
+    "balance": sync_balance_for_user,
 }

@@ -41,3 +41,4 @@ class SyncStatusResponse(BaseModel):
     stocks: KindStatus
     finance: KindStatus
     promotions: KindStatus
+    balance: KindStatus  # баланс у Ozon и выплаты (шаг 3.6)
