@@ -227,7 +227,7 @@ async def test_categories_and_isolation(client, tokens):
     assert (r.status_code, r.json()["detail"]) == (400, "Эта статья нужна сервису: в неё попадают выплаты Ozon")
     own = await call(client, tokens, "POST", "/categories", 201, json={"name": "Упаковка", "kind": "expense"})
     dup = await client.post(f"{URL}/categories", json={"name": "упаковка", "kind": "expense"}, headers=auth(tokens))
-    assert (dup.status_code, dup.json()["detail"]) == (400, "Статья «упаковка» уже есть")
+    assert (dup.status_code, dup.json()["detail"]) == (400, "Статья «Упаковка» уже есть — выберите её в списке")
     added = await call(client, tokens, "POST", "/categories/from-template", json={"codes": ["rent", "salary"]})
     assert sum(c["code"] == "rent" for c in added) == 1 and sum(c["code"] == "salary" for c in added) == 1
     archived = await call(client, tokens, "PATCH", f"/categories/{own['id']}", json={"archived": True})
@@ -296,7 +296,7 @@ async def test_template_round_trip_and_changes(client, tokens, sessions):
     wb = load_workbook(io.BytesIO(original))
     ws = wb["Операции"]
     assert [c.value for c in ws[1]] == ["ID (не меняйте)", "Дата", "Приход, руб.", "Расход, руб.", "Счёт", "Статья",
-                                        "Контрагент", "Комментарий"]
+                                        "Контрагент", "Описание"]
     assert ws.max_row == 3 and ws["D2"].value == 2500 and ws["C3"].value == 700  # расход — без минуса
     lists = [dv.formula1 for dv in ws.data_validations.dataValidation if dv.type == "list"]
     assert '"Расчётный счёт,Наличные"' in lists  # счета пользователя — списком
@@ -348,3 +348,58 @@ async def test_csv_with_signed_sum_and_single_account(client, tokens):
     r = await client.post(f"{URL}/operations/import", files={"file": ("x.csv", b"a;b\n1;2\n", "text/csv")},
                           headers=auth(tokens))
     assert r.status_code == 400 and "Не найдены колонки «Дата» и «Приход» / «Расход»" in r.json()["detail"]
+
+
+# ---------- доработки 3.8: быстрый старт, статья по названию, описание ----------
+
+
+async def test_quick_setup_simple_categories(client, tokens):
+    state = await call(client, tokens, "POST", "/setup", json={"quick": True})
+    assert state["enabled"] and state["supplier_payment"] == "upfront"  # «Откуда товар» не трогаем
+    accounts, cats = await ids(client, tokens)
+    assert list(accounts) == ["Расчётный счёт"] and accounts["Расчётный счёт"]["receives_ozon"]
+    assert {c["name"] for c in cats.values()} == {
+        "Приход", "Расход", "Поступления от маркетплейсов", "Перевод между своими счетами"
+    }
+
+
+async def test_category_by_name_reuses_or_creates(client, tokens):
+    await setup(client, tokens)
+    accounts, cats = await ids(client, tokens)
+    main = accounts["Расчётный счёт"]["id"]
+    op = lambda **kw: call(client, tokens, "POST", "/operations", 201, json={  # noqa: E731
+        "type": "expense", "amount": "100", "day": "2026-10-14", "account_id": main, **kw})
+    saved = await op(category_name="  зарплата ")  # такая уже есть — без учёта регистра и пробелов
+    assert (saved["category_note"], saved["category"]["id"]) == ("existing", cats["salary"]["id"])
+    saved = await op(category_name="Упаковка")  # новой нет — сохраняется в список
+    assert (saved["category_note"], saved["category"]["name"]) == ("created", "Упаковка")
+    again = await op(category_name="упаковка")
+    assert (again["category_note"], again["category"]["id"]) == ("existing", saved["category"]["id"])
+    _, cats = await ids(client, tokens)
+    assert sum(c["name"] == "Упаковка" for c in cats.values()) == 1  # без дублей
+    dup = await client.post(f"{URL}/categories", json={"name": "УПАКОВКА", "kind": "expense"}, headers=auth(tokens))
+    assert (dup.status_code, dup.json()["detail"]) == (400, "Статья «Упаковка» уже есть — выберите её в списке")
+    # из архива — возвращается, а не создаётся вторая
+    await call(client, tokens, "PATCH", f"/categories/{saved['category']['id']}", json={"archived": True})
+    restored = await op(category_name="Упаковка")
+    assert (restored["category_note"], restored["category"]["id"]) == ("restored", saved["category"]["id"])
+    # приход с тем же названием — своя статья поступлений
+    income = await call(client, tokens, "POST", "/operations", 201, json={
+        "type": "income", "amount": "5", "day": "2026-10-14", "account_id": main, "category_name": "Упаковка"})
+    assert income["category_note"] == "created" and income["category"]["id"] != saved["category"]["id"]
+    # исправление операции — тоже можно вписать статью
+    fixed = await call(client, tokens, "PATCH", f"/operations/{again['op_id']}", json={"category_name": "Аренда склада"})
+    assert (fixed["category_note"], fixed["version"]) == ("created", 2)
+
+
+async def test_long_description(client, tokens):
+    await setup(client, tokens)
+    accounts, _ = await ids(client, tokens)
+    text = "Оплата упаковки для партии подшипников. " * 45
+    body = {"type": "expense", "amount": "100", "day": "2026-10-14", "account_id": accounts["Наличные"]["id"]}
+    saved = await call(client, tokens, "POST", "/operations", 201, json={**body, "comment": text[:2000]})
+    page = await call(client, tokens, "GET", "/operations")
+    assert page["items"][0]["comment"] == text[:2000].strip() and saved["changed"]
+    r = await client.post(f"{URL}/operations", json={**body, "comment": "я" * 2001}, headers=auth(tokens))
+    assert (r.status_code, r.json()["detail"]) == (400, "Описание: максимум 2000 символов")
+

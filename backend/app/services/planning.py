@@ -22,6 +22,7 @@ from app.models.ozon_balance import OzonBalanceDay
 from app.models.planning import (
     ACCOUNT_KINDS,
     CATEGORY_KINDS,
+    COMMENT_MAX,
     DEFAULT_HORIZON_DAYS,
     CashCategory,
     MoneyAccount,
@@ -246,22 +247,47 @@ def _check_category_name(name: str) -> str:
     return name
 
 
-async def _same_name(db: AsyncSession, user_id: uuid.UUID, name: str, kind: str, skip: uuid.UUID | None = None) -> bool:
-    return any(
-        c.archived_at is None and c.kind == kind and c.name.lower() == name.lower() and c.id != skip
-        for c in await _categories(db, user_id)
-    )
+def name_key(name: str) -> str:
+    """Название статьи для сравнения: без регистра, «ё» = «е», лишние пробелы не важны."""
+    return " ".join(name.lower().replace("ё", "е").split())
+
+
+async def _same_name(
+    db: AsyncSession, user_id: uuid.UUID, name: str, kind: str, skip: uuid.UUID | None = None
+) -> CashCategory | None:
+    return next((
+        c for c in await _categories(db, user_id)
+        if c.archived_at is None and c.kind == kind and name_key(c.name) == name_key(name) and c.id != skip
+    ), None)
 
 
 async def create_category(db: AsyncSession, user_id: uuid.UUID, name: str, kind: str) -> CashCategory:
     name = _check_category_name(name)
     if kind not in ("income", "expense"):
         raise PlanningError("Статья — поступление или расход")
-    if await _same_name(db, user_id, name, kind):
-        raise PlanningError(f"Статья «{name}» уже есть")
+    if (same := await _same_name(db, user_id, name, kind)) is not None:
+        raise PlanningError(f"Статья «{same.name}» уже есть — выберите её в списке")
     cat = CashCategory(user_id=user_id, name=name, kind=kind)
     db.add(cat)
     return cat
+
+
+async def resolve_category(db: AsyncSession, user_id: uuid.UUID, name: str, kind: str) -> tuple[CashCategory, str]:
+    """Статья, вписанная в форму операции: такая уже есть — она (existing); есть в архиве — возвращается (restored);
+    нет — новая статья, дальше её можно выбрать из списка (created)."""
+    name = _check_category_name(name)
+    if kind not in ("income", "expense"):
+        raise PlanningError("Статья — поступление или расход")
+    same = [c for c in await _categories(db, user_id) if c.kind == kind and name_key(c.name) == name_key(name)]
+    if active := next((c for c in same if c.archived_at is None), None):
+        return active, "existing"
+    if same:
+        same[0].archived_at = None
+        return same[0], "restored"
+    cat = CashCategory(id=uuid.uuid4(), user_id=user_id, name=name, kind=kind)
+    db.add(cat)
+    await db.flush()
+    return cat, "created"
 
 
 async def update_category(
@@ -270,8 +296,8 @@ async def update_category(
     cat = await _category(db, user_id, category_id)
     if name is not None:
         name = _check_category_name(name)
-        if await _same_name(db, user_id, name, cat.kind, skip=cat.id):
-            raise PlanningError(f"Статья «{name}» уже есть")
+        if (same := await _same_name(db, user_id, name, cat.kind, skip=cat.id)) is not None:
+            raise PlanningError(f"Статья «{same.name}» уже есть")
         cat.name = name
     if archived is not None:
         if archived and cat.code in REQUIRED_CODES:
@@ -411,7 +437,7 @@ async def _check_operation(db: AsyncSession, user_id: uuid.UUID, data: Operation
         if cat.archived_at is not None and cat.id != keep_category:
             raise PlanningError(f"Статья «{cat.name}» в архиве — выберите другую")
     data.counterparty = _clean(data.counterparty, 200)
-    data.comment = _clean(data.comment, 500)
+    data.comment = _clean(data.comment, COMMENT_MAX)
 
 
 async def create_operation(
@@ -454,7 +480,7 @@ async def create_transfer(
     for account_id, value in ((from_id, -amount), (to_id, amount)):
         op = MoneyOperation(
             op_id=uuid.uuid4(), version=1, user_id=user_id, account_id=account_id, day=day, amount=value,
-            category_id=category, comment=_clean(comment, 500), source="manual", transfer_id=transfer_id,
+            category_id=category, comment=_clean(comment, COMMENT_MAX), source="manual", transfer_id=transfer_id,
         )
         db.add(op)
         legs.append(op)
@@ -508,7 +534,7 @@ async def update_operation(
             cat = await _category(db, user_id, data.category_id)
             if cat.kind == "transfer":
                 raise PlanningError("Выплата Ozon — не перевод между своими счетами")
-        data.counterparty, data.comment = _clean(data.counterparty, 200), _clean(data.comment, 500)
+        data.counterparty, data.comment = _clean(data.counterparty, 200), _clean(data.comment, COMMENT_MAX)
     else:
         await _check_operation(db, user_id, data, keep_category=row.category_id)
     new = {k: getattr(data, k) for k in EDITABLE}
@@ -527,7 +553,7 @@ async def _update_transfer(db: AsyncSession, user_id: uuid.UUID, row: MoneyOpera
     if amount == 0:
         raise PlanningError("Сумма перевода — больше нуля")
     day = _check_day(changes.get("day", row.day))
-    comment = _clean(changes.get("comment", row.comment), 500)
+    comment = _clean(changes.get("comment", row.comment), COMMENT_MAX)
     if (amount, day, comment) == (abs(legs[0].amount), row.day, row.comment):
         return row, False
     result = row

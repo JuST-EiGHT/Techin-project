@@ -40,7 +40,7 @@ export type TemplateCategory = {
   code: string
   name: string
   kind: CategoryKind
-  group: 'common' | 'resale' | 'production'
+  group: 'common' | 'resale' | 'production' | 'simple'
   why: string
   required: boolean
 }
@@ -79,6 +79,7 @@ export const GROUP_TITLES: Record<TemplateCategory['group'], string> = {
   common: 'Общие',
   resale: 'Перепродажа',
   production: 'Своё производство',
+  simple: 'Простые',
 }
 
 /** «12 000,50» → «12000.50»; не число — null. */

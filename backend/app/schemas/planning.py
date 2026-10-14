@@ -37,7 +37,7 @@ class TemplateCategory(BaseModel):
     code: str
     name: str
     kind: CategoryKind
-    group: Literal["common", "resale", "production"]
+    group: Literal["common", "resale", "production", "simple"]  # simple — «Приход» / «Расход» быстрого старта
     why: str  # зачем статья — рядом с галочкой
     required: bool = False  # нужна сервису — снять нельзя
 
@@ -54,6 +54,7 @@ class SetupAccountIn(BaseModel):
 
 
 class SetupIn(BaseModel):
+    quick: bool = False  # «Пропустить настройку»: один счёт (сюда же выплаты Ozon), статьи «Приход» и «Расход»
     supplier_payment: SupplierPayment | None = None  # null — вопрос пропущен
     supplier_deferral_days: int | None = Field(None, ge=1, le=365)
     accounts: list[SetupAccountIn] = Field(default_factory=list, max_length=20)
@@ -168,8 +169,9 @@ class OperationIn(BaseModel):
     account_id: uuid.UUID  # у перевода — со счёта
     to_account_id: uuid.UUID | None = None  # у перевода — на счёт
     category_id: uuid.UUID | None = None
+    category_name: str | None = Field(None, max_length=100)  # вписанная статья: есть — она, нет — новая в списке
     counterparty: str | None = Field(None, max_length=200)
-    comment: str | None = Field(None, max_length=500)
+    comment: str | None = Field(None, max_length=2000)  # описание
 
 
 class OperationPatch(BaseModel):
@@ -180,14 +182,17 @@ class OperationPatch(BaseModel):
     day: date | None = None
     account_id: uuid.UUID | None = None
     category_id: uuid.UUID | None = None
+    category_name: str | None = Field(None, max_length=100)
     counterparty: str | None = Field(None, max_length=200)
-    comment: str | None = Field(None, max_length=500)
+    comment: str | None = Field(None, max_length=2000)  # описание
 
 
 class OperationSaved(BaseModel):
     op_id: uuid.UUID
     version: int
     changed: bool
+    category: Ref | None = None  # статья операции, если указывали
+    category_note: Literal["existing", "created", "restored"] | None = None  # вписанная статья: была, новая, из архива
 
 
 class OperationVersion(BaseModel):

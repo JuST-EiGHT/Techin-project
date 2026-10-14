@@ -79,12 +79,16 @@ async def post_setup(data: SetupIn, user: User = Depends(get_current_user), db: 
     """Мастер первого входа: любой вопрос можно пропустить — тогда ничего не предлагаем и считаем как есть."""
     if (await svc.state(db, user.id))["setup_done"]:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Раздел уже настроен — счета и статьи меняются на его страницах")
-    try:
-        await svc.setup(db, user.id, svc.SetupIn(
+    if data.quick:  # «Пропустить настройку»: один счёт, сюда же выплаты Ozon; статьи «Приход» и «Расход»
+        setup = svc.SetupIn(ozon_account=0, categories=["income", "expense"])
+    else:
+        setup = svc.SetupIn(
             supplier_payment=data.supplier_payment, supplier_deferral_days=data.supplier_deferral_days,
             accounts=[svc.SetupAccount(a.name, a.kind, a.balance) for a in data.accounts],
             ozon_account=data.ozon_account, categories=data.categories,
-        ))
+        )
+    try:
+        await svc.setup(db, user.id, setup)
     except svc.PlanningError as exc:
         await db.rollback()
         raise _fail(exc) from exc
@@ -179,7 +183,7 @@ async def list_operations(
     date_to: date | None = Query(None, description="По умолчанию — сегодня"),
     account_id: uuid.UUID | None = None,
     category_id: uuid.UUID | None = None,
-    search: str | None = Query(None, max_length=100, description="Контрагент или комментарий"),
+    search: str | None = Query(None, max_length=100, description="Контрагент или описание"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     user: User = Depends(get_current_user),
@@ -198,8 +202,13 @@ async def list_operations(
 
 @router.post("/operations", response_model=OperationSaved, status_code=status.HTTP_201_CREATED)
 async def create_operation(data: OperationIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """Приход, расход или перевод между своими счетами (две операции: со счёта и на счёт)."""
+    """Приход, расход или перевод между своими счетами (две операции: со счёта и на счёт). Статью можно вписать
+    названием (category_name): такая уже есть — берём её, нет — сохраняем новую в список статей."""
+    note = None
     try:
+        if data.type != "transfer" and data.category_id is None and data.category_name:
+            category, note = await svc.resolve_category(db, user.id, data.category_name, data.type)
+            data.category_id = category.id
         if data.type == "transfer":
             if data.to_account_id is None:
                 raise svc.PlanningError("Перевод: выберите, на какой счёт")
@@ -214,7 +223,15 @@ async def create_operation(data: OperationIn, user: User = Depends(get_current_u
         await db.rollback()
         raise _fail(exc) from exc
     await db.commit()
-    return OperationSaved(op_id=op.op_id, version=op.version, changed=True)
+    return await _saved(db, user, op, True, note)
+
+
+async def _saved(db: AsyncSession, user: User, op, changed: bool, note: str | None) -> OperationSaved:
+    cat = await db.get(CashCategory, op.category_id) if op.category_id else None
+    return OperationSaved(
+        op_id=op.op_id, version=op.version, changed=changed,
+        category={"id": cat.id, "name": cat.name} if cat and cat.user_id == user.id else None, category_note=note,
+    )
 
 
 @router.patch("/operations/{op_id}", response_model=OperationSaved)
@@ -224,8 +241,14 @@ async def patch_operation(
     """Исправление — новая версия операции, прежняя остаётся в истории (правило 12)."""
     changes = data.model_dump(exclude_unset=True)
     kind = changes.pop("type", None)
+    category_name = changes.pop("category_name", None)
+    note = None
     try:
         row = await svc.current_operation(db, user.id, op_id)
+        if category_name and changes.get("category_id") is None and row.transfer_id is None:
+            negative = (kind == "expense") if kind is not None else row.amount < 0
+            category, note = await svc.resolve_category(db, user.id, category_name, "expense" if negative else "income")
+            changes["category_id"] = category.id
         if "amount" in changes or kind is not None:
             value = changes.get("amount", abs(row.amount))
             negative = (kind == "expense") if kind is not None else row.amount < 0
@@ -235,7 +258,7 @@ async def patch_operation(
         await db.rollback()
         raise _fail(exc) from exc
     await db.commit()
-    return OperationSaved(op_id=saved.op_id, version=saved.version, changed=changed)
+    return await _saved(db, user, saved, changed or note in ("created", "restored"), note)
 
 
 @router.delete("/operations/{op_id}", status_code=status.HTTP_204_NO_CONTENT)

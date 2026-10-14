@@ -78,6 +78,20 @@ export function Wizard({ onDone }: { onDone: (state: PlanningState) => void }) {
     setStep(step + 1)
   }
 
+  /** «Пропустить настройку»: один счёт (на него же выплаты Ozon) и простые статьи «Приход» и «Расход». */
+  async function quick() {
+    setSaving(true)
+    setError(null)
+    try {
+      const { data } = await api.post<PlanningState>('/planning/setup', { quick: true })
+      onDone(data)
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function finish() {
     setSaving(true)
     setError(null)
@@ -99,8 +113,9 @@ export function Wizard({ onDone }: { onDone: (state: PlanningState) => void }) {
 
   const update = (i: number, patch: Partial<Draft>) => setAccounts(accounts.map((a, j) => (j === i ? { ...a, ...patch } : a)))
   const input = 'rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent'
-  const suggested = options?.categories.filter((c) => groups.includes(c.group)) ?? []
-  const others = options?.categories.filter((c) => !groups.includes(c.group)) ?? []
+  const templates = options?.categories.filter((c) => c.group !== 'simple') ?? [] // «Приход» / «Расход» — для быстрого старта
+  const suggested = templates.filter((c) => groups.includes(c.group))
+  const others = templates.filter((c) => !groups.includes(c.group))
   const toggle = (code: string) => {
     const s = new Set(picked)
     if (s.has(code)) s.delete(code)
@@ -135,6 +150,15 @@ export function Wizard({ onDone }: { onDone: (state: PlanningState) => void }) {
             {i + 1}. {title}
           </span>
         ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-dashed border-line px-3 py-2 text-sm" data-testid="wizard-quick">
+        <span className="min-w-0 flex-1 text-muted">
+          Не хотите настраивать? Начнём с одного счёта — на него же будут приходить выплаты Ozon — и простых статей «Приход» и «Расход».
+          Свои статьи добавите, когда понадобятся.
+        </span>
+        <button type="button" onClick={quick} disabled={saving} className="whitespace-nowrap font-medium text-accent hover:underline disabled:opacity-60" data-testid="w-quick">
+          Пропустить настройку →
+        </button>
       </div>
 
       {step === 0 && (

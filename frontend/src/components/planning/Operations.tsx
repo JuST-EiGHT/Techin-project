@@ -21,6 +21,27 @@ const SOURCE: Record<Operation['source'], string | null> = { manual: null, impor
 
 // ---------- форма: новая операция или исправление ----------
 
+/** Название статьи для сравнения — как на сервере: без регистра, «ё» = «е», лишние пробелы не важны. */
+const nameKey = (name: string) => name.toLowerCase().replace(/ё/g, 'е').split(/\s+/).filter(Boolean).join(' ')
+const sameName = (a: string, b: string) => nameKey(a) === nameKey(b)
+
+/** Подсказка под статьёй: выбрана из списка, такая уже есть (вписали руками) или новая — сохранится в списке. */
+function CategoryHint({ text, match, typed }: { text: string; match?: Category; typed: boolean }) {
+  if (!text.trim()) return <span className="mt-1 block text-xs text-faint">Пусто — без статьи. Впишите новую — она сохранится в списке</span>
+  if (match && typed)
+    return (
+      <span className="mt-1 block text-xs text-ok" data-testid="cat-hint">
+        Такая статья уже есть — выбрана «{match.name}»
+      </span>
+    )
+  if (match) return null
+  return (
+    <span className="mt-1 block text-xs text-accent" data-testid="cat-hint">
+      Новая статья — сохранится в списке
+    </span>
+  )
+}
+
 function OperationForm({
   accounts,
   categories,
@@ -42,7 +63,9 @@ function OperationForm({
   const [day, setDay] = useState(initial?.day ?? today)
   const [account, setAccount] = useState(initial?.account.id ?? active[0]?.id ?? '')
   const [toAccount, setToAccount] = useState(active.find((a) => a.id !== account)?.id ?? '')
-  const [category, setCategory] = useState(initial?.category?.id ?? '')
+  const [categoryText, setCategoryText] = useState(initial?.category?.name ?? '') // выбрать из списка или вписать новую
+  const [typed, setTyped] = useState(false) // вписали руками, а не выбрали из списка
+  const [notice, setNotice] = useState<string | null>(null)
   const [counterparty, setCounterparty] = useState(initial?.counterparty ?? '')
   const [comment, setComment] = useState(initial?.comment ?? '')
   const [error, setError] = useState<string | null>(null)
@@ -56,6 +79,9 @@ function OperationForm({
     }
   }, [active, account, toAccount, initial])
   const cats = categories.filter((c) => (!c.archived && c.kind === type) || c.id === initial?.category?.id)
+  const match = categoryText.trim() ? cats.find((c) => sameName(c.name, categoryText)) : undefined
+  // статья: из списка — по id; вписана новая — по названию, сервис сохранит её в список (такая уже есть — возьмёт её)
+  const categoryBody = () => (match ? { category_id: match.id } : categoryText.trim() ? { category_name: categoryText.trim() } : { category_id: null })
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -66,23 +92,33 @@ function OperationForm({
     try {
       if (initial) {
         const body = ozon
-          ? { category_id: category || null, counterparty, comment }
+          ? { ...categoryBody(), counterparty, comment }
           : initial.transfer
             ? { amount: value, day, comment }
-            : { type, amount: value, day, account_id: account, category_id: category || null, counterparty, comment }
+            : { type, amount: value, day, account_id: account, ...categoryBody(), counterparty, comment }
         await api.patch(`/planning/operations/${initial.op_id}`, body)
       } else {
-        await api.post('/planning/operations', {
-          type,
-          amount: value,
-          day,
-          account_id: account,
-          ...(type === 'transfer' ? { to_account_id: toAccount } : { category_id: category || null, counterparty }),
-          comment,
-        })
+        const { data } = await api.post<{ category: { name: string } | null; category_note: 'existing' | 'created' | 'restored' | null }>(
+          '/planning/operations',
+          {
+            type,
+            amount: value,
+            day,
+            account_id: account,
+            ...(type === 'transfer' ? { to_account_id: toAccount } : { ...categoryBody(), counterparty }),
+            comment,
+          },
+        )
         setAmount('')
         setCounterparty('')
         setComment('')
+        setNotice(
+          data.category_note === 'created'
+            ? `Добавлено. Новая статья «${data.category?.name}» сохранена — дальше её можно выбрать из списка.`
+            : data.category_note === 'restored'
+              ? `Добавлено. Статья «${data.category?.name}» возвращена из архива.`
+              : 'Добавлено.',
+        )
       }
       onSaved()
     } catch (err) {
@@ -105,7 +141,8 @@ function OperationForm({
               aria-pressed={type === t.value}
               onClick={() => {
                 setType(t.value)
-                setCategory('')
+                setCategoryText('')
+                setNotice(null)
               }}
               className={`flex-1 rounded-md px-3 py-1.5 text-sm ${type === t.value ? (t.value === 'income' ? 'bg-ok text-white' : t.value === 'expense' ? 'bg-bad text-white' : 'bg-accent text-white') : 'text-muted hover:text-fg'}`}
               data-testid={`op-type-${t.value}`}
@@ -156,14 +193,27 @@ function OperationForm({
           !initial?.transfer && (
             <label className="block text-sm">
               <span className="text-muted">Статья</span>
-              <select value={category} onChange={(e) => setCategory(e.target.value)} className={`${input} mt-1`} data-testid="op-category">
-                <option value="">Без статьи</option>
+              <input
+                value={categoryText}
+                list={`op-cats-${initial?.op_id ?? 'new'}`}
+                onChange={(e) => {
+                  // из списка браузер вставляет значение целиком (insertReplacementText) — это выбор, а не ввод
+                  const kind = (e.nativeEvent as InputEvent).inputType
+                  setTyped(kind !== undefined && kind !== 'insertReplacementText')
+                  setCategoryText(e.target.value)
+                  setNotice(null)
+                }}
+                onBlur={() => match && setCategoryText(match.name)} // такая уже есть — ставим её название
+                placeholder="Выберите или впишите новую"
+                className={`${input} mt-1`}
+                data-testid="op-category"
+              />
+              <datalist id={`op-cats-${initial?.op_id ?? 'new'}`}>
                 {cats.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
+                  <option key={c.id} value={c.name} />
                 ))}
-              </select>
+              </datalist>
+              <CategoryHint text={categoryText} match={match} typed={typed} />
             </label>
           )
         )}
@@ -172,10 +222,24 @@ function OperationForm({
         {!transfer && (
           <input value={counterparty} onChange={(e) => setCounterparty(e.target.value)} placeholder="Контрагент — необязательно" aria-label="Контрагент" className={input} data-testid="op-counterparty" />
         )}
-        <input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий — необязательно" aria-label="Комментарий" className={input} data-testid="op-comment" />
+        <textarea
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          maxLength={2000}
+          rows={2}
+          placeholder="Описание — необязательно: что за платёж, для чего"
+          aria-label="Описание"
+          className={`${input} resize-y`}
+          data-testid="op-comment"
+        />
       </div>
       {transfer && !initial && <p className="text-xs text-faint">Перевод между своими счетами — не доход и не расход: общий остаток не меняется.</p>}
       <FormError message={error} />
+      {notice && (
+        <p className="text-sm text-ok" data-testid="op-notice">
+          {notice}
+        </p>
+      )}
       <div className="flex flex-wrap gap-2">
         <button type="submit" disabled={saving || active.length === 0} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="op-save">
           {saving ? 'Сохраняем…' : initial ? 'Сохранить' : 'Добавить'}
@@ -190,7 +254,70 @@ function OperationForm({
   )
 }
 
-// ---------- окно: исправление и история ----------
+// ---------- карточка операции, исправление и история ----------
+
+/** Первые слова описания для списка: «Оплата упаковки для партии…». */
+export function preview(text: string | null, words = 8): string | null {
+  if (!text) return null
+  const all = text.split(/\s+/).filter(Boolean)
+  const head = all.slice(0, words).join(' ')
+  return all.length > words || head.length > 70 ? `${head.slice(0, 70).trimEnd()}…` : head
+}
+
+const SOURCE_TITLE: Record<Operation['source'], string> = { manual: 'вручную', import: 'из файла', ozon_payout: 'выплата Ozon — пришла сама', bank: 'из банка' }
+
+/** Вся информация об операции — по нажатию на неё в списке: полное описание, счёт, статья, откуда, версии. */
+function OperationCard({ op, onEdit, onHistory, onDelete }: { op: Operation; onEdit: () => void; onHistory: () => void; onDelete: () => void }) {
+  const amount = Number(op.amount)
+  const row = (label: string, value: React.ReactNode, testid?: string) => (
+    <div className="grid grid-cols-[8rem_minmax(0,1fr)] gap-3 border-b border-line py-2 last:border-b-0" data-testid={testid}>
+      <dt className="text-muted">{label}</dt>
+      <dd className="min-w-0 break-words">{value}</dd>
+    </div>
+  )
+  return (
+    <div className="space-y-4" data-testid="op-card">
+      <div>
+        <div className={`text-2xl font-bold tabular-nums ${op.transfer ? '' : amount > 0 ? 'text-ok' : 'text-bad'}`}>
+          {op.transfer ? rub(String(Math.abs(amount))) : `${amount > 0 ? '+' : ''}${rub(op.amount)}`}
+        </div>
+        <div className="text-sm text-muted">
+          {op.transfer ? 'Перевод между своими счетами' : amount > 0 ? 'Приход' : 'Расход'} · {fmtDay(op.day)}
+        </div>
+      </div>
+      <dl className="text-sm">
+        {op.transfer
+          ? row('Счета', op.transfer.direction === 'out' ? `${op.account.name} → ${op.transfer.account?.name ?? '—'}` : `${op.transfer.account?.name ?? '—'} → ${op.account.name}`)
+          : row('Счёт', op.account.name)}
+        {!op.transfer && row('Статья', op.category?.name ?? <span className="text-faint">без статьи</span>)}
+        {!op.transfer && row('Контрагент', op.counterparty ?? <span className="text-faint">—</span>)}
+        {row(
+          'Описание',
+          op.comment ? <span className="whitespace-pre-wrap">{op.comment}</span> : <span className="text-faint">нет — можно добавить в «Исправить»</span>,
+          'op-card-description',
+        )}
+        {row('Откуда', SOURCE_TITLE[op.source])}
+        {op.version > 1 && row('Исправлялась', `${op.version - 1} раз — прежние версии в истории`)}
+        {op.before_opening && row('Остаток', 'операция раньше начального остатка счёта — в остаток не входит')}
+      </dl>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={onEdit} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90" data-testid="op-card-edit">
+          Исправить
+        </button>
+        {op.version > 1 && (
+          <button type="button" onClick={onHistory} className="rounded-lg border border-line px-4 py-2 text-sm hover:border-accent hover:text-accent">
+            История
+          </button>
+        )}
+        {op.source !== 'ozon_payout' && (
+          <button type="button" onClick={onDelete} className="rounded-lg border border-line px-4 py-2 text-sm text-muted hover:border-bad hover:text-bad">
+            Удалить
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   useEffect(() => {
@@ -390,6 +517,7 @@ export function OperationsTab({ accounts, categories, onChanged }: { accounts: A
   const [search, setSearch] = useState('')
   const [page, setPage] = useState<OperationsPage | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [viewing, setViewing] = useState<Operation | null>(null) // карточка операции
   const [editing, setEditing] = useState<Operation | null>(null)
   const [historyOf, setHistoryOf] = useState<Operation | null>(null)
 
@@ -453,7 +581,7 @@ export function OperationsTab({ accounts, categories, onChanged }: { accounts: A
             </option>
           ))}
         </select>
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Контрагент или комментарий" aria-label="Поиск" className={`${select} w-full min-w-0 sm:w-auto sm:flex-1`} />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Контрагент или описание" aria-label="Поиск" className={`${select} w-full min-w-0 sm:w-auto sm:flex-1`} />
       </div>
 
       <FormError message={error} />
@@ -485,7 +613,8 @@ export function OperationsTab({ accounts, categories, onChanged }: { accounts: A
                 return (
                   <li
                     key={op.op_id}
-                    className={`grid grid-cols-[2.75rem_minmax(0,1fr)_auto] items-start gap-x-3 px-4 py-2.5 text-sm sm:grid-cols-[4rem_minmax(0,1fr)_auto_auto] sm:items-center ${op.before_opening ? 'opacity-60' : ''}`}
+                    onClick={() => setViewing(op)}
+                    className={`grid cursor-pointer grid-cols-[2.75rem_minmax(0,1fr)_auto] items-start gap-x-3 px-4 py-2.5 text-sm hover:bg-line/40 sm:grid-cols-[4rem_minmax(0,1fr)_auto_auto] sm:items-center ${op.before_opening ? 'opacity-60' : ''}`}
                     data-testid="op-row"
                   >
                     <span className="tabular-nums text-muted">{fmtDay(op.day).slice(0, 5)}</span>
@@ -496,15 +625,20 @@ export function OperationsTab({ accounts, categories, onChanged }: { accounts: A
                           <Badge tone={op.source === 'ozon_payout' ? 'accent' : 'muted'}>{SOURCE[op.source]}</Badge>
                         </span>
                       )}
+                      {op.comment && (
+                        <span className="block truncate text-xs text-fg/80" data-testid="op-description">
+                          {preview(op.comment)}
+                        </span>
+                      )}
                       <span className="block truncate text-xs text-muted">
-                        {[!op.transfer && op.account.name, op.counterparty, op.comment].filter(Boolean).join(' · ')}
+                        {[!op.transfer && op.account.name, op.counterparty].filter(Boolean).join(' · ')}
                         {op.before_opening && ' · до начального остатка — в остаток не входит'}
                       </span>
                     </span>
                     <span className={`whitespace-nowrap text-right font-semibold tabular-nums ${op.transfer ? 'text-muted' : amount > 0 ? 'text-ok' : 'text-bad'}`} data-testid="op-amount-cell">
                       {op.transfer ? rub(String(Math.abs(amount))) : `${amount > 0 ? '+' : ''}${rub(op.amount)}`}
                     </span>
-                    <span className="col-start-3 flex justify-end gap-1 text-muted sm:col-start-auto">
+                    <span className="col-start-3 flex justify-end gap-1 text-muted sm:col-start-auto" onClick={(e) => e.stopPropagation()}>
                       <button type="button" onClick={() => setEditing(op)} className="rounded p-1 hover:text-fg" aria-label="Исправить" data-testid="op-edit">
                         <Pencil className="h-4 w-4" />
                       </button>
@@ -530,6 +664,25 @@ export function OperationsTab({ accounts, categories, onChanged }: { accounts: A
 
       <ImportPanel range={range} onApplied={changed} />
 
+      {viewing && (
+        <Modal title={viewing.category?.name ?? (viewing.transfer ? 'Перевод' : 'Операция')} onClose={() => setViewing(null)}>
+          <OperationCard
+            op={viewing}
+            onEdit={() => {
+              setEditing(viewing)
+              setViewing(null)
+            }}
+            onHistory={() => {
+              setHistoryOf(viewing)
+              setViewing(null)
+            }}
+            onDelete={() => {
+              setViewing(null)
+              remove(viewing)
+            }}
+          />
+        </Modal>
+      )}
       {editing && (
         <Modal title={editing.transfer ? 'Перевод' : editing.source === 'ozon_payout' ? 'Выплата Ozon' : 'Исправить операцию'} onClose={() => setEditing(null)}>
           <OperationForm

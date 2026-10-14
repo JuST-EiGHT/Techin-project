@@ -86,7 +86,7 @@ _FIELD_NAMES = {
     "to_account_id": "Счёт, на который переводите",
     "category_id": "Статья",
     "counterparty": "Контрагент",
-    "comment": "Комментарий",
+    "comment": "Описание",
     "search": "Поиск",
     "sort": "Сортировка",
     "order": "Порядок",

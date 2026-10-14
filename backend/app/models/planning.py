@@ -20,6 +20,7 @@ ACCOUNT_KINDS = ("checking", "card", "cash", "wallet", "other")  # расчёт�
 CATEGORY_KINDS = ("income", "expense", "transfer")
 OP_SOURCES = ("manual", "import", "ozon_payout", "bank")
 DEFAULT_HORIZON_DAYS = 60
+COMMENT_MAX = 2000  # описание операции
 
 
 def _now() -> datetime:
@@ -85,7 +86,7 @@ class MoneyOperation(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     category_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("cash_categories.id", ondelete="SET NULL"))
     counterparty: Mapped[str | None] = mapped_column(String(200))
-    comment: Mapped[str | None] = mapped_column(String(500))
+    comment: Mapped[str | None] = mapped_column(String(COMMENT_MAX))  # описание: в списке — первые слова, полностью — в карточке
     source: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")  # manual|import|ozon_payout|bank
     transfer_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)  # перевод: две операции с одним transfer_id
     external_key: Mapped[str | None] = mapped_column(String(64))  # выплата Ozon: ozon_payout:<дата> — без дублей
