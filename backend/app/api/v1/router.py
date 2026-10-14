@@ -4,6 +4,7 @@ from app.api.v1 import (
     auth,
     costs,
     credentials,
+    dashboard,
     finance,
     ozon,
     pnl,
@@ -31,3 +32,4 @@ api_router.include_router(tax_profile.router)
 api_router.include_router(pnl.router)
 api_router.include_router(sales.router)
 api_router.include_router(ozon.router)
+api_router.include_router(dashboard.router)
