@@ -26,6 +26,11 @@ class TaxProfileIn(BaseModel):
     effective_from: date | None = Field(
         None, description="С какой даты; по умолчанию первый профиль — с начала учёта, следующие — с сегодня"
     )
+    past_payments: Literal["recalc", "keep"] | None = Field(
+        None,
+        description="Профиль задним числом меняет прошлые налоговые платежи (POST /tax-profile/past-payments): "
+        "recalc — пересчитать по новым условиям, keep — оставить как были. Оплаченные не меняются в любом случае",
+    )
 
 
 class TaxProfileOut(BaseModel):

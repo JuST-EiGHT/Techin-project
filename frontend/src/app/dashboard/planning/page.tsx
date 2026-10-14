@@ -1,21 +1,23 @@
 'use client'
-// «Планирование» (шаг 3.8) — необязательный раздел: свои счета, операции и статьи. Работает без банка.
-// Обзор с прогнозом остатка — шаг 3.10, платёжный календарь — 3.9.
+// «Планирование» (шаги 3.8–3.9) — необязательный раздел: свои счета, операции и статьи, платёжный календарь с прогнозом
+// остатка. Работает без банка. Обзор — шаг 3.10.
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
 import { AccountsTab, CategoriesTab } from '@/components/planning/Accounts'
+import { CalendarTab } from '@/components/planning/Calendar'
 import { OperationsTab } from '@/components/planning/Operations'
 import type { Account, Category, PlanningState, TemplateCategory } from '@/components/planning/types'
 import { Wizard } from '@/components/planning/Wizard'
 import { rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 
-type Tab = 'operations' | 'accounts' | 'categories'
+type Tab = 'operations' | 'calendar' | 'accounts' | 'categories'
 const TABS: { value: Tab; label: string }[] = [
   { value: 'operations', label: 'Операции' },
+  { value: 'calendar', label: 'Календарь' },
   { value: 'accounts', label: 'Счета' },
   { value: 'categories', label: 'Статьи' },
 ]
@@ -35,7 +37,7 @@ function Invite({ state, onStart, onEnable }: { state: PlanningState; onStart: (
       <ul className="mt-4 space-y-2 text-sm text-muted">
         <li>• Все ваши счета, карты и наличные в одном месте — сколько денег сейчас.</li>
         <li>• Выплаты Ozon появляются сами; свои расходы и доходы — вручную или списком из Excel.</li>
-        <li>• Дальше — платёжный календарь и прогноз остатка: видно, где может не хватить денег.</li>
+        <li>• Платёжный календарь и прогноз остатка: аренда, зарплата, налоги, оплата поставщику — видно, где может не хватить денег.</li>
       </ul>
       <p className="mt-4 text-sm text-faint">
         Раздел необязательный: «Финансы Ozon» работают и без него. Банк подключать не нужно — остатки и операции можно вести вручную.
@@ -157,7 +159,7 @@ function Planning() {
             )}
           </div>
 
-          <div className="flex gap-1 border-b border-line" role="tablist" aria-label="Раздел">
+          <div className="flex gap-1 overflow-x-auto border-b border-line" role="tablist" aria-label="Раздел">
             {TABS.map((t) => (
               <button
                 key={t.value}
@@ -165,7 +167,7 @@ function Planning() {
                 role="tab"
                 aria-selected={tab === t.value}
                 onClick={() => router.replace(t.value === 'operations' ? '/dashboard/planning' : `/dashboard/planning?tab=${t.value}`, { scroll: false })}
-                className={`-mb-px border-b-2 px-4 py-2 text-sm ${tab === t.value ? 'border-accent font-medium text-fg' : 'border-transparent text-muted hover:text-fg'}`}
+                className={`-mb-px whitespace-nowrap border-b-2 px-4 py-2 text-sm ${tab === t.value ? 'border-accent font-medium text-fg' : 'border-transparent text-muted hover:text-fg'}`}
                 data-testid={`tab-${t.value}`}
               >
                 {t.label}
@@ -174,6 +176,7 @@ function Planning() {
           </div>
 
           {tab === 'operations' && <OperationsTab accounts={accounts} categories={categories} onChanged={loadData} />}
+          {tab === 'calendar' && <CalendarTab accounts={accounts} categories={categories} state={state} onChanged={loadData} />}
           {tab === 'accounts' && <AccountsTab accounts={accounts} state={state} onChanged={loadData} />}
           {tab === 'categories' && <CategoriesTab categories={categories} templates={templates} onChanged={loadData} />}
         </>

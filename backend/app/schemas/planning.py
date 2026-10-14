@@ -22,6 +22,11 @@ class PlanningState(BaseModel):
     supplier_payment: SupplierPayment  # «Откуда товар» — та же настройка, что в «Основных настройках»
     supplier_deferral_days: int | None
     cost_label: str
+    gen_ozon: bool  # генераторы плана (шаг 3.9): выплаты Ozon, оплата поставщику после продажи, налоги
+    gen_supplier: bool
+    gen_taxes: bool
+    supplier_period: Literal["week", "month"]  # оплата поставщику после продажи: раз в неделю или месяц
+    supplier_day: int  # день недели 1–7 или число месяца 1–31
 
 
 class PlanningSettingsIn(BaseModel):
@@ -31,6 +36,11 @@ class PlanningSettingsIn(BaseModel):
     ozon_account_id: uuid.UUID | None = None
     threshold: Decimal | None = Field(None, ge=-10_000_000_000, le=10_000_000_000)
     horizon_days: int | None = Field(None, ge=14, le=180)
+    gen_ozon: bool | None = None
+    gen_supplier: bool | None = None
+    gen_taxes: bool | None = None
+    supplier_period: Literal["week", "month"] | None = None
+    supplier_day: int | None = Field(None, ge=1, le=31)
 
 
 class TemplateCategory(BaseModel):

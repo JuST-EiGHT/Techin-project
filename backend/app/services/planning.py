@@ -92,6 +92,11 @@ async def state(db: AsyncSession, user_id: uuid.UUID) -> dict:
         "supplier_payment": us.supplier_payment,
         "supplier_deferral_days": us.supplier_deferral_days,
         "cost_label": COST_LABELS[us.supplier_payment],
+        "gen_ozon": s.gen_ozon if s else True,
+        "gen_supplier": s.gen_supplier if s else True,
+        "gen_taxes": s.gen_taxes if s else True,
+        "supplier_period": s.supplier_period if s else "week",
+        "supplier_day": s.supplier_day if s else 1,
     }
 
 
@@ -105,7 +110,8 @@ async def _account(db: AsyncSession, user_id: uuid.UUID, account_id: uuid.UUID, 
 
 
 async def update_settings(db: AsyncSession, user_id: uuid.UUID, changes: dict) -> None:
-    """enabled, ozon_account_id (None — выплаты Ozon никуда не записываются), threshold, horizon_days. Коммит — здесь."""
+    """enabled, ozon_account_id (None — выплаты Ozon никуда не записываются), threshold, horizon_days, генераторы плана
+    и день оплаты поставщику (шаг 3.9). Коммит — здесь."""
     s = await get_settings(db, user_id)
     if s is None or s.setup_at is None:
         if changes.get("enabled"):
@@ -115,6 +121,15 @@ async def update_settings(db: AsyncSession, user_id: uuid.UUID, changes: dict) -
             db.add(s)
     if changes.get("ozon_account_id") is not None:
         await _account(db, user_id, changes["ozon_account_id"])
+    period = changes.get("supplier_period") or s.supplier_period or "week"
+    day = changes.get("supplier_day", s.supplier_day)
+    if day is not None and period == "week" and not 1 <= day <= 7:
+        if "supplier_day" in changes:
+            raise PlanningError("День оплаты поставщику — день недели от 1 (понедельник) до 7 (воскресенье)")
+        changes["supplier_day"] = 1
+    for key in ("gen_ozon", "gen_supplier", "gen_taxes", "supplier_period", "supplier_day"):
+        if key in changes and changes[key] is None:
+            del changes[key]  # null — не менять: у этих полей нет «пусто»
     for key, value in changes.items():
         setattr(s, key, value)
     await db.commit()
@@ -405,7 +420,7 @@ def _check_day(day: date, what: str = "Дата операции") -> date:
     if day < MIN_DAY:
         raise PlanningError(f"{what}: слишком ранняя дата — проверьте год")
     if day > today_msk():
-        raise PlanningError(f"{what} в будущем — здесь только то, что уже было; плановые платежи — в календаре (скоро)")
+        raise PlanningError(f"{what} в будущем — здесь только то, что уже было; плановые платежи — в «Календаре»")
     return day
 
 

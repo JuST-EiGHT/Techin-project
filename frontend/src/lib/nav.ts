@@ -26,6 +26,7 @@ export const NAV: NavSection[] = [
     label: 'Планирование',
     items: [
       { href: '/dashboard/planning', label: 'Операции', description: 'Что пришло и что ушло: свои расходы, доходы, выплаты Ozon' },
+      { href: '/dashboard/planning?tab=calendar', label: 'Календарь', description: 'Плановые платежи, налоги и прогноз остатка — хватит ли денег' },
       { href: '/dashboard/planning?tab=accounts', label: 'Счета', description: 'Счета, карты и наличные — сколько денег сейчас' },
       { href: '/dashboard/planning?tab=categories', label: 'Статьи', description: 'Статьи доходов и расходов' },
     ],

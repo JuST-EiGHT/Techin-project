@@ -8,8 +8,16 @@ from app.models.promotion import Promotion, PromotionProduct  # noqa: F401
 from app.models.report import Report, ReportFile  # noqa: F401
 from app.models.user_settings import UserSettings  # noqa: F401
 from app.models.product_cost import ProductCost  # noqa: F401
-from app.models.tax_profile import TaxProfile  # noqa: F401
+from app.models.tax_profile import TaxPlanFreeze, TaxProfile  # noqa: F401
 from app.models.pnl_snapshot import PnLSnapshot  # noqa: F401
 from app.models.sales_daily import SalesDaily  # noqa: F401
 from app.models.ozon_balance import OzonBalanceDay, OzonPayoutSettings  # noqa: F401
-from app.models.planning import CashCategory, MoneyAccount, MoneyAccountBalance, MoneyOperation, PlanningSettings  # noqa: F401
+from app.models.planning import (  # noqa: F401
+    CashCategory,
+    MoneyAccount,
+    MoneyAccountBalance,
+    MoneyOperation,
+    PlannedOverride,
+    PlannedPayment,
+    PlanningSettings,
+)

@@ -47,3 +47,21 @@ class TaxProfile(Base):
             has_employees=self.has_employees,
             patent_cost_year=None if self.patent_cost_year is None else Decimal(self.patent_cost_year),
         )
+
+
+class TaxPlanFreeze(Base):
+    """«Оставить прошлые налоговые платежи как были» (шаг 3.9, решение владельца).
+
+    Налоговые платежи календаря — производные: сроки по режиму, суммы по профилю на дату периода. Когда профиль меняют
+    задним числом, сервис спрашивает: «Пересчитать и прошлые платежи по новым условиям?». Ответ «нет» — эта запись:
+    платежи со сроком до `due_before` считаются по профилям, записанным до `profiles_before` (новый профиль их не
+    меняет). Ответ «да» — записи нет. Оплаченные платежи не меняются в любом случае: факт — операция.
+    """
+
+    __tablename__ = "tax_plan_freezes"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    due_before: Mapped[date] = mapped_column(Date, nullable=False)
+    profiles_before: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

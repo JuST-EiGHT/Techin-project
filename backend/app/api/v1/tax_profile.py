@@ -1,7 +1,8 @@
 """Налоговый профиль (шаг 2.5): кто продавец, система налогообложения, НДС — с историей,
 справочник для мастера и предпросмотр «как посчитаем налог»."""
 
-from datetime import date
+import uuid
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -10,9 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.engine import tax as engine
+from app.models.product_cost import BEGINNING
 from app.models.report import Report
 from app.models.tax_profile import TaxProfile
 from app.models.user import User
+from app.schemas.plan_calendar import PastChange, UpcomingTaxes
 from app.schemas.report import NormalizedReportData
 from app.schemas.tax import (
     RegimeOption,
@@ -23,6 +26,7 @@ from app.schemas.tax import (
     TaxProfileOut,
     TaxProfileState,
 )
+from app.services import plan_calendar
 from app.services import tax_profile as svc
 from app.services.auth import get_current_user
 from app.services.pnl_stale import affected_period, invalidate
@@ -67,7 +71,7 @@ async def _state(db: AsyncSession, user: User, created: bool | None = None) -> T
 
 
 def _data(body: TaxProfileIn) -> svc.ProfileData:
-    return svc.ProfileData(**body.model_dump(exclude={"effective_from"}))
+    return svc.ProfileData(**body.model_dump(exclude={"effective_from", "past_payments"}))
 
 
 @router.get("", response_model=TaxProfileState)
@@ -80,7 +84,9 @@ async def get_tax_profile(user: User = Depends(get_current_user), db: AsyncSessi
 async def save_tax_profile(
     body: TaxProfileIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
-    """Новый профиль — новая запись в истории; прошлые периоды считаются по прежнему профилю."""
+    """Новый профиль — новая запись в истории; прошлые периоды считаются по прежнему профилю. Будущие налоговые
+    платежи календаря пересчитываются сами; прошлые (профиль задним числом) — как ответил пользователь
+    (past_payments): keep — оставить как были."""
     dates = [p.effective_from for p in await svc.load_profiles(db, user.id)]
     try:
         record, created = await svc.save_profile(db, user.id, _data(body), body.effective_from)
@@ -89,8 +95,34 @@ async def save_tax_profile(
     if created:
         start, end = affected_period(dates, record.effective_from)
         await invalidate(db, user.id, start, end, "Изменён налоговый профиль")
+        if body.past_payments == "keep" and record.effective_from < today_msk():
+            db.add(plan_calendar.freeze_past(user.id, record, today_msk()))
     await db.commit()
     return await _state(db, user, created)
+
+
+@router.get("/upcoming", response_model=UpcomingTaxes)
+async def upcoming(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """«Ближайшие сроки»: 2–3 следующих налоговых платежа — что, до какой даты, примерная сумма и расчёт.
+    Профиль не задан — has_profile=false, платежей нет."""
+    return await plan_calendar.upcoming_taxes(db, user.id)
+
+
+@router.post("/past-payments", response_model=list[PastChange])
+async def past_payments(body: TaxProfileIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Какие прошлые неоплаченные налоговые платежи изменятся, если сохранить такой профиль (с даты effective_from).
+    Пусто — спрашивать «пересчитать прошлые платежи?» незачем. Ничего не сохраняет."""
+    profiles = await svc.load_profiles(db, user.id)
+    effective_from = body.effective_from or (today_msk() if profiles else BEGINNING)
+    try:
+        data = svc.validate(_data(body), effective_from)
+    except svc.TaxProfileError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    candidate = TaxProfile(
+        id=uuid.uuid4(), user_id=user.id, effective_from=effective_from, created_at=datetime.now(timezone.utc),
+        **{name: getattr(data, name) for name in svc.FIELDS},
+    )
+    return await plan_calendar.past_changes(db, user.id, candidate)
 
 
 @router.get("/options", response_model=TaxOptions)

@@ -4,8 +4,13 @@ import { CircleHelp, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { UpcomingTaxes } from '@/components/planning/UpcomingTaxes'
 import { fmtDateTime, fmtDay, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
+import { todayMsk } from '@/lib/period'
+
+// прошлый налоговый платёж, который изменится при сохранении профиля задним числом (шаг 3.9)
+type PastChange = { key: string; title: string; period_label: string | null; day: string; old: string | null; new: string | null; removed: boolean; added: boolean }
 
 type Form = 'ip' | 'ooo' | 'self_employed'
 type VatMode = 'none' | 'special' | 'general'
@@ -212,6 +217,8 @@ export default function TaxesPage() {
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  const [past, setPast] = useState<PastChange[] | null>(null) // спрашиваем: пересчитать прошлые платежи?
+  const [refresh, setRefresh] = useState(0)
 
   const fill = useCallback((s: State, o: Options) => {
     const p = s.current
@@ -308,19 +315,33 @@ export default function TaxesPage() {
     return () => clearTimeout(t)
   }, [body])
 
-  async function save() {
+  async function put(b: Record<string, unknown>, pastPayments?: 'recalc' | 'keep') {
+    const { data } = await api.put<State>('/tax-profile', { ...b, ...(pastPayments ? { past_payments: pastPayments } : {}) })
+    setState(data)
+    setPast(null)
+    setRefresh((n) => n + 1)
+    setNotice(
+      data.created
+        ? `Сохранено: ${preview?.title ?? 'налоговый профиль'}, ${since(effectiveFrom)}.${pastPayments === 'keep' ? ' Прошлые платежи оставлены как были.' : ''}`
+        : 'Такие условия уже действуют с этой даты — ничего не изменилось.',
+    )
+  }
+
+  async function save(pastPayments?: 'recalc' | 'keep') {
     const b = body()
     if (!b) return
     setBusy(true)
     setNotice(null)
     try {
-      const { data } = await api.put<State>('/tax-profile', b)
-      setState(data)
-      setNotice(
-        data.created
-          ? `Сохранено: ${preview?.title ?? 'налоговый профиль'}, ${since(effectiveFrom)}.`
-          : 'Такие условия уже действуют с этой даты — ничего не изменилось.',
-      )
+      // задним числом: какие прошлые налоговые платежи изменятся — спросим, пересчитывать ли их (решение владельца)
+      if (!pastPayments && state?.current && b.effective_from < todayMsk()) {
+        const { data: changes } = await api.post<PastChange[]>('/tax-profile/past-payments', b)
+        if (changes.length > 0) {
+          setPast(changes)
+          return
+        }
+      }
+      await put(b, pastPayments)
     } catch (err) {
       setPreviewError(errorMessage(err))
     } finally {
@@ -370,6 +391,8 @@ export default function TaxesPage() {
           )}
         </div>
       )}
+
+      <UpcomingTaxes refresh={refresh} />
 
       {options && (
         <>
@@ -538,7 +561,7 @@ export default function TaxesPage() {
               <div className="flex flex-wrap items-center gap-3 pt-1">
                 <button
                   type="button"
-                  onClick={save}
+                  onClick={() => save()}
                   disabled={busy || !preview}
                   className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
                 >
@@ -550,6 +573,39 @@ export default function TaxesPage() {
                   </span>
                 )}
               </div>
+              {past && (
+                <div className="space-y-3 rounded-lg border border-warn/40 bg-warn/10 p-4 text-sm" data-testid="past-question">
+                  <p className="font-semibold">Пересчитать и прошлые платежи по новым условиям?</p>
+                  <p className="text-muted">
+                    Новые условия — {since(effectiveFrom)}, это раньше сегодняшнего дня. Изменятся налоговые платежи, срок которых уже прошёл и которые не
+                    отмечены оплаченными. Оплаченные не меняются в любом случае, будущие пересчитаются сами.
+                  </p>
+                  <ul className="space-y-1" data-testid="past-list">
+                    {past.map((c) => (
+                      <li key={c.key} className="tabular-nums">
+                        {c.title}
+                        {c.period_label && <span className="text-muted"> · {c.period_label}</span>} · до {fmtDay(c.day)}:{' '}
+                        {c.old ? rub(c.old) : c.added ? 'не было' : 'сумма неизвестна'} → {c.removed ? 'не будет' : c.new ? rub(c.new) : 'сумма неизвестна'}
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" disabled={busy} onClick={() => save('recalc')} className="rounded-lg bg-accent px-4 py-2 font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="past-recalc">
+                      Да, пересчитать
+                    </button>
+                    <button type="button" disabled={busy} onClick={() => save('keep')} className="rounded-lg border border-line px-4 py-2 hover:border-accent hover:text-accent disabled:opacity-60" data-testid="past-keep">
+                      Нет, оставить как были
+                    </button>
+                    <button type="button" onClick={() => setPast(null)} className="rounded-lg px-4 py-2 text-muted hover:text-fg">
+                      Отмена
+                    </button>
+                  </div>
+                  <p className="text-xs text-faint">
+                    «Да» — прошлые платежи посчитаем так, как будто новые условия действовали с этой даты. «Нет» — они останутся как были, новые условия — только
+                    для сроков с сегодняшнего дня.
+                  </p>
+                </div>
+              )}
             </section>
           )}
         </>

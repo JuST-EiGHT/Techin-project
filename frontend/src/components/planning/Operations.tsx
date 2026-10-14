@@ -16,17 +16,17 @@ const TYPES: { value: OpType; label: string }[] = [
   { value: 'income', label: 'Приход' },
   { value: 'transfer', label: 'Перевод' },
 ]
-const input = 'w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent'
+export const input = 'w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent'
 const SOURCE: Record<Operation['source'], string | null> = { manual: null, import: 'из файла', ozon_payout: 'Ozon', bank: 'банк' }
 
 // ---------- форма: новая операция или исправление ----------
 
 /** Название статьи для сравнения — как на сервере: без регистра, «ё» = «е», лишние пробелы не важны. */
 const nameKey = (name: string) => name.toLowerCase().replace(/ё/g, 'е').split(/\s+/).filter(Boolean).join(' ')
-const sameName = (a: string, b: string) => nameKey(a) === nameKey(b)
+export const sameName = (a: string, b: string) => nameKey(a) === nameKey(b)
 
 /** Подсказка под статьёй: выбрана из списка, такая уже есть (вписали руками) или новая — сохранится в списке. */
-function CategoryHint({ text, match, typed }: { text: string; match?: Category; typed: boolean }) {
+export function CategoryHint({ text, match, typed }: { text: string; match?: Category; typed: boolean }) {
   if (!text.trim()) return <span className="mt-1 block text-xs text-faint">Пусто — без статьи. Впишите новую — она сохранится в списке</span>
   if (match && typed)
     return (
@@ -319,7 +319,7 @@ function OperationCard({ op, onEdit, onHistory, onDelete }: { op: Operation; onE
   )
 }
 
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', onKey)
@@ -379,7 +379,22 @@ function HistoryView({ opId }: { opId: string }) {
 type ImportRow = { line: number; day: string | null; amount: string | null; account: string | null; category: string | null; comment: string | null; status: 'new' | 'changed' | 'unchanged' | 'skipped' | 'error'; message: string | null }
 type ImportResult = { applied: boolean; counts: Record<ImportRow['status'], number>; rows: ImportRow[] }
 
-function ImportPanel({ range, onApplied }: { range: { from: string; to: string }; onApplied: () => void }) {
+/** Списком через шаблон (правило 14): операции (по умолчанию) или плановые платежи (base='/planning/plans'). */
+export function ImportPanel({
+  onApplied,
+  base = '/planning/operations',
+  params = {},
+  fileName = 'operations',
+  intro = 'Скачайте шаблон — в нём ваши счета, статьи и операции за выбранный период. Исправьте или допишите строки и загрузите обратно: сначала покажем, что изменится.',
+  allLabel = 'Шаблон с операциями (Excel)',
+}: {
+  onApplied: () => void
+  base?: string
+  params?: Record<string, string>
+  fileName?: string
+  intro?: string
+  allLabel?: string
+}) {
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<ImportResult | null>(null)
   const [busy, setBusy] = useState(false)
@@ -393,7 +408,7 @@ function ImportPanel({ range, onApplied }: { range: { from: string; to: string }
     try {
       const form = new FormData()
       form.append('file', f)
-      const { data } = await api.post<ImportResult>('/planning/operations/import', form, { params: { dry_run: !apply } })
+      const { data } = await api.post<ImportResult>(`${base}/import`, form, { params: { dry_run: !apply } })
       if (apply) {
         setPreview(null)
         setFile(null)
@@ -410,7 +425,7 @@ function ImportPanel({ range, onApplied }: { range: { from: string; to: string }
   async function download(rows: 'all' | 'empty', format: 'xlsx' | 'csv') {
     setError(null)
     try {
-      await saveFile(api.get('/planning/operations/template', { params: { rows, format, date_from: range.from, date_to: range.to }, responseType: 'blob' }), `operations.${format}`)
+      await saveFile(api.get(`${base}/template`, { params: { rows, format, ...params }, responseType: 'blob' }), `${fileName}.${format}`)
     } catch (err) {
       setError(errorMessage(err, 'Не удалось скачать файл'))
     }
@@ -421,7 +436,7 @@ function ImportPanel({ range, onApplied }: { range: { from: string; to: string }
     const form = new FormData()
     form.append('file', file)
     try {
-      await saveFile(api.post('/planning/operations/import/errors', form, { responseType: 'blob' }), 'operations-errors.xlsx')
+      await saveFile(api.post(`${base}/import/errors`, form, { responseType: 'blob' }), `${fileName}-errors.xlsx`)
     } catch (err) {
       setError(errorMessage(err))
     }
@@ -432,13 +447,10 @@ function ImportPanel({ range, onApplied }: { range: { from: string; to: string }
   return (
     <details className="rounded-xl border border-line bg-card p-4" data-testid="import-panel">
       <summary className="cursor-pointer text-sm font-semibold">Списком через Excel или CSV</summary>
-      <p className="mt-2 text-sm text-muted">
-        Скачайте шаблон — в нём ваши счета, статьи и операции за выбранный период. Исправьте или допишите строки и загрузите обратно: сначала покажем,
-        что изменится.
-      </p>
+      <p className="mt-2 text-sm text-muted">{intro}</p>
       <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
         <button type="button" onClick={() => download('all', 'xlsx')} className={link} data-testid="tpl-all">
-          <Download className="h-4 w-4" /> Шаблон с операциями (Excel)
+          <Download className="h-4 w-4" /> {allLabel}
         </button>
         <button type="button" onClick={() => download('empty', 'xlsx')} className={link} data-testid="tpl-empty">
           <Download className="h-4 w-4" /> Пустой шаблон
@@ -662,7 +674,7 @@ export function OperationsTab({ accounts, categories, onChanged }: { accounts: A
       )}
       <p className="text-xs text-faint">Переводы между своими счетами не считаются ни приходом, ни расходом. Исправленная или удалённая операция остаётся в истории.</p>
 
-      <ImportPanel range={range} onApplied={changed} />
+      <ImportPanel params={{ date_from: range.from, date_to: range.to }} onApplied={changed} />
 
       {viewing && (
         <Modal title={viewing.category?.name ?? (viewing.transfer ? 'Перевод' : 'Операция')} onClose={() => setViewing(null)}>

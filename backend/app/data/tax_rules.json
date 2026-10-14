@@ -22,5 +22,63 @@
       "npd_income": 2400000,
       "eshn_vat_free_income": 60000000
     }
+  ],
+  "deadlines": [
+    {
+      "from": "2026-01-01",
+      "_about": "Сроки уплаты налогов, НДС и взносов (шаг 3.9) — материалы владельца в docs/TAXES.md. months — месяцы периода [с, по] в году; every — повторять каждые N месяцев (1 — месяц, 3 — квартал); due и notice — [через сколько месяцев после последнего месяца периода, число]; due_after_start — дней от начала периода; share — доля суммы периода; forms — только для ИП / ООО; who — ip_alone (ИП без сотрудников) или employer (ООО или ИП с сотрудниками). Срок в выходной или праздник переносится на следующий рабочий день (НК, ст. 6.1 — допущение, в материалах не указано). Новое правило — новая запись с from.",
+      "regimes": {
+        "usn_income": ["usn", "contributions"],
+        "usn_income_expense": ["usn", "contributions"],
+        "osn": ["profit", "ndfl_ip", "contributions"],
+        "ausn_income": ["ausn"],
+        "ausn_income_expense": ["ausn"],
+        "npd": ["npd"],
+        "psn": ["patent", "contributions"],
+        "eshn": ["contributions"],
+        "custom": []
+      },
+      "vat": "vat",
+      "schedules": {
+        "usn": [
+          {"what": "tax", "title": "Аванс УСН за I квартал", "months": [1, 3], "due": [1, 28], "notice": [1, 25], "doc": "Уведомление"},
+          {"what": "tax", "title": "Аванс УСН за полугодие", "months": [4, 6], "due": [1, 28], "notice": [1, 25], "doc": "Уведомление"},
+          {"what": "tax", "title": "Аванс УСН за 9 месяцев", "months": [7, 9], "due": [1, 28], "notice": [1, 25], "doc": "Уведомление"},
+          {"what": "tax", "title": "УСН за год", "months": [10, 12], "due": [3, 28], "forms": ["ooo"], "notice": [3, 25], "doc": "Декларация"},
+          {"what": "tax", "title": "УСН за год", "months": [10, 12], "due": [4, 28], "forms": ["ip"], "notice": [4, 25], "doc": "Декларация"}
+        ],
+        "profit": [
+          {"what": "tax", "title": "Аванс по налогу на прибыль за I квартал", "months": [1, 3], "due": [1, 28], "forms": ["ooo"], "notice": [1, 25], "doc": "Декларация"},
+          {"what": "tax", "title": "Аванс по налогу на прибыль за полугодие", "months": [4, 6], "due": [1, 28], "forms": ["ooo"], "notice": [1, 25], "doc": "Декларация"},
+          {"what": "tax", "title": "Аванс по налогу на прибыль за 9 месяцев", "months": [7, 9], "due": [1, 28], "forms": ["ooo"], "notice": [1, 25], "doc": "Декларация"},
+          {"what": "tax", "title": "Налог на прибыль за год", "months": [10, 12], "due": [3, 28], "forms": ["ooo"], "notice": [3, 25], "doc": "Декларация"}
+        ],
+        "ndfl_ip": [
+          {"what": "tax", "title": "Аванс НДФЛ за январь–июнь", "months": [1, 6], "due": [1, 15], "forms": ["ip"]},
+          {"what": "tax", "title": "Аванс НДФЛ за июль–сентябрь", "months": [7, 9], "due": [1, 15], "forms": ["ip"]},
+          {"what": "tax", "title": "Аванс НДФЛ за октябрь–декабрь", "months": [10, 12], "due": [1, 15], "forms": ["ip"]}
+        ],
+        "ausn": [
+          {"what": "tax", "title": "АУСН за месяц", "every": 1, "due": [1, 25]}
+        ],
+        "npd": [
+          {"what": "tax", "title": "НПД за месяц", "every": 1, "due": [1, 28]}
+        ],
+        "patent": [
+          {"what": "patent", "title": "Патент — 1/3 стоимости", "months": [1, 12], "share": "1/3", "due_after_start": 90},
+          {"what": "patent", "title": "Патент — 2/3 стоимости", "months": [1, 12], "share": "2/3", "due": [0, 28]}
+        ],
+        "vat": [
+          {"what": "vat", "title": "НДС за квартал — 1/3", "every": 3, "share": "1/3", "due": [1, 28], "notice": [1, 25], "doc": "Декларация по НДС"},
+          {"what": "vat", "title": "НДС за квартал — 2/3", "every": 3, "share": "1/3", "due": [2, 28]},
+          {"what": "vat", "title": "НДС за квартал — 3/3", "every": 3, "share": "1/3", "due": [3, 28]}
+        ],
+        "contributions": [
+          {"what": "contributions", "title": "Страховые взносы ИП за год", "months": [1, 12], "forms": ["ip"], "who": "ip_alone", "due": [0, 28]},
+          {"what": "contributions", "title": "Страховые взносы за месяц", "every": 1, "who": "employer", "due": [1, 28], "_note": "Срок для сотрудников — общий срок ЕНП, 28-е следующего месяца (допущение)"},
+          {"what": "contributions_extra", "title": "Взносы ИП: 1 % с дохода свыше 300 000 ₽", "months": [1, 12], "forms": ["ip"], "due": [7, 1], "threshold": 300000, "rate": 1}
+        ]
+      }
+    }
   ]
 }
