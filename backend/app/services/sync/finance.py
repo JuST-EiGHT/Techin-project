@@ -273,6 +273,9 @@ async def _sync_day(
     else:
         mark.synced_at, mark.entries = datetime.now(timezone.utc), len(entries)
     await invalidate(db, user_id, day, day, f"Начисления из Ozon API за {day:%d.%m.%Y}")
+    from app.services.sales import rebuild as rebuild_sales  # sales → costs → этот модуль: импорт здесь, без цикла
+
+    await rebuild_sales(db, user_id, day, day)
     await db.commit()
     stats.days += 1
     stats.entries += len(entries)

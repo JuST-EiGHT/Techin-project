@@ -9,10 +9,10 @@
 """
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.integrations.xlsx.common import norm
@@ -41,6 +41,11 @@ def ranges(days: list[date]) -> list[tuple[date, date]]:
         else:
             out.append((day, day))
     return out
+
+
+def _utc(ts: datetime) -> datetime:
+    """Время с поясом и без (SQLite отдаёт без пояса, новый объект в сессии — с ним) — сравнимо в UTC."""
+    return ts.astimezone(timezone.utc).replace(tzinfo=None) if ts.tzinfo else ts
 
 
 @dataclass
@@ -82,7 +87,7 @@ async def coverage(db: AsyncSession, user_id: uuid.UUID, date_from: date, date_t
     reports = list(res.scalars())
     report_of_day: dict[date, Report] = {}
     # отчёты пересекаются (оставили оба) — за день берём загруженный позже
-    for report in sorted((r for r in reports if r.report_type == "accrual"), key=lambda r: r.uploaded_at):
+    for report in sorted((r for r in reports if r.report_type == "accrual"), key=lambda r: _utc(r.uploaded_at)):
         for day in days_between(max(report.period_start, date_from), min(report.period_end, date_to)):
             report_of_day[day] = report
     res = await db.execute(
@@ -151,6 +156,26 @@ async def load_lines(db: AsyncSession, user_id: uuid.UUID, cov: Coverage) -> lis
                 name = type_name or a.type_name or f"Тип начисления {a.accrual_type_id}"
                 lines.append(_line(a, name, offer_id, product_name or ""))
     return lines
+
+
+async def posting_offers(db: AsyncSession, user_id: uuid.UUID, numbers: set[str]) -> dict[str, set[str]]:
+    """Номер отправления → артикулы его товаров (по всем строкам начислений пользователя, любых дат)."""
+    out: dict[str, set[str]] = {}
+    if not numbers:
+        return out
+    res = await db.execute(
+        select(Accrual.posting_number, Accrual.offer_id, Product.offer_id)
+        .outerjoin(Product, Product.id == Accrual.product_id)
+        .where(
+            Accrual.user_id == user_id, Accrual.posting_number.in_(numbers),
+            or_(Accrual.offer_id.is_not(None), Accrual.product_id.is_not(None)),
+        )
+        .distinct()
+    )
+    for number, offer, product_offer in res.tuples():
+        if offer or product_offer:
+            out.setdefault(number, set()).add(offer or product_offer)
+    return out
 
 
 def _line(a: Accrual, type_name: str, offer_id: str | None, name: str) -> Line:

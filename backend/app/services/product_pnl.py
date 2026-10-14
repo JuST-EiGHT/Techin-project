@@ -11,13 +11,11 @@ import uuid
 from dataclasses import replace
 from decimal import Decimal
 
-from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine import product_pnl as engine
 from app.integrations.xlsx.common import norm
-from app.models.accrual import SOURCE_XLSX, Accrual
-from app.models.product import Product
+from app.models.accrual import SOURCE_XLSX
 from app.models.report import Report
 from app.services import pnl_data
 from app.services.costs import load_cost_history
@@ -32,26 +30,6 @@ WITH_VAT = "with_vat"
 
 def _s(v: Decimal | None) -> str | None:
     return None if v is None else str(Decimal(v).quantize(engine.CENT))
-
-
-async def _posting_offers(db: AsyncSession, user_id: uuid.UUID, numbers: set[str]) -> dict[str, set[str]]:
-    """Номер отправления → артикулы его товаров (по всем строкам начислений пользователя, любых дат)."""
-    out: dict[str, set[str]] = {}
-    if not numbers:
-        return out
-    res = await db.execute(
-        select(Accrual.posting_number, Accrual.offer_id, Product.offer_id)
-        .outerjoin(Product, Product.id == Accrual.product_id)
-        .where(
-            Accrual.user_id == user_id, Accrual.posting_number.in_(numbers),
-            or_(Accrual.offer_id.is_not(None), Accrual.product_id.is_not(None)),
-        )
-        .distinct()
-    )
-    for number, offer, product_offer in res.tuples():
-        if offer or product_offer:
-            out.setdefault(number, set()).add(offer or product_offer)
-    return out
 
 
 async def compute(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest, report: Report | None = None) -> dict:
@@ -91,7 +69,7 @@ async def compute(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest, report:
     result = engine.compute(
         [engine.LineIn(ln.day, ln.type_name, ln.amount, ln.quantity, ln.offer_id, ln.sku, ln.name, ln.posting_number)
          for ln in lines],
-        await _posting_offers(db, user_id, numbers),
+        await pnl_data.posting_offers(db, user_id, numbers),
         cost_of,
         with_vat,
         default_vat,

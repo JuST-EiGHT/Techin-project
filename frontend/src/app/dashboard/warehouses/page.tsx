@@ -28,6 +28,7 @@ type Stock = {
   in_transit: number | null
   avg_daily_sales: string | null
   days_of_supply: string | null
+  product_available: number // доступно на всех складах — от него дни запаса
   status: StockStatus
 }
 
@@ -235,8 +236,8 @@ export default function WarehousesPage() {
 
         {noSalesYet && (
           <p className="border-b border-line px-4 py-2 text-sm text-muted">
-            Продажи за 30 дней, дни запаса и статус появятся, когда подключим финансовые данные Ozon. Пока у всех строк —
-            «Нет данных».
+            Мало данных о продажах: дни запаса и статус считаются, когда за последние 30 дней загружены начисления хотя бы
+            за 7 дней — синхронизацией Ozon API или отчётами по начислениям. Пока у всех строк — «Нет данных».
           </p>
         )}
 
@@ -256,8 +257,12 @@ export default function WarehousesPage() {
                   <th className="px-4 py-2 text-right font-normal">Доступно</th>
                   <th className="px-4 py-2 text-right font-normal">Резерв</th>
                   <th className="px-4 py-2 text-right font-normal">В пути</th>
-                  <th className="px-4 py-2 text-right font-normal">Продажи/день</th>
-                  <th className="px-4 py-2 text-right font-normal">Дней запаса</th>
+                  <th className="px-4 py-2 text-right font-normal" title="По товару в целом: продано за вычетом возвратов за 30 дней / дней с данными. Склада в начислениях Ozon нет">
+                    Продажи/день
+                  </th>
+                  <th className="px-4 py-2 text-right font-normal" title="По товару в целом: весь остаток на всех складах / продажи в день">
+                    Дней запаса
+                  </th>
                   <th className="px-4 py-2 font-normal">Статус</th>
                 </tr>
               </thead>
@@ -286,7 +291,12 @@ export default function WarehousesPage() {
                       <td className="px-4 py-2 text-right tabular-nums">{dash(s.reserved)}</td>
                       <td className="px-4 py-2 text-right tabular-nums">{dash(s.in_transit)}</td>
                       <td className="px-4 py-2 text-right tabular-nums">{dash(s.avg_daily_sales)}</td>
-                      <td className="px-4 py-2 text-right tabular-nums">{dash(s.days_of_supply)}</td>
+                      <td className="px-4 py-2 text-right tabular-nums">
+                        {dash(s.days_of_supply)}
+                        {s.days_of_supply !== null && s.product_available !== s.present && (
+                          <div className="text-xs text-faint">из {s.product_available} шт. на всех складах</div>
+                        )}
+                      </td>
                       <td className="px-4 py-2">
                         <span className={`rounded px-2 py-0.5 text-xs ${st.badge}`}>{st.label}</span>
                       </td>

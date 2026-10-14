@@ -9,11 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.engine.stocks import days_of_supply, stock_status
 from app.models.product import Product
 from app.models.warehouse import ProductStock, Warehouse
+from app.services.sales import avg_daily_by_product
 
 SALES_WINDOW_DAYS = 30
 NO_DATA = "no_data"  # значение фильтра status для строк без данных о продажах
 
-Pair = tuple[uuid.UUID, uuid.UUID]  # product_id, warehouse_id
 
 
 @dataclass
@@ -21,18 +21,17 @@ class StockRow:
     stock: ProductStock
     product: Product
     warehouse: Warehouse
-    avg_daily_sales: Decimal | None
-    days_of_supply: Decimal | None
+    avg_daily_sales: Decimal | None  # по товару в целом
+    days_of_supply: Decimal | None  # остаток товара на всех складах / продажи в день
     status: str | None
+    product_available: int  # доступно к продаже на всех складах
 
 
-async def avg_daily_sales(db: AsyncSession, user_id: uuid.UUID, days: int = SALES_WINDOW_DAYS) -> dict[Pair, Decimal]:
-    """Среднесуточные продажи пары товар × склад за `days` дней.
-
-    Продаж в БД пока нет — они появятся с финансовыми данными (шаг 1.4). До тех пор
-    пусто, и дни запаса со статусом остаются None («нет данных»), а не 0.
-    """
-    return {}
+async def avg_daily_sales(db: AsyncSession, user_id: uuid.UUID, days: int = SALES_WINDOW_DAYS) -> dict[uuid.UUID, Decimal]:
+    """Продажи в день по товару за `days` дней (шаг 3.5, `services/sales`). Склада в начислениях Ozon нет —
+    продажи и дни запаса по товару в целом: весь остаток на всех складах / продажи в день.
+    Мало дней с данными — пусто, и дни запаса со статусом None («нет данных»), а не 0."""
+    return await avg_daily_by_product(db, user_id, days)
 
 
 async def latest_stocks(
@@ -81,13 +80,20 @@ async def stock_rows(
     include_empty: bool = False,
 ) -> list[StockRow]:
     sales = await avg_daily_sales(db, user_id)
+    every = await latest_stocks(db, user_id, product_id=product_id)  # все склады — остаток товара в целом
+    total: dict[uuid.UUID, int] = {}
+    for stock, product, _ in every:
+        total[product.id] = total.get(product.id, 0) + max(stock.present or 0, 0)
     rows: list[StockRow] = []
-    for stock, product, warehouse in await latest_stocks(db, user_id, warehouse_id=warehouse_id, product_id=product_id):
+    for stock, product, warehouse in every:
+        if warehouse_id and warehouse.id != warehouse_id:
+            continue
         if not include_empty and not stock.present and not stock.reserved and not stock.in_transit:
             continue
-        avg = sales.get((product.id, warehouse.id))
+        avg = sales.get(product.id)
+        available = total[product.id]
         row = StockRow(
-            stock, product, warehouse, avg, days_of_supply(stock.present, avg), stock_status(stock.present, avg)
+            stock, product, warehouse, avg, days_of_supply(available, avg), stock_status(available, avg), available
         )
         if status and (row.status or NO_DATA) != status:
             continue

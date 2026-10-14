@@ -8,6 +8,7 @@ from app.api.v1 import (
     pnl,
     promotions,
     reports,
+    sales,
     settings,
     stocks,
     sync,
@@ -27,3 +28,4 @@ api_router.include_router(settings.router)
 api_router.include_router(costs.router)
 api_router.include_router(tax_profile.router)
 api_router.include_router(pnl.router)
+api_router.include_router(sales.router)

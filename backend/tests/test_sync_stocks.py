@@ -324,21 +324,31 @@ async def test_api_stocks_hides_empty_unless_asked(sessions, client, tokens, ozo
 
 
 async def test_api_status_when_sales_known(sessions, client, tokens, ozon, monkeypatch):
-    """Когда появятся продажи (шаг 1.4), статусы и фильтр по ним заработают без изменений API."""
+    """Продажи по товару в целом (шаг 3.5): дни запаса = остаток на всех складах / продажи в день."""
     user_id = await api_user(sessions, client, tokens, ozon)
     async with sessions() as db:
-        pairs = {(p.ozon_product_id, w.ozon_warehouse_id): (p.id, w.id) for _, p, w in await stocks_service.latest_stocks(db, user_id)}
+        rows = await stocks_service.latest_stocks(db, user_id)
+    products = {p.ozon_product_id: p.id for _, p, _ in rows}
+    total = {}
+    for stock, p, _ in rows:
+        total[p.ozon_product_id] = total.get(p.ozon_product_id, 0) + max(stock.present or 0, 0)
+    sales = {products[1001]: Decimal(total[1001]) / 5}  # остатка на 5 дней — critical
+    sales.update({pid: Decimal("0") for oid, pid in products.items() if oid != 1001})  # не продавались
 
     async def fake_sales(db, uid, days=30):
-        return {pairs[(1001, SPB)]: Decimal("2"), pairs[(1001, EKB)]: Decimal("0.1")}
+        return sales
 
     monkeypatch.setattr(stocks_service, "avg_daily_sales", fake_sales)
-    rows = (await client.get("/api/v1/stocks", params={"status": "critical"}, headers=auth(tokens))).json()
-    assert [(r["warehouse"]["name"], r["days_of_supply"], r["avg_daily_sales"]) for r in rows] == [
-        ("СПБ_БУГРЫ_РФЦ", "5.0", "2"),  # 10 шт. / 2 в день
-    ]
-    rows = (await client.get("/api/v1/stocks", params={"status": "excess"}, headers=auth(tokens))).json()
-    assert [r["days_of_supply"] for r in rows] == ["90.0"]  # 9 шт. / 0.1 в день
+    critical = (await client.get("/api/v1/stocks", params={"status": "critical"}, headers=auth(tokens))).json()
+    assert {r["product"]["id"] for r in critical} == {str(products[1001])}
+    assert {(r["days_of_supply"], r["product_available"]) for r in critical} == {("5.0", total[1001])}
+    excess = (await client.get("/api/v1/stocks", params={"status": "excess"}, headers=auth(tokens))).json()
+    assert excess and all(r["days_of_supply"] is None and r["avg_daily_sales"] == "0" for r in excess)  # лежит без продаж
+    # фильтр по складу не меняет дни запаса: они по товару на всех складах
+    one = critical[0]["warehouse"]["id"]
+    rows = (await client.get("/api/v1/stocks", params={"warehouse_id": one, "status": "critical"},
+                             headers=auth(tokens))).json()
+    assert [r["days_of_supply"] for r in rows] == ["5.0"]
 
 
 async def test_api_isolation(sessions, client, tokens, ozon):

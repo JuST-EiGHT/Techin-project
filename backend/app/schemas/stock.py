@@ -42,8 +42,9 @@ class StockResponse(BaseModel):
     reserved: int | None
     in_transit: int | None
     snapshot_at: datetime
-    avg_daily_sales: Decimal | None  # пока null — продажи появятся на шаге 1.4
-    days_of_supply: Decimal | None
+    avg_daily_sales: Decimal | None  # по товару в целом за 30 дней; null — мало данных (шаг 3.5)
+    days_of_supply: Decimal | None  # весь остаток товара на всех складах / продажи в день
+    product_available: int  # доступно к продаже на всех складах
     status: str | None  # critical | low | normal | excess | null (нет данных о продажах)
 
     @classmethod
@@ -54,4 +55,5 @@ class StockResponse(BaseModel):
             warehouse=StockWarehouse(id=w.id, name=w.name, type=w.type, cluster_name=w.cluster_name),
             present=s.present, reserved=s.reserved, in_transit=s.in_transit, snapshot_at=utc(s.snapshot_at),
             avg_daily_sales=r.avg_daily_sales, days_of_supply=r.days_of_supply, status=r.status,
+            product_available=r.product_available,
         )
