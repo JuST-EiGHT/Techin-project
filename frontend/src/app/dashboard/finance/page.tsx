@@ -127,7 +127,7 @@ function Finance() {
         <p className="mt-1 text-sm text-muted">
           По начислениям Ozon — за что и когда заработано, а не когда деньги пришли на счёт. Деньги на счетах (ДДС) —
           отдельный раздел{' '}
-          <Link href="/dashboard/planning" className="text-accent hover:underline">
+          <Link href="/dashboard/planning?tab=cashflow" className="text-accent hover:underline">
             «Планирование»
           </Link>
           .

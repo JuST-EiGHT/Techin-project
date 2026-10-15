@@ -1,6 +1,7 @@
 'use client'
 // «Планирование → Операции» (шаг 3.8): быстрый ввод, список с фильтрами, история исправлений, загрузка списком.
 import { Download, History, Pencil, Trash2, Upload } from 'lucide-react'
+import { useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
@@ -17,6 +18,7 @@ const TYPES: { value: OpType; label: string }[] = [
   { value: 'transfer', label: 'Перевод' },
 ]
 export const input = 'w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent'
+const DAY = /^\d{4}-\d{2}-\d{2}$/
 const SOURCE: Record<Operation['source'], string | null> = { manual: null, import: 'из файла', ozon_payout: 'Ozon', bank: 'банк' }
 
 // ---------- форма: новая операция или исправление ----------
@@ -523,9 +525,15 @@ export function ImportPanel({
 
 export function OperationsTab({ accounts, categories, onChanged }: { accounts: Account[]; categories: Category[]; onChanged: () => void }) {
   const today = todayMsk()
-  const [range, setRange] = useState({ from: addDays(today, -29), to: today })
+  const params = useSearchParams()
+  // из графиков и ДДС: ?from=…&to=…&category=… — операции за этот период и статью
+  const [range, setRange] = useState(() => {
+    const from = params.get('from') ?? ''
+    const to = params.get('to') ?? ''
+    return DAY.test(from) && DAY.test(to) && from <= to ? { from, to: to > today ? today : to } : { from: addDays(today, -29), to: today }
+  })
   const [accountId, setAccountId] = useState('')
-  const [categoryId, setCategoryId] = useState('')
+  const [categoryId, setCategoryId] = useState(params.get('category') ?? '')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState<OperationsPage | null>(null)
   const [error, setError] = useState<string | null>(null)

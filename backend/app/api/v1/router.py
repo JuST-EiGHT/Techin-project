@@ -9,6 +9,7 @@ from app.api.v1 import (
     ozon,
     plan_calendar,
     planning,
+    planning_overview,
     pnl,
     promotions,
     reports,
@@ -37,3 +38,4 @@ api_router.include_router(ozon.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(planning.router)
 api_router.include_router(plan_calendar.router)
+api_router.include_router(planning_overview.router)

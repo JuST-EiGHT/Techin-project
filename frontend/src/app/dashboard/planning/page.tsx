@@ -1,6 +1,6 @@
 'use client'
-// «Планирование» (шаги 3.8–3.9) — необязательный раздел: свои счета, операции и статьи, платёжный календарь с прогнозом
-// остатка. Работает без банка. Обзор — шаг 3.10.
+// «Планирование» (шаги 3.8–3.10) — необязательный раздел: обзор (прогноз и разрывы), операции, платёжный календарь, ДДС,
+// счета и статьи. Работает без банка.
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useState } from 'react'
@@ -8,16 +8,20 @@ import { Suspense, useCallback, useEffect, useState } from 'react'
 import { FormError } from '@/components/AuthForm'
 import { AccountsTab, CategoriesTab } from '@/components/planning/Accounts'
 import { CalendarTab } from '@/components/planning/Calendar'
+import { CashFlowTab } from '@/components/planning/CashFlow'
 import { OperationsTab } from '@/components/planning/Operations'
+import { OverviewTab } from '@/components/planning/Overview'
 import type { Account, Category, PlanningState, TemplateCategory } from '@/components/planning/types'
 import { Wizard } from '@/components/planning/Wizard'
 import { rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 
-type Tab = 'operations' | 'calendar' | 'accounts' | 'categories'
+type Tab = 'overview' | 'operations' | 'calendar' | 'cashflow' | 'accounts' | 'categories'
 const TABS: { value: Tab; label: string }[] = [
+  { value: 'overview', label: 'Обзор' },
   { value: 'operations', label: 'Операции' },
   { value: 'calendar', label: 'Календарь' },
+  { value: 'cashflow', label: 'ДДС' },
   { value: 'accounts', label: 'Счета' },
   { value: 'categories', label: 'Статьи' },
 ]
@@ -38,6 +42,7 @@ function Invite({ state, onStart, onEnable }: { state: PlanningState; onStart: (
         <li>• Все ваши счета, карты и наличные в одном месте — сколько денег сейчас.</li>
         <li>• Выплаты Ozon появляются сами; свои расходы и доходы — вручную или списком из Excel.</li>
         <li>• Платёжный календарь и прогноз остатка: аренда, зарплата, налоги, оплата поставщику — видно, где может не хватить денег.</li>
+        <li>• ДДС по статьям: сколько пришло и ушло за месяц или неделю.</li>
       </ul>
       <p className="mt-4 text-sm text-faint">
         Раздел необязательный: «Финансы Ozon» работают и без него. Банк подключать не нужно — остатки и операции можно вести вручную.
@@ -59,7 +64,7 @@ function Planning() {
   const params = useSearchParams()
   const router = useRouter()
   const raw = params.get('tab')
-  const tab: Tab = TABS.some((t) => t.value === raw) ? (raw as Tab) : 'operations'
+  const tab: Tab = TABS.some((t) => t.value === raw) ? (raw as Tab) : 'overview'
   const [state, setState] = useState<PlanningState | null>(null)
   const [wizard, setWizard] = useState(false)
   const [accounts, setAccounts] = useState<Account[]>([])
@@ -166,7 +171,7 @@ function Planning() {
                 type="button"
                 role="tab"
                 aria-selected={tab === t.value}
-                onClick={() => router.replace(t.value === 'operations' ? '/dashboard/planning' : `/dashboard/planning?tab=${t.value}`, { scroll: false })}
+                onClick={() => router.replace(t.value === 'overview' ? '/dashboard/planning' : `/dashboard/planning?tab=${t.value}`, { scroll: false })}
                 className={`-mb-px whitespace-nowrap border-b-2 px-4 py-2 text-sm ${tab === t.value ? 'border-accent font-medium text-fg' : 'border-transparent text-muted hover:text-fg'}`}
                 data-testid={`tab-${t.value}`}
               >
@@ -175,8 +180,10 @@ function Planning() {
             ))}
           </div>
 
-          {tab === 'operations' && <OperationsTab accounts={accounts} categories={categories} onChanged={loadData} />}
+          {tab === 'overview' && <OverviewTab accounts={accounts} horizonDays={state.horizon_days} onChanged={loadData} />}
+          {tab === 'operations' && <OperationsTab key={params.toString()} accounts={accounts} categories={categories} onChanged={loadData} />}
           {tab === 'calendar' && <CalendarTab accounts={accounts} categories={categories} state={state} onChanged={loadData} />}
+          {tab === 'cashflow' && <CashFlowTab />}
           {tab === 'accounts' && <AccountsTab accounts={accounts} state={state} onChanged={loadData} />}
           {tab === 'categories' && <CategoriesTab categories={categories} templates={templates} onChanged={loadData} />}
         </>

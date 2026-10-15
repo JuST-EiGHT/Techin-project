@@ -447,15 +447,40 @@ async def _names(ctx: Ctx) -> dict:
     return {"accounts": accounts, "categories": cats}
 
 
-async def calendar(db: AsyncSession, user_id: uuid.UUID, date_from: date, date_to: date) -> dict:
+@dataclass
+class Snapshot:
+    """Календарь окна: платежи (с фактом), операции, остаток сейчас и прогноз — для календаря и обзора (3.10)."""
+
+    ctx: Ctx
+    items: list[cal.Item]  # с запасом по краям окна — для сверки
+    visible: list[cal.Item]  # дата в окне
+    notes: list[str]
+    ops: list[cal.Op]
+    start: Decimal | None  # остаток сейчас по счетам с указанным остатком
+    unknown: list[str]  # счета без остатка
+    threshold: Decimal | None
+    forecast: cal.Forecast | None  # с сегодня; окно в прошлом — None
+
+
+async def snapshot(db: AsyncSession, user_id: uuid.UUID, date_from: date, date_to: date) -> Snapshot:
     ctx = await context(db, user_id)
     items, notes, extra = await build(ctx, date_from, date_to)
-    today = ctx.today
     visible = sorted([i for i in items if date_from <= i.day <= date_to], key=lambda i: (i.day, i.source, i.title))
     start, unknown = await _start_balance(ctx)
-    threshold = ctx.settings.threshold if ctx.settings else None
-    fc = cal.forecast(start, items, today, date_to, Decimal(threshold) if threshold is not None else None) \
-        if date_to >= today else None
+    raw = ctx.settings.threshold if ctx.settings else None
+    threshold = Decimal(raw) if raw is not None else None
+    fc = cal.forecast(start, items, ctx.today, date_to, threshold) if date_to >= ctx.today else None
+    return Snapshot(ctx, items, visible, notes, extra["ops"], start, unknown, threshold, fc)
+
+
+async def calendar(db: AsyncSession, user_id: uuid.UUID, date_from: date, date_to: date) -> dict:
+    snap = await snapshot(db, user_id, date_from, date_to)
+    ctx, items, visible, notes, start, unknown, fc = (
+        snap.ctx, snap.items, snap.visible, snap.notes, snap.start, snap.unknown, snap.forecast
+    )
+    today = ctx.today
+    threshold = snap.threshold
+    extra = {"ops": snap.ops}
 
     names = await _names(ctx)
     matched = cal.matched_ops(items)
@@ -495,7 +520,7 @@ async def calendar(db: AsyncSession, user_id: uuid.UUID, date_from: date, date_t
     return {
         "date_from": _d(date_from), "date_to": _d(date_to), "today": _d(today),
         "start_balance": _money(start), "unknown_accounts": unknown,
-        "threshold": _money(Decimal(threshold)) if threshold is not None else None,
+        "threshold": _money(threshold),
         "horizon_days": ctx.settings.horizon_days if ctx.settings else 60,
         "generators": {
             "ozon": {"enabled": gens["ozon"], "available": True},

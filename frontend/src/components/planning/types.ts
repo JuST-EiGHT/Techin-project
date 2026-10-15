@@ -198,3 +198,59 @@ export const WEEKDAYS = ['Понедельник', 'Вторник', 'Среда
 /** Финансы за период — расчёт суммы налога или оплаты поставщику. */
 export const calcHref = (r: Range) => `/dashboard/finance?period=custom&from=${r.date_from}&to=${r.date_to}`
 
+
+// ---------- обзор и ДДС (шаг 3.10) ----------
+
+export type SeriesDay = {
+  day: string
+  kind: 'fact' | 'plan' // до сегодня — факт, с сегодня — план
+  balance: string | null
+  ozon: string
+  income: string
+  expense: string
+  fact: Record<'ozon' | 'income' | 'expense', string> | null // сегодня: уже пришло и ушло
+}
+
+export type Overview = {
+  today: string
+  date_from: string
+  date_to: string
+  horizon_days: number
+  balance: string | null
+  unknown_accounts: string[]
+  accounts: { id: string; name: string; balance: string | null }[]
+  threshold: string | null
+  next_ozon: { day: string; amount: string | null; estimate: boolean; title: string } | null
+  ozon: { enabled: boolean; has_key: boolean }
+  first_below_zero: string | null
+  first_below_threshold: string | null
+  min_balance: string | null
+  end_balance: string | null
+  gaps: Gap[]
+  expected: { ozon: string; income: string; expense: string; unknown: number }
+  series: SeriesDay[]
+  upcoming: CalendarLine[]
+  empty: { has_ops: boolean; has_plans: boolean; suggestions: { code: string; name: string; why: string; have: boolean }[] }
+  warnings: string[]
+}
+
+export type CashFlowPeriod = { date_from: string; date_to: string; opening: string | null; income: string; expense: string; net: string; closing: string | null }
+export type CashFlowRow = { category_id: string | null; name: string; section: 'income' | 'expense'; values: string[]; total: string }
+export type CashFlow = {
+  date_from: string
+  date_to: string
+  granularity: 'week' | 'month'
+  opening: string | null
+  closing: string | null
+  income: string
+  expense: string
+  net: string
+  periods: CashFlowPeriod[]
+  rows: CashFlowRow[]
+  has_data: boolean
+  warnings: string[]
+}
+
+/** Операции за период (и статью) — подробности точки графика или строки ДДС. */
+export const opsHref = (from: string, to: string, category?: string | null) =>
+  `/dashboard/planning?tab=operations&from=${from}&to=${to}${category ? `&category=${category}` : ''}`

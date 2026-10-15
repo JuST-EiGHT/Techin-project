@@ -38,16 +38,16 @@ const MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн'
 const PAST_DAYS = 7 // в списке — и прошлая неделя: что оплачено, что нет
 
 const weekday = (iso: string) => (parseDay(iso).getUTCDay() + 6) % 7 // 0 — понедельник
-const dayTitle = (iso: string) => `${WEEK_SHORT[weekday(iso)]}, ${fmtDay(iso).slice(0, 5)}`
-const signed = (v: string) => `${Number(v) > 0 ? '+' : ''}${rub(v)}`
-const STATUS: Record<CalendarLine['status'], { label: string; tone: 'warn' | 'muted' | 'bad' | 'accent' } | null> = {
+export const dayTitle = (iso: string) => `${WEEK_SHORT[weekday(iso)]}, ${fmtDay(iso).slice(0, 5)}`
+export const signed = (v: string) => `${Number(v) > 0 ? '+' : ''}${rub(v)}`
+export const STATUS: Record<CalendarLine['status'], { label: string; tone: 'warn' | 'muted' | 'bad' | 'accent' } | null> = {
   planned: null,
   overdue: { label: 'не отмечен', tone: 'warn' },
   paid: { label: 'оплачено', tone: 'accent' },
   skipped: { label: 'пропущен', tone: 'muted' },
   disabled: { label: 'выключен', tone: 'muted' },
 }
-const SOURCE_TONE: Record<CalendarLine['source'], 'warn' | 'muted' | 'bad' | 'accent'> = { ozon: 'accent', manual: 'muted', supplier: 'warn', tax: 'bad' }
+export const SOURCE_TONE: Record<CalendarLine['source'], 'warn' | 'muted' | 'bad' | 'accent'> = { ozon: 'accent', manual: 'muted', supplier: 'warn', tax: 'bad' }
 
 // ---------- прогноз: сводка, предупреждение, график ----------
 
@@ -76,7 +76,8 @@ function Summary({ data }: { data: CalendarData }) {
   )
 }
 
-function GapBanner({ data }: { data: CalendarData }) {
+/** Кассовый разрыв: с какого дня ниже нуля, отдельно — ниже порога (может начаться раньше). */
+export function GapBanner({ data }: { data: Pick<CalendarData, 'first_below_zero' | 'first_below_threshold' | 'gaps' | 'threshold'> }) {
   const zero = data.first_below_zero
   const low = data.first_below_threshold
   if (!zero && !low) return null
@@ -269,7 +270,7 @@ function ForecastSettings({ data, state, onSaved }: { data: CalendarData; state:
 
 // ---------- строка платежа и действия ----------
 
-function LineAmount({ ln }: { ln: CalendarLine }) {
+export function LineAmount({ ln }: { ln: CalendarLine }) {
   if (ln.amount === null) return <span className="text-xs text-faint">сумма неизвестна</span>
   const income = ln.kind === 'income'
   const muted = ln.status === 'skipped' || ln.status === 'disabled'
@@ -281,7 +282,7 @@ function LineAmount({ ln }: { ln: CalendarLine }) {
   )
 }
 
-function LineDetails({ ln, accounts, planning, onDone, onClose }: { ln: CalendarLine; accounts: Account[]; planning: boolean; onDone: () => void; onClose: () => void }) {
+export function LineDetails({ ln, accounts, planning, onDone, onClose }: { ln: CalendarLine; accounts: Account[]; planning: boolean; onDone: () => void; onClose: () => void }) {
   const today = todayMsk()
   const active = accounts.filter((a) => !a.archived)
   const [day, setDay] = useState(ln.day)
@@ -622,16 +623,16 @@ function MonthGrid({ data, selected, onSelect, onOpen, onMove }: { data: Calenda
 
 // ---------- плановые платежи: форма и список ----------
 
-function PlanForm({ categories, accounts, data, initial, onSaved, onCancel }: { categories: Category[]; accounts: Account[]; data: CalendarData; initial?: Plan; onSaved: (note: string) => void; onCancel?: () => void }) {
+function PlanForm({ categories, accounts, data, initial, preset, onSaved, onCancel }: { categories: Category[]; accounts: Account[]; data: CalendarData; initial?: Plan; preset?: string | null; onSaved: (note: string) => void; onCancel?: () => void }) {
   const today = todayMsk()
   const [kind, setKind] = useState<PlanKind>(initial?.kind ?? 'expense')
-  const [title, setTitle] = useState(initial?.title ?? '')
+  const [title, setTitle] = useState(initial?.title ?? preset ?? '')
   const [amount, setAmount] = useState(initial ? String(Number(initial.amount)).replace('.', ',') : '')
   const [period, setPeriod] = useState<Period>(initial?.period ?? 'month')
   const [day, setDay] = useState<string>(initial?.day ? String(initial.day) : '')
   const [start, setStart] = useState(initial?.purchase_day ?? initial?.start_date ?? today)
   const [end, setEnd] = useState(initial?.end_date ?? '')
-  const [categoryText, setCategoryText] = useState(initial?.category?.name ?? '')
+  const [categoryText, setCategoryText] = useState(initial?.category?.name ?? preset ?? '')
   const [typed, setTyped] = useState(false)
   const [account, setAccount] = useState(initial?.account?.id ?? '')
   const [counterparty, setCounterparty] = useState(initial?.counterparty ?? '')
@@ -905,6 +906,7 @@ function PlansList({ plans, onEdit, onChanged }: { plans: Plan[]; onEdit: (p: Pl
 export function CalendarTab({ accounts, categories, state, onChanged }: { accounts: Account[]; categories: Category[]; state: PlanningState; onChanged: () => void }) {
   const params = useSearchParams()
   const selectedParam = params.get('day')
+  const preset = params.get('plan') // из обзора: «Запланировать» — название статьи
   const today = todayMsk()
   const [horizon, setHorizon] = useState(() => HORIZONS.reduce((a, b) => (Math.abs(b - state.horizon_days) < Math.abs(a - state.horizon_days) ? b : a)))
   const [view, setView] = useState<'list' | 'month'>('list')
@@ -926,16 +928,24 @@ export function CalendarTab({ accounts, categories, state, onChanged }: { accoun
       ])
       setData(c.data)
       setPlans(p.data)
-      setFormOpen((open) => open ?? p.data.length === 0)
+      setFormOpen((open) => open ?? (p.data.length === 0 || Boolean(preset)))
       setError(null)
     } catch (err) {
       setError(errorMessage(err))
     }
-  }, [today, horizon])
+  }, [today, horizon, preset])
 
   useEffect(() => {
     load()
   }, [load])
+
+  // из обзора: открыть форму с этой статьёй — один раз
+  const presetShown = useRef<string | null>(null)
+  useEffect(() => {
+    if (!preset || !data || presetShown.current === preset) return
+    presetShown.current = preset
+    document.querySelector('[data-testid=plan-new]')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [preset, data])
 
   // клик по точке графика — день в календаре
   useEffect(() => {
@@ -1040,9 +1050,11 @@ export function CalendarTab({ accounts, categories, state, onChanged }: { accoun
               появляются сами.
             </p>
             <PlanForm
+              key={preset ?? 'new'}
               categories={categories}
               accounts={accounts}
               data={data}
+              preset={preset}
               onSaved={(text) => {
                 setNotice(text)
                 changed()

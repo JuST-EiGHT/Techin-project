@@ -25,8 +25,10 @@ export const NAV: NavSection[] = [
     // необязательный раздел (шаг 3.8): пока не включён, пункты ведут на страницу-приглашение
     label: 'Планирование',
     items: [
-      { href: '/dashboard/planning', label: 'Операции', description: 'Что пришло и что ушло: свои расходы, доходы, выплаты Ozon' },
+      { href: '/dashboard/planning', label: 'Обзор', description: 'Деньги сейчас, прогноз остатка, кассовые разрывы' },
+      { href: '/dashboard/planning?tab=operations', label: 'Операции', description: 'Что пришло и что ушло: свои расходы, доходы, выплаты Ozon' },
       { href: '/dashboard/planning?tab=calendar', label: 'Календарь', description: 'Плановые платежи, налоги и прогноз остатка — хватит ли денег' },
+      { href: '/dashboard/planning?tab=cashflow', label: 'ДДС', description: 'Движение денег по статьям за месяц или неделю' },
       { href: '/dashboard/planning?tab=accounts', label: 'Счета', description: 'Счета, карты и наличные — сколько денег сейчас' },
       { href: '/dashboard/planning?tab=categories', label: 'Статьи', description: 'Статьи доходов и расходов' },
     ],

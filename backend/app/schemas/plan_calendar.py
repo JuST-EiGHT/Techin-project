@@ -260,3 +260,112 @@ class PastChange(BaseModel):
     new: Decimal | None
     removed: bool
     added: bool
+
+
+# ---------- обзор и ДДС (шаг 3.10) ----------
+
+
+class AccountBalance(BaseModel):
+    id: uuid.UUID
+    name: str
+    balance: Decimal | None  # null — остаток не указан
+
+
+class NextOzon(BaseModel):
+    day: date
+    amount: Decimal | None
+    estimate: bool
+    title: str
+
+
+class OzonState(BaseModel):
+    enabled: bool  # выплаты Ozon включены в прогноз
+    has_key: bool  # ключ Ozon API подключён — без него выплат в прогнозе нет
+
+
+class Expected(BaseModel):
+    """Ожидается с сегодня до конца горизонта: выплаты Ozon, прочие поступления, платежи (отрицательное)."""
+
+    ozon: Decimal
+    income: Decimal
+    expense: Decimal
+    unknown: int  # платежей, сумма которых пока неизвестна, — в суммы не вошли
+
+
+class SeriesDay(BaseModel):
+    day: date
+    kind: Literal["fact", "plan"]  # до сегодня — факт, с сегодня — план
+    balance: Decimal | None  # остаток на конец дня; null — неизвестен
+    ozon: Decimal
+    income: Decimal
+    expense: Decimal
+    fact: dict[str, Decimal] | None  # сегодня: что уже пришло и ушло (ozon, income, expense)
+
+
+class Suggestion(BaseModel):
+    code: str
+    name: str
+    why: str
+    have: bool  # статья уже есть у пользователя
+
+
+class EmptyState(BaseModel):
+    has_ops: bool  # свои операции (кроме выплат Ozon)
+    has_plans: bool
+    suggestions: list[Suggestion]  # регулярные платежи по профилю — когда планов ещё нет
+
+
+class OverviewOut(BaseModel):
+    today: date
+    date_from: date
+    date_to: date
+    horizon_days: int
+    balance: Decimal | None
+    unknown_accounts: list[str]
+    accounts: list[AccountBalance]
+    threshold: Decimal | None
+    next_ozon: NextOzon | None
+    ozon: OzonState
+    first_below_zero: date | None
+    first_below_threshold: date | None
+    min_balance: Decimal | None
+    end_balance: Decimal | None
+    gaps: list[Gap]
+    expected: Expected
+    series: list[SeriesDay]
+    upcoming: list[Line]  # на 14 дней и неотмеченные прошлые
+    empty: EmptyState
+    warnings: list[str]
+
+
+class CashFlowPeriod(BaseModel):
+    date_from: date
+    date_to: date
+    opening: Decimal | None
+    income: Decimal
+    expense: Decimal
+    net: Decimal
+    closing: Decimal | None
+
+
+class CashFlowRow(BaseModel):
+    category_id: uuid.UUID | None  # null — без статьи
+    name: str
+    section: Literal["income", "expense"]
+    values: list[Decimal]  # по периодам
+    total: Decimal
+
+
+class CashFlowOut(BaseModel):
+    date_from: date
+    date_to: date
+    granularity: Literal["week", "month"]
+    opening: Decimal | None  # null — остаток на начало неизвестен
+    closing: Decimal | None
+    income: Decimal
+    expense: Decimal
+    net: Decimal
+    periods: list[CashFlowPeriod]
+    rows: list[CashFlowRow]
+    has_data: bool
+    warnings: list[str]
