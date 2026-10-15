@@ -7,6 +7,9 @@
   факт выплаты Ozon (шаг 3.6): та же операция, а не вторая — выплата по данным Ozon подтверждается выпиской.
 - Перевод между своими счетами (счёт контрагента — наш) — не приход и не расход: две части с общим transfer_id.
 - Похожие ручные операции (сумма, дата ± 3 дня, контрагент) не объединяются молча — предлагаем объединить.
+- Банк по API (шаг 3.12) собирает выписку в ту же структуру (`Statement`, источник api_<банк>) и проходит тот же путь.
+  Одна и та же операция из файла и из API — не дубль: тот же счёт, сумма, номер документа и счёт контрагента, дата ± 3 дня.
+- Статья — встроенные правила (маркетплейс, перевод, налог) и правила пользователя (`services/categorization`).
 """
 import hashlib
 import json
@@ -21,6 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.payment_calendar import _same_text
+from app.engine.categorize import Facts
 from app.integrations.bank.statement_1c import Document, Statement, StatementError, parse
 from app.models.bank import BankBalance, BankStatement, BankTransaction, MergeDismissal
 from app.models.planning import MoneyAccount, MoneyAccountBalance, MoneyOperation
@@ -49,9 +53,25 @@ def payers() -> dict[str, dict]:
     return {p["inn"]: p for p in data["payers"]}
 
 
-def dedup_key(doc: Document) -> str:
-    """Ключ операции файла: номер + дата + сумма + счёт контрагента (у одного номера в разные дни — разные ключи)."""
+def dedup_key(doc: Document, source: str = "file_1c") -> str:
+    """Ключ операции: id операции в банке (API); у файла — номер + дата + сумма + счёт контрагента (у одного номера
+    в разные дни — разные ключи)."""
+    if doc.bank_id:
+        return f"{source}:{doc.bank_id}"[:200]
     return f"1c:{doc.number or '-'}:{doc.day.isoformat()}:{doc.amount}:{doc.counterparty_account or '-'}"
+
+
+def _number(value: str | None) -> str:
+    return (value or "").strip().lstrip("0")
+
+
+def same_operation(tx: BankTransaction, doc: Document) -> bool:
+    """Операция из файла и из API — одна и та же: сумма, номер документа, счёт контрагента (если есть у обеих), дата ± 3 дня."""
+    if Decimal(tx.amount) != doc.amount or abs((tx.day - doc.day).days) > MATCH_DAYS:
+        return False
+    if _number(tx.doc_number) != _number(doc.number):
+        return False
+    return not (tx.counterparty_account and doc.counterparty_account) or tx.counterparty_account == doc.counterparty_account
 
 
 def ozon_close(a: Decimal, b: Decimal) -> bool:
@@ -124,10 +144,11 @@ async def _plan_accounts(
     for sec in st.accounts:
         doc = next((d for d in st.documents if d.account == sec.number and (d.own_bik or d.own_bank)), None)
         acc = by_number.get(sec.number) or chosen
+        bik = sec.bik or (doc.own_bik if doc else None)
+        bank_name = sec.bank_name or (doc.own_bank if doc else None)
         plans.append(AccountPlan(
-            sec.number, acc, acc.name if acc else _account_name(sec.number, doc.own_bank if doc else None),
-            sec.opening, sec.closing, sec.date_from, sec.date_to,
-            doc.own_bik if doc else None, doc.own_bank if doc else None,
+            sec.number, acc, acc.name if acc else _account_name(sec.number, bank_name),
+            sec.opening, sec.closing, sec.date_from, sec.date_to, bik, bank_name,
         ))
     suggested = None
     if len(st.accounts) == 1 and plans[0].account is None and len(candidates) == 1:
@@ -165,16 +186,39 @@ async def analyze(
         st = parse(content)
     except StatementError as exc:
         raise BankImportError(str(exc)) from exc
+    result = await analyze_statement(db, user_id, st, account_id)
+    sha = hashlib.sha256(content).hexdigest()
+    prev = (await db.execute(select(BankStatement).where(
+        BankStatement.user_id == user_id, BankStatement.sha256 == sha).limit(1))).scalar_one_or_none()
+    result.already_loaded = prev.uploaded_at if prev else None
+    return result
+
+
+async def analyze_statement(
+    db: AsyncSession, user_id: uuid.UUID, st: Statement, account_id: uuid.UUID | None = None,
+    own_extra: set[str] | None = None,
+) -> ImportResult:
+    """Что сделаем с выпиской (файл или API): новые операции и дубли, поступления Ozon, переводы, похожие ручные.
+    own_extra — номера своих счетов, которых ещё нет в сервисе (другие счета того же подключения банка)."""
     plans, candidates, suggested = await _plan_accounts(db, user_id, st, account_id)
     existing_ids = [p.account.id for p in plans if p.account]
     known: set[tuple[uuid.UUID, str]] = set()
+    days = [d.day for d in st.documents]
+    other_source: dict[uuid.UUID, list[BankTransaction]] = {}  # операции того же счёта из другого источника (файл / API)
     if existing_ids:
         res = await db.execute(select(BankTransaction.account_id, BankTransaction.dedup_key).where(
             BankTransaction.user_id == user_id, BankTransaction.account_id.in_(existing_ids)))
         known = {(a, k) for a, k in res.all()}
-    own_numbers = {a.number for a in await planning_svc._accounts(db, user_id) if a.number} | set(st.numbers)
+        if days:
+            res = await db.execute(select(BankTransaction).where(
+                BankTransaction.user_id == user_id, BankTransaction.account_id.in_(existing_ids),
+                BankTransaction.source != st.source, BankTransaction.day >= min(days) - timedelta(days=MATCH_DAYS),
+                BankTransaction.day <= max(days) + timedelta(days=MATCH_DAYS)))
+            for tx in res.scalars():
+                other_source.setdefault(tx.account_id, []).append(tx)
+    own_numbers = ({a.number for a in await planning_svc._accounts(db, user_id) if a.number} | set(st.numbers)
+                   | (own_extra or set()))
     account_of = {p.number: p.account for p in plans}
-    days = [d.day for d in st.documents]
     manual = await _manual_ops(db, user_id, min(days) - timedelta(days=MATCH_DAYS), max(days) + timedelta(days=MATCH_DAYS)) \
         if days else []
     ozon_ops = await _ozon_ops(db, user_id)
@@ -183,9 +227,14 @@ async def analyze(
     seen: set[tuple[str, str]] = set()
     rows: list[TxPlan] = []
     for doc in st.documents:
-        key = dedup_key(doc)
+        key = dedup_key(doc, st.source)
         acc = account_of.get(doc.account)
         duplicate = (doc.account, key) in seen or (acc is not None and (acc.id, key) in known)
+        if not duplicate and acc is not None:
+            twin = next((tx for tx in other_source.get(acc.id, []) if same_operation(tx, doc)), None)
+            if twin is not None:  # уже загружена из другого источника — та же операция
+                other_source[acc.id].remove(twin)
+                duplicate = True
         seen.add((doc.account, key))
         row = TxPlan(doc, key, "duplicate" if duplicate else "new")
         rows.append(row)
@@ -210,11 +259,7 @@ async def analyze(
                           and manual_fits(op, doc.day, doc.amount, doc.counterparty)]
             if row.manual:
                 used_manual.add(row.manual[0].op_id)
-    sha = hashlib.sha256(content).hexdigest()
-    prev = (await db.execute(select(BankStatement).where(
-        BankStatement.user_id == user_id, BankStatement.sha256 == sha).limit(1))).scalar_one_or_none()
-    result = ImportResult(st, plans, rows, applied=False, already_loaded=prev.uploaded_at if prev else None,
-                          candidates=candidates, suggested_account_id=suggested)
+    result = ImportResult(st, plans, rows, applied=False, candidates=candidates, suggested_account_id=suggested)
     result.warnings = list(st.warnings)
     return result
 
@@ -248,13 +293,19 @@ async def _counterpart_leg(db: AsyncSession, user_id: uuid.UUID, doc: Document) 
     return None
 
 
-async def apply(db: AsyncSession, user_id: uuid.UUID, result: ImportResult, content: bytes, filename: str) -> None:
-    """Записать: выписку, счета, остатки, операции банка и операции планирования. Коммит — здесь."""
+async def apply(
+    db: AsyncSession, user_id: uuid.UUID, result: ImportResult, content: bytes | None = None, filename: str = "",
+    connection_id: uuid.UUID | None = None,
+) -> None:
+    """Записать: выписку (файл — content; из API файла нет), счета, остатки, операции банка и операции планирования.
+    Коммит — здесь."""
     st = result.statement
-    sha = hashlib.sha256(content).hexdigest()
-    statement = (await db.execute(select(BankStatement).where(
-        BankStatement.user_id == user_id, BankStatement.sha256 == sha).limit(1))).scalar_one_or_none()
-    if statement is None:
+    statement = None
+    if content is not None:
+        sha = hashlib.sha256(content).hexdigest()
+        statement = (await db.execute(select(BankStatement).where(
+            BankStatement.user_id == user_id, BankStatement.sha256 == sha).limit(1))).scalar_one_or_none()
+    if content is not None and statement is None:
         statement = BankStatement(
             id=uuid.uuid4(), user_id=user_id, filename=filename[:255] or "выписка.txt", format="1c",
             version=st.version, encoding=st.encoding, sha256=sha, date_from=st.date_from, date_to=st.date_to,
@@ -298,8 +349,8 @@ async def apply(db: AsyncSession, user_id: uuid.UUID, result: ImportResult, cont
                 BankBalance.account_id == acc.id, BankBalance.day == day, BankBalance.kind == kind,
             ).order_by(BankBalance.created_at.desc()).limit(1))).scalar_one_or_none()
             if same is None or Decimal(same.amount) != amount:
-                db.add(BankBalance(user_id=user_id, account_id=acc.id, statement_id=statement.id, day=day, kind=kind,
-                                   amount=amount))
+                db.add(BankBalance(user_id=user_id, account_id=acc.id, statement_id=statement.id if statement else None,
+                                   day=day, kind=kind, amount=amount))
     await db.flush()
 
     cats = {c.code: c.id for c in await planning_svc._categories(db, user_id) if c.code and c.archived_at is None}
@@ -307,17 +358,24 @@ async def apply(db: AsyncSession, user_id: uuid.UUID, result: ImportResult, cont
         await planning_svc.add_template_categories(db, user_id, ["marketplace"])
         await db.flush()
         cats = {c.code: c.id for c in await planning_svc._categories(db, user_id) if c.code and c.archived_at is None}
+    from app.services import categorization  # правила разнесения (шаг 3.12)
+
+    facts = {id(r): Facts(r.doc.amount, r.doc.counterparty, r.doc.counterparty_inn, r.doc.purpose,
+                          r.doc.counterparty_account)
+             for r in result.rows if r.status == "new" and r.kind == "regular" and not r.payer}
+    picker = await categorization.picker(db, user_id, list(facts.values()))
     for row in result.rows:
         if row.status != "new":
             continue
         doc = row.doc
         acc = accounts[doc.account]
         tx = BankTransaction(
-            id=uuid.uuid4(), user_id=user_id, account_id=acc.id, statement_id=statement.id, day=doc.day,
-            amount=doc.amount, counterparty=(doc.counterparty or "")[:300] or None, counterparty_inn=doc.counterparty_inn,
-            counterparty_account=doc.counterparty_account, counterparty_bik=doc.counterparty_bik, purpose=doc.purpose,
-            doc_number=doc.number, dedup_key=row.key, source="file_1c", kind=row.kind,
-            raw_json={k: v for k, v in doc.raw.items()},
+            id=uuid.uuid4(), user_id=user_id, account_id=acc.id, statement_id=statement.id if statement else None,
+            day=doc.day, amount=doc.amount, counterparty=(doc.counterparty or "")[:300] or None,
+            counterparty_inn=doc.counterparty_inn, counterparty_account=doc.counterparty_account,
+            counterparty_bik=doc.counterparty_bik, purpose=doc.purpose, doc_number=(doc.number or "")[:64] or None,
+            bank_id=(doc.bank_id or "")[:128] or None, dedup_key=row.key, source=st.source, kind=row.kind,
+            connection_id=connection_id, raw_json={k: v for k, v in doc.raw.items()},
         )
         db.add(tx)
         if row.kind == "ozon" and row.ozon_op is not None:
@@ -330,13 +388,17 @@ async def apply(db: AsyncSession, user_id: uuid.UUID, result: ImportResult, cont
                 op_id=uuid.uuid4(), version=1, user_id=user_id, account_id=acc.id, day=doc.day, amount=doc.amount,
                 category_id=await planning_svc._transfer_category(db, user_id), counterparty=doc.counterparty,
                 comment=doc.purpose, source="bank", transfer_id=pair.transfer_id if pair else uuid.uuid4(),
+                category_by="auto",
             )
             db.add(op)
         else:
+            category, by, rule = (cats.get("marketplace"), "auto", None) if row.payer else (None, None, None)
+            if id(row) in facts and (hit := picker.pick(facts[id(row)])) is not None:
+                category, by, rule = hit
             op = MoneyOperation(
                 op_id=uuid.uuid4(), version=1, user_id=user_id, account_id=acc.id, day=doc.day, amount=doc.amount,
-                category_id=cats.get("marketplace") if row.payer else None,
-                counterparty=row.payer["name"] if row.payer else doc.counterparty, comment=doc.purpose, source="bank",
+                category_id=category, counterparty=row.payer["name"] if row.payer else doc.counterparty,
+                comment=doc.purpose, source="bank", category_by=by if category else None, rule_id=rule,
                 external_key=f"{OZON_BANK_KEY}{doc.day.isoformat()}:{tx.id.hex[:8]}" if row.kind == "ozon" else None,
             )
             db.add(op)
@@ -390,8 +452,8 @@ async def merge(db: AsyncSession, user_id: uuid.UUID, bank_op_id: uuid.UUID, man
     if bank.source != "bank" or manual.source not in ("manual", "import") or manual.transfer_id is not None:
         raise PlanningError("Объединить можно операцию из банка с операцией, внесённой вручную или файлом")
     changes = {}
-    if bank.category_id is None and manual.category_id is not None:
-        changes["category_id"] = manual.category_id
+    if manual.category_id is not None and (bank.category_id is None or bank.category_by == "rule"):
+        changes.update(category_id=manual.category_id, category_by="user", rule_id=None)  # статья пользователя важнее правила
     if manual.comment:
         changes["comment"] = manual.comment if not bank.comment else f"{manual.comment}\n{bank.comment}"[:2000]
     manual.deleted_at = _now()

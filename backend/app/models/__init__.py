@@ -14,6 +14,7 @@ from app.models.sales_daily import SalesDaily  # noqa: F401
 from app.models.ozon_balance import OzonBalanceDay, OzonPayoutSettings  # noqa: F401
 from app.models.planning import (  # noqa: F401
     CashCategory,
+    CategorizationRule,
     MoneyAccount,
     MoneyAccountBalance,
     MoneyOperation,
@@ -21,4 +22,4 @@ from app.models.planning import (  # noqa: F401
     PlannedPayment,
     PlanningSettings,
 )
-from app.models.bank import BankBalance, BankStatement, BankTransaction, MergeDismissal  # noqa: F401
+from app.models.bank import BankBalance, BankConnection, BankStatement, BankTransaction, MergeDismissal  # noqa: F401

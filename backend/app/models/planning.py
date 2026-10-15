@@ -94,6 +94,10 @@ class MoneyOperation(Base):
     source: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")  # manual|import|ozon_payout|bank
     transfer_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)  # перевод: две операции с одним transfer_id
     external_key: Mapped[str | None] = mapped_column(String(64))  # выплата Ozon: ozon_payout:<дата> — без дублей
+    # кто поставил статью (шаг 3.12): user — вручную (правила её не трогают), rule — правило `rule_id`,
+    # auto — встроенное правило (маркетплейс по ИНН, перевод между своими счетами, налог); None — статьи нет или старые данные
+    category_by: Mapped[str | None] = mapped_column(String(8))
+    rule_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now, server_default=func.now())
     superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # исправлена новой версией
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # скрыта пользователем
@@ -121,6 +125,34 @@ class PlanningSettings(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+RULE_DIRECTIONS = ("in", "out")  # поступление | платёж
+
+
+class CategorizationRule(Base):
+    """Правило разнесения (шаг 3.12): условия → статья. Условия складываются (все указанные должны совпасть):
+    ИНН контрагента, слова в названии контрагента, слова в назначении (через запятую — любое), направление, сумма от / до.
+    Порядок — `priority` (меньше — раньше), срабатывает первое подошедшее. Ручная разметка важнее правил. Правило —
+    настройка, а не исходные данные: меняется на месте, удаление — `deleted_at` (операции помнят `rule_id`)."""
+
+    __tablename__ = "categorization_rules"
+    __table_args__ = (Index("ix_categorization_rules_user", "user_id", "priority"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    direction: Mapped[str] = mapped_column(String(4), nullable=False)  # in | out
+    counterparty_inn: Mapped[str | None] = mapped_column(String(12))
+    counterparty: Mapped[str | None] = mapped_column(String(200))  # слова в названии контрагента
+    purpose: Mapped[str | None] = mapped_column(String(500))  # слова в назначении платежа, через запятую — любое
+    amount_min: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    amount_max: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    category_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("cash_categories.id", ondelete="CASCADE"), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now, server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 PLAN_KINDS = ("income", "expense")

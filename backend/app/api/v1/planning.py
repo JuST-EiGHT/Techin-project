@@ -29,6 +29,7 @@ from app.schemas.planning import (
     OperationVersion,
     PlanningSettingsIn,
     PlanningState,
+    RuleSuggestion,
     SetupIn,
     SetupOptions,
     TemplateCodes,
@@ -184,6 +185,7 @@ async def list_operations(
     account_id: uuid.UUID | None = None,
     category_id: uuid.UUID | None = None,
     search: str | None = Query(None, max_length=100, description="Контрагент или описание"),
+    uncategorized: bool = Query(False, description="Только без статьи (переводы не в счёт)"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     user: User = Depends(get_current_user),
@@ -197,7 +199,8 @@ async def list_operations(
     if (date_to - date_from).days > 3660:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Период: не больше 10 лет за раз")
     await svc.sync_ozon_operations(db, user.id)
-    return await svc.list_operations(db, user.id, date_from, date_to, account_id, category_id, search, limit, offset)
+    return await svc.list_operations(db, user.id, date_from, date_to, account_id, category_id, search, limit, offset,
+                                     uncategorized)
 
 
 @router.post("/operations", response_model=OperationSaved, status_code=status.HTTP_201_CREATED)
@@ -258,7 +261,13 @@ async def patch_operation(
         await db.rollback()
         raise _fail(exc) from exc
     await db.commit()
-    return await _saved(db, user, saved, changed or note in ("created", "restored"), note)
+    result = await _saved(db, user, saved, changed or note in ("created", "restored"), note)
+    if changed and "category_id" in changes:  # статью поставили вручную — предложить правило для контрагента (3.12)
+        from app.services import categorization
+
+        suggestion = await categorization.suggestion(db, user.id, saved)
+        result.rule_suggestion = RuleSuggestion(**suggestion) if suggestion else None
+    return result
 
 
 @router.delete("/operations/{op_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     OZON_TIMEOUT_SECONDS: float = 30.0
     OZON_RATE_LIMIT_PER_SECOND: int = 50  # запросов на все методы с одного Client ID (docs/OZON_API.md)
 
+    # Банки по API (шаг 3.12): адреса — из документации банков (docs/banks/); у Точки есть песочница
+    # https://enter.tochka.com/sandbox/v2
+    TBANK_API_URL: str = "https://business.tbank.ru/openapi"
+    TOCHKA_API_URL: str = "https://enter.tochka.com/uapi"
+
     REPORT_MAX_SIZE_MB: int = 10  # предел размера загружаемого отчёта (промпт 2.2)
 
     # В .env задаётся строкой через запятую

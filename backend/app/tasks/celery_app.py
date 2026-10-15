@@ -22,6 +22,8 @@ celery_app.conf.update(
         "sync-finance-every-6h": {"task": "tasks.sync_finance_all", "schedule": crontab(minute=23, hour="*/6")},
         # баланс у Ozon и выплаты: каждые 6 часов, после начислений
         "sync-balance-every-6h": {"task": "tasks.sync_balance_all", "schedule": crontab(minute=28, hour="*/6")},
+        # банки по API (шаг 3.12): раз в час — новые операции и остатки
+        "sync-bank-hourly": {"task": "tasks.sync_bank_all", "schedule": crontab(minute=52)},
         # акции: раз в 3 часа
         "sync-promotions-every-3h": {"task": "tasks.sync_promotions_all", "schedule": crontab(minute=33, hour="*/3")},
     },

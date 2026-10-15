@@ -5,6 +5,7 @@
 запуск через STALE_AFTER считается проваленным и не блокирует новые.
 Ошибки Ozon и любые другие записываются в run.error и наружу не пробрасываются:
 сбой у одного пользователя не мешает остальным.
+Банк по API (шаг 3.12, kind="bank") — тот же журнал, но без клиента Ozon: токены банков — в подключениях.
 """
 import logging
 import uuid
@@ -15,6 +16,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.integrations.bank.base import BankAPIError
 from app.integrations.ozon.client import OzonClient
 from app.integrations.ozon.errors import OzonAPIError
 from app.integrations.ozon.factory import get_ozon_client
@@ -63,13 +65,21 @@ async def _promotions_job(db: AsyncSession, user_id: uuid.UUID, client: OzonClie
     return (await sync_promotions(db, user_id, client)).as_dict()
 
 
+async def _bank_job(db: AsyncSession, user_id: uuid.UUID, connection_id: str | None = None) -> dict:
+    from app.services.bank_connections import sync_user
+
+    return await sync_user(db, user_id, connection_id)
+
+
 JOBS: dict[str, Job] = {
     "products": _products_job,
     "stocks": _stocks_job,
     "finance": _finance_job,
     "promotions": _promotions_job,
     "balance": _balance_job,
+    "bank": _bank_job,
 }
+NO_OZON_CLIENT = {"bank"}  # задачи, которым клиент Ozon не нужен
 
 
 class SyncAlreadyRunning(Exception):
@@ -141,8 +151,16 @@ async def run_sync(
         run.status = RUNNING
         await db.commit()
         try:
-            async with await get_ozon_client(user_id, db) as client:
-                stats = await job(db, user_id, client, **(params or {}))
+            if kind in NO_OZON_CLIENT:
+                stats = await job(db, user_id, **(params or {}))
+            else:
+                async with await get_ozon_client(user_id, db) as client:
+                    stats = await job(db, user_id, client, **(params or {}))
+        except BankAPIError as e:
+            await db.rollback()
+            log.warning("Синхронизация %s у пользователя %s: %s (%s)", kind, user_id, e.message, e.bank_message)
+            await fail_run(db, run, e.message)
+            return run
         except OzonAPIError as e:
             await db.rollback()
             log.warning("Синхронизация %s у пользователя %s: %s (%s)", kind, user_id, e.message, e.ozon_message)

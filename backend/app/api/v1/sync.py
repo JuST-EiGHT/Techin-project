@@ -12,6 +12,7 @@ from app.integrations.ozon.errors import OzonNotConfiguredError
 from app.models.sync_run import SUCCESS, SyncRun
 from app.models.user import User
 from app.schemas.sync import KindStatus, SyncRunResponse, SyncStatusResponse, utc
+from app.services import bank_connections
 from app.services.auth import get_current_user
 from app.services.sync.runner import SyncAlreadyRunning, active_run, fail_run, latest_run, start_run
 
@@ -96,4 +97,6 @@ async def sync_status(user: User = Depends(get_current_user), db: AsyncSession =
         finance=await _kind_status(db, user.id, "finance"),
         promotions=await _kind_status(db, user.id, "promotions"),
         balance=await _kind_status(db, user.id, "balance"),
+        has_bank=bool(await bank_connections.list_connections(db, user.id)),
+        bank=await _kind_status(db, user.id, "bank"),
     )

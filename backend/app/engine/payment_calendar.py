@@ -202,6 +202,33 @@ def match(
         used.add(best.op_id)
 
 
+TAX_EARLY_DAYS = 40  # ЕНП платят заранее: платёж за 40 дней до срока ещё относится к нему
+TAX_LATE_DAYS = 10  # и с опозданием до 10 дней
+
+
+def close_taxes(items: list[Item], ops: list[Op], tax_categories: set[str]) -> None:
+    """ЕНП (шаг 3.12): платёж со статьёй «Налоги и взносы» закрывает плановые налоги с ближайшим сроком — даже если
+    сумма другая (налог в плане — оценка). Одним платежом ЕНП платят сразу несколько налогов с одним сроком — он
+    закрывает их все (`meta["shared_fact"]`: разница с планом по отдельному налогу тогда не считается).
+    Вызывать после `match`: точные совпадения по сумме и дате уже разобраны."""
+    used = matched_ops(items)
+    open_items = [i for i in items if i.source == "tax" and i.fact is None and not i.skipped]
+    if not open_items:
+        return
+    for op in sorted(ops, key=lambda o: (o.day, o.op_id)):
+        if op.category_id not in tax_categories or op.amount >= 0 or op.op_id in used or op.source == "mark":
+            continue
+        dues = sorted({i.day for i in open_items
+                       if i.fact is None and op.day - timedelta(days=TAX_LATE_DAYS) <= i.day <= op.day + timedelta(days=TAX_EARLY_DAYS)})
+        if not dues:
+            continue
+        group = [i for i in open_items if i.fact is None and i.day == dues[0]]
+        for item in group:
+            item.fact = op
+            item.meta["shared_fact"] = len(group) > 1
+        used.add(op.op_id)
+
+
 def matched_ops(items: list[Item]) -> set[str]:
     return {i.fact.op_id for i in items if i.fact is not None}
 

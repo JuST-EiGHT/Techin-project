@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
 import { BankSection } from '@/components/planning/Bank'
+import { RulesSection } from '@/components/planning/Rules'
 import {
   ACCOUNT_KINDS,
   type Account,
@@ -296,6 +297,7 @@ export function CategoriesTab({ categories, templates, onChanged }: { categories
           </ul>
         </details>
       )}
+      <RulesSection categories={categories} onChanged={onChanged} />
     </div>
   )
 }

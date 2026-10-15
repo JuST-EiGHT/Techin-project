@@ -30,6 +30,8 @@ class AccountSection:
     closing: Decimal | None = None  # остаток на конец дня date_to
     income: Decimal | None = None  # ВсегоПоступило
     expense: Decimal | None = None  # ВсегоСписано
+    bik: str | None = None  # реквизиты счёта — у выписки из API (шаг 3.12); у файла — из документов
+    bank_name: str | None = None
 
 
 @dataclass
@@ -48,6 +50,7 @@ class Document:
     own_bik: str | None = None
     own_bank: str | None = None
     raw: dict = field(default_factory=dict)
+    bank_id: str | None = None  # id операции в банке — у операций из API (шаг 3.12)
 
 
 @dataclass
@@ -60,6 +63,7 @@ class Statement:
     documents: list[Document]
     skipped: list[str] = field(default_factory=list)  # документы не по счетам выписки и с ошибками — строкой
     warnings: list[str] = field(default_factory=list)
+    source: str = "file_1c"  # file_1c | api_<банк> (шаг 3.12: выписка из API собирается в ту же структуру)
 
     @property
     def numbers(self) -> list[str]:

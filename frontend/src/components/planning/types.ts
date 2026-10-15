@@ -64,6 +64,37 @@ export type Operation = {
   source: 'manual' | 'import' | 'ozon_payout' | 'bank'
   transfer: { id: string; direction: 'out' | 'in'; account: { id: string; name: string } | null } | null
   before_opening: boolean
+  category_by?: 'user' | 'rule' | 'auto' | null // кто поставил статью: вручную, правило, встроенное правило (шаг 3.12)
+}
+
+// ---------- правила разнесения (шаг 3.12) ----------
+
+export type RuleDirection = 'in' | 'out'
+
+export type Rule = {
+  id: string
+  priority: number
+  direction: RuleDirection
+  counterparty_inn: string | null
+  counterparty: string | null
+  purpose: string | null
+  amount_min: string | null
+  amount_max: string | null
+  category: { id: string; name: string; kind: CategoryKind } | null
+  enabled: boolean
+  operations: number
+}
+
+export type BuiltinRule = { code: string; title: string; when: string; category: string; why: string }
+export type RulesPage = { builtin: BuiltinRule[]; rules: Rule[] }
+
+export type RuleSuggestion = {
+  direction: RuleDirection
+  counterparty_inn: string | null
+  counterparty: string | null
+  counterparty_name: string | null
+  category: { id: string; name: string }
+  others: number
 }
 
 export type OperationsPage = {

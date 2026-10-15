@@ -131,6 +131,33 @@ def sync_balance_all() -> int:
     return _fan_out("balance", sync_balance_for_user)
 
 
+@celery_app.task(name="tasks.sync_bank_for_user")
+def sync_bank_for_user(user_id: str, run_id: str | None = None, connection_id: str | None = None) -> dict:
+    """Банки по API (шаг 3.12): все подключения пользователя или одно — новые операции и остатки."""
+    params = {"connection_id": connection_id} if connection_id else None
+    return asyncio.run(_sync_for_user("bank", user_id, run_id, params))
+
+
+async def _bank_users() -> list[uuid.UUID]:
+    from app.services.bank_connections import users_with_connections
+
+    async with task_sessions() as sessions, sessions() as db:
+        return await users_with_connections(db)
+
+
+@celery_app.task(name="tasks.sync_bank_all")
+def sync_bank_all() -> int:
+    """По расписанию — пользователям с подключённым банком (ключ Ozon для этого не нужен)."""
+    queued = 0
+    for user_id in asyncio.run(_bank_users()):
+        try:
+            sync_bank_for_user.delay(str(user_id))
+            queued += 1
+        except Exception:  # noqa: BLE001
+            log.exception("Не удалось поставить обновление банка в очередь для %s", user_id)
+    return queued
+
+
 # Задача Celery для каждого вида синхронизации — для ручного запуска из API
 FOR_USER_TASKS = {
     "products": sync_products_for_user,
@@ -138,4 +165,5 @@ FOR_USER_TASKS = {
     "finance": sync_finance_for_user,
     "promotions": sync_promotions_for_user,
     "balance": sync_balance_for_user,
+    "bank": sync_bank_for_user,
 }

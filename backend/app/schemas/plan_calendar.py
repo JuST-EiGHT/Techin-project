@@ -161,6 +161,7 @@ class Line(BaseModel):
     skipped: bool
     fact: Fact | None
     diff: Decimal | None  # факт − план, если разошлись
+    shared_fact: bool = False  # один платёж ЕНП закрыл несколько налогов с этим сроком (шаг 3.12)
     plan_id: uuid.UUID | None
     category: Ref | None
     account: Ref | None

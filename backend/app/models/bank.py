@@ -9,7 +9,7 @@ import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import JSON, Date, DateTime, ForeignKey, Index, LargeBinary, Numeric, String, UniqueConstraint, Uuid, func
+from sqlalchemy import JSON, Date, DateTime, ForeignKey, Index, LargeBinary, Numeric, String, Text, UniqueConstraint, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -19,6 +19,33 @@ TX_KINDS = ("regular", "ozon", "transfer")  # обычная, поступлен
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+CONNECTION_STATUSES = ("active", "error", "auth")  # работает | сбой при обновлении | токен не принят — нужен новый
+
+
+class BankConnection(Base):
+    """Банк по API (шаг 3.12). Токен — только Fernet-шифротекст: не логируется и не возвращается (правило 7).
+    Права — только чтение счетов, остатков и выписок. Отключение удаляет токен; загруженные операции остаются.
+    `state` — по номеру счёта: до какого дня загружено (`synced_to`); нет записи — при обновлении грузим историю."""
+
+    __tablename__ = "bank_connections"
+    __table_args__ = (Index("ix_bank_connections_user", "user_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    provider: Mapped[str] = mapped_column(String(16), nullable=False)  # tbank | tochka
+    token_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(8), nullable=False, default="active")
+    status_message: Mapped[str | None] = mapped_column(String(500))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # срок токена, если известен
+    accounts: Mapped[list] = mapped_column(JSON, nullable=False, default=list)  # [{number, name}] — что видит токен
+    state: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # последнее успешное обновление
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now, server_default=func.now())
+
+    def __repr__(self) -> str:  # без токена — на случай попадания объекта в лог
+        return f"<BankConnection {self.id} {self.provider}>"
 
 
 class BankStatement(Base):
@@ -64,6 +91,7 @@ class BankTransaction(Base):
     bank_id: Mapped[str | None] = mapped_column(String(128))  # id операции в банке (API, шаг 3.12)
     dedup_key: Mapped[str] = mapped_column(String(200), nullable=False)
     source: Mapped[str] = mapped_column(String(16), nullable=False)  # file_1c | api_<банк>
+    connection_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("bank_connections.id", ondelete="SET NULL"))
     kind: Mapped[str] = mapped_column(String(8), nullable=False, default="regular")  # regular | ozon | transfer
     op_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)  # операция планирования (money_operations.op_id)
     raw_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)

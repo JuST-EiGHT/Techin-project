@@ -1,9 +1,8 @@
 // Меню кабинета — один конфиг на шапку, мобильное меню и меню аккаунта (шаг 0.5).
 // Страница попадает сюда, только когда она сделана: новый шаг добавляет свой пункт.
-// Ещё появятся: Планирование — обзор и ДДС (3.10), календарь (3.9);
-// Товары — товары (4.1), цены (4.2), история цен (6.4); Акции — история участия (4.3);
+// Ещё появятся: Товары — товары (4.1), цены (4.2), история цен (6.4); Акции — история участия (4.3);
 // Склады — кандидаты на вывоз (5.1), поставки (5.2).
-// Меню аккаунта — банки (3.12), уведомления (7.3), тариф (8.1).
+// Меню аккаунта — уведомления (7.3), тариф (8.1).
 
 export type NavItem = { href: string; label: string; description?: string }
 export type NavSection = { label: string; href?: string; items?: NavItem[] }
@@ -53,6 +52,7 @@ export const NAV: NavSection[] = [
 export const ACCOUNT_MENU: NavItem[] = [
   { href: '/dashboard/settings/account', label: 'Аккаунт' },
   { href: '/dashboard/settings/api-keys', label: 'API-ключи Ozon' },
+  { href: '/dashboard/settings/banks', label: 'Банки' },
   { href: '/dashboard/settings/taxes', label: 'Налоги и НДС' },
   { href: '/dashboard/settings', label: 'Основные настройки' },
 ]

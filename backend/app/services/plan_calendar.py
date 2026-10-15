@@ -393,9 +393,16 @@ async def build(ctx: Ctx, date_from: date, date_to: date) -> tuple[list[cal.Item
                 items.append(item)
     items = [i for i in items if edge_lo <= i.day <= edge_hi]
     marked = {uuid.UUID(o.op_id) for o in overrides.values() if o.op_id}
-    ops = await _ops(ctx, edge_lo - timedelta(days=cal.MATCH_DAYS), min(edge_hi, ctx.today), marked)
+    # с запасом назад: ЕНП платят заранее — платёж до срока закрывает плановый налог (шаг 3.12)
+    ops = await _ops(ctx, edge_lo - timedelta(days=cal.TAX_EARLY_DAYS), min(edge_hi, ctx.today), marked)
     cal.match(items, ops, overrides)
+    cal.close_taxes(items, ops, await _tax_categories(ctx))
     return items, notes, {"ops": ops}
+
+
+async def _tax_categories(ctx: Ctx) -> set[str]:
+    """Статья «Налоги и взносы» (код taxes): платёж с ней закрывает плановый налог (ЕНП)."""
+    return {str(c.id) for c in await planning_svc._categories(ctx.db, ctx.user_id) if c.code == "taxes"}
 
 
 async def _start_balance(ctx: Ctx) -> tuple[Decimal | None, list[str]]:
@@ -427,7 +434,8 @@ def line_out(item: cal.Item, today: date, names: dict) -> dict:
         "fact": None if fact is None else {
             "op_id": fact.op_id or None, "day": _d(fact.day), "amount": _money(fact.amount), "marked": item.fact_marked,
         },
-        "diff": _money(item.diff) if item.diff not in (None, ZERO) else None,
+        "diff": _money(item.diff) if item.diff not in (None, ZERO) and not meta.get("shared_fact") else None,
+        "shared_fact": bool(meta.get("shared_fact")),  # один платёж ЕНП закрыл несколько налогов с этим сроком
         "plan_id": str(meta["plan_id"]) if meta.get("plan_id") else None,
         "category": names["categories"].get(meta.get("category_id")),
         "account": names["accounts"].get(meta.get("account_id")),
@@ -665,8 +673,9 @@ async def upcoming_taxes(db: AsyncSession, user_id: uuid.UUID, limit: int = 3) -
             break
     picked.sort(key=lambda i: (i.day, i.title))
     marked = {uuid.UUID(o.op_id) for o in overrides.values() if o.op_id}
-    ops = await _ops(ctx, ctx.today - timedelta(days=2 * cal.MATCH_DAYS), ctx.today, marked)
+    ops = await _ops(ctx, ctx.today - timedelta(days=cal.TAX_EARLY_DAYS), ctx.today, marked)
     cal.match(picked, ops, overrides)
+    cal.close_taxes(picked, ops, await _tax_categories(ctx))
     names = await _names(ctx)
     return {"has_profile": True, "planning": planning, "items": [line_out(i, ctx.today, names) for i in picked]}
 

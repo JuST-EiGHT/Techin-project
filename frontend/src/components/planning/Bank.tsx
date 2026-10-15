@@ -3,6 +3,7 @@
 // «Планирование» работает и без банка. Предпросмотр → загрузить; дублей при повторной загрузке нет; поступления от Ozon
 // подтверждают выплаты Ozon (одна операция); похожие ручные операции — объединить или «это разные»; сверка выплат Ozon.
 import { Upload } from 'lucide-react'
+import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
@@ -342,6 +343,13 @@ export function BankSection({ onChanged }: { onChanged: () => void }) {
 
   return (
     <div className="space-y-4">
+      <p className="text-sm text-muted" data-testid="bank-api-link">
+        Т-Банк или Точка? Подключите банк по API — операции будут приходить сами раз в час:{' '}
+        <Link href="/dashboard/settings/banks" className="text-accent hover:underline">
+          меню аккаунта → «Банки»
+        </Link>
+        . Остальные банки — выпиской файлом ниже.
+      </p>
       <UploadPanel onApplied={changed} />
       <Matches items={matches} onChanged={changed} />
       {check && <OzonCheckTable check={check} />}

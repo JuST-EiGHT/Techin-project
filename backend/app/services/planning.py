@@ -461,9 +461,19 @@ async def create_operation(
     db: AsyncSession, user_id: uuid.UUID, data: OperationIn, source: str = "manual"
 ) -> MoneyOperation:
     await _check_operation(db, user_id, data)
+    category, by, rule = data.category_id, ("user" if data.category_id else None), None
+    if category is None:  # статью не указали — разнесут правила (шаг 3.12), если подойдут
+        from app.engine.categorize import Facts
+        from app.services import categorization
+
+        facts = Facts(data.amount, data.counterparty, purpose=data.comment)
+        hit = (await categorization.picker(db, user_id, [facts])).pick(facts)
+        if hit is not None:
+            category, by, rule = hit
     op = MoneyOperation(
         op_id=uuid.uuid4(), version=1, user_id=user_id, account_id=data.account_id, day=data.day, amount=data.amount,
-        category_id=data.category_id, counterparty=data.counterparty, comment=data.comment, source=source,
+        category_id=category, counterparty=data.counterparty, comment=data.comment, source=source,
+        category_by=by, rule_id=rule,
     )
     db.add(op)
     return op
@@ -498,6 +508,7 @@ async def create_transfer(
         op = MoneyOperation(
             op_id=uuid.uuid4(), version=1, user_id=user_id, account_id=account_id, day=day, amount=value,
             category_id=category, comment=_clean(comment, COMMENT_MAX), source="manual", transfer_id=transfer_id,
+            category_by="auto",
         )
         db.add(op)
         legs.append(op)
@@ -518,7 +529,7 @@ def _new_version(row: MoneyOperation, **changes) -> MoneyOperation:
     row.superseded_at = _now()
     fields = {k: getattr(row, k) for k in (
         "op_id", "user_id", "account_id", "day", "amount", "category_id", "counterparty", "comment", "source",
-        "transfer_id", "external_key",
+        "transfer_id", "external_key", "category_by", "rule_id",
     )}
     return MoneyOperation(**{**fields, **changes}, version=row.version + 1)
 
@@ -560,6 +571,8 @@ async def update_operation(
     new = {k: getattr(data, k) for k in EDITABLE}
     if all(new[k] == getattr(row, k) for k in EDITABLE):
         return row, False
+    if new["category_id"] != row.category_id:  # статью поставили вручную — правила её больше не трогают (шаг 3.12)
+        new.update(category_by="user" if new["category_id"] else None, rule_id=None)
     version = _new_version(row, **new)
     db.add(version)
     return version, True
@@ -612,6 +625,7 @@ async def history(db: AsyncSession, user_id: uuid.UUID, op_id: uuid.UUID) -> lis
 async def list_operations(
     db: AsyncSession, user_id: uuid.UUID, date_from: date, date_to: date, account_id: uuid.UUID | None = None,
     category_id: uuid.UUID | None = None, search: str | None = None, limit: int = 100, offset: int = 0,
+    uncategorized: bool = False,
 ) -> dict:
     """Действующие операции периода, новые сверху. Перевод — одной строкой (частью «со счёта»), а при выборе счёта —
     частью этого счёта. Итоги — без переводов: они не доход и не расход."""
@@ -622,6 +636,8 @@ async def list_operations(
         q = q.where(MoneyOperation.account_id == account_id)
     if category_id is not None:
         q = q.where(MoneyOperation.category_id == category_id)
+    if uncategorized:  # «без статьи» — переводы не в счёт: у них своя статья
+        q = q.where(MoneyOperation.category_id.is_(None), MoneyOperation.transfer_id.is_(None))
     if search:
         like = f"%{search.strip().lower()}%"
         q = q.where(or_(func.lower(MoneyOperation.comment).like(like), func.lower(MoneyOperation.counterparty).like(like)))
@@ -658,6 +674,7 @@ async def list_operations(
             "account": {"id": acc.id, "name": acc.name},
             "category": {"id": cat.id, "name": cat.name, "kind": cat.kind} if cat else None,
             "counterparty": r.counterparty, "comment": r.comment, "source": r.source, "transfer": transfer,
+            "category_by": r.category_by,
             "before_opening": opening is not None and r.day < opening.as_of,
         }
 
@@ -713,6 +730,7 @@ async def sync_ozon_operations(db: AsyncSession, user_id: uuid.UUID) -> int:
                 db.add(MoneyOperation(
                     op_id=uuid.uuid4(), version=1, user_id=user_id, account_id=s.ozon_account_id, day=day,
                     amount=amount, category_id=marketplace, counterparty="Ozon", source="ozon_payout", external_key=key,
+                    category_by="auto" if marketplace else None,
                 ))
         elif row.source != "ozon_payout":
             continue  # подтверждена выпиской банка — факт банка не меняем (расхождение — в сверке)

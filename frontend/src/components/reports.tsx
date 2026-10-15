@@ -105,8 +105,9 @@ export function periodLabel(r: { period: string; period_start: string | null; pe
   return r.period || 'Период не указан'
 }
 
-export function Badge({ tone, children, title }: { tone: 'warn' | 'muted' | 'bad' | 'accent'; children: React.ReactNode; title?: string }) {
+export function Badge({ tone, children, title }: { tone: 'warn' | 'muted' | 'bad' | 'accent' | 'ok'; children: React.ReactNode; title?: string }) {
   const cls = {
+    ok: 'bg-ok/15 text-ok',
     warn: 'bg-warn/15 text-warn',
     muted: 'bg-line text-muted',
     bad: 'bg-bad/15 text-bad',

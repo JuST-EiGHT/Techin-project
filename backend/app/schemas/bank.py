@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, SecretStr
 
 TxKind = Literal["regular", "ozon", "transfer"]
 
@@ -154,3 +154,45 @@ class PayoutHint(BaseModel):
     date_to: date
     lag_weeks: int
     note: str
+
+
+# ---------- банки по API (шаг 3.12) ----------
+
+ConnectionStatus = Literal["active", "error", "auth"]  # работает | сбой при обновлении | нужен новый токен
+
+
+class ConnectIn(BaseModel):
+    provider: Literal["tbank", "tochka"]
+    # SecretStr: токен не попадёт в repr / логи модели и в ответ об ошибке проверки
+    token: SecretStr = Field(..., min_length=1, max_length=8000)
+
+
+class ConnectionAccount(BaseModel):
+    number: str  # маскированный: ···2345 — полный номер не нужен
+    name: str | None
+
+
+class BankConnectionOut(BaseModel):
+    """Подключение банка. Токена здесь нет и не будет (правило 7)."""
+
+    id: uuid.UUID
+    provider: str
+    title: str
+    status: ConnectionStatus
+    status_message: str | None
+    expires_at: datetime | None
+    accounts: list[ConnectionAccount]
+    last_sync_at: datetime | None
+    created_at: datetime
+
+
+class ConnectResult(BaseModel):
+    connection: BankConnectionOut
+    replaced: bool  # тот же банк и счета — токен прежнего подключения заменён
+    sync_queued: bool  # загрузка истории поставлена в очередь
+
+
+class VerifyResult(BaseModel):
+    ok: bool
+    message: str
+    connection: BankConnectionOut

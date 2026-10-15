@@ -156,6 +156,8 @@ class Operation(BaseModel):
     source: Source
     transfer: TransferInfo | None
     before_opening: bool  # раньше начального остатка счёта — в остаток не входит
+    # кто поставил статью (шаг 3.12): user — вручную, rule — правило, auto — встроенное правило; null — статьи нет
+    category_by: Literal["user", "rule", "auto"] | None = None
 
 
 class Totals(BaseModel):
@@ -199,12 +201,24 @@ class OperationPatch(BaseModel):
     comment: str | None = Field(None, max_length=2000)  # описание
 
 
+class RuleSuggestion(BaseModel):
+    """После ручной разметки: «создать правило для всех операций этого контрагента?»"""
+
+    direction: Literal["in", "out"]
+    counterparty_inn: str | None  # условие правила — ИНН (из банка) …
+    counterparty: str | None  # … или название, если ИНН нет
+    counterparty_name: str | None  # для текста предложения
+    category: Ref
+    others: int  # сколько операций без ручной разметки поменяет правило
+
+
 class OperationSaved(BaseModel):
     op_id: uuid.UUID
     version: int
     changed: bool
     category: Ref | None = None  # статья операции, если указывали
     category_note: Literal["existing", "created", "restored"] | None = None  # вписанная статья: была, новая, из архива
+    rule_suggestion: RuleSuggestion | None = None  # статью поставили вручную — можно сделать правилом (шаг 3.12)
 
 
 class OperationVersion(BaseModel):
@@ -247,3 +261,90 @@ class ImportResponse(BaseModel):
     counts: ImportCounts
     rows: list[ImportRowOut]
 
+
+
+# ---------- правила разнесения (шаг 3.12) ----------
+
+RuleDirection = Literal["in", "out"]
+
+
+class RuleIn(BaseModel):
+    """Условия складываются: все указанные должны совпасть. Хотя бы одно, кроме направления, обязательно."""
+
+    direction: RuleDirection  # in — поступления, out — платежи
+    category_id: uuid.UUID
+    counterparty_inn: str | None = Field(None, max_length=20)
+    counterparty: str | None = Field(None, max_length=200)  # слова в названии контрагента
+    purpose: str | None = Field(None, max_length=500)  # слова в назначении, через запятую — любое
+    amount_min: Decimal | None = Field(None, ge=0, le=10_000_000_000)
+    amount_max: Decimal | None = Field(None, ge=0, le=10_000_000_000)
+    enabled: bool = True
+
+
+class RulePatch(BaseModel):
+    direction: RuleDirection | None = None
+    category_id: uuid.UUID | None = None
+    counterparty_inn: str | None = Field(None, max_length=20)
+    counterparty: str | None = Field(None, max_length=200)
+    purpose: str | None = Field(None, max_length=500)
+    amount_min: Decimal | None = Field(None, ge=0, le=10_000_000_000)
+    amount_max: Decimal | None = Field(None, ge=0, le=10_000_000_000)
+    enabled: bool | None = None
+
+
+class RuleOut(BaseModel):
+    id: uuid.UUID
+    priority: int
+    direction: RuleDirection
+    counterparty_inn: str | None
+    counterparty: str | None
+    purpose: str | None
+    amount_min: Decimal | None
+    amount_max: Decimal | None
+    category: CategoryRef | None
+    enabled: bool
+    operations: int  # сколько операций сейчас разнесено этим правилом
+
+
+class BuiltinRule(BaseModel):
+    code: str
+    title: str
+    when: str
+    category: str
+    why: str
+
+
+class RulesPage(BaseModel):
+    builtin: list[BuiltinRule]  # встроенные — всегда раньше ваших
+    rules: list[RuleOut]
+
+
+class RuleSaved(BaseModel):
+    rule: RuleOut | None
+    applied: int  # у скольких операций без ручной разметки поменялась статья
+
+
+class RuleExample(BaseModel):
+    op_id: uuid.UUID
+    day: date
+    amount: Decimal
+    counterparty: str | None
+    comment: str | None
+
+
+class RulePreview(BaseModel):
+    matched: int  # операций без ручной разметки под эти условия
+    examples: list[RuleExample]
+
+
+class RuleOrder(BaseModel):
+    ids: list[uuid.UUID] = Field(..., max_length=300)
+
+
+class CategorizeIn(BaseModel):
+    op_ids: list[uuid.UUID] = Field(..., min_length=1, max_length=500)
+    category_id: uuid.UUID | None  # null — убрать статью (тогда операцию могут разнести правила)
+
+
+class CategorizeOut(BaseModel):
+    changed: int
