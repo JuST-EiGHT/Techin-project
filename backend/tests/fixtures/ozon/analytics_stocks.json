@@ -1,0 +1,49 @@
+{
+  "items": [
+    {
+      "sku": 900001001, "offer_id": "6001-2RS.C3.SRL.NAC.TH", "name": "Подшипник 6001-2RS C3 NACHI",
+      "warehouse_id": 1020000000000101, "warehouse_name": "ЕКАТЕРИНБУРГ_РФЦ_НОВЫЙ",
+      "cluster_id": 154, "cluster_name": "Екатеринбург", "macrolocal_cluster_id": 54,
+      "available_stock_count": 9, "transit_stock_count": 0, "valid_stock_count": 0, "other_stock_count": 0,
+      "requested_stock_count": 0, "inbound_replenishment": 0, "outbound_pending_delivery": 1,
+      "ads": 0, "ads_cluster": 0, "idc": 0, "idc_cluster": 0, "days_without_sales": 39, "days_without_sales_cluster": 39,
+      "turnover_grade": "NO_SALES", "turnover_grade_cluster": "NO_SALES",
+      "item_tags": ["ITEM_ATTRIBUTE_NONE"], "placement_zone": ["SORT"]
+    },
+    {
+      "sku": 900001001, "offer_id": "6001-2RS.C3.SRL.NAC.TH", "name": "Подшипник 6001-2RS C3 NACHI",
+      "warehouse_id": 1020000000000202, "warehouse_name": "СПБ_БУГРЫ_РФЦ",
+      "cluster_id": 2, "cluster_name": "Санкт-Петербург и СЗО",
+      "available_stock_count": 10, "transit_stock_count": 4,
+      "ads": 0.25, "ads_cluster": 0.25, "idc": 40, "idc_cluster": 40, "days_without_sales": 0,
+      "turnover_grade": "ACTUAL", "turnover_grade_cluster": "ACTUAL", "item_tags": ["ITEM_ATTRIBUTE_NONE"], "placement_zone": ["SORT"]
+    },
+    {
+      "sku": 900001002, "offer_id": "ACB305523.NAC.JP", "name": "Подшипник ACB305523 NACHI",
+      "warehouse_id": 1020000000000202, "warehouse_name": "СПБ_БУГРЫ_РФЦ",
+      "cluster_id": 2, "cluster_name": "Санкт-Петербург и СЗО",
+      "available_stock_count": 3, "transit_stock_count": 0,
+      "turnover_grade": "DEFICIT", "item_tags": ["ITEM_ATTRIBUTE_NONE"], "placement_zone": ["SORT"]
+    },
+    {
+      "sku": 900001002, "offer_id": "ACB305523.NAC.JP", "name": "Подшипник ACB305523 NACHI",
+      "warehouse_id": 1020000000000202, "warehouse_name": "СПБ_БУГРЫ_РФЦ",
+      "cluster_id": 2, "cluster_name": "Санкт-Петербург и СЗО",
+      "available_stock_count": 2, "transit_stock_count": 1,
+      "turnover_grade": "DEFICIT", "item_tags": ["MARKABLE"], "placement_zone": ["SORT"]
+    },
+    {
+      "sku": 900001003, "offer_id": "6000-2RS.C3.SRL.NAC.JP", "name": "Подшипник 6000-2RS C3 NACHI",
+      "warehouse_id": 1020000000000303, "warehouse_name": "КРАСНОДАР_2_РФЦ",
+      "cluster_id": 12, "cluster_name": "Краснодар",
+      "available_stock_count": 0, "transit_stock_count": 20,
+      "turnover_grade": "WAITING_FOR_SUPPLY", "item_tags": ["ITEM_ATTRIBUTE_NONE"], "placement_zone": ["SORT"]
+    },
+    {
+      "sku": 900009999, "offer_id": "UNKNOWN.NAC.JP", "name": "Товар, которого ещё нет в БД",
+      "warehouse_id": 1020000000000303, "warehouse_name": "КРАСНОДАР_2_РФЦ",
+      "cluster_id": 12, "cluster_name": "Краснодар",
+      "available_stock_count": 5, "transit_stock_count": 0
+    }
+  ]
+}

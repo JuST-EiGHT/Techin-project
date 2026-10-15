@@ -1,0 +1,70 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ozon}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ozon_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-ozon_analytics}
+    ports: ["5432:5432"]
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ozon}"]
+      interval: 10s
+      retries: 5
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 5
+  api:
+    build: { context: ./backend, dockerfile: ../docker/backend/Dockerfile }
+    restart: unless-stopped
+    ports: ["8000:8000"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ozon}:${POSTGRES_PASSWORD:-ozon_secret}@db:5432/${POSTGRES_DB:-ozon_analytics}
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+  worker:
+    build: { context: ./backend, dockerfile: ../docker/backend/Dockerfile }
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ozon}:${POSTGRES_PASSWORD:-ozon_secret}@db:5432/${POSTGRES_DB:-ozon_analytics}
+      REDIS_URL: redis://redis:6379/0
+    volumes: [./backend:/app]
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2
+  beat:
+    # расписание фоновых задач (синхронизация с Ozon); ровно один экземпляр
+    build: { context: ./backend, dockerfile: ../docker/backend/Dockerfile }
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    volumes: [./backend:/app]
+    depends_on:
+      redis: { condition: service_healthy }
+    command: celery -A app.tasks.celery_app beat --loglevel=info --schedule /tmp/celerybeat-schedule
+  frontend:
+    build: { context: ./frontend, dockerfile: ../docker/frontend/Dockerfile }
+    restart: unless-stopped
+    ports: ["3000:3000"]
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      API_URL: http://api:8000          # сервер Next (route handlers) ходит к бэкенду внутри сети Docker
+    volumes: [./frontend:/app, /app/node_modules, /app/.next]
+    depends_on: [api]
+volumes:
+  postgres_data:

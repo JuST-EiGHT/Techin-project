@@ -1,0 +1,17 @@
+{
+  "posting_accruals": [
+    {
+      "posting_number": "0123456789-0001-1",
+      "accruals": [
+        {"accrual_date": "2026-10-10", "type_id": 101, "sku": 900001001, "quantity": 1,
+         "accrued": {"amount": "540.00", "currency": "RUB"}, "seller_price": {"amount": "540.00", "currency": "RUB"}},
+        {"accrual_date": "2026-10-10", "type_id": 102, "sku": 900001001, "quantity": 1,
+         "accrued": {"amount": "-205.20", "currency": "RUB"}, "seller_price": {"amount": "540.00", "currency": "RUB"}},
+        {"accrual_date": "2026-10-10", "type_id": 103, "sku": 900001001, "quantity": 1,
+         "accrued": {"amount": "-63.00", "currency": "RUB"}, "seller_price": {"amount": "540.00", "currency": "RUB"}},
+        {"accrual_date": "2026-10-11", "type_id": 104, "sku": 900001001, "quantity": 1,
+         "accrued": {"amount": "27.70", "currency": "RUB"}, "seller_price": {"amount": "540.00", "currency": "RUB"}}
+      ]
+    }
+  ]
+}

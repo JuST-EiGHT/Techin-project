@@ -1,0 +1,15 @@
+{
+  "warehouses": [
+    {
+      "warehouse_id": 20605650762000, "name": "Склад Подольск", "status": "created", "is_rfbs": false,
+      "is_kgt": false, "is_express": false, "warehouse_type": "FBS", "created_at": "2025-03-11T11:57:51.811Z",
+      "address_info": {"address": "Россия, Московская Область, Подольск", "utc": "UTC+03:00"}
+    },
+    {
+      "warehouse_id": 20605650763000, "name": "Свой склад rFBS (архив)", "status": "disabled", "is_rfbs": true,
+      "is_kgt": false, "is_express": false, "warehouse_type": "RFBS", "created_at": "2025-03-11T11:57:51.811Z"
+    }
+  ],
+  "cursor": "",
+  "has_next": false
+}

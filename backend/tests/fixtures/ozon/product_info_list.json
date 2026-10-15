@@ -1,0 +1,32 @@
+{
+  "items": [
+    {
+      "id": 1001, "name": "Подшипник 6001-2RS C3 NACHI", "offer_id": "6001-2RS.C3.SRL.NAC.TH",
+      "is_archived": false, "is_autoarchived": false, "barcodes": ["4580143941234"],
+      "description_category_id": 17028922, "type_id": 970866271, "currency_code": "RUB", "vat": "22%",
+      "sources": [{"sku": 900001001, "source": "sds", "shipment_type": "SHIPMENT_TYPE_GENERAL", "quant_code": "", "created_at": "2026-03-01T10:00:00Z"}],
+      "created_at": "2026-03-01T10:00:00Z", "updated_at": "2026-10-01T10:00:00Z"
+    },
+    {
+      "id": 1002, "name": "Подшипник ACB305523 NACHI", "offer_id": "ACB305523.NAC.JP",
+      "is_archived": false, "is_autoarchived": false, "barcodes": ["4580143942222", "2000000000011"],
+      "description_category_id": 17028922, "type_id": 970866271, "currency_code": "RUB", "vat": "0.22",
+      "sources": [{"sku": 900001002, "source": "sds", "shipment_type": "SHIPMENT_TYPE_GENERAL", "quant_code": "", "created_at": "2026-03-01T10:00:00Z"}],
+      "created_at": "2026-03-01T10:00:00Z", "updated_at": "2026-10-01T10:00:00Z"
+    },
+    {
+      "id": 1003, "name": "Подшипник 6000-2RS C3 NACHI", "offer_id": "6000-2RS.C3.SRL.NAC.JP",
+      "is_archived": false, "is_autoarchived": false, "barcodes": [],
+      "description_category_id": 17028922, "type_id": 970866271, "currency_code": "RUB", "vat": "0.22",
+      "sources": [{"sku": 900001003, "source": "sds", "shipment_type": "SHIPMENT_TYPE_GENERAL", "quant_code": "", "created_at": "2026-03-01T10:00:00Z"}],
+      "created_at": "2026-03-01T10:00:00Z", "updated_at": "2026-10-01T10:00:00Z"
+    },
+    {
+      "id": 1004, "name": "Подшипник 6000 NACHI (снят с продажи)", "offer_id": "6000.CM.NAC.JP",
+      "is_archived": true, "is_autoarchived": false, "barcodes": ["4580143940000"],
+      "description_category_id": 17028922, "type_id": 970866271, "currency_code": "RUB", "vat": "0.22",
+      "sources": [],
+      "created_at": "2026-01-15T10:00:00Z", "updated_at": "2026-06-01T10:00:00Z"
+    }
+  ]
+}

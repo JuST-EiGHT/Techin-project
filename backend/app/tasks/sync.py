@@ -1,0 +1,169 @@
+"""Celery-задачи синхронизации с Ozon.
+
+Задачи синхронные (Celery), внутри — asyncio.run. Для каждого запуска — свой движок
+БД без пула (NullPool): соединения asyncpg привязаны к event loop, а у каждого
+asyncio.run он новый.
+"""
+import asyncio
+import logging
+import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
+
+from app.core.config import settings
+from app.models.api_credential import ApiCredential
+from app.models.user import User
+from app.services.sync.runner import run_sync
+from app.tasks.celery_app import celery_app
+
+log = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def task_sessions() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+    try:
+        yield async_sessionmaker(engine, expire_on_commit=False)
+    finally:
+        await engine.dispose()
+
+
+async def users_with_active_keys(db: AsyncSession) -> list[uuid.UUID]:
+    res = await db.execute(
+        select(ApiCredential.user_id)
+        .join(User, User.id == ApiCredential.user_id)
+        .where(
+            User.is_active.is_(True),
+            ApiCredential.is_active.is_(True),
+            ApiCredential.expires_at > datetime.now(timezone.utc),
+        )
+        .distinct()
+    )
+    return list(res.scalars())
+
+
+async def _sync_for_user(kind: str, user_id: str, run_id: str | None, params: dict | None = None) -> dict:
+    async with task_sessions() as sessions:
+        run = await run_sync(kind, uuid.UUID(user_id), sessions, uuid.UUID(run_id) if run_id else None, params)
+    if run is None:
+        return {"status": "skipped"}
+    return {"status": run.status, "stats": run.stats, "error": run.error}
+
+
+async def _active_users() -> list[uuid.UUID]:
+    async with task_sessions() as sessions, sessions() as db:
+        return await users_with_active_keys(db)
+
+
+def _fan_out(kind: str, task) -> int:
+    """Отдельная задача на каждого пользователя с действующим ключом — сбой у одного не влияет на остальных."""
+    queued = 0
+    for user_id in asyncio.run(_active_users()):
+        try:
+            task.delay(str(user_id))
+            queued += 1
+        except Exception:  # noqa: BLE001
+            log.exception("Не удалось поставить синхронизацию %s в очередь для %s", kind, user_id)
+    log.info("Синхронизация %s по расписанию: в очереди %d пользователей", kind, queued)
+    return queued
+
+
+@celery_app.task(name="tasks.sync_products_for_user")
+def sync_products_for_user(user_id: str, run_id: str | None = None) -> dict:
+    return asyncio.run(_sync_for_user("products", user_id, run_id))
+
+
+@celery_app.task(name="tasks.sync_products_all")
+def sync_products_all() -> int:
+    return _fan_out("products", sync_products_for_user)
+
+
+@celery_app.task(name="tasks.sync_stocks_for_user")
+def sync_stocks_for_user(user_id: str, run_id: str | None = None) -> dict:
+    return asyncio.run(_sync_for_user("stocks", user_id, run_id))
+
+
+@celery_app.task(name="tasks.sync_stocks_all")
+def sync_stocks_all() -> int:
+    return _fan_out("stocks", sync_stocks_for_user)
+
+
+@celery_app.task(name="tasks.sync_finance_for_user")
+def sync_finance_for_user(
+    user_id: str, run_id: str | None = None, date_from: str | None = None, date_to: str | None = None
+) -> dict:
+    """Без периода: вчера, сегодня и незагруженные дни за 90 дней; с периодом — он заново."""
+    params = {"date_from": date_from, "date_to": date_to} if date_from and date_to else None
+    return asyncio.run(_sync_for_user("finance", user_id, run_id, params))
+
+
+@celery_app.task(name="tasks.sync_finance_all")
+def sync_finance_all() -> int:
+    return _fan_out("finance", sync_finance_for_user)
+
+
+@celery_app.task(name="tasks.sync_promotions_for_user")
+def sync_promotions_for_user(user_id: str, run_id: str | None = None) -> dict:
+    return asyncio.run(_sync_for_user("promotions", user_id, run_id))
+
+
+@celery_app.task(name="tasks.sync_promotions_all")
+def sync_promotions_all() -> int:
+    return _fan_out("promotions", sync_promotions_for_user)
+
+
+@celery_app.task(name="tasks.sync_balance_for_user")
+def sync_balance_for_user(
+    user_id: str, run_id: str | None = None, date_from: str | None = None, date_to: str | None = None
+) -> dict:
+    """Баланс у Ozon по дням (выплаты): без периода — вчера, сегодня и незагруженные дни за 90 дней."""
+    params = {"date_from": date_from, "date_to": date_to} if date_from and date_to else None
+    return asyncio.run(_sync_for_user("balance", user_id, run_id, params))
+
+
+@celery_app.task(name="tasks.sync_balance_all")
+def sync_balance_all() -> int:
+    return _fan_out("balance", sync_balance_for_user)
+
+
+@celery_app.task(name="tasks.sync_bank_for_user")
+def sync_bank_for_user(user_id: str, run_id: str | None = None, connection_id: str | None = None) -> dict:
+    """Банки по API (шаг 3.12): все подключения пользователя или одно — новые операции и остатки."""
+    params = {"connection_id": connection_id} if connection_id else None
+    return asyncio.run(_sync_for_user("bank", user_id, run_id, params))
+
+
+async def _bank_users() -> list[uuid.UUID]:
+    from app.services.bank_connections import users_with_connections
+
+    async with task_sessions() as sessions, sessions() as db:
+        return await users_with_connections(db)
+
+
+@celery_app.task(name="tasks.sync_bank_all")
+def sync_bank_all() -> int:
+    """По расписанию — пользователям с подключённым банком (ключ Ozon для этого не нужен)."""
+    queued = 0
+    for user_id in asyncio.run(_bank_users()):
+        try:
+            sync_bank_for_user.delay(str(user_id))
+            queued += 1
+        except Exception:  # noqa: BLE001
+            log.exception("Не удалось поставить обновление банка в очередь для %s", user_id)
+    return queued
+
+
+# Задача Celery для каждого вида синхронизации — для ручного запуска из API
+FOR_USER_TASKS = {
+    "products": sync_products_for_user,
+    "stocks": sync_stocks_for_user,
+    "finance": sync_finance_for_user,
+    "promotions": sync_promotions_for_user,
+    "balance": sync_balance_for_user,
+    "bank": sync_bank_for_user,
+}

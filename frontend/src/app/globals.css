@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Цвета темы — каналы RGB, чтобы в Tailwind работали прозрачности (bg-accent/15).
+   Тёмная — палитра из CLAUDE.md, правило 9; светлая — шаг 0.5 (контраст текста — WCAG AA). */
+:root {
+  color-scheme: dark;
+  --bg: 15 17 23; /* #0f1117 */
+  --card: 26 29 39; /* #1a1d27 */
+  --line: 42 45 58; /* #2a2d3a */
+  --fg: 226 232 240; /* основной текст */
+  --muted: 148 163 184; /* второстепенный текст */
+  --faint: 127 138 160; /* подписи и подсказки */
+  --accent: 79 142 247; /* #4f8ef7 */
+  --ok: 34 197 94; /* #22c55e */
+  --bad: 248 113 113; /* #f87171 */
+  --warn: 251 191 36; /* #fbbf24 */
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: 246 247 251; /* #f6f7fb */
+  --card: 255 255 255; /* #ffffff */
+  --line: 227 230 238; /* #e3e6ee */
+  --fg: 26 29 39; /* #1a1d27 */
+  --muted: 91 98 117; /* #5b6275 */
+  --faint: 107 114 134; /* #6b7286 */
+  --accent: 37 99 235; /* #2563eb */
+  --ok: 21 128 61; /* #15803d */
+  --bad: 220 38 38; /* #dc2626 */
+  --warn: 180 83 9; /* #b45309 */
+}
+
+body {
+  background: rgb(var(--bg));
+  color: rgb(var(--fg));
+}

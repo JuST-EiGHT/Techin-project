@@ -1,0 +1,22 @@
+{
+  "accruals": [
+    {
+      "accrual_id": 101, "accrued_category": "SALE", "date": "2026-10-10", "unit_number": "0123456789-0002-1",
+      "total_amount": {"amount": "1700.00", "currency": "RUB"},
+      "posting": {"delivery_schema": "FBO", "products": [{"sku": 900001002}]},
+      "item_fees": {"fees": [{"sku": 900001002, "fees": [
+        {"accrued": {"amount": "2150.00", "currency": "RUB"}, "type_id": 101},
+        {"accrued": {"amount": "-450.00", "currency": "RUB"}, "type_id": 999}
+      ]}]}
+    },
+    {
+      "accrual_id": 202, "accrued_category": "SERVICES", "date": "2026-10-10", "unit_number": "",
+      "total_amount": {"amount": "-12.40", "currency": "RUB"},
+      "container_fees": {"fees": [
+        {"accrued": {"amount": "-8.40", "currency": "RUB"}, "type_id": 202},
+        {"accrued": {"amount": "-4.00", "currency": "RUB"}, "type_id": 202}
+      ]}
+    }
+  ],
+  "last_id": ""
+}
