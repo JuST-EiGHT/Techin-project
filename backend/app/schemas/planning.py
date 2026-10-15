@@ -110,6 +110,8 @@ class Account(BaseModel):
     opening: Opening | None  # null — остаток не указан
     balance: Decimal | None  # на сегодня; null — неизвестен (нет начального остатка), а не 0
     receives_ozon: bool
+    number: str | None = None  # номер счёта в банке (выписка, шаг 3.11)
+    bank_name: str | None = None
 
 
 class AccountIn(BaseModel):

@@ -35,6 +35,10 @@ class MoneyAccount(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
     source: Mapped[str] = mapped_column(String(8), nullable=False, default="manual")  # manual | bank (3.11–3.12)
+    # реквизиты счёта в банке (шаг 3.11): по номеру выписка находит свой счёт
+    number: Mapped[str | None] = mapped_column(String(20))
+    bik: Mapped[str | None] = mapped_column(String(9))
+    bank_name: Mapped[str | None] = mapped_column(String(200))
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now, server_default=func.now())
 

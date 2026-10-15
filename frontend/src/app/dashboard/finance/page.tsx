@@ -581,13 +581,26 @@ function ReportView({ id, onClose, productsHref }: { id: string; onClose: () => 
         byType={r.summary.by_type}
         revenue={r.revenue_base}
         manualBlock={
-          <ManualTotal
-            auto={r.auto_total}
-            manual={r.manual_total}
-            onChange={(v) => save({ manual_total: v })}
-            note="Сохраняется в отчёте."
-            status={status}
-          />
+          <>
+            <ManualTotal
+              auto={r.auto_total}
+              manual={r.manual_total}
+              onChange={(v) => save({ manual_total: v })}
+              note="Сохраняется в отчёте."
+              status={status}
+            />
+            {r.bank_hint && Number(r.bank_hint.amount) !== Number(r.manual_total ?? NaN) && (
+              <div className="rounded-lg border border-accent/40 bg-card px-4 py-3 text-sm" data-testid="bank-hint">
+                <div>
+                  По выписке банка от Ozon пришло <b className="tabular-nums">{rub(r.bank_hint.amount)}</b>
+                </div>
+                <div className="mt-0.5 text-xs text-muted">{r.bank_hint.note} Проверьте и подставьте, если это выплата за этот отчёт.</div>
+                <button type="button" onClick={() => save({ manual_total: r.bank_hint!.amount })} className="mt-2 rounded-lg border border-line px-3 py-1.5 text-xs hover:border-accent hover:text-accent" data-testid="bank-hint-apply">
+                  Подставить в «сколько пришло»
+                </button>
+              </div>
+            )}
+          </>
         }
         paramsBlock={
           <ParamsPanel

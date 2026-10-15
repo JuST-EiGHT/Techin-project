@@ -3,6 +3,7 @@
 import { useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { BankSection } from '@/components/planning/Bank'
 import {
   ACCOUNT_KINDS,
   type Account,
@@ -134,7 +135,8 @@ export function AccountsTab({
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                 <div className="min-w-0 flex-1">
                   <div className="font-medium">
-                    {a.name} {a.receives_ozon && <Badge tone="accent">выплаты Ozon</Badge>}
+                    {a.name} {a.receives_ozon && <Badge tone="accent">выплаты Ozon</Badge>}{' '}
+                    {a.source === 'bank' && <Badge tone="muted">из банка{a.number ? ` ···${a.number.slice(-4)}` : ''}</Badge>}
                   </div>
                   <div className="text-xs text-muted">
                     {kindLabel(a.kind)}
@@ -167,6 +169,7 @@ export function AccountsTab({
           + Добавить счёт, карту или наличные
         </button>
       )}
+      <BankSection onChanged={onChanged} />
       {archived.length > 0 && (
         <details className="text-sm text-muted">
           <summary className="cursor-pointer hover:text-fg">В архиве ({archived.length})</summary>

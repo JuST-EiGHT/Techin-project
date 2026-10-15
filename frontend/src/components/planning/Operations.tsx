@@ -60,6 +60,7 @@ function OperationForm({
   const today = todayMsk()
   const active = useMemo(() => accounts.filter((a) => !a.archived), [accounts])
   const ozon = initial?.source === 'ozon_payout'
+  const bank = initial?.source === 'bank' // из выписки банка: сумма, дата и счёт — как в банке
   const [type, setType] = useState<OpType>(initial ? (initial.transfer ? 'transfer' : Number(initial.amount) > 0 ? 'income' : 'expense') : 'expense')
   const [amount, setAmount] = useState(initial ? String(Math.abs(Number(initial.amount))).replace('.', ',') : '')
   const [day, setDay] = useState(initial?.day ?? today)
@@ -93,8 +94,10 @@ function OperationForm({
     setSaving(true)
     try {
       if (initial) {
-        const body = ozon
-          ? { ...categoryBody(), counterparty, comment }
+        const body = ozon || bank
+          ? initial.transfer
+            ? { comment }
+            : { ...categoryBody(), counterparty, comment }
           : initial.transfer
             ? { amount: value, day, comment }
             : { type, amount: value, day, account_id: account, ...categoryBody(), counterparty, comment }
@@ -130,7 +133,7 @@ function OperationForm({
     }
   }
 
-  const lockMoney = ozon // у выплаты Ozon сумма, дата и счёт — из данных Ozon
+  const lockMoney = ozon || bank // у выплаты Ozon и операции банка сумма, дата и счёт — из данных Ozon или выписки
   const transfer = type === 'transfer'
   return (
     <form onSubmit={submit} className="space-y-3" data-testid={initial ? 'op-edit-form' : 'op-form'}>
@@ -155,7 +158,11 @@ function OperationForm({
         </div>
       )}
       {lockMoney && (
-        <p className="text-xs text-muted">Выплата Ozon обновляется сама по данным Ozon — здесь можно поменять статью, контрагента и комментарий.</p>
+        <p className="text-xs text-muted">
+          {bank
+            ? 'Операция из выписки банка: сумма, дата и счёт — как в банке. Здесь можно поменять статью, контрагента и описание.'
+            : 'Выплата Ozon обновляется сама по данным Ozon — здесь можно поменять статью, контрагента и комментарий.'}
+        </p>
       )}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <label className="block text-sm">
@@ -311,7 +318,7 @@ function OperationCard({ op, onEdit, onHistory, onDelete }: { op: Operation; onE
             История
           </button>
         )}
-        {op.source !== 'ozon_payout' && (
+        {op.source !== 'ozon_payout' && op.source !== 'bank' && (
           <button type="button" onClick={onDelete} className="rounded-lg border border-line px-4 py-2 text-sm text-muted hover:border-bad hover:text-bad">
             Удалить
           </button>
@@ -667,7 +674,7 @@ export function OperationsTab({ accounts, categories, onChanged }: { accounts: A
                           <History className="h-4 w-4" />
                         </button>
                       )}
-                      {op.source !== 'ozon_payout' && (
+                      {op.source !== 'ozon_payout' && op.source !== 'bank' && (
                         <button type="button" onClick={() => remove(op)} className="rounded p-1 hover:text-bad" aria-label="Удалить" data-testid="op-delete">
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -704,7 +711,7 @@ export function OperationsTab({ accounts, categories, onChanged }: { accounts: A
         </Modal>
       )}
       {editing && (
-        <Modal title={editing.transfer ? 'Перевод' : editing.source === 'ozon_payout' ? 'Выплата Ozon' : 'Исправить операцию'} onClose={() => setEditing(null)}>
+        <Modal title={editing.transfer ? 'Перевод' : editing.source === 'ozon_payout' ? 'Выплата Ozon' : editing.source === 'bank' ? 'Операция из банка' : 'Исправить операцию'} onClose={() => setEditing(null)}>
           <OperationForm
             accounts={accounts}
             categories={categories}

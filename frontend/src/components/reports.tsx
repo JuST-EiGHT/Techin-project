@@ -68,7 +68,9 @@ export type ReportSummary = {
   header_row: number
 }
 
-export type ReportDetail = ReportItem & { file_size: number; summary: ReportSummary }
+/** Подсказка по выписке банка (шаг 3.11): сколько пришло от Ozon за продажи периода — сохраняется только по кнопке. */
+export type BankHint = { amount: string; count: number; date_from: string; date_to: string; lag_weeks: number; note: string }
+export type ReportDetail = ReportItem & { file_size: number; summary: ReportSummary; bank_hint?: BankHint | null }
 
 export type Conflict = {
   id: string

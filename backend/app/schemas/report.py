@@ -104,6 +104,7 @@ class ReportItem(BaseModel):
 class ReportDetail(ReportItem):
     file_size: int
     summary: NormalizedReportData
+    bank_hint: "PayoutHint | None" = None  # по выписке банка: сколько пришло от Ozon за продажи периода (шаг 3.11)
 
 
 class ReportsPage(BaseModel):
@@ -129,3 +130,8 @@ class ReportConflictItem(BaseModel):
     period_end: date | None
     uploaded_at: datetime
     same_file: bool
+
+
+from app.schemas.bank import PayoutHint  # noqa: E402 — подсказка по выписке банка
+
+ReportDetail.model_rebuild()

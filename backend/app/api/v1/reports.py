@@ -25,6 +25,7 @@ from app.schemas.report import (
     ReportUpdate,
 )
 from app.services import reports as svc
+from app.services import bank as bank_svc
 from app.services.auth import get_current_user
 from app.services.costs import get_cost_provider
 from app.services.report_pnl import PnLContext, load_context, report_pnl, to_out
@@ -101,7 +102,8 @@ def _item(r: Report, ctx: PnLContext) -> dict:
 async def _detail(db: AsyncSession, r: Report) -> ReportDetail:
     ctx = await load_context(db, r.user_id)
     return ReportDetail(
-        **_item(r, ctx), file_size=r.file_size, summary=NormalizedReportData.model_validate(r.summary_json)
+        **_item(r, ctx), file_size=r.file_size, summary=NormalizedReportData.model_validate(r.summary_json),
+        bank_hint=await bank_svc.payout_hint(db, r.user_id, r),
     )
 
 

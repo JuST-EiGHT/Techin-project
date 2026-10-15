@@ -38,6 +38,7 @@ TEMPLATE_FILE = Path(__file__).resolve().parents[1] / "data" / "cash_categories.
 MAX_AMOUNT = Decimal("10000000000")
 MIN_DAY = date(2000, 1, 1)
 OZON_KEY = "ozon_payout:"
+OZON_BANK_DAYS = 5  # выплата Ozon доходит до счёта за 0–5 дней (шаг 3.11)
 KIND_TITLES = {"checking": "Расчётный счёт", "card": "Карта", "cash": "Наличные", "wallet": "Кошелёк", "other": "Счёт"}
 
 
@@ -374,6 +375,7 @@ async def accounts(db: AsyncSession, user_id: uuid.UUID) -> list[dict]:
             "id": a.id, "name": a.name, "kind": a.kind, "source": a.source, "archived": a.archived_at is not None,
             "opening": {"amount": openings[a.id].amount, "as_of": openings[a.id].as_of} if a.id in openings else None,
             "balance": bal[a.id], "receives_ozon": bool(s and s.ozon_account_id == a.id),
+            "number": a.number, "bank_name": a.bank_name,
         }
         for a in await _accounts(db, user_id)
     ]
@@ -541,14 +543,17 @@ async def update_operation(
         raise PlanningError(
             "Выплата Ozon обновляется сама по данным Ozon — изменить можно статью, контрагента и комментарий"
         )
-    if row.transfer_id is not None:
+    if row.source == "bank" and any(k not in OZON_EDITABLE for k in changes):
+        raise PlanningError("Операция из выписки банка: сумма, дата и счёт — как в банке. Изменить можно статью, "
+                            "контрагента и описание")
+    if row.transfer_id is not None and row.source != "bank":
         return await _update_transfer(db, user_id, row, changes)
     data = OperationIn(**{k: changes.get(k, getattr(row, k)) for k in EDITABLE})
-    if row.source == "ozon_payout":
+    if row.source in ("ozon_payout", "bank"):
         if data.category_id is not None:
             cat = await _category(db, user_id, data.category_id)
-            if cat.kind == "transfer":
-                raise PlanningError("Выплата Ozon — не перевод между своими счетами")
+            if cat.kind == "transfer" and row.transfer_id is None:
+                raise PlanningError("Перевод между своими счетами определяется по выписке — эта операция не перевод")
         data.counterparty, data.comment = _clean(data.counterparty, 200), _clean(data.comment, COMMENT_MAX)
     else:
         await _check_operation(db, user_id, data, keep_category=row.category_id)
@@ -586,6 +591,9 @@ async def delete_operation(db: AsyncSession, user_id: uuid.UUID, op_id: uuid.UUI
     if row.source == "ozon_payout":
         raise PlanningError("Выплату Ozon удалить нельзя — она приходит из данных Ozon. Если выплаты приходят на другой "
                             "счёт, выберите его в «Счетах»")
+    if row.source == "bank":
+        raise PlanningError("Операцию из выписки банка удалить нельзя. Если это дубль операции, внесённой вручную, — "
+                            "объедините их в «Счетах» → «Возможные дубли»")
     legs = await _transfer_legs(db, user_id, row.transfer_id) if row.transfer_id else [row]
     for leg in legs:
         leg.deleted_at = _now()
@@ -629,7 +637,9 @@ async def list_operations(
     )))).scalars():
         legs.setdefault(leg.transfer_id, []).append(leg)
 
-    visible = [r for r in rows if r.transfer_id is None or account_id is not None or r.amount < 0]
+    # перевод — одной строкой (частью «со счёта»); вторая часть ещё не загружена из банка — видна сама
+    visible = [r for r in rows if r.transfer_id is None or account_id is not None or r.amount < 0
+               or not any(leg.op_id != r.op_id for leg in legs.get(r.transfer_id, []))]
     income = sum((r.amount for r in rows if r.transfer_id is None and r.amount > 0), Decimal(0))
     expense = sum((r.amount for r in rows if r.transfer_id is None and r.amount < 0), Decimal(0))
 
@@ -665,7 +675,9 @@ async def list_operations(
 async def sync_ozon_operations(db: AsyncSession, user_id: uuid.UUID) -> int:
     """Выплаты Ozon по дням (шаг 3.6) — поступления на счёт «куда приходят выплаты». Без дублей: одна операция на
     день (external_key); сумма или счёт изменились — новая версия, статья и комментарий пользователя сохраняются;
-    выплаты больше нет в данных Ozon — операция скрывается. Коммит — здесь. Возвращает число изменений."""
+    выплаты больше нет в данных Ozon — операция скрывается. Подтверждённая выпиской банка (шаг 3.11, источник bank) —
+    факт банка: её не меняем и не скрываем; поступление Ozon из выписки без пары — становится этой выплатой, второй
+    операции нет. Коммит — здесь. Возвращает число изменений."""
     s = await get_settings(db, user_id)
     if s is None or not s.enabled or s.ozon_account_id is None:
         return 0
@@ -675,9 +687,13 @@ async def sync_ozon_operations(db: AsyncSession, user_id: uuid.UUID) -> int:
     days = {r.day: r for r in res.scalars()}  # последний снимок дня перекрывает
     payouts = {d: -Decimal(r.payments) for d, r in days.items() if r.payments}
     res = await db.execute(_current(select(MoneyOperation).where(
-        MoneyOperation.user_id == user_id, MoneyOperation.source == "ozon_payout"
+        MoneyOperation.user_id == user_id, MoneyOperation.external_key.like(f"{OZON_KEY}%")
     )))
     existing = {r.external_key: r for r in res.scalars()}
+    res = await db.execute(_current(select(MoneyOperation).where(
+        MoneyOperation.user_id == user_id, MoneyOperation.source == "bank", MoneyOperation.external_key.like("ozon_bank:%")
+    )).order_by(MoneyOperation.day))
+    from_bank = list(res.scalars())  # поступления Ozon из выписки, ещё без выплаты по данным Ozon
     marketplace = next((c.id for c in await _categories(db, user_id) if c.code == "marketplace" and not c.archived_at), None)
     changes = 0
     for day, amount in sorted(payouts.items()):
@@ -685,18 +701,30 @@ async def sync_ozon_operations(db: AsyncSession, user_id: uuid.UUID) -> int:
         row = existing.pop(key, None)
         amount = amount.quantize(Decimal("0.01"))
         if row is None:
-            db.add(MoneyOperation(
-                op_id=uuid.uuid4(), version=1, user_id=user_id, account_id=s.ozon_account_id, day=day, amount=amount,
-                category_id=marketplace, counterparty="Ozon", source="ozon_payout", external_key=key,
-            ))
+            bank = next((
+                op for op in from_bank
+                if 0 <= (op.day - day).days <= OZON_BANK_DAYS
+                and abs(Decimal(op.amount) - amount) <= max(Decimal(1), amount / 100)
+            ), None)
+            if bank is not None:
+                from_bank.remove(bank)
+                db.add(_new_version(bank, external_key=key))
+            else:
+                db.add(MoneyOperation(
+                    op_id=uuid.uuid4(), version=1, user_id=user_id, account_id=s.ozon_account_id, day=day,
+                    amount=amount, category_id=marketplace, counterparty="Ozon", source="ozon_payout", external_key=key,
+                ))
+        elif row.source != "ozon_payout":
+            continue  # подтверждена выпиской банка — факт банка не меняем (расхождение — в сверке)
         elif Decimal(row.amount) != amount or row.account_id != s.ozon_account_id:
             db.add(_new_version(row, amount=amount, account_id=s.ozon_account_id))
         else:
             continue
         changes += 1
     for row in existing.values():
-        row.deleted_at = _now()
-        changes += 1
+        if row.source == "ozon_payout":
+            row.deleted_at = _now()
+            changes += 1
     if changes:
         await db.commit()
     return changes

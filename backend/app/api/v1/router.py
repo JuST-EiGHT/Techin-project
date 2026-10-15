@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.v1 import (
     auth,
+    bank,
     costs,
     credentials,
     dashboard,
@@ -39,3 +40,4 @@ api_router.include_router(dashboard.router)
 api_router.include_router(planning.router)
 api_router.include_router(plan_calendar.router)
 api_router.include_router(planning_overview.router)
+api_router.include_router(bank.router)

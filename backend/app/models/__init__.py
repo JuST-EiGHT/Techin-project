@@ -21,3 +21,4 @@ from app.models.planning import (  # noqa: F401
     PlannedPayment,
     PlanningSettings,
 )
+from app.models.bank import BankBalance, BankStatement, BankTransaction, MergeDismissal  # noqa: F401

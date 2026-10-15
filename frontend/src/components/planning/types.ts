@@ -29,6 +29,8 @@ export type Account = {
   opening: { amount: string; as_of: string } | null
   balance: string | null // null — остаток не указан, а не 0
   receives_ozon: boolean
+  number?: string | null // номер счёта в банке (выписка, шаг 3.11)
+  bank_name?: string | null
 }
 
 export type Category = {
