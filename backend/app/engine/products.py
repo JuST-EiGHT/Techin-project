@@ -1,18 +1,11 @@
-"""Страница товаров (шаг 4.1): маржа при текущей цене, индекс цены, цена по дням, фильтры и сортировка.
-Чистые функции — без БД и HTTP.
+"""Страница товаров (шаг 4.1): индекс цены, цена по дням, фильтры и сортировка. Чистые функции — без БД и HTTP.
 
-Маржа здесь — та же ПРОСТАЯ формула, что у акций (`engine/promotions.margin_in_promo`), но от текущей цены:
-    остаётся с 1 шт. = P × (1 − комиссия − эквайринг) − C × НДС
-    маржа = остаётся / P × 100
-без логистики, хранения, рекламы и возвратов — полный расчёт с ними даст калькулятор цены (шаг 4.2).
-Нет цены, себестоимости или комиссии → None, а не 0 (правило 5).
+Маржа при текущей цене — калькулятор цены (шаг 4.2, engine/price_calculator.py).
 """
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Callable
-
-from app.engine.promotions import margin_in_promo
 
 _CENT = Decimal("0.01")
 
@@ -40,29 +33,6 @@ def price_index_level(raw: str | None) -> str | None:
 def positive(value: Decimal | None) -> Decimal | None:
     """Цены Ozon: 0 = «не задана» — показываем как нет данных, а не как 0 ₽."""
     return value if value is not None and value > 0 else None
-
-
-def unit_profit(
-    price: Decimal | None,
-    cost_with_vat: Decimal | None,
-    commission_pct: Decimal | None,
-    acquiring_pct: Decimal | None = None,
-) -> Decimal | None:
-    """Сколько остаётся с 1 шт. при цене: P × (1 − комиссия − эквайринг) − себестоимость с НДС."""
-    if price is None or price <= 0 or cost_with_vat is None or commission_pct is None:
-        return None
-    share = 1 - commission_pct / 100 - (acquiring_pct or Decimal(0)) / 100
-    return (price * share - cost_with_vat).quantize(_CENT, ROUND_HALF_UP)
-
-
-def current_margin(
-    price: Decimal | None,
-    cost_with_vat: Decimal | None,
-    commission_pct: Decimal | None,
-    acquiring_pct: Decimal | None = None,
-) -> Decimal | None:
-    """Маржа при текущей цене, % — формула акций (одинаковые цифры на страницах товаров и акций)."""
-    return margin_in_promo(price, cost_with_vat, commission_pct, acquiring_pct)
 
 
 def percent_of(price: Decimal | None, pct: Decimal | None) -> Decimal | None:

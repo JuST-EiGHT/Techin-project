@@ -1,5 +1,5 @@
 'use client'
-// Боковая панель товара (шаг 4.1): детали, цена за 30 дней, маржа по шагам, остатки, акции, правка себестоимости.
+// Боковая панель товара (шаг 4.1): детали, цена за 30 дней, расчёт цены (4.2), остатки, акции, правка себестоимости.
 import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -7,11 +7,11 @@ import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YA
 import { FormError } from '@/components/AuthForm'
 import { TipBox, useDrill, type Drill } from '@/components/charts'
 import { useTokenColors } from '@/components/finance'
+import { PriceCalcBlock } from '@/components/price-calc'
 import { Badge, fmtDateTime, fmtDay, pctText, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { VAT_OPTIONS, costPath, since, toNumber, vatText } from '@/lib/costs'
-import { addDays, todayMsk } from '@/lib/period'
-import { INDEX_NOTE, MARGIN_TONE, PRICE_INDEX, STOCK_STATUS, type ProductDetail } from '@/lib/products'
+import { INDEX_NOTE, PRICE_INDEX, STOCK_STATUS, type ProductDetail } from '@/lib/products'
 
 const qty = (n: number | null) => (n === null ? '—' : `${n.toLocaleString('ru-RU')} шт.`)
 const num = (v: string | null) => (v === null ? '—' : Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 2 }))
@@ -79,8 +79,8 @@ export function ProductPanel({ productId, onClose, onChanged }: { productId: str
           {data && item && (
             <>
               <IdLine data={data} />
+              <PriceCalcBlock productId={productId} refreshKey={data} />
               <PriceBlock data={data} />
-              <MarginBlock data={data} />
               <StockBlock data={data} />
               <PromoBlock data={data} />
               <CostBlock
@@ -259,41 +259,6 @@ function PriceChart({ data }: { data: ProductDetail }) {
         </ul>
       )}
     </div>
-  )
-}
-
-function MarginBlock({ data }: { data: ProductDetail }) {
-  const { item } = data
-  const acquiring = item.price && item.acquiring_pct ? ((Number(item.price) * Number(item.acquiring_pct)) / 100).toFixed(2) : null
-  const from = addDays(todayMsk(), -30)
-  const to = addDays(todayMsk(), -1)
-  return (
-    <Section
-      title="Маржа при текущей цене"
-      testid="panel-margin"
-      more={
-        <Link href={`/dashboard/finance?period=custom&from=${from}&to=${to}&tab=products`} className="text-accent hover:underline">
-          Факт за 30 дней →
-        </Link>
-      }
-    >
-      <Row label="Цена">{rub(item.price)}</Row>
-      <Row label={`− Комиссия Ozon${item.commission_pct ? ` ${num(item.commission_pct)} %` : ''}`}>{rub(item.commission)}</Row>
-      <Row label={`− Эквайринг${item.acquiring_pct ? ` ${num(item.acquiring_pct)} %` : ''}`}>{item.acquiring_pct ? rub(acquiring) : '—'}</Row>
-      <Row label="− Себестоимость с НДС" tone={item.cost_with_vat === null ? 'text-warn' : ''}>
-        {item.cost_with_vat === null ? 'не указана' : rub(item.cost_with_vat)}
-      </Row>
-      <Row label="= Остаётся с 1 шт." strong tone={item.unit_profit === null ? 'text-muted' : Number(item.unit_profit) < 0 ? 'text-bad' : 'text-ok'} testid="panel-unit-profit">
-        {rub(item.unit_profit)}
-      </Row>
-      <Row label="Маржа" strong tone={item.margin_level ? MARGIN_TONE[item.margin_level] : 'text-muted'} testid="panel-margin-value">
-        {pctText(item.margin)}
-      </Row>
-      <p className="mt-1 text-xs text-faint">
-        Логистика, хранение и реклама сюда не входят: они зависят от склада и продаж. Сколько Ozon фактически удержал по товару — по ссылке
-        «Факт за 30 дней».
-      </p>
-    </Section>
   )
 }
 

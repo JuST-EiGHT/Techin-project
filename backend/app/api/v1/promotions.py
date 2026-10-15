@@ -1,6 +1,7 @@
 """Акции Ozon: список, товары акции, товары, добавленные автоматически."""
 import uuid
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -9,6 +10,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.engine.price_calculator import margin_at
 from app.engine.promotions import margin_level
 from app.models.product import Product
 from app.models.promotion import Promotion, PromotionProduct
@@ -24,6 +26,7 @@ from app.schemas.promotion import (
     PromotionResponse,
 )
 from app.schemas.sync import utc
+from app.services import pricing
 from app.services.auth import get_current_user
 from app.services.stocks import latest_stocks
 
@@ -31,14 +34,33 @@ router = APIRouter(prefix="/promotions", tags=["promotions"])
 
 _NOT_FOUND = "Акция не найдена"
 
+MarginOf = Callable[[PromotionProduct], Decimal | None]
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _promotion(p: Promotion, rows: list[PromotionProduct]) -> PromotionResponse:
+async def _margins(db: AsyncSession, user_id: uuid.UUID) -> MarginOf:
+    """Маржа в акции — калькулятором цены (шаг 4.2) на момент запроса: себестоимость, настройки и логистика могли
+    измениться после синхронизации, сохранённая в строке — снимок на её время."""
+    products = {p.id: p for p in (await db.execute(select(Product).where(Product.user_id == user_id))).scalars()}
+    ctx = await pricing.load(db, user_id, list(products.values()))
+    params: dict[uuid.UUID, object] = {}
+
+    def margin_of(r: PromotionProduct) -> Decimal | None:
+        if r.product_id not in params:
+            product = products.get(r.product_id)
+            params[r.product_id] = ctx.product_params(product) if product else None
+        p = params[r.product_id]
+        return margin_at(p, r.action_price) if p is not None else None
+
+    return margin_of
+
+
+def _promotion(p: Promotion, rows: list[PromotionProduct], margin_of: MarginOf) -> PromotionResponse:
     active = [r for r in rows if r.is_active]
-    margins = [r.margin_in_promo for r in active if r.margin_in_promo is not None]
+    margins = [m for r in active if (m := margin_of(r)) is not None]
     freeze = utc(p.freeze_date)
     return PromotionResponse(
         id=p.id, ozon_action_id=p.ozon_action_id, title=p.title, action_type=p.action_type,
@@ -54,7 +76,7 @@ def _promotion(p: Promotion, rows: list[PromotionProduct]) -> PromotionResponse:
     )
 
 
-def _product_row(r: PromotionProduct, product: Product, on_hand: int) -> dict:
+def _product_row(r: PromotionProduct, product: Product, on_hand: int, margin: Decimal | None) -> dict:
     discount = None
     if r.price and r.action_price is not None and r.price > 0:
         discount = ((r.price - r.action_price) / r.price * 100).quantize(Decimal("0.1"))
@@ -64,7 +86,7 @@ def _product_row(r: PromotionProduct, product: Product, on_hand: int) -> dict:
         max_action_price=r.max_action_price,
         below_min_price=bool(r.min_price and r.action_price is not None and r.action_price < r.min_price),
         stock=r.stock, stock_on_hand=on_hand, is_active=r.is_active, added_automatically=r.added_automatically,
-        add_mode=r.add_mode, margin_in_promo=r.margin_in_promo, margin_level=margin_level(r.margin_in_promo),
+        add_mode=r.add_mode, margin_in_promo=margin, margin_level=margin_level(margin),
         first_seen_at=utc(r.first_seen_at),
     )
 
@@ -76,8 +98,8 @@ async def _on_hand(db: AsyncSession, user_id: uuid.UUID) -> dict[uuid.UUID, int]
     return totals
 
 
-def _margin_note(rows: list[PromotionProduct]) -> str | None:
-    return NO_COST_NOTE if any(r.margin_in_promo is None for r in rows if r.is_active) else None
+def _margin_note(rows: list[PromotionProduct], margin_of: MarginOf) -> str | None:
+    return NO_COST_NOTE if any(margin_of(r) is None for r in rows if r.is_active) else None
 
 
 async def _rows_by_promotion(db: AsyncSession, promo_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[PromotionProduct]]:
@@ -100,7 +122,8 @@ async def list_promotions(
         q = q.where(or_(Promotion.date_to.is_(None), Promotion.date_to >= _now()))
     promos = list((await db.execute(q.order_by(Promotion.is_participating.desc(), Promotion.date_to))).scalars())
     rows = await _rows_by_promotion(db, [p.id for p in promos])
-    return [_promotion(p, rows[p.id]) for p in promos]
+    margin_of = await _margins(db, user.id)
+    return [_promotion(p, rows[p.id], margin_of) for p in promos]
 
 
 @router.get("/auto-added", response_model=AutoAddedResponse)
@@ -120,11 +143,15 @@ async def auto_added(user: User = Depends(get_current_user), db: AsyncSession = 
     found = res.all()
     rows = await _rows_by_promotion(db, list({p.id for _, _, p in found}))
     on_hand = await _on_hand(db, user.id)
+    margin_of = await _margins(db, user.id)
     items = [
-        AutoAddedItem(promotion=_promotion(promo, rows[promo.id]), **_product_row(r, product, on_hand.get(product.id, 0)))
+        AutoAddedItem(
+            promotion=_promotion(promo, rows[promo.id], margin_of),
+            **_product_row(r, product, on_hand.get(product.id, 0), margin_of(r)),
+        )
         for r, product, promo in found
     ]
-    return AutoAddedResponse(margin_note=_margin_note([r for r, _, _ in found]), items=items)
+    return AutoAddedResponse(margin_note=_margin_note([r for r, _, _ in found], margin_of), items=items)
 
 
 @router.get("/{promotion_id}/products", response_model=PromotionProductsResponse)
@@ -141,14 +168,19 @@ async def promotion_products(
         select(PromotionProduct, Product)
         .join(Product, Product.id == PromotionProduct.product_id)
         .where(PromotionProduct.promotion_id == promo.id)
-        .order_by(PromotionProduct.is_active.desc(), PromotionProduct.margin_in_promo.asc().nulls_last(), Product.offer_id)
+        .order_by(PromotionProduct.is_active.desc(), Product.offer_id)
     )
     pairs = res.all()
     all_rows = [r for r, _ in pairs]
     on_hand = await _on_hand(db, user.id)
+    margin_of = await _margins(db, user.id)
     items = [
-        PromotionProductResponse(**_product_row(r, product, on_hand.get(product.id, 0)))
+        PromotionProductResponse(**_product_row(r, product, on_hand.get(product.id, 0), margin_of(r)))
         for r, product in pairs
         if participating is None or r.is_active == participating
     ]
-    return PromotionProductsResponse(promotion=_promotion(promo, all_rows), margin_note=_margin_note(all_rows), items=items)
+    # самая низкая маржа — первой, как раньше по сохранённой (участники выше кандидатов)
+    items.sort(key=lambda i: (not i.is_active, i.margin_in_promo is None, i.margin_in_promo or 0))
+    return PromotionProductsResponse(
+        promotion=_promotion(promo, all_rows, margin_of), margin_note=_margin_note(all_rows, margin_of), items=items
+    )

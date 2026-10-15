@@ -95,6 +95,19 @@ _FIELD_NAMES = {
     "lag_weeks": "За какую неделю продаж",
     "fee_pct": "Комиссия за гибкий график",
     "horizon_weeks": "Горизонт прогноза",
+    "price_ad_pct": "Реклама",
+    "price_target_margin_pct": "Целевая маржа",
+    "ad_pct": "Реклама",
+    "target_margin_pct": "Целевая маржа",
+    "commission_pct": "Комиссия Ozon",
+    "acquiring_pct": "Эквайринг",
+    "logistics": "Логистика на 1 шт.",
+    "storage": "Хранение на 1 шт.",
+    "other": "Прочие расходы на 1 шт.",
+    "cost": "Себестоимость",
+    "price": "Цена",
+    "promo_price": "Цена в акции",
+    "filters": "Фильтры",
 }
 
 

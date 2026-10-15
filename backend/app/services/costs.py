@@ -23,7 +23,6 @@ from app.models.report import Report
 from app.models.user import User
 from app.services.auth import get_current_user
 from app.services.sync.finance import today_msk
-from app.services.tax_profile import supplier_vat_multiplier
 
 
 class CostHistory:
@@ -84,20 +83,6 @@ async def get_cost_provider(
 ) -> CostHistory:
     """Зависимость FastAPI: себестоимость пользователя (с историей) для разбора отчётов."""
     return await load_cost_history(db, user.id)
-
-
-async def cost_prices_with_vat(db: AsyncSession, user_id: uuid.UUID) -> dict[uuid.UUID, Decimal]:
-    """product_id → себестоимость единицы с НДС поставщика на сегодня (маржа в акциях). НДС — из записи
-    себестоимости, иначе из налогового профиля. Связь по артикулу; нет цены — товара нет в ответе."""
-    history = await load_cost_history(db, user_id)
-    default_vat = await supplier_vat_multiplier(db, user_id)
-    today = today_msk()
-    res = await db.execute(select(Product.id, Product.offer_id).where(Product.user_id == user_id))
-    return {
-        pid: _money(rec.cost_price * (rec.vat_multiplier or default_vat))
-        for pid, offer in res
-        if (rec := history.record_at(offer, today)) is not None
-    }
 
 
 async def add_cost(

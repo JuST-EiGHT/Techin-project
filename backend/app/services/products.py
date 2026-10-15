@@ -2,7 +2,8 @@
 
 Своих таблиц нет — строка собирается из готового: цена и комиссия — последний снимок `product_prices` (1.2),
 остаток — последние снимки по складам (1.3), продажи в день и дни запаса — `sales_daily` (3.5), себестоимость —
-справочник на сегодня (2.3), акции — текущее участие (1.5). Чего нет — null, а не 0 (правила 5 и 12).
+справочник на сегодня (2.3), акции — текущее участие (1.5). Маржа — калькулятор цены (шаг 4.2,
+services/pricing). Чего нет — null, а не 0 (правила 5 и 12).
 """
 import csv
 import io
@@ -11,9 +12,10 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.engine import price_calculator as calc
 from app.engine import products as engine
 from app.engine.promotions import margin_level
 from app.engine.stocks import days_of_supply, stock_status
@@ -23,16 +25,15 @@ from app.models.sales_daily import SalesDaily
 from app.models.warehouse import ProductStock, Warehouse
 from app.schemas.products import ProductPromo
 from app.schemas.sync import utc
-from app.services.costs import CostHistory, load_cost_history
+from app.services import pricing
 from app.services.stocks import avg_daily_sales, latest_stocks
-from app.services.sync.finance import MSK, today_msk
-from app.services.sync.products import latest_prices
-from app.services.tax_profile import supplier_vat_multiplier
+from app.services.sync.finance import MSK
 
 MARGIN_NOTE = (
-    "Маржа при текущей цене: цена − комиссия Ozon − эквайринг − себестоимость с НДС поставщика, в % от цены. "
-    "Логистика, хранение и реклама сюда не входят — сколько Ozon фактически удержал по товару, видно "
-    "в «Прибыли по товарам»."
+    "Маржа при текущей цене — как в калькуляторе цены: цена минус комиссия Ozon, эквайринг, реклама, логистика "
+    "на 1 шт. (по фактическим начислениям), себестоимость с НДС, НДС и налог с выручки по налоговому профилю; до "
+    "налога на прибыль, в % от цены. Нет себестоимости, комиссии или данных о логистике — «—». Минимальная и целевая "
+    "цена — в разделе «Цены»."
 )
 
 STATUS_TEXT = {"critical": "критично", "low": "мало", "normal": "норма", "excess": "избыток"}
@@ -49,37 +50,16 @@ def money(value: Decimal | None) -> Decimal | None:
 class Context:
     """Всё, из чего собираются строки товаров, — загружается один раз на запрос."""
 
-    today: date
-    prices: dict[uuid.UUID, ProductPrice]
+    pricing: pricing.PricingContext  # цены Ozon, себестоимость, НДС, логистика, налог — для маржи
     stocks: dict[uuid.UUID, tuple[int, int | None]]  # доступно на всех складах, в пути
     stocks_known: bool
     sales: dict[uuid.UUID, Decimal]  # продажи в день; пусто — мало данных
-    history: CostHistory
-    default_vat: Decimal
-    promos: dict[uuid.UUID, list[ProductPromo]] = field(default_factory=dict)
+    promos: dict[uuid.UUID, list[tuple[PromotionProduct, Promotion]]] = field(default_factory=dict)
     last_sale: dict[str, date] = field(default_factory=dict)
 
-
-async def _promotions(db: AsyncSession, user_id: uuid.UUID, product_id: uuid.UUID | None) -> dict[uuid.UUID, list[ProductPromo]]:
-    """Текущее участие: товар среди участников акции, которая ещё не закончилась."""
-    q = (
-        select(PromotionProduct, Promotion)
-        .join(Promotion, Promotion.id == PromotionProduct.promotion_id)
-        .where(
-            Promotion.user_id == user_id, PromotionProduct.is_active.is_(True),
-            or_(Promotion.date_to.is_(None), Promotion.date_to >= datetime.now(timezone.utc)),
-        )
-        .order_by(Promotion.date_to, Promotion.title)
-    )
-    if product_id:
-        q = q.where(PromotionProduct.product_id == product_id)
-    out: dict[uuid.UUID, list[ProductPromo]] = {}
-    for r, promo in await db.execute(q):
-        out.setdefault(r.product_id, []).append(ProductPromo(
-            id=promo.id, title=promo.title, action_price=r.action_price, margin_in_promo=r.margin_in_promo,
-            added_automatically=r.added_automatically, date_to=utc(promo.date_to),
-        ))
-    return out
+    @property
+    def today(self) -> date:
+        return self.pricing.today
 
 
 async def _last_sales(db: AsyncSession, user_id: uuid.UUID, offer_id: str | None) -> dict[str, date]:
@@ -112,31 +92,39 @@ async def load_context(db: AsyncSession, user_id: uuid.UUID, products: list[Prod
         stocks[product.id] = (present + max(stock.present or 0, 0), transit)
     sales = await avg_daily_sales(db, user_id)  # собирает sales_daily при первом чтении — раньше, чем last_sale
     return Context(
-        today=today_msk(),
-        prices=await latest_prices(db, [p.id for p in products]),
+        pricing=await pricing.load(db, user_id, products),
         stocks=stocks,
         stocks_known=bool(snapshots) or await _has_stocks(db, user_id),
         sales=sales,
-        history=await load_cost_history(db, user_id),
-        default_vat=await supplier_vat_multiplier(db, user_id),
-        promos=await _promotions(db, user_id, one.id if one else None),
+        promos=await pricing.current_promotions(db, user_id, one.id if one else None),
         last_sale=await _last_sales(db, user_id, one.offer_id if one else None),
     )
 
 
 def build_row(ctx: Context, p: Product) -> dict:
-    snap = ctx.prices.get(p.id)
+    pc = ctx.pricing
+    snap = pc.prices.get(p.id)
     price = engine.positive(snap.price) if snap else None
     commission_pct = snap.commission_pct if snap else None
     acquiring_pct = snap.acquiring_pct if snap else None
-    record = ctx.history.record_at(p.offer_id, ctx.today)
+    record = pc.history.record_at(p.offer_id, ctx.today)
     cost = money(record.cost_price) if record else None
-    cost_with_vat = money(record.cost_price * (record.vat_multiplier or ctx.default_vat)) if record else None
+    cost_with_vat = money(record.cost_price * (record.vat_multiplier or pc.default_vat)) if record else None
     stock, transit = ctx.stocks.get(p.id, (None, None))
     if stock is None and ctx.stocks_known:
         stock = 0  # остатки загружались, а этого товара ни на одном складе нет
     avg = ctx.sales.get(p.id)
-    margin = engine.current_margin(price, cost_with_vat, commission_pct, acquiring_pct)
+    params = pc.product_params(p)  # калькулятор цены; не хватает данных — None
+    current = calc.breakdown(params, price) if params is not None and price is not None else None
+    margin = current.margin if current else None
+    promos = [
+        ProductPromo(
+            id=promo.id, title=promo.title, action_price=r.action_price,
+            margin_in_promo=calc.margin_at(params, r.action_price) if params is not None else None,
+            added_automatically=r.added_automatically, date_to=utc(promo.date_to),
+        )
+        for r, promo in ctx.promos.get(p.id, [])
+    ]
     return {
         "id": p.id, "offer_id": p.offer_id, "name": p.name, "ozon_sku": p.ozon_sku, "ozon_product_id": p.ozon_product_id,
         "is_archived": p.is_archived,
@@ -149,10 +137,10 @@ def build_row(ctx: Context, p: Product) -> dict:
         "stock": stock, "in_transit": transit, "avg_daily_sales": avg,
         "days_of_supply": days_of_supply(stock, avg) if stock is not None else None,
         "stock_status": stock_status(stock, avg) if stock is not None else None,
-        "unit_profit": engine.unit_profit(price, cost_with_vat, commission_pct, acquiring_pct),
+        "unit_profit": current.profit if current else None,
         "margin": margin, "margin_level": margin_level(margin),
         "price_index": engine.price_index_level(snap.price_index) if snap else None,
-        "promotions": ctx.promos.get(p.id, []),
+        "promotions": promos,
         "last_sale": ctx.last_sale.get(p.offer_id),
     }
 
@@ -266,14 +254,14 @@ async def detail(db: AsyncSession, user_id: uuid.UUID, product_id: uuid.UUID, da
         return None
     ctx = await load_context(db, user_id, [product], one=product)
     row = build_row(ctx, product)
-    record = ctx.history.record_at(product.offer_id, ctx.today)
+    record = ctx.pricing.history.record_at(product.offer_id, ctx.today)
     cost = None
     if record is not None:
-        vat = record.vat_multiplier or ctx.default_vat
+        vat = record.vat_multiplier or ctx.pricing.default_vat
         cost = {
             "cost_price": money(record.cost_price), "vat_multiplier": record.vat_multiplier, "supplier_vat": vat,
             "cost_with_vat": money(record.cost_price * vat), "effective_from": record.effective_from, "note": record.note,
-            "history_count": len(ctx.history.history(product.offer_id)),
+            "history_count": len(ctx.pricing.history.history(product.offer_id)),
         }
     stocks = [
         {"warehouse": w.name, "type": w.type, "cluster_name": w.cluster_name, "present": s.present,
@@ -286,6 +274,6 @@ async def detail(db: AsyncSession, user_id: uuid.UUID, product_id: uuid.UUID, da
     price_days, changes, first = await price_history(db, product.id, date_to - timedelta(days=days - 1), date_to)
     return {
         "item": row, "barcode": product.barcode, "category_id": product.category_id, "vat": product.vat,
-        "cost": cost, "supplier_vat": ctx.default_vat, "stocks": stocks,
+        "cost": cost, "supplier_vat": ctx.pricing.default_vat, "stocks": stocks,
         "price_days": price_days, "price_changes": changes, "first_price_at": first,
     }

@@ -3,7 +3,15 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.user_settings import DEFAULT_SUPPLIER_PAYMENT, DEFAULT_THEME, UserSettings
+from decimal import Decimal
+
+from app.models.user_settings import (
+    DEFAULT_AD_PCT,
+    DEFAULT_SUPPLIER_PAYMENT,
+    DEFAULT_TARGET_MARGIN_PCT,
+    DEFAULT_THEME,
+    UserSettings,
+)
 
 
 def defaults(user_id: uuid.UUID) -> UserSettings:
@@ -13,6 +21,13 @@ def defaults(user_id: uuid.UUID) -> UserSettings:
 async def get_settings(db: AsyncSession, user_id: uuid.UUID) -> UserSettings:
     """Настройки для чтения (в сессию не добавляются, если строки нет)."""
     return await db.get(UserSettings, user_id) or defaults(user_id)
+
+
+def price_settings(s: UserSettings) -> tuple[Decimal, Decimal]:
+    """Реклама, % от цены, и целевая маржа, % — для калькулятора цены (шаг 4.2); не заданы — по умолчанию."""
+    ad = DEFAULT_AD_PCT if s.price_ad_pct is None else Decimal(s.price_ad_pct)
+    margin = DEFAULT_TARGET_MARGIN_PCT if s.price_target_margin_pct is None else Decimal(s.price_target_margin_pct)
+    return ad, margin
 
 
 class SettingsError(Exception):

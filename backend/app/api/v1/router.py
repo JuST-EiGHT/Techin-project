@@ -14,6 +14,7 @@ from app.api.v1 import (
     planning_overview,
     planning_rules,
     pnl,
+    price,
     products,
     promotions,
     reports,
@@ -33,6 +34,7 @@ api_router.include_router(stocks.warehouses_router)
 api_router.include_router(stocks.stocks_router)
 api_router.include_router(finance.router)
 api_router.include_router(products.router)
+api_router.include_router(price.router)
 api_router.include_router(promotions.router)
 api_router.include_router(reports.router)
 api_router.include_router(settings.router)

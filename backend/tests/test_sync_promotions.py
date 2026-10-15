@@ -11,10 +11,11 @@ import respx
 from sqlalchemy import select
 
 from app.core.config import settings
-from app.engine.promotions import is_whole_stock, margin_in_promo, margin_level
+from app.engine.promotions import is_whole_stock, margin_level
 from app.integrations.ozon.client import OzonClient
 from app.models.api_credential import ApiCredential
 from app.models.product import Product, ProductPrice
+from app.models.product_cost import BEGINNING, ProductCost
 from app.models.promotion import Promotion, PromotionProduct
 from app.models.sync_run import SUCCESS
 from app.models.user import User
@@ -22,7 +23,9 @@ from app.models.warehouse import ProductStock, Warehouse
 from app.services.encryption import encrypt
 from app.services.sync import promotions as sync_mod
 from app.services.sync import runner
+from app.services.sync.finance import today_msk
 from app.tasks import sync as tasks
+from tests.test_pricing import add_sales
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ozon" / "actions"
 API_KEY = "a1b2c3d4-0000-4bad-beef-secretOZONkey"
@@ -33,27 +36,6 @@ def load(name: str) -> dict:
 
 
 # ── расчёты ──
-def test_margin_in_promo_simple_formula():
-    # себестоимость с НДС поставщика: 164 × 1,22 = 200,08 (ставка — из себестоимости или налогового профиля)
-    # (459 × (1 − 0.38 − 0.015) − 200.08) / 459 = (277.695 − 200.08) / 459 = 16.91 %
-    assert margin_in_promo(Decimal("459"), Decimal("200.08"), Decimal("38"), Decimal("1.5")) == Decimal("16.91")
-    # без эквайринга: (459 × 0.62 − 200.08) / 459 = 18.41 %
-    assert margin_in_promo(Decimal("459"), Decimal("200.08"), Decimal("38")) == Decimal("18.41")
-    assert margin_in_promo(Decimal("200"), Decimal("200.08"), Decimal("38")) < 0  # в минус
-    # поставщик без НДС: (459 × 0.62 − 164) / 459 = 26.27 %
-    assert margin_in_promo(Decimal("459"), Decimal("164"), Decimal("38")) == Decimal("26.27")
-
-
-@pytest.mark.parametrize("args", [
-    (None, Decimal("164"), Decimal("38")),
-    (Decimal("459"), None, Decimal("38")),  # нет себестоимости — не 0, а None
-    (Decimal("459"), Decimal("164"), None),
-    (Decimal("0"), Decimal("164"), Decimal("38")),
-])
-def test_margin_unknown(args):
-    assert margin_in_promo(*args) is None
-
-
 def test_margin_level_and_whole_stock():
     assert [margin_level(m) for m in (None, Decimal("-0.01"), Decimal("9.99"), Decimal("10"))] == [None, "negative", "low", "ok"]
     assert is_whole_stock("Скидка на сток", "DISCOUNT") and is_whole_stock("Акция", "ELASTIC_BOOSTING")
@@ -197,18 +179,23 @@ async def test_first_sync(sessions, ozon):
     assert {c["auto_add_date"] for c in ozon.calls["auto"]} == {"2026-10-01T00:00:00Z"}  # будущая дата не запрошена
 
 
-async def test_margin_with_costs(sessions, ozon, monkeypatch):
+async def test_margin_with_costs(sessions, ozon):
+    """Маржа в акции — калькулятор цены (шаг 4.2): себестоимость, комиссия 38 % и эквайринг 1,5 % из Ozon, логистика —
+    по продажам товара, у кого продаж нет — средняя по магазину."""
     user_id = await setup_user(sessions)
+    today = today_msk()
+    now = datetime.now(timezone.utc)
     async with sessions() as db:
-        ids = {p.ozon_product_id: p.id for p in (await db.execute(select(Product))).scalars()}
-
-    async def fake_costs(db, uid):  # себестоимость с НДС поставщика
-        return {ids[1001]: Decimal("200.08"), ids[1003]: Decimal("488")}
-
-    monkeypatch.setattr(sync_mod, "cost_prices_with_vat", fake_costs)
+        products = {p.ozon_product_id: p for p in (await db.execute(select(Product))).scalars()}
+        for pid, cost in ((1001, "164"), (1003, "400")):
+            db.add(ProductCost(user_id=user_id, offer_id=products[pid].offer_id, cost_price=Decimal(cost),
+                               vat_multiplier=Decimal("1.22"), effective_from=BEGINNING, source="manual", created_at=now))
+        await add_sales(db, user_id, products[1001], today - timedelta(days=2), qty=2)  # логистика 60 ₽ на штуку
+        await db.commit()
     await sync(sessions, user_id)
     rows = await promo_rows(sessions, user_id)
-    assert rows[(71001, 1001)].margin_in_promo == Decimal("16.91")
+    # 459 × (1 − 0,38 − 0,015) − (164 × 1,22 + 60) = 277,695 − 260,08 = 17,615 ₽ → 3,84 % (раньше без логистики — 16,91 %)
+    assert rows[(71001, 1001)].margin_in_promo == Decimal("3.84")
     assert rows[(71002, 1003)].margin_in_promo < 0  # 380 ₽ при себестоимости 400 — в минус
     assert rows[(71001, 1002)].margin_in_promo is None  # себестоимость неизвестна
 
@@ -357,3 +344,24 @@ def test_promotions_fanout(monkeypatch):
     monkeypatch.setattr(tasks, "_active_users", fake_users)
     monkeypatch.setattr(tasks.sync_promotions_for_user, "delay", lambda uid: queued.append(uid))
     assert tasks.sync_promotions_all() == 1 and queued == [str(users[0])]
+
+
+async def test_api_margin_is_fresh(sessions, client, tokens, ozon):
+    """Маржа в API акций считается на момент запроса: себестоимость и реклама поменялись — без новой синхронизации."""
+    user_id = await api_user(sessions, client, tokens)
+    async with sessions() as db:
+        product = (await db.execute(select(Product).where(Product.user_id == user_id, Product.ozon_product_id == 1001))).scalar_one()
+        await add_sales(db, user_id, product, today_msk() - timedelta(days=1))
+        await db.commit()
+    promo_id = next(p["id"] for p in (await client.get("/api/v1/promotions", headers=auth(tokens))).json() if p["ozon_action_id"] == 71001)
+    url = f"/api/v1/promotions/{promo_id}/products"
+    first = (await client.get(url, headers=auth(tokens))).json()["items"][0]
+    assert first["margin_in_promo"] is None  # себестоимости нет
+    await client.put("/api/v1/costs/6001-2RS.C3.SRL.NAC.TH", json={"cost_price": "164", "vat_multiplier": "1.22"}, headers=auth(tokens))
+    data = (await client.get(url, headers=auth(tokens))).json()
+    assert data["items"][0]["margin_in_promo"] == "3.84" and data["items"][0]["margin_level"] == "low"
+    assert data["promotion"]["min_margin"] == "3.84"
+    # реклама 5 % от цены: 17,615 − 459 × 5 % = −5,335 ₽ → −1,16 %
+    await client.patch("/api/v1/settings", json={"price_ad_pct": "5"}, headers=auth(tokens))
+    data = (await client.get(url, headers=auth(tokens))).json()
+    assert data["items"][0]["margin_in_promo"] == "-1.16" and data["items"][0]["margin_level"] == "negative"

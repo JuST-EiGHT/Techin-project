@@ -13,6 +13,7 @@ from app.models.promotion import Promotion, PromotionProduct
 from app.models.sales_daily import SalesDaily
 from app.models.warehouse import ProductStock, Warehouse
 from app.services.sync.finance import MSK, today_msk
+from tests.test_pricing import add_sales
 
 D = Decimal
 
@@ -31,17 +32,8 @@ def test_price_index_level(raw, level):
     assert engine.price_index_level(raw) == level
 
 
-def test_unit_profit_and_margin_by_hand():
-    # 459 × (1 − 0,38 − 0,015) = 277,695; − 200,08 (164 × 1,22) = 77,615 → 77,62 ₽; маржа 77,615 / 459 = 16,91 %
-    assert engine.unit_profit(D("459"), D("200.08"), D("38"), D("1.5")) == D("77.62")
-    assert engine.current_margin(D("459"), D("200.08"), D("38"), D("1.5")) == D("16.91")
-    # без эквайринга и в минус: 200 × 0,62 = 124 − 200,08 = −76,08 ₽ → −38,04 %
-    assert engine.unit_profit(D("200"), D("200.08"), D("38")) == D("-76.08")
-    assert engine.current_margin(D("200"), D("200.08"), D("38")) == D("-38.04")
-    assert engine.percent_of(D("459"), D("38")) == D("174.42")
-    # нет цены, себестоимости или комиссии — не 0, а «нет данных»
-    for args in [(None, D("1"), D("38")), (D("0"), D("1"), D("38")), (D("459"), None, D("38")), (D("459"), D("1"), None)]:
-        assert engine.unit_profit(*args) is None and engine.current_margin(*args) is None
+def test_percent_of():
+    assert engine.percent_of(D("459"), D("38")) == D("174.42")  # комиссия 38 % от 459 ₽
     assert engine.percent_of(None, D("38")) is None and engine.percent_of(D("459"), None) is None
 
 
@@ -166,6 +158,9 @@ async def seed(sessions, user_id: uuid.UUID, *, sales: bool = True) -> dict[str,
             db.add(SalesDaily(user_id=user_id, day=today - timedelta(days=2), offer_id="ACB305523", product_id=p["B"].id,
                               qty_sold=0, qty_returned=1, revenue=D("0"), returns_amount=D("200"), source="api",
                               calculated_at=now))  # возврат — не продажа
+            # начисления — для логистики на штуку в калькуляторе цены (шаг 4.2): A — 60 ₽, B — 30 ₽
+            await add_sales(db, user_id, p["A"], today - timedelta(days=1), price=D("459"), logistics=D("60"))
+            await add_sales(db, user_id, p["B"], today - timedelta(days=4), qty=6, price=D("200"), logistics=D("30"))
         await db.commit()
         return {k: v.id for k, v in p.items()}
 
@@ -184,14 +179,15 @@ async def test_list_rows_and_counts(client, tokens, sessions):
     assert data["total"] == 3 and data["sales_known"] and data["stocks_known"] and data["sales_window_days"] == 30
     assert data["counts"] == {"all": 3, "no_cost": 1, "in_promo": 1, "critical_stock": 1, "low_stock": 1, "negative": 1,
                               "archived": 1}
-    assert "Логистика" in data["margin_note"]
+    assert "калькуляторе цены" in data["margin_note"] and "логистика" in data["margin_note"]
     rows = {r["offer_id"]: r for r in data["items"]}
     a = rows["6001-2RS.C3"]
     assert a["id"] == str(ids["A"]) and a["ozon_sku"] == 900001
     assert (a["price"], a["min_price"], a["old_price"], a["marketing_price"]) == ("459.00", "400.00", "600.00", "449.00")
     assert (a["commission_pct"], a["commission"], a["acquiring_pct"]) == ("38.000", "174.42", "1.500")
-    assert (a["cost_price"], a["cost_with_vat"], a["unit_profit"], a["margin"]) == ("164.00", "200.08", "77.62", "16.91")
-    assert a["margin_level"] == "ok" and a["price_index"] == "green"
+    # калькулятор цены: 459 × (1 − 0,38 − 0,015) − (200,08 + логистика 60) = 17,615 ₽ → 3,84 %
+    assert (a["cost_price"], a["cost_with_vat"], a["unit_profit"], a["margin"]) == ("164.00", "200.08", "17.62", "3.84")
+    assert a["margin_level"] == "low" and a["price_index"] == "green"
     # остаток на двух складах 15, в пути 2; продано 30 за 30 дней → 1 в день → 15 дней запаса
     assert (a["stock"], a["in_transit"], a["avg_daily_sales"], a["days_of_supply"], a["stock_status"]) == (
         15, 2, "1.000", "15.0", "normal")
@@ -201,7 +197,8 @@ async def test_list_rows_and_counts(client, tokens, sessions):
     b = rows["ACB305523"]
     # кончился (последний снимок 0) при продажах → критично; мин. цена 0 у Ozon — «не задана»; кандидат и прошедшая акция — не в акции
     assert (b["stock"], b["stock_status"], b["days_of_supply"]) == (0, "critical", "0.0")
-    assert b["min_price"] is None and b["margin"] == "-38.04" and b["margin_level"] == "negative" and b["price_index"] == "red"
+    # 200 × 0,62 − (200,08 + 30) = −106,08 ₽ → −53,04 %
+    assert b["min_price"] is None and b["margin"] == "-53.04" and b["margin_level"] == "negative" and b["price_index"] == "red"
     assert b["promotions"] == [] and b["last_sale"] == (today_msk() - timedelta(days=4)).isoformat()
     c = rows["6000-ZZ"]
     # ни цены, ни себестоимости, ни снимков остатка (остатки загружались — значит 0), не продавался → не «нет данных»
@@ -273,7 +270,7 @@ async def test_export_csv(client, tokens, sessions):
     lines = text.strip("﻿").splitlines()
     assert len(lines) == 4 and lines[1].startswith("ACB305523;Подшипник ступицы;900002;200,00;")
     a = lines[2].split(";")
-    assert a[0] == "6001-2RS.C3" and "16,91" in a and "выгодный" in a and "Осенняя распродажа" in a and "норма" in a
+    assert a[0] == "6001-2RS.C3" and "3,84" in a and "выгодный" in a and "Осенняя распродажа" in a and "норма" in a
     assert (today_msk() - timedelta(days=1)).strftime("%d.%m.%Y") in a
     only = await client.get("/api/v1/products/export", params={"filters": "no_cost"}, headers=auth(tokens))
     assert len(only.content.decode("utf-8").strip().splitlines()) == 2
@@ -285,7 +282,7 @@ async def test_detail(client, tokens, sessions):
     r = await client.get(f"/api/v1/products/{ids['A']}", headers=auth(tokens))
     assert r.status_code == 200, r.text
     d = r.json()
-    assert d["item"]["offer_id"] == "6001-2RS.C3" and d["item"]["margin"] == "16.91" and d["barcode"] == "4600000000001"
+    assert d["item"]["offer_id"] == "6001-2RS.C3" and d["item"]["margin"] == "3.84" and d["barcode"] == "4600000000001"
     assert d["cost"] == {"cost_price": "164.00", "vat_multiplier": "1.220", "supplier_vat": "1.220",
                          "cost_with_vat": "200.08", "effective_from": BEGINNING.isoformat(), "note": None, "history_count": 1}
     assert d["supplier_vat"] == "1.220"  # нет налогового профиля — общая ставка 22 %

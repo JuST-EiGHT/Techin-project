@@ -29,13 +29,13 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.engine.promotions import is_whole_stock, margin_in_promo
+from app.engine.price_calculator import margin_at
+from app.engine.promotions import is_whole_stock
 from app.integrations.ozon.client import OzonClient
 from app.models.product import Product
 from app.models.promotion import Promotion, PromotionProduct
-from app.services.costs import cost_prices_with_vat
+from app.services import pricing
 from app.services.sync.parsing import to_count, to_decimal, to_id, to_str
-from app.services.sync.products import latest_prices
 
 log = logging.getLogger(__name__)
 
@@ -170,8 +170,8 @@ async def sync_promotions(db: AsyncSession, user_id: uuid.UUID, client: OzonClie
     now = datetime.now(timezone.utc)
 
     products = {p.ozon_product_id: p for p in (await db.execute(select(Product).where(Product.user_id == user_id))).scalars()}
-    prices = await latest_prices(db, [p.id for p in products.values()])  # комиссия и эквайринг для маржи
-    costs = await cost_prices_with_vat(db, user_id)
+    # маржа в акции — калькулятор цены (шаг 4.2): себестоимость, комиссия, логистика, реклама, налог
+    ctx = await pricing.load(db, user_id, list(products.values()))
 
     existing = {
         p.ozon_action_id: p
@@ -221,7 +221,8 @@ async def sync_promotions(db: AsyncSession, user_id: uuid.UUID, client: OzonClie
                 or (by_mode is None and product.ozon_product_id in auto_ids)
                 or (by_mode is None and row is not None and row.added_automatically)
             )
-            last_price = prices.get(product.id)
+            last_price = ctx.prices.get(product.id)
+            params = ctx.product_params(product)
             action_price = money(item.get("action_price"))
             values = {
                 "action_price": action_price,
@@ -233,11 +234,7 @@ async def sync_promotions(db: AsyncSession, user_id: uuid.UUID, client: OzonClie
                 "is_active": is_active,
                 "added_automatically": auto,
                 "add_mode": mode,
-                "margin_in_promo": margin_in_promo(
-                    action_price, costs.get(product.id),
-                    last_price.commission_pct if last_price else None,
-                    last_price.acquiring_pct if last_price else None,
-                ),
+                "margin_in_promo": margin_at(params, action_price) if params is not None else None,
                 "synced_at": now,
             }
             if row is None:

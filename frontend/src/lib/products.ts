@@ -121,7 +121,7 @@ export const COLUMNS: { key: ColumnKey; label: string; hint: string; first: 'asc
   { key: 'cost', label: 'Себестоимость', hint: 'За 1 шт. без НДС, на сегодня', first: 'desc' },
   { key: 'stock', label: 'Остаток', hint: 'Доступно к продаже на всех складах; ниже — в пути', first: 'desc' },
   { key: 'days', label: 'Дней запаса', hint: 'Остаток на всех складах / продажи в день за 30 дней', first: 'asc' },
-  { key: 'margin', label: 'Маржа', hint: 'При текущей цене, без логистики — подробнее под таблицей', first: 'asc' },
+  { key: 'margin', label: 'Маржа', hint: 'При текущей цене — как в калькуляторе цены, с логистикой и налогами', first: 'asc' },
   { key: 'index', label: 'Индекс цены', hint: 'Цветовой индекс цены Ozon: насколько ваша цена выгодна покупателю', first: 'desc' },
   { key: 'promo', label: 'Акции', hint: 'Текущие акции, в которых участвует товар', first: 'desc' },
   { key: 'last_sale', label: 'Посл. продажа', hint: 'Последний день с продажей по загруженным начислениям', first: 'desc' },

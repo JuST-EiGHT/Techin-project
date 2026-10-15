@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { PriceSettingsForm } from '@/components/price-calc'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { api, errorMessage } from '@/lib/api'
@@ -181,6 +182,14 @@ function SupplierSection() {
   )
 }
 
+function PriceSection() {
+  return (
+    <Section title="Расчёт цены" hint="По ним считаются минимальная и целевая цена и маржа в акциях — на страницах «Цены», «Товары» и «Акции».">
+      <PriceSettingsForm />
+    </Section>
+  )
+}
+
 type PlanningState = { enabled: boolean; setup_done: boolean }
 
 function PlanningSection() {
@@ -241,6 +250,7 @@ export default function SettingsPage() {
       <ThemeSection />
       <TaxesSection />
       <SupplierSection />
+      <PriceSection />
       <PlanningSection />
     </div>
   )

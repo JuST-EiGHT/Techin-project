@@ -24,6 +24,7 @@ import {
   type ProductsPage,
   type QuickFilter,
 } from '@/lib/products'
+import { useOnPriceSettingsChange } from '@/lib/settings'
 
 type Sort = 'offer_id' | 'name' | ColumnKey
 type SyncStatus = {
@@ -205,6 +206,7 @@ function Products() {
 
   const closePanel = useCallback(() => setUrl({ product: null }), [setUrl])
   const reloadList = useCallback(() => setReload((n) => n + 1), [])
+  useOnPriceSettingsChange(reloadList) // маржа считается калькулятором цены
 
   const lastSuccess = sync?.products.last_success_at
   const failed = sync?.products.last_run?.status === 'failed' ? sync.products.last_run.error : null
