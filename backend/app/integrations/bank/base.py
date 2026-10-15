@@ -6,6 +6,10 @@
 Права — только чтение (счета, остатки, выписки): платежи из сервиса не отправляем (docs/MONEY.md §6).
 Токен живёт только в заголовке запроса: в логи, тексты ошибок и repr не попадает (правило 7).
 
+TLS: сайты российских банков (Т-Банк, Точка) подписаны корневым сертификатом Минцифры («Russian Trusted Root CA»), которого
+нет в стандартных хранилищах. Доверяем обычным корням и ему (`app/data/certs/russian_trusted_root_ca.pem` — с Госуслуг,
+SHA-256 D2:6D:2D:02:…:CA:8E:CF:31); проверку сертификата не отключаем.
+
 Повторы, как у клиента Ozon: сеть и таймауты — 3 повтора (1, 2, 4 с); 429 — до 5 повторов (Retry-After, не больше 60 с,
 или 1, 2, 4, 8, 16 с); 5xx — 2 повтора через 3 с; 401 / 403 и прочие 4xx — сразу ошибка с понятным текстом.
 """
@@ -13,14 +17,19 @@ import asyncio
 import base64
 import json
 import logging
+import os
+import ssl
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
+import certifi
 import httpx
 
 log = logging.getLogger(__name__)
@@ -32,6 +41,15 @@ SERVER_RETRIES = 2
 SERVER_RETRY_DELAY = 3
 TIMEOUT = 60.0
 RUB = ("RUB", "RUR", "643")
+RU_ROOT_CA = Path(__file__).resolve().parents[2] / "data" / "certs" / "russian_trusted_root_ca.pem"
+
+
+@lru_cache(maxsize=1)
+def ssl_context() -> ssl.SSLContext:
+    """Обычные доверенные корни (как у httpx: SSL_CERT_FILE или certifi) плюс корневой сертификат Минцифры."""
+    ctx = ssl.create_default_context(cafile=os.environ.get("SSL_CERT_FILE") or certifi.where())
+    ctx.load_verify_locations(cafile=str(RU_ROOT_CA))
+    return ctx
 
 Sleep = Callable[[float], Awaitable[Any]]
 
@@ -170,7 +188,7 @@ class BankHttp:
         self._sleep: Sleep = sleep if sleep is not None else asyncio.sleep
         self._min_interval = min_interval
         self._last = 0.0
-        self._http = httpx.AsyncClient(base_url=base_url, timeout=TIMEOUT, transport=transport,
+        self._http = httpx.AsyncClient(base_url=base_url, timeout=TIMEOUT, transport=transport, verify=ssl_context(),
                                        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
 
     def __repr__(self) -> str:

@@ -1,0 +1,2554 @@
+{
+ "openapi": "3.0.1",
+ "info": {
+  "title": "T-API",
+  "license": {
+   "name": "Apache 2.0"
+  },
+  "version": "1.0",
+  "x-logo": {
+   "url": "https://business.t-static.ru/static/projects/openapi/logo.svg",
+   "backgroundColor": "#616871"
+  },
+  "x-source": "https://business.tbank.ru/openapi/docs/front/openapi.yaml (выгружено 2026-10-15, только методы выписки и счетов)"
+ },
+ "paths": {
+  "/api/v1/statement": {
+   "get": {
+    "tags": [
+     "Счета и выписки"
+    ],
+    "summary": "Получить выписку по счету",
+    "description": " Метод для получения списка операций по счету за определенный период по указанным критериям поиска. Данные доступны с июня 2023 года.\n\n\n\nЧтобы оперативно отслеживать статус оплаты, вы также можете воспользоваться вебхуком <a href=\"/docs/intro/webhooks/account-info\">Операция по счету</a>.\n\n\n\nПоля с датой и временем в запросе и ответе передаются в формате ISO 8601 по UTC.\n\nОперации получаются порциями. Максимальный размер порции регулируется параметром <b>limit</b>. Если в текущем запросе не удается вернуть все операции, в ответе будет заполнено поле <b>nextCursor</b> с указателем на последнюю операцию в ответе. Чтобы получить очередную порцию операций, повторите запрос — в поле <b>cursor</b> укажите значение, полученное из <b>nextCursor</b>.\n\nЧтобы в ответе вернулись балансы, передайте параметр <b>withBalances</b> со значением <code>true</code>. Они вернутся только для первого запроса — для следующих запросов очередной порции операций при заполнении поля <b>cursor</b> балансы не возвращаются. ",
+    "operationId": "getApiV1Statement",
+    "parameters": [
+     {
+      "name": "X-Request-Id",
+      "in": "header",
+      "description": "Уникальный идентификатор для трассировки запроса. Не влияет на логику его исполнения.",
+      "required": false,
+      "style": "simple",
+      "explode": false,
+      "schema": {
+       "type": "string",
+       "description": "Идентификатор запроса.",
+       "format": "uuid"
+      }
+     },
+     {
+      "name": "accountNumber",
+      "in": "query",
+      "description": "Номер счета.",
+      "required": true,
+      "style": "form",
+      "explode": true,
+      "schema": {
+       "pattern": "^(\\d{20})$",
+       "type": "string"
+      },
+      "example": "40702810510000710417"
+     },
+     {
+      "name": "categories",
+      "in": "query",
+      "description": "Категории операций. <a href=\"/docs/products/scenarios/account-info#категории-операций\">Подробнее о категориях</a>.",
+      "required": false,
+      "style": "form",
+      "explode": true,
+      "schema": {
+       "maxItems": 50,
+       "type": "array",
+       "items": {
+        "maxLength": 50,
+        "type": "string",
+        "example": "fee"
+       }
+      },
+      "example": "fee"
+     },
+     {
+      "name": "cursor",
+      "in": "query",
+      "description": "Указатель на последнюю операцию, полученную в предыдущем запросе. Максимальное количество операций в запросе — 5000, значение по умолчанию — 1000.\n\nЕсли количество операций больше лимита, этот параметр вернется в последней строке ответа — его нужно передать в следующем запросе.",
+      "required": false,
+      "style": "form",
+      "explode": true,
+      "schema": {
+       "maxLength": 100,
+       "type": "string"
+      }
+     },
+     {
+      "name": "from",
+      "in": "query",
+      "description": "Дата начала периода, включительно.",
+      "required": true,
+      "style": "form",
+      "explode": true,
+      "schema": {
+       "type": "string",
+       "format": "date-time"
+      },
+      "example": "2022-02-01T21:00:00Z"
+     },
+     {
+      "name": "inns",
+      "in": "query",
+      "description": "ИНН контрагентов.",
+      "required": false,
+      "style": "form",
+      "explode": true,
+      "schema": {
+       "maxItems": 50,
+       "type": "array",
+       "items": {
+        "pattern": "^(\\d{10}|\\d{12})$",
+        "type": "string",
+        "example": "17499237465"
+       }
+      },
+      "example": "17499237465"
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "description": "Максимальное количество операций, которое нужно получить за один вызов метода.",
+      "required": false,
+      "style": "form",
+      "explode": true,
+      "schema": {
+       "maximum": 5000,
+       "minimum": 1,
+       "type": "integer",
+       "format": "int32",
+       "default": 1000
+      }
+     },
+     {
+      "name": "operationStatus",
+      "in": "query",
+      "description": "Статус операции для фильтрации: все операции, только авторизации или только подтвержденные транзакции.",
+      "required": false,
+      "style": "form",
+      "explode": true,
+      "schema": {
+       "type": "string",
+       "enum": [
+        "All",
+        "Authorization",
+        "Transaction"
+       ]
+      },
+      "example": "Transaction"
+     },
+     {
+      "name": "to",
+      "in": "query",
+      "description": "Дата окончания периода, не включительно. Ограничений на длину интервала между `from` и `to` нет.\n\nЕсли параметр не передается, в ответе возвращаются все операции, исполненные по счету на данный момент. В случае выходного дня операции проходят по балансу банка в ближайший рабочий день — то есть в ответе вернутся операции с `operationdate` ближайшего рабочего дня.",
+      "required": false,
+      "style": "form",
+      "explode": true,
+      "schema": {
+       "type": "string",
+       "format": "date-time"
+      },
+      "example": "2022-02-02T21:00:00Z"
+     },
+     {
+      "name": "ucid",
+      "in": "query",
+      "description": "UCID карты — ее уникальный идентификатор. Его можно получить через метод <a href=\"/docs/api/get-api-v-3-card\">Получить список карт компании</a>.",
+      "required": false,
+      "style": "form",
+      "explode": true,
+      "schema": {
+       "type": "integer",
+       "format": "int64"
+      },
+      "example": 1234567890
+     },
+     {
+      "name": "withBalances",
+      "in": "query",
+      "description": "Если передан `true`, возвращаются балансы.",
+      "required": false,
+      "style": "form",
+      "explode": true,
+      "schema": {
+       "type": "boolean"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Список операций",
+      "headers": {
+       "X-Request-Id": {
+        "required": true,
+        "style": "simple",
+        "explode": false,
+        "schema": {
+         "maxLength": 50,
+         "type": "string",
+         "description": "Идентификатор запроса."
+        }
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/GetOperationsResult2061807413"
+        },
+        "example": {
+         "balances": {
+          "balanceBegin": 0,
+          "balanceEnd": 484.5,
+          "credit": 484.5,
+          "debit": 0,
+          "creditAuthorizations": 0,
+          "debitAuthorizations": 0,
+          "operationsCount": 1,
+          "balances": [
+           {
+            "date": "2022-02-02",
+            "balanceBegin": 0,
+            "balanceEnd": 484.5,
+            "credit": 484.5,
+            "debit": 0,
+            "creditAuthorizations": 0,
+            "debitAuthorizations": 0,
+            "operationsCount": 1
+           }
+          ]
+         },
+         "operations": [
+          {
+           "operationDate": "2022-02-02T20:07:04Z",
+           "operationId": "64be58f9-c7fc-0027-96ba-763ec56a2317",
+           "operationStatus": "Transaction",
+           "accountNumber": "40702810510000710417",
+           "bic": "044525974",
+           "typeOfOperation": "Credit",
+           "category": "fee",
+           "trxnPostDate": "2021-03-29T18:37:02Z",
+           "authorizationDate": "2021-03-29T15:29:15Z",
+           "drawDate": "2022-02-02T20:07:04Z",
+           "chargeDate": "2022-02-02T20:07:04Z",
+           "docDate": "2022-02-02T20:07:04Z",
+           "documentNumber": "175926",
+           "payVo": "payment-order",
+           "vo": "17",
+           "priority": 5,
+           "operationAmount": 484.5,
+           "operationCurrencyDigitalCode": "643",
+           "accountAmount": 484.5,
+           "accountCurrencyDigitalCode": "643",
+           "rubleAmount": 176.54,
+           "description": "Перевод собственных средств на счет. НДС не облагается",
+           "payPurpose": "Оплата услуг по договору 17369058. НДС не облагается",
+           "payer": {
+            "acct": "40702810510000710417",
+            "name": "ИП Котиков Александр Михайлович",
+            "inn": "17499237465",
+            "kpp": "0",
+            "bicRu": "044525974",
+            "bicSwift": "CHASUS33",
+            "bankName": "АО «ТБанк»",
+            "corAcct": "30102810945250000974"
+           },
+           "receiver": {
+            "acct": "40702810510000710417",
+            "name": "ИП Котиков Александр Михайлович",
+            "inn": "17499237465",
+            "kpp": "0",
+            "bicRu": "044525974",
+            "bicSwift": "CHASUS33",
+            "bankName": "АО «ТБанк»",
+            "corAcct": "30102810945250000974"
+           },
+           "counterParty": {
+            "account": "40702810510000710417",
+            "bankBic": "044525974",
+            "bankName": "АО «ТБанк»",
+            "bankSwiftCode": "CHASUS33",
+            "corrAccount": "30002340500001234056",
+            "inn": "366109554501",
+            "kpp": "0",
+            "name": "Межрайонная ИФНС России № 17 по Воронежской области"
+           },
+           "cardNumber": "5534*****6400",
+           "ucid": 1053539419,
+           "mcc": "0010",
+           "merch": {
+            "address": "13 VOLODARSKOGO STR",
+            "city": "MOSCOW",
+            "index": "183038",
+            "country": "RUS",
+            "name": "Tinkoff.cc_trans"
+           },
+           "authCode": "643",
+           "rrn": "8408475",
+           "acquirerId": "17495726",
+           "tax": {
+            "kbk": "18210302101081013260",
+            "oktmo": "40519000",
+            "payerStatus": "09",
+            "evidence": "ТП",
+            "period": "ГД.00.2021",
+            "nalType": "0",
+            "docNumber": "0",
+            "docDate": "0",
+            "uin": "0",
+            "thirdPartyInn": "366109554501",
+            "thirdPartyKpp": "0"
+           }
+          }
+         ],
+         "nextCursor": "0plHq1GMtZTd39VywSrQ5C1an0tj0Q4Lo91ZPul5i0Y="
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "Некорректный запрос",
+      "headers": {
+       "X-Request-Id": {
+        "required": true,
+        "style": "simple",
+        "explode": false,
+        "schema": {
+         "maxLength": 50,
+         "type": "string",
+         "description": "Идентификатор запроса."
+        }
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ApiV3Error"
+        },
+        "examples": {
+         "Неверный формат токена": {
+          "value": {
+           "errorId": "60324c74-e4b9-477d-baae-786956876a28",
+           "errorMessage": "Токен не прошел валидацию. Токен может содержать только url-safe символы и может содержать паддинг из знака '='. Токен должен соответствовать регулярному выражению ^=?[a-zA-Z0-9-._~]+$",
+           "errorCode": "INVALID_REQUEST"
+          }
+         },
+         "Неверный формат даты": {
+          "value": {
+           "errorId": "60324c74-e4b9-477d-baae-786956876a29",
+           "errorMessage": "Ваш запрос невалиден: Invalid data",
+           "errorCode": "INVALID_REQUEST",
+           "errorDetails": {
+            "validationError": "[$] Value '2026-07-23' is not a valid date-time (schema: query.from, code: format); [$] Value '2026-07-30' is not a valid date-time (schema: query.to, code: format)"
+           }
+          }
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "$ref": "#/components/responses/401"
+     },
+     "403": {
+      "$ref": "#/components/responses/403"
+     },
+     "422": {
+      "description": "Ошибка при обработке данных",
+      "headers": {
+       "X-Request-Id": {
+        "required": true,
+        "style": "simple",
+        "explode": false,
+        "schema": {
+         "maxLength": 50,
+         "type": "string",
+         "description": "Идентификатор запроса."
+        }
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ApiV3Error"
+        },
+        "examples": {
+         "Аккаунт не найден": {
+          "value": {
+           "errorId": "5fdf22eb91012189",
+           "errorCode": "NO_EXISTING_ACCOUNT",
+           "errorMessage": "Выбранный аккаунт для компании не найден"
+          }
+         }
+        }
+       }
+      }
+     },
+     "429": {
+      "$ref": "#/components/responses/429"
+     },
+     "500": {
+      "$ref": "#/components/responses/500"
+     },
+     "502": {
+      "description": "Bad Gateway",
+      "content": {
+       "text/html": {
+        "schema": {
+         "type": "string",
+         "example": "<html><head><title>Error</title></head><body><center><h1>Error</h1></center><hr><center>nginx</center></body></html>"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "Service Unavailable",
+      "content": {
+       "text/html": {
+        "schema": {
+         "type": "string",
+         "example": "<html><head><title>Error</title></head><body><center><h1>Error</h1></center><hr><center>nginx</center></body></html>"
+        }
+       }
+      }
+     },
+     "504": {
+      "description": "Gateway Timeout",
+      "content": {
+       "text/html": {
+        "schema": {
+         "type": "string",
+         "example": "<html><head><title>Error</title></head><body><center><h1>Error</h1></center><hr><center>nginx</center></body></html>"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "httpAuth": []
+     }
+    ],
+    "servers": [
+     {
+      "url": "https://business.tbank.ru/openapi",
+      "description": "Production"
+     },
+     {
+      "url": "https://business.tbank.ru/openapi/sandbox",
+      "description": "Sandbox"
+     }
+    ],
+    "x-mcp": {
+     "enabled": true,
+     "group": "b2b"
+    },
+    "x-front": {
+     "self-scopes": "Информация об операциях компании с ИНН {inn} и КПП {kpp}",
+     "multiSign": false,
+     "connection-scenario-partner": true,
+     "usage-scenario": [
+      {
+       "name": "Операции по счету",
+       "link": "https://developer.tbank.ru/docs/products/account-info"
+      }
+     ],
+     "partner-scopes": "opensme/inn/[{inn}]/kpp/[{kpp}]/bank-statements/get",
+     "linked-method": [
+      {
+       "name": "Получить счета",
+       "link": "https://developer.tbank.ru/docs/api/get-api-v-3-bank-accounts"
+      }
+     ],
+     "connection-scenario-self": true,
+     "mtls-algo": "any",
+     "rate-limit": {
+      "period": "1 second",
+      "default": 20
+     },
+     "mtls": false,
+     "section": "Счета и выписки"
+    }
+   }
+  },
+  "/api/v4/bank-accounts": {
+   "get": {
+    "tags": [
+     "Счета и выписки"
+    ],
+    "summary": "Получить счета v4",
+    "description": "Метод для получения информации по всем расчетным и инвестиционным счетам организаций — активные, закрытые, арестованные, заблокированные, картотека. Возвращает наименование, статус и тип счёта, дату открытия, коды тарифа и валюты, балансы и другие параметры. \n\n\nЧтобы использовать метод, в личном кабинете Т-Бизнеса выпустите токен с [доступом](/docs/intro/manuals/self-service-auth#доступы): <code>opensme/inn/[{inn}]/kpp/[{kpp}]/bank-accounts/get</code> — <code>Информация о счетах компании с ИНН {inn} и КПП {kpp}</code>.\n\n\nОграничение на использование метода — 6 запросов в секунду.",
+    "operationId": "getApiV4Bank-accounts",
+    "parameters": [
+     {
+      "name": "withInvest",
+      "in": "query",
+      "description": "Флаг получения инвестиционных счетов.",
+      "required": false,
+      "style": "form",
+      "explode": true,
+      "schema": {
+       "type": "boolean"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Расчетные счета",
+      "headers": {
+       "X-Request-Id": {
+        "required": true,
+        "style": "simple",
+        "explode": false,
+        "schema": {
+         "type": "string",
+         "description": "Идентификатор запроса."
+        }
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/AccountInfo3"
+         }
+        },
+        "examples": {
+         "Расчетные счета": {
+          "value": [
+           {
+            "accountNumber": "40802678901234567890",
+            "name": "Валютный фунтовый счет",
+            "status": "NORM",
+            "tariffName": "Тарифный план \"Продвинутый\" GBP",
+            "tariffCode": "TFLE1.2GBP",
+            "currency": "643",
+            "createdOn": "2010-08-03",
+            "mainFlag": "Y",
+            "bankBik": "123456789",
+            "accountType": "Current",
+            "activationDate": "2010-08-03",
+            "balance": {
+             "balance": 444333,
+             "realOtb": 44000,
+             "otb": 45089,
+             "authorized": 0,
+             "pendingPayments": 0,
+             "pendingRequisitions": 0
+            },
+            "transitAccount": {
+             "accountNumber": "11223344556677889900"
+            }
+           },
+           {
+            "accountNumber": "",
+            "name": "Инвестиционный счет",
+            "status": "NORM",
+            "tariffName": "",
+            "tariffCode": "TRD12.1",
+            "currency": "643",
+            "createdOn": "2023-01-01",
+            "mainFlag": "N",
+            "bankBik": "123456789",
+            "accountType": "Invest",
+            "activationDate": "2023-01-01",
+            "balance": {
+             "balance": 50000,
+             "realOtb": 0,
+             "otb": 0,
+             "authorized": 0,
+             "pendingPayments": 0,
+             "pendingRequisitions": 0
+            },
+            "brokerCurrencyBalance": [
+             {
+              "currency": "RUB",
+              "currentBalance": 125,
+              "currentBalanceForWithdrawal": 115,
+              "blockedQuantity": 10
+             }
+            ]
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "Некорректный запрос",
+      "headers": {
+       "X-Request-Id": {
+        "required": true,
+        "style": "simple",
+        "explode": false,
+        "schema": {
+         "type": "string",
+         "description": "Идентификатор запроса."
+        }
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/InvalidRequestResponse"
+        },
+        "examples": {
+         "Неправильно переданное значение в поле {fieldName}": {
+          "value": {
+           "errorId": "cde4zxc5",
+           "errorMessage": "Неверный формат запроса",
+           "errorCode": "BAD_REQUEST",
+           "errorDetails": {
+            "fieldName": "expected fieldName to be one of (1, 2, 3, 4, 5), but got \"0\""
+           }
+          }
+         },
+         "Не передан обязательный параметр": {
+          "value": {
+           "errorId": "cde4zxc5",
+           "errorMessage": "Запрос невалиден: Invalid data",
+           "errorCode": "VALIDATION_ERROR",
+           "errorDetails": {
+            "validation error": "[$] Missing required query parameter: X (schema: query.X, code: REQUIRED)"
+           }
+          }
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Ошибка аутентификации",
+      "headers": {
+       "X-Request-Id": {
+        "required": true,
+        "style": "simple",
+        "explode": false,
+        "schema": {
+         "type": "string",
+         "description": "Идентификатор запроса."
+        }
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AuthenticationFailedResponse"
+        },
+        "examples": {
+         "Неактивный токен": {
+          "value": {
+           "errorMessage": "Токен недействителен",
+           "errorCode": "UNAUTHORIZED",
+           "errorId": "60324c74-e4b9-477d-baae-786956876a28"
+          }
+         }
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "Ошибка авторизации",
+      "headers": {
+       "X-Request-Id": {
+        "required": true,
+        "style": "simple",
+        "explode": false,
+        "schema": {
+         "type": "string",
+         "description": "Идентификатор запроса."
+        }
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AuthorizationFailedResponse"
+        },
+        "examples": {
+         "Нет доступов": {
+          "value": {
+           "errorMessage": "У вас неподходящие скопы для данной операции. Требуемые скопы: scope",
+           "errorCode": "FORBIDDEN",
+           "errorId": "40324c74-e4b9-477d-baae-786956876a28"
+          }
+         },
+         "Запрос с неизвестного IP": {
+          "value": {
+           "errorMessage": "Запрос был отправлен с IP-адреса, который не был указан при получении токена. Укажите этот IP-адрес при получении нового токена",
+           "errorCode": "FORBIDDEN",
+           "errorId": "50324c74-e4b9-477d-baae-786956876a28"
+          }
+         },
+         "Нет прав на использование продукта": {
+          "value": {
+           "errorMessage": "Недостаточно прав на совершаемое действие. Свяжитесь с менеджером или обратитесь в поддержку, чтобы добавить нужную роль",
+           "errorCode": "FORBIDDEN",
+           "errorId": "60324c74-e4b9-477d-baae-786956876a28"
+          }
+         }
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Ошибка при обработке данных",
+      "headers": {
+       "X-Request-Id": {
+        "required": true,
+        "style": "simple",
+        "explode": false,
+        "schema": {
+         "type": "string",
+         "description": "Идентификатор запроса."
+        }
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/BusinessErrorResponse"
+        },
+        "example": {
+         "errorMessage": "Передаваемые данные не соответствуют требуемому формату. Проверьте корректность передаваемых данных",
+         "errorCode": "INVALID_FORMAT",
+         "errorId": "60324c74-e4b9-477d-baae-786956876a28"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "Слишком много запросов",
+      "headers": {
+       "X-Request-Id": {
+        "required": true,
+        "style": "simple",
+        "explode": false,
+        "schema": {
+         "type": "string",
+         "description": "Идентификатор запроса."
+        }
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TooManyRequestsErrorResponse"
+        },
+        "examples": {
+         "Превышение лимита запросов": {
+          "value": {
+           "errorMessage": "Слишком много запросов. Попробуйте позже",
+           "errorCode": "TOO_MANY_REQUESTS",
+           "errorId": "80324c74-e4b9-477d-baae-786956876a28"
+          }
+         }
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "Ошибка сервера",
+      "headers": {
+       "X-Request-Id": {
+        "required": true,
+        "style": "simple",
+        "explode": false,
+        "schema": {
+         "type": "string",
+         "description": "Идентификатор запроса."
+        }
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "anyOf": [
+          {
+           "$ref": "#/components/schemas/InternalServerErrorResponse"
+          },
+          {
+           "$ref": "#/components/schemas/InternalServerErrorResponse"
+          },
+          {
+           "$ref": "#/components/schemas/InternalServerErrorResponse"
+          }
+         ]
+        },
+        "examples": {
+         "Непредвиденная ошибка": {
+          "value": {
+           "errorMessage": "Непредвиденная ошибка. Попробуйте позже",
+           "errorCode": "INTERNAL_ERROR",
+           "errorId": "10324c74-e4b9-477d-baae-786956876a28"
+          }
+         },
+         "Неверный формат данных": {
+          "value": {
+           "errorMessage": "Непредвиденная ошибка. Попробуйте позже",
+           "errorCode": "INTERNAL_ERROR",
+           "errorId": "10324c74-e4b9-477d-baae-786956876a28"
+          }
+         }
+        }
+       }
+      }
+     },
+     "502": {
+      "description": "Bad Gateway",
+      "content": {
+       "text/html": {
+        "schema": {
+         "type": "string",
+         "example": "<html><head><title>Error</title></head><body><center><h1>Error</h1></center><hr><center>nginx</center></body></html>"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "Service Unavailable",
+      "content": {
+       "text/html": {
+        "schema": {
+         "type": "string",
+         "example": "<html><head><title>Error</title></head><body><center><h1>Error</h1></center><hr><center>nginx</center></body></html>"
+        }
+       }
+      }
+     },
+     "504": {
+      "description": "Gateway Timeout",
+      "content": {
+       "text/html": {
+        "schema": {
+         "type": "string",
+         "example": "<html><head><title>Error</title></head><body><center><h1>Error</h1></center><hr><center>nginx</center></body></html>"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "httpAuth": []
+     }
+    ],
+    "x-mcp": {
+     "enabled": true,
+     "group": "b2b"
+    }
+   },
+   "servers": [
+    {
+     "url": "https://business.tbank.ru/openapi",
+     "description": "Production"
+    },
+    {
+     "url": "https://business.tbank.ru/openapi/sandbox",
+     "description": "Sandbox"
+    }
+   ]
+  },
+  "/api/v1/bank-statement": {
+   "get": {
+    "tags": [
+     "Счета и выписки"
+    ],
+    "summary": "Получить выписку по счету клиента за определенный период",
+    "description": "Метод для получения выписок по счетам.\n\n\nЧтобы использовать метод, в личном кабинете Т-Бизнеса выпустите токен с [доступом](/docs/intro/manuals/self-service-auth#доступы): <code>opensme/inn/[{inn}]/kpp/[{kpp}]/bank-statements/get</code> — <code>Информация об операциях компании с ИНН {inn} и КПП {kpp}</code>.\n\n\nЗапросы выписок с количеством операций более 50 000 сейчас не поддерживаются и будут возвращать ошибку.\n\n\nОграничение на использование метода — 10 запросов в секунду.",
+    "operationId": "getApiV1Bank-statement",
+    "parameters": [
+     {
+      "name": "accountNumber",
+      "in": "query",
+      "description": "Расчетный счет организации.",
+      "required": true,
+      "style": "form",
+      "explode": true,
+      "schema": {
+       "pattern": "^(\\d{20}|\\d{22})$",
+       "type": "string",
+       "description": "Номер расчетного счета. Важно: с 01.01.2021 для бюджетных платежей в этом поле нужно передавать новые номера казначейских счетов."
+      },
+      "example": 40702810110011000777
+     },
+     {
+      "name": "from",
+      "in": "query",
+      "description": "Дата начала периода. Если параметр не передается, дата приравнивается значению даты конца — 1 месяц.",
+      "required": false,
+      "style": "form",
+      "explode": true,
+      "schema": {
+       "type": "string",
+       "format": "date"
+      },
+      "example": "2021-11-03"
+     },
+     {
+      "name": "till",
+      "in": "query",
+      "description": "Дата окончания периода. Если параметр не передается, приравнивается текущей дате.",
+      "required": false,
+      "style": "form",
+      "explode": true,
+      "schema": {
+       "type": "string",
+       "format": "date"
+      },
+      "example": "2021-11-03"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "",
+      "headers": {
+       "X-Request-Id": {
+        "required": true,
+        "style": "simple",
+        "explode": false,
+        "schema": {
+         "type": "string",
+         "description": "Идентификатор запроса."
+        }
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/BankStatement"
+        },
+        "example": {
+         "accountNumber": "99998888777766665555",
+         "saldoIn": 500,
+         "income": 500,
+         "outcome": 500,
+         "saldoOut": 500,
+         "operation": [
+          {
+           "operationId": "12345_89765",
+           "id": "1234567890123456789",
+           "date": "2015-04-01",
+           "amount": 500,
+           "drawDate": "2015-05-01",
+           "payerName": "Иванов Иван Иванович",
+           "payerInn": "987654321987",
+           "payerAccount": "99998888777766665555",
+           "payerCorrAccount": "40244447777333300000",
+           "payerBic": "76543277778",
+           "payerBank": "банк 'Лидеров'",
+           "chargeDate": "2015-09-03",
+           "recipient": "Петров Петр Петрович",
+           "recipientInn": "765432198765",
+           "recipientAccount": "77774444222277772222",
+           "recipientCorrAccount": "40299998888777700000",
+           "recipientBic": "12345678901",
+           "recipientBank": "банк 'Чемпионов'",
+           "paymentType": "",
+           "operationType": "01",
+           "uin": "0",
+           "paymentPurpose": "материальная помощь",
+           "creatorStatus": "",
+           "kbk": "44445555666677778888",
+           "oktmo": "44445555",
+           "taxEvidence": "ТП",
+           "taxPeriod": "ГД.00.2019",
+           "taxDocNumber": "0",
+           "taxDocDate": "0",
+           "taxType": "taxType",
+           "executionOrder": "5"
+          }
+         ]
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "Некорректный запрос",
+      "headers": {
+       "X-Request-Id": {
+        "required": true,
+        "style": "simple",
+        "explode": false,
+        "schema": {
+         "type": "string",
+         "description": "Идентификатор запроса."
+        }
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/InvalidRequestResponse"
+        },
+        "examples": {
+         "Неправильно переданное значение в поле {fieldName}": {
+          "value": {
+           "errorId": "cde4zxc5",
+           "errorMessage": "Неверный формат запроса",
+           "errorCode": "BAD_REQUEST",
+           "errorDetails": {
+            "fieldName": "expected fieldName to be one of (1, 2, 3, 4, 5), but got \"0\""
+           }
+          }
+         },
+         "Не передан обязательный параметр": {
+          "value": {
+           "errorId": "cde4zxc5",
+           "errorMessage": "Запрос невалиден: Invalid data",
+           "errorCode": "VALIDATION_ERROR",
+           "errorDetails": {
+            "validation error": "[$] Missing required query parameter: X (schema: query.X, code: REQUIRED)"
+           }
+          }
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Ошибка аутентификации",
+      "headers": {
+       "X-Request-Id": {
+        "required": true,
+        "style": "simple",
+        "explode": false,
+        "schema": {
+         "type": "string",
+         "description": "Идентификатор запроса."
+        }
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AuthenticationFailedResponse"
+        },
+        "examples": {
+         "Неактивный токен": {
+          "value": {
+           "errorMessage": "Токен недействителен",
+           "errorCode": "UNAUTHORIZED",
+           "errorId": "60324c74-e4b9-477d-baae-786956876a28"
+          }
+         }
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "Ошибка авторизации",
+      "headers": {
+       "X-Request-Id": {
+        "required": true,
+        "style": "simple",
+        "explode": false,
+        "schema": {
+         "type": "string",
+         "description": "Идентификатор запроса."
+        }
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AuthorizationFailedResponse"
+        },
+        "examples": {
+         "Нет доступов": {
+          "value": {
+           "errorMessage": "У вас неподходящие скопы для данной операции. Требуемые скопы: scope",
+           "errorCode": "FORBIDDEN",
+           "errorId": "40324c74-e4b9-477d-baae-786956876a28"
+          }
+         },
+         "Запрос с неизвестного IP": {
+          "value": {
+           "errorMessage": "Запрос был отправлен с IP-адреса, который не был указан при получении токена. Укажите этот IP-адрес при получении нового токена",
+           "errorCode": "FORBIDDEN",
+           "errorId": "50324c74-e4b9-477d-baae-786956876a28"
+          }
+         },
+         "Нет прав на использование продукта": {
+          "value": {
+           "errorMessage": "Недостаточно прав на совершаемое действие. Свяжитесь с менеджером или обратитесь в поддержку, чтобы добавить нужную роль",
+           "errorCode": "FORBIDDEN",
+           "errorId": "60324c74-e4b9-477d-baae-786956876a28"
+          }
+         }
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Ошибка при обработке данных",
+      "headers": {
+       "X-Request-Id": {
+        "required": true,
+        "style": "simple",
+        "explode": false,
+        "schema": {
+         "type": "string",
+         "description": "Идентификатор запроса."
+        }
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/BusinessErrorResponse"
+        },
+        "example": {
+         "errorMessage": "Передаваемые данные не соответствуют требуемому формату. Проверьте корректность передаваемых данных",
+         "errorCode": "INVALID_FORMAT",
+         "errorId": "60324c74-e4b9-477d-baae-786956876a28"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "Слишком много запросов",
+      "headers": {
+       "X-Request-Id": {
+        "required": true,
+        "style": "simple",
+        "explode": false,
+        "schema": {
+         "type": "string",
+         "description": "Идентификатор запроса."
+        }
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TooManyRequestsErrorResponse"
+        },
+        "examples": {
+         "Превышение лимита запросов": {
+          "value": {
+           "errorMessage": "Слишком много запросов. Попробуйте позже",
+           "errorCode": "TOO_MANY_REQUESTS",
+           "errorId": "80324c74-e4b9-477d-baae-786956876a28"
+          }
+         }
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "Ошибка сервера",
+      "headers": {
+       "X-Request-Id": {
+        "required": true,
+        "style": "simple",
+        "explode": false,
+        "schema": {
+         "type": "string",
+         "description": "Идентификатор запроса."
+        }
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "anyOf": [
+          {
+           "$ref": "#/components/schemas/InternalServerErrorResponse"
+          },
+          {
+           "$ref": "#/components/schemas/InternalServerErrorResponse"
+          },
+          {
+           "$ref": "#/components/schemas/InternalServerErrorResponse"
+          }
+         ]
+        },
+        "examples": {
+         "Непредвиденная ошибка": {
+          "value": {
+           "errorMessage": "Непредвиденная ошибка. Попробуйте позже",
+           "errorCode": "INTERNAL_ERROR",
+           "errorId": "10324c74-e4b9-477d-baae-786956876a28"
+          }
+         },
+         "Неверный формат данных": {
+          "value": {
+           "errorMessage": "Непредвиденная ошибка. Попробуйте позже",
+           "errorCode": "INTERNAL_ERROR",
+           "errorId": "10324c74-e4b9-477d-baae-786956876a28"
+          }
+         }
+        }
+       }
+      }
+     },
+     "502": {
+      "description": "Bad Gateway",
+      "content": {
+       "text/html": {
+        "schema": {
+         "type": "string",
+         "example": "<html><head><title>Error</title></head><body><center><h1>Error</h1></center><hr><center>nginx</center></body></html>"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "Service Unavailable",
+      "content": {
+       "text/html": {
+        "schema": {
+         "type": "string",
+         "example": "<html><head><title>Error</title></head><body><center><h1>Error</h1></center><hr><center>nginx</center></body></html>"
+        }
+       }
+      }
+     },
+     "504": {
+      "description": "Gateway Timeout",
+      "content": {
+       "text/html": {
+        "schema": {
+         "type": "string",
+         "example": "<html><head><title>Error</title></head><body><center><h1>Error</h1></center><hr><center>nginx</center></body></html>"
+        }
+       }
+      }
+     }
+    },
+    "deprecated": true,
+    "security": [
+     {
+      "httpAuth": []
+     }
+    ]
+   },
+   "servers": [
+    {
+     "url": "https://business.tbank.ru/openapi",
+     "description": "Production"
+    },
+    {
+     "url": "https://business.tbank.ru/openapi/sandbox",
+     "description": "Sandbox"
+    }
+   ]
+  }
+ },
+ "components": {
+  "schemas": {
+   "InternalServerErrorResponse": {
+    "title": "InternalServerErrorResponse",
+    "required": [
+     "errorCode",
+     "errorId",
+     "errorMessage"
+    ],
+    "type": "object",
+    "properties": {
+     "errorId": {
+      "maxLength": 50,
+      "type": "string",
+      "description": "Уникальный идентификатор ошибки."
+     },
+     "errorMessage": {
+      "maxLength": 400,
+      "type": "string",
+      "description": "Текст ошибки."
+     },
+     "errorCode": {
+      "maxLength": 50,
+      "type": "string",
+      "description": "Код ошибки."
+     }
+    }
+   },
+   "TooManyRequestsErrorResponse": {
+    "title": "TooManyRequestsErrorResponse",
+    "required": [
+     "errorCode",
+     "errorId",
+     "errorMessage"
+    ],
+    "type": "object",
+    "properties": {
+     "errorId": {
+      "type": "string"
+     },
+     "errorMessage": {
+      "maxLength": 400,
+      "type": "string",
+      "description": "Текст ошибки."
+     },
+     "errorCode": {
+      "maxLength": 50,
+      "type": "string",
+      "description": "Код ошибки."
+     }
+    }
+   },
+   "BusinessErrorResponse": {
+    "title": "BusinessErrorResponse",
+    "required": [
+     "errorCode",
+     "errorId",
+     "errorMessage"
+    ],
+    "type": "object",
+    "properties": {
+     "errorId": {
+      "maxLength": 50,
+      "type": "string",
+      "description": "Уникальный идентификатор ошибки."
+     },
+     "errorMessage": {
+      "maxLength": 400,
+      "type": "string",
+      "description": "Текст ошибки."
+     },
+     "errorCode": {
+      "maxLength": 50,
+      "type": "string",
+      "description": "Код ошибки."
+     },
+     "errorDetails": {
+      "type": "object",
+      "description": "Дополнительные данные об ошибке."
+     }
+    }
+   },
+   "AuthorizationFailedResponse": {
+    "title": "AuthorizationFailedResponse",
+    "required": [
+     "errorCode",
+     "errorId",
+     "errorMessage"
+    ],
+    "type": "object",
+    "properties": {
+     "errorId": {
+      "maxLength": 50,
+      "type": "string",
+      "description": "Уникальный идентификатор ошибки."
+     },
+     "errorMessage": {
+      "maxLength": 400,
+      "type": "string",
+      "description": "Текст ошибки."
+     },
+     "errorCode": {
+      "maxLength": 50,
+      "type": "string",
+      "description": "Код ошибки."
+     }
+    }
+   },
+   "AuthenticationFailedResponse": {
+    "title": "AuthenticationFailedResponse",
+    "required": [
+     "errorCode",
+     "errorId",
+     "errorMessage"
+    ],
+    "type": "object",
+    "properties": {
+     "errorId": {
+      "maxLength": 50,
+      "type": "string",
+      "description": "Уникальный идентификатор ошибки."
+     },
+     "errorMessage": {
+      "maxLength": 400,
+      "type": "string",
+      "description": "Текст ошибки."
+     },
+     "errorCode": {
+      "maxLength": 50,
+      "type": "string",
+      "description": "Код ошибки."
+     }
+    }
+   },
+   "InvalidRequestResponse": {
+    "title": "InvalidRequestResponse",
+    "required": [
+     "errorCode",
+     "errorId",
+     "errorMessage"
+    ],
+    "type": "object",
+    "properties": {
+     "errorId": {
+      "maxLength": 50,
+      "type": "string",
+      "description": "Уникальный идентификатор ошибки."
+     },
+     "errorMessage": {
+      "maxLength": 400,
+      "type": "string",
+      "description": "Текст ошибки."
+     },
+     "errorCode": {
+      "maxLength": 50,
+      "type": "string",
+      "description": "Код ошибки."
+     },
+     "errorDetails": {
+      "type": "object",
+      "description": "Дополнительные данные об ошибке."
+     }
+    }
+   },
+   "BankStatement": {
+    "title": "BankStatement",
+    "required": [
+     "accountNumber",
+     "income",
+     "outcome",
+     "saldoIn",
+     "saldoOut"
+    ],
+    "type": "object",
+    "properties": {
+     "accountNumber": {
+      "type": "string",
+      "description": "Расчетный счет организации."
+     },
+     "saldoIn": {
+      "type": "number",
+      "description": "Баланс на начало периода."
+     },
+     "income": {
+      "type": "number",
+      "description": "Обороты входящих платежей."
+     },
+     "outcome": {
+      "type": "number",
+      "description": "Обороты исходящих платежей."
+     },
+     "saldoOut": {
+      "type": "number",
+      "description": "Баланс на конец периода."
+     },
+     "operation": {
+      "type": "array",
+      "description": "Список операций по счету.",
+      "items": {
+       "$ref": "#/components/schemas/BankStatementOperation"
+      }
+     }
+    }
+   },
+   "BankStatementOperation": {
+    "title": "BankStatementOperation",
+    "required": [
+     "amount",
+     "chargeDate",
+     "creatorStatus",
+     "date",
+     "drawDate",
+     "id",
+     "operationId",
+     "operationType",
+     "payerBank",
+     "payerBic",
+     "payerName",
+     "paymentPurpose",
+     "recipient",
+     "recipientAccount",
+     "recipientBank",
+     "recipientBic"
+    ],
+    "type": "object",
+    "properties": {
+     "operationId": {
+      "type": "string",
+      "description": "Уникальный идентификатор операции."
+     },
+     "id": {
+      "type": "string",
+      "description": "Номер документа."
+     },
+     "date": {
+      "type": "string",
+      "description": "Дата документа.",
+      "format": "date"
+     },
+     "amount": {
+      "type": "number",
+      "description": "Сумма платежа."
+     },
+     "drawDate": {
+      "type": "string",
+      "description": "Дата списания средств с р/с плательщика.",
+      "format": "date"
+     },
+     "payerName": {
+      "type": "string",
+      "description": "Имя плательщика."
+     },
+     "payerInn": {
+      "type": "string",
+      "description": "ИНН плательщика."
+     },
+     "payerAccount": {
+      "type": "string",
+      "description": "Номер счета плательщика."
+     },
+     "payerCorrAccount": {
+      "type": "string",
+      "description": "Корреспондентский счет плательщика."
+     },
+     "payerBic": {
+      "type": "string",
+      "description": "БИК плательщика."
+     },
+     "payerBank": {
+      "type": "string",
+      "description": "Банк плательщика."
+     },
+     "chargeDate": {
+      "type": "string",
+      "description": "Дата поступления средств на р/с получателя.",
+      "format": "date"
+     },
+     "recipient": {
+      "type": "string",
+      "description": "Получатель платежа."
+     },
+     "recipientInn": {
+      "type": "string",
+      "description": "ИНН получателя платежа."
+     },
+     "recipientAccount": {
+      "type": "string",
+      "description": "Номер счета получателя платежа."
+     },
+     "recipientCorrAccount": {
+      "type": "string",
+      "description": "Корреспондентский счет получателя платежа."
+     },
+     "recipientBic": {
+      "type": "string",
+      "description": "БИК получателя платежа."
+     },
+     "recipientBank": {
+      "type": "string",
+      "description": "Банк получателя платежа."
+     },
+     "paymentType": {
+      "type": "string",
+      "description": "Вид платежа."
+     },
+     "operationType": {
+      "pattern": "\\d{2}",
+      "type": "string",
+      "description": "Условное обозначение (шифр) документа, проводимого по счету в кредитной организации. <a href=\"https://www.consultant.ru/document/cons_doc_LAW_436264/f0d58093feca12dbef02bd44fd633f1c94b49da1/\">Перечень условных обозначений</a>."
+     },
+     "uin": {
+      "type": "string",
+      "description": "Уникальный идентификатор платежа. <a href=\"https://www.consultant.ru/law/podborki/unikalnyj_identifikator_platezha/\">Подробнее</a>."
+     },
+     "paymentPurpose": {
+      "type": "string",
+      "description": "Назначение платежа."
+     },
+     "creatorStatus": {
+      "type": "string",
+      "description": "Статус составителя расчетного документа."
+     },
+     "payerKpp": {
+      "type": "string",
+      "description": "КПП плательщика."
+     },
+     "recipientKpp": {
+      "type": "string",
+      "description": "КПП получателя."
+     },
+     "kbk": {
+      "type": "string",
+      "description": "Код бюджетной классификации."
+     },
+     "oktmo": {
+      "type": "string",
+      "description": "Код ОКТМО территории, на которой мобилизуются денежные средства от уплаты налога, сбора и иного платежа."
+     },
+     "taxEvidence": {
+      "type": "string",
+      "description": "Основание налогового платежа."
+     },
+     "taxPeriod": {
+      "type": "string",
+      "description": "Налоговый период / код таможенного органа."
+     },
+     "taxDocNumber": {
+      "type": "string",
+      "description": "Номер налогового документа."
+     },
+     "taxDocDate": {
+      "type": "string",
+      "description": "Дата налогового документа."
+     },
+     "taxType": {
+      "type": "string",
+      "description": "Тип налогового платежа."
+     },
+     "executionOrder": {
+      "type": "string",
+      "description": "Очередность платежа."
+     }
+    }
+   },
+   "AccountInfo3": {
+    "title": "AccountInfo",
+    "required": [
+     "accountNumber",
+     "accountType",
+     "balance",
+     "bankBik",
+     "createdOn",
+     "currency",
+     "mainFlag",
+     "name",
+     "status",
+     "tariffCode",
+     "tariffName"
+    ],
+    "type": "object",
+    "properties": {
+     "accountNumber": {
+      "type": "string",
+      "description": "Расчетный счет организации."
+     },
+     "name": {
+      "type": "string",
+      "description": "Наименование счета."
+     },
+     "status": {
+      "type": "string",
+      "description": "Статус счета. Возможные значения: <ul><li><code>BLLE</code> — первичная блокировка договора ЮЛ. Находится в этом статусе до момента активации (переход в <code>NORM</code>) или закрытия (переход в <code>CLSC</code>/<code>CLSB</code>).</li><li><code>NORM</code> — активный.</li><li><code>ARSS</code> — частичный арест.</li><li><code>ARSF</code> — полный арест.</li><li><code>ARMF</code> — полная блокировка.</li><li><code>CAIN</code> — картотека.</li><li><code>CLBL</code> — в процессе закрытия.</li><li><code>CLSC</code> — закрыт по инициативе клиента.</li><li><code>CLSB</code> — закрыт по инициативе банка.</li></ul>"
+     },
+     "tariffName": {
+      "type": "string",
+      "description": "Пользовательское наименование тарифа."
+     },
+     "tariffCode": {
+      "type": "string",
+      "description": "Код тарифа."
+     },
+     "currency": {
+      "type": "string",
+      "description": "Код валюты счета по ОКВ (цифрами)."
+     },
+     "createdOn": {
+      "type": "string",
+      "description": "Дата открытия счета.",
+      "format": "date"
+     },
+     "mainFlag": {
+      "type": "string",
+      "description": "Флаг основного счета: <ul><li><code>Y</code>.</li><li><code>N</code>.</li></ul>"
+     },
+     "bankBik": {
+      "pattern": "\\d{9}",
+      "type": "string",
+      "description": "БИК банка."
+     },
+     "accountType": {
+      "type": "string",
+      "description": "Тип счета. Список вариантов значений может пополняться.\n* `Current` — расчетный счет.\n* `Tax` — счет Т-Бухгалтерии.\n* `Tender` — специальный счет для участия в госзакупках.\n* `Overnight` — счет Overnight.\n* `Trust` — специальный счет доверительного управляющего ПИФ.\n* `Broker` — специальный брокерский счет.\n* `BankPaymentAgent` — специальный счет банковского платежного агента.\n* `PaymentAgent` — счет платежного агента.\n* `Nominal` — номинальный счет.\n* `NominalIpo` — номинальный счет оператора инвестиционной платформы.\n* `TrustManagementSmp` — специальный счет доверительного управления.\n* `Cashbox` — бизнес-копилка.\n* `Invest` — инвестиционный счет."
+     },
+     "activationDate": {
+      "type": "string",
+      "description": "Дата активации.",
+      "format": "date"
+     },
+     "balance": {
+      "$ref": "#/components/schemas/Balance1"
+     },
+     "transitAccount": {
+      "$ref": "#/components/schemas/TransitAccount"
+     },
+     "brokerCurrencyBalance": {
+      "type": "array",
+      "description": "Информация о брокерских счетах. Актуально для инвестиционных счетов.",
+      "items": {
+       "$ref": "#/components/schemas/PositionInfo"
+      }
+     }
+    }
+   },
+   "PositionInfo": {
+    "title": "PositionInfo",
+    "required": [
+     "currency",
+     "currentBalance",
+     "currentBalanceForWithdrawal"
+    ],
+    "type": "object",
+    "properties": {
+     "currency": {
+      "type": "string",
+      "description": "Код валюты."
+     },
+     "currentBalance": {
+      "type": "number",
+      "description": "Общий баланс по валюте."
+     },
+     "currentBalanceForWithdrawal": {
+      "type": "number",
+      "description": "Сумма денежных средств, доступных для вывода."
+     },
+     "blockedQuantity": {
+      "type": "number",
+      "description": "Количество заблокированной валюты."
+     }
+    }
+   },
+   "TransitAccount": {
+    "title": "TransitAccount",
+    "required": [
+     "accountNumber"
+    ],
+    "type": "object",
+    "properties": {
+     "accountNumber": {
+      "type": "string",
+      "description": "Номер транзитного банковского счета."
+     }
+    },
+    "description": "Информация о транзитном счете. Актуально для валютных счетов."
+   },
+   "Balance1": {
+    "title": "Balance",
+    "required": [
+     "authorized",
+     "balance",
+     "otb",
+     "pendingPayments",
+     "pendingRequisitions",
+     "realOtb"
+    ],
+    "type": "object",
+    "properties": {
+     "balance": {
+      "type": "number",
+      "description": "Текущий остаток на счете."
+     },
+     "realOtb": {
+      "type": "number",
+      "description": "Доступный остаток без учета овердрафта и с вычетом блокировок."
+     },
+     "otb": {
+      "type": "number",
+      "description": "Доступный остаток — деньги на счете + сумма доступного овердрафта, если он подключен."
+     },
+     "authorized": {
+      "type": "number",
+      "description": "Сумма авторизаций — захолдированные на счете средства."
+     },
+     "pendingPayments": {
+      "type": "number",
+      "description": "Сумма платежей в картотеке клиента — собственные платежи."
+     },
+     "pendingRequisitions": {
+      "type": "number",
+      "description": "Сумма платежей в картотеке банка — требования к клиенту."
+     }
+    },
+    "description": "Баланс счета."
+   },
+   "ApiV3Error": {
+    "required": [
+     "errorCode",
+     "errorId",
+     "errorMessage"
+    ],
+    "type": "object",
+    "properties": {
+     "errorCode": {
+      "maxLength": 50,
+      "type": "string",
+      "description": "Код ошибки."
+     },
+     "errorId": {
+      "maxLength": 50,
+      "type": "string",
+      "description": "Уникальный идентификатор ошибки."
+     },
+     "errorMessage": {
+      "maxLength": 400,
+      "type": "string",
+      "description": "Текст ошибки."
+     },
+     "errorDetails": {
+      "type": "object",
+      "description": "Дополнительные данные об ошибке.",
+      "nullable": true
+     }
+    },
+    "x-type": "error"
+   },
+   "GetOperationsResult2061807413": {
+    "required": [
+     "operations"
+    ],
+    "type": "object",
+    "properties": {
+     "balances": {
+      "description": "Балансы и обороты.",
+      "nullable": true,
+      "allOf": [
+       {
+        "$ref": "#/components/schemas/BalancesResult2061807413"
+       }
+      ]
+     },
+     "nextCursor": {
+      "maxLength": 100,
+      "type": "string",
+      "description": "Указатель последней полученной операции, если вернулись не все операции из-за ограничения на количество."
+     },
+     "operations": {
+      "maxItems": 11000,
+      "type": "array",
+      "description": "Список операций.",
+      "items": {
+       "$ref": "#/components/schemas/Operation12061807413"
+      }
+     }
+    },
+    "description": "Результат получения операций для выписки."
+   },
+   "Operation12061807413": {
+    "required": [
+     "operationDate",
+     "operationId"
+    ],
+    "type": "object",
+    "properties": {
+     "priority": {
+      "type": "integer",
+      "description": "Очередность платежа.",
+      "format": "int32",
+      "nullable": true
+     },
+     "tax": {
+      "$ref": "#/components/schemas/Tax2061807413"
+     },
+     "authorizationDate": {
+      "type": "string",
+      "description": "Дата авторизации.",
+      "format": "date-time",
+      "nullable": true
+     },
+     "drawDate": {
+      "type": "string",
+      "description": "Дата списано.",
+      "format": "date-time",
+      "nullable": true
+     },
+     "operationId": {
+      "type": "string",
+      "description": "Уникальный ID операции. Обычно он не меняется на протяжении всего жизненного цикла операции. Исключение — операции, проведенные с 22:00 до 03:00: их `operationId` может измениться.\n\nЕсли `operationId` изменился и вам нужно идентифицировать операцию, используйте параметры:\n- для совершённых операций — сочетание `docDate` и `documentNumber`,\n- для несовершённых — `authCode`.\n\nОбратите внимание: операция может быть удалена, поэтому перед идентификацией повторно запросите операции за выбранный период — это нужно, чтобы синхронизировать данные.",
+      "format": "uuid"
+     },
+     "chargeDate": {
+      "type": "string",
+      "description": "Дата поступило.",
+      "format": "date-time",
+      "nullable": true
+     },
+     "authCode": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Код авторизации.",
+      "nullable": true
+     },
+     "docDate": {
+      "type": "string",
+      "description": "Дата создания документа.",
+      "format": "date-time",
+      "nullable": true
+     },
+     "mcc": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "МСС операции.",
+      "nullable": true
+     },
+     "merch": {
+      "$ref": "#/components/schemas/Merch12061807413"
+     },
+     "ucid": {
+      "type": "integer",
+      "description": "UCID карты — ее уникальный идентификатор. Его можно получить через метод <a href=\"/docs/api/get-api-v-3-card\">Получить список карт компании</a>.",
+      "format": "int64",
+      "nullable": true
+     },
+     "payPurpose": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Назначение платежа.",
+      "nullable": true
+     },
+     "payer": {
+      "$ref": "#/components/schemas/Payer2061807413"
+     },
+     "rrn": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "RRN (Reference Retrieval Number) — уникальный идентификатор банковской транзакции.",
+      "nullable": true
+     },
+     "acquirerId": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "ID эквайера.",
+      "nullable": true
+     },
+     "operationStatus": {
+      "type": "string",
+      "description": "Статус операции: авторизация или подтвержденная транзакция.",
+      "nullable": true,
+      "enum": [
+       "Authorization",
+       "Transaction"
+      ]
+     },
+     "description": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Описание операции.",
+      "nullable": true
+     },
+     "typeOfOperation": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Тип операции:\n- `Credit` — поступления,\n- `Debit` — списания.",
+      "nullable": true
+     },
+     "trxnPostDate": {
+      "type": "string",
+      "description": "Дата транзакции.",
+      "format": "date-time",
+      "nullable": true
+     },
+     "documentNumber": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Номер платежного документа.  Параметр не уникальный, может дублироваться.",
+      "nullable": true
+     },
+     "operationDate": {
+      "type": "string",
+      "description": "Дата операции. В зависимости от статуса операции равна дате проведения по балансу (`operationStatus` = `Transaction`) или дате авторизации (`operationStatus` = `Authorization`).",
+      "format": "date-time"
+     },
+     "bic": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "БИК.",
+      "nullable": true
+     },
+     "rubleAmount": {
+      "type": "number",
+      "description": "Сумма в рублях по курсу ЦБ на дату операции.",
+      "format": "decimal",
+      "nullable": true
+     },
+     "receiver": {
+      "$ref": "#/components/schemas/Receiver2061807413"
+     },
+     "payVo": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Вид операции (строка). <a href=\"https://www.consultant.ru/document/cons_doc_LAW_436264/f0d58093feca12dbef02bd44fd633f1c94b49da1/\">Подробнее о видах платежа</a>.\n\nКод для оплаты через СБП — `17`.",
+      "nullable": true
+     },
+     "accountCurrencyDigitalCode": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Числовой код валюты счета.",
+      "nullable": true
+     },
+     "category": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Категория операции. <a href=\"/docs/products/scenarios/account-info#категории-операций\">Подробнее о категориях</a>.",
+      "nullable": true
+     },
+     "accountNumber": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Номер счета.",
+      "nullable": true
+     },
+     "vo": {
+      "pattern": "^(\\d{2})$",
+      "type": "string",
+      "description": "Вид операции (номер). <a href=\"https://www.consultant.ru/document/cons_doc_LAW_436264/f0d58093feca12dbef02bd44fd633f1c94b49da1/\">Подробнее о видах платежа</a>.",
+      "nullable": true
+     },
+     "counterParty": {
+      "$ref": "#/components/schemas/CounterParty2061807413"
+     },
+     "operationAmount": {
+      "type": "number",
+      "description": "Сумма в валюте операции.",
+      "format": "decimal",
+      "nullable": true
+     },
+     "operationCurrencyDigitalCode": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Числовой код валюты операции.",
+      "nullable": true
+     },
+     "cardNumber": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Маскированный номер карты.",
+      "nullable": true
+     },
+     "accountAmount": {
+      "type": "number",
+      "description": "Сумма в валюте счета.",
+      "format": "decimal",
+      "nullable": true
+     }
+    }
+   },
+   "CounterParty2061807413": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Наименование контрагента.",
+      "nullable": true
+     },
+     "bankBic": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "БИК банка контрагента.",
+      "nullable": true
+     },
+     "bankName": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Название банка контрагента.",
+      "nullable": true
+     },
+     "kpp": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "КПП контрагента.",
+      "nullable": true
+     },
+     "inn": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "ИНН контрагента.",
+      "nullable": true
+     },
+     "account": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Номер счета контрагента.",
+      "nullable": true
+     },
+     "bankSwiftCode": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "SWIFT-код банка контрагента.",
+      "nullable": true
+     },
+     "corrAccount": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Корреспондентский счет контрагента.",
+      "nullable": true
+     }
+    },
+    "description": "Информация о контрагенте."
+   },
+   "Receiver2061807413": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Наименование получателя.",
+      "nullable": true
+     },
+     "bankName": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Название банка получателя.",
+      "nullable": true
+     },
+     "kpp": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "КПП получателя.",
+      "nullable": true
+     },
+     "corAcct": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Корреспондентский счет получателя.",
+      "nullable": true
+     },
+     "inn": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "ИНН получателя.",
+      "nullable": true
+     },
+     "acct": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Номер счета получателя.",
+      "nullable": true
+     },
+     "bicRu": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "БИК получателя.",
+      "nullable": true
+     },
+     "bicSwift": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "SWIFT-код банка получателя.",
+      "nullable": true
+     }
+    },
+    "description": "Информация о получателе."
+   },
+   "Payer2061807413": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Наименование плательщика.",
+      "nullable": true
+     },
+     "bankName": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Название банка плательщика.",
+      "nullable": true
+     },
+     "kpp": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "КПП плательщика.",
+      "nullable": true
+     },
+     "corAcct": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Корреспондентский счет плательщика.",
+      "nullable": true
+     },
+     "inn": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "ИНН плательщика.",
+      "nullable": true
+     },
+     "acct": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Номер счета плательщика.",
+      "nullable": true
+     },
+     "bicRu": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "БИК банка плательщика.",
+      "nullable": true
+     },
+     "bicSwift": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "SWIFT-код банка плательщика.",
+      "nullable": true
+     }
+    },
+    "description": "Информация о плательщике."
+   },
+   "Merch12061807413": {
+    "type": "object",
+    "properties": {
+     "city": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Место совершения (город).",
+      "nullable": true
+     },
+     "name": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Название мерчанта.",
+      "nullable": true
+     },
+     "country": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Место совершения (страна).",
+      "nullable": true
+     },
+     "address": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Адрес мерчанта.",
+      "nullable": true
+     },
+     "index": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Почтовый индекс мерчанта.",
+      "nullable": true
+     }
+    },
+    "description": "Информация о мерчанте."
+   },
+   "Tax2061807413": {
+    "type": "object",
+    "properties": {
+     "payerStatus": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Статус отправителя.",
+      "nullable": true
+     },
+     "thirdPartyInn": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "ИНН налогоплательщика.",
+      "nullable": true
+     },
+     "nalType": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Тип налогового документа.",
+      "nullable": true
+     },
+     "uin": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Код УИН.",
+      "nullable": true
+     },
+     "evidence": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Основание налогового платежа.",
+      "nullable": true
+     },
+     "docNumber": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Номер налогового документа.",
+      "nullable": true
+     },
+     "period": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Налоговый период / Код таможенного органа.",
+      "nullable": true
+     },
+     "docDate": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Дата налогового документа.",
+      "nullable": true
+     },
+     "oktmo": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "Код ОКТМО.",
+      "nullable": true
+     },
+     "thirdPartyKpp": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "КПП налогоплательщика.",
+      "nullable": true
+     },
+     "kbk": {
+      "maxLength": 500,
+      "type": "string",
+      "description": "КБК-код бюджетной классификации.",
+      "nullable": true
+     }
+    },
+    "description": "Информация по налогам."
+   },
+   "BalancesResult2061807413": {
+    "type": "object",
+    "properties": {
+     "debit": {
+      "type": "number",
+      "description": "Обороты по дебету за весь период.",
+      "format": "decimal",
+      "nullable": true
+     },
+     "balanceEnd": {
+      "type": "number",
+      "description": "Баланс на конец периода.",
+      "format": "decimal"
+     },
+     "credit": {
+      "type": "number",
+      "description": "Обороты по кредиту за весь период.",
+      "format": "decimal",
+      "nullable": true
+     },
+     "creditAuthorizations": {
+      "type": "number",
+      "description": "Обороты по кредиту для авторизаций за весть период.",
+      "format": "decimal",
+      "nullable": true
+     },
+     "operationsCount": {
+      "type": "integer",
+      "description": "Количество операций за весь период.",
+      "format": "int32"
+     },
+     "debitAuthorizations": {
+      "type": "number",
+      "description": "Обороты по дебету для авторизаций за весь период.",
+      "format": "decimal",
+      "nullable": true
+     },
+     "balances": {
+      "maxItems": 2000,
+      "type": "array",
+      "description": "Балансы и обороты по дням.",
+      "items": {
+       "$ref": "#/components/schemas/Balance2061807413"
+      }
+     },
+     "balanceBegin": {
+      "type": "number",
+      "description": "Баланс на начало периода.",
+      "format": "decimal"
+     }
+    },
+    "description": "Результат получения балансов для выписки."
+   },
+   "Balance2061807413": {
+    "type": "object",
+    "properties": {
+     "debit": {
+      "type": "number",
+      "description": "Обороты по дебету.",
+      "format": "decimal",
+      "nullable": true
+     },
+     "balanceEnd": {
+      "type": "number",
+      "description": "Баланс на конец дня.",
+      "format": "decimal"
+     },
+     "credit": {
+      "type": "number",
+      "description": "Обороты по кредиту.",
+      "format": "decimal",
+      "nullable": true
+     },
+     "creditAuthorizations": {
+      "type": "number",
+      "description": "Обороты по кредиту для авторизаций.",
+      "format": "decimal",
+      "nullable": true
+     },
+     "balanceBegin": {
+      "type": "number",
+      "description": "Баланс на начало дня.",
+      "format": "decimal"
+     },
+     "date": {
+      "type": "string",
+      "description": "Дата, на которую предоставлены балансы и обороты.",
+      "format": "date"
+     },
+     "operationsCount": {
+      "type": "integer",
+      "description": "Количество операций.",
+      "format": "int32"
+     },
+     "debitAuthorizations": {
+      "type": "number",
+      "description": "Обороты по дебету для авторизаций.",
+      "format": "decimal",
+      "nullable": true
+     }
+    }
+   }
+  },
+  "responses": {
+   "500": {
+    "description": "Ошибка сервера",
+    "headers": {
+     "X-Request-Id": {
+      "required": true,
+      "style": "simple",
+      "explode": false,
+      "schema": {
+       "maxLength": 50,
+       "type": "string",
+       "description": "Идентификатор запроса."
+      }
+     }
+    },
+    "content": {
+     "application/json": {
+      "schema": {
+       "$ref": "#/components/schemas/ApiV3Error"
+      },
+      "examples": {
+       "Непредвиденная ошибка": {
+        "value": {
+         "errorId": "60324c74-e4b9-477d-baae-786956876a28",
+         "errorMessage": "Непредвиденная ошибка. Попробуйте позже",
+         "errorCode": "INTERNAL_ERROR"
+        }
+       }
+      }
+     }
+    }
+   },
+   "429": {
+    "description": "Слишком много запросов",
+    "headers": {
+     "X-Request-Id": {
+      "required": true,
+      "style": "simple",
+      "explode": false,
+      "schema": {
+       "maxLength": 50,
+       "type": "string",
+       "description": "Идентификатор запроса."
+      }
+     }
+    },
+    "content": {
+     "application/json": {
+      "schema": {
+       "$ref": "#/components/schemas/ApiV3Error"
+      },
+      "examples": {
+       "Превышение лимита запросов": {
+        "value": {
+         "errorId": "60324c74-e4b9-477d-baae-786956876a28",
+         "errorMessage": "Слишком много запросов. Попробуйте позже",
+         "errorCode": "TOO_MANY_REQUESTS"
+        }
+       }
+      }
+     }
+    }
+   },
+   "403": {
+    "description": "Ошибка авторизации",
+    "headers": {
+     "X-Request-Id": {
+      "required": true,
+      "style": "simple",
+      "explode": false,
+      "schema": {
+       "maxLength": 50,
+       "type": "string",
+       "description": "Идентификатор запроса."
+      }
+     }
+    },
+    "content": {
+     "application/json": {
+      "schema": {
+       "$ref": "#/components/schemas/ApiV3Error"
+      },
+      "examples": {
+       "Нет доступов": {
+        "value": {
+         "errorId": "60324c74-e4b9-477d-baae-786956876a28",
+         "errorMessage": "У вас неподходящие скопы для данной операции. Требуемые скопы: scope",
+         "errorCode": "FORBIDDEN"
+        }
+       },
+       "Запрос с неизвестного IP": {
+        "value": {
+         "errorId": "efc04138-7d50-40f9-a367-0e1ca4d7cd49",
+         "errorMessage": "Запрос был отправлен с IP-адреса, который не был указан при получении токена. Укажите этот IP-адрес при получении нового токена",
+         "errorCode": "FORBIDDEN"
+        }
+       },
+       "Нет прав на использование продукта": {
+        "value": {
+         "errorId": "5d1de3e5-82b9-4b1d-b805-a9de95cf83bb",
+         "errorMessage": "Недостаточно прав на совершаемое действие. Свяжитесь с менеджером или обратитесь в поддержку, чтобы добавить нужную роль",
+         "errorCode": "FORBIDDEN"
+        }
+       }
+      }
+     },
+     "text/html": {
+      "schema": {
+       "type": "string",
+       "example": "<html><head><title>Error</title></head><body><center><h1>Error</h1></center><hr><center>nginx</center></body></html>"
+      }
+     }
+    }
+   },
+   "401": {
+    "description": "Ошибка аутентификации",
+    "headers": {
+     "X-Request-Id": {
+      "required": true,
+      "style": "simple",
+      "explode": false,
+      "schema": {
+       "maxLength": 50,
+       "type": "string",
+       "description": "Идентификатор запроса."
+      }
+     }
+    },
+    "content": {
+     "application/json": {
+      "schema": {
+       "$ref": "#/components/schemas/ApiV3Error"
+      },
+      "examples": {
+       "Неактивный токен": {
+        "value": {
+         "errorId": "60324c74-e4b9-477d-baae-786956876a28",
+         "errorMessage": "Токен недействителен",
+         "errorCode": "UNAUTHORIZED"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "securitySchemes": {
+   "httpAuth": {
+    "type": "http",
+    "scheme": "bearer"
+   }
+  }
+ }
+}

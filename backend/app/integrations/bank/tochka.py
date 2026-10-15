@@ -7,9 +7,11 @@
   выписка асинхронно: опрашиваем до `Ready` (`Error` — ошибка); в ответе `startDateBalance`, `endDateBalance`,
   `Transaction[]`. Берём только `Booked` — окончательные операции.
 
-Авторизация — `Authorization: Bearer <токен>`; разрешения только на чтение: ReadAccountsBasic, ReadAccountsDetail,
-ReadBalances, ReadStatements. Как клиент выпускает токен для своей компании (JWT-ключ в интернет-банке) и лимиты —
-на страницах документации, которых нет в спецификации: сверить по выгрузке (TOCHKA.md, «Открытые вопросы»).
+Авторизация — JWT-ключ, который клиент выпускает в интернет-банке («Сервисы» → «Интеграции и API» → «Создать JWT-ключ»,
+разрешения задаются там же — оставляем только чтение: ReadAccountsBasic, ReadAccountsDetail, ReadBalances,
+ReadStatements); `Authorization: Bearer <jwt>`, consent не нужен (docs/banks/tochka/jwt.txt, сверено 15.10.2026).
+Песочница — `https://enter.tochka.com/sandbox/v2`, токен `sandbox.jwt.token`: реализация на ней проверена.
+Лимиты запросов в документации не нашли — держимся 10 запросов/с.
 """
 from datetime import date
 from decimal import Decimal
@@ -43,7 +45,7 @@ class TochkaProvider(BankProvider):
     code = "tochka"
     title = "Точка"
     legal_name = "ООО «Банк Точка»"
-    history_days = 365  # глубина истории в спецификации не указана — год при подключении (сверить с документацией)
+    history_days = 365  # глубина истории в документации не указана — год при подключении
     min_interval = 0.1
 
     @classmethod

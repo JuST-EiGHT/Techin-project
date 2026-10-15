@@ -134,31 +134,52 @@ async def test_tochka_provider_async_statement_and_mapping():
         D("-30000.00"), "ИП Петров Петр Петрович", "Аренда склада за октябрь", "7", BIK)
 
 
-async def test_tbank_provider_cursor_pages():
-    page1 = {"balances": {"incoming": 1000, "outgoing": 1500}, "nextCursor": "c2", "operations": [
-        {"operationId": "op-1", "operationDate": "2026-10-03T12:00:00+03:00", "typeOfOperation": "Credit",
-         "accountAmount": 700, "payPurpose": "Оплата по счёту 15", "documentNumber": "15",
-         "payer": {"name": "ООО Ромашка", "inn": "7701234567", "acct": "40702810700000011111", "bicRu": BIK}}]}
-    page2 = {"operations": [
-        {"operationId": "op-2", "operationDate": "2026-10-04T09:00:00+03:00", "typeOfOperation": "Debit",
-         "accountAmount": 200, "description": "Комиссия", "receiver": {"name": "АО ТБанк", "inn": "7710140679"}}]}
+async def test_tbank_provider_by_spec_cursor_dates_and_stable_ids():
+    """Ответы — в формате официальной спецификации T-API (как отвечает песочница Т-Банка)."""
+    page1 = {"balances": {"balanceBegin": 1000, "balanceEnd": 1500, "credit": 700, "debit": 200}, "nextCursor": "c2",
+             "operations": [
+        # проведена 03.10 в 00:30 по Москве — в UTC это ещё 02.10
+        {"operationId": "op-1", "operationDate": "2026-10-02T21:30:00Z", "operationStatus": "Transaction",
+         "typeOfOperation": "Credit", "accountAmount": 700, "payPurpose": "Оплата по счёту 15", "documentNumber": "15",
+         "docDate": "2026-10-02T21:30:00Z", "counterParty": {"name": "ООО Ромашка", "inn": "7701234567",
+                                                             "account": "40702810700000011111", "bankBic": BIK},
+         "payer": {"name": "ООО Ромашка", "inn": "7701234567", "acct": "40702810700000011111", "bicRu": BIK}},
+        {"operationId": "op-auth", "operationDate": "2026-10-03T10:00:00Z", "operationStatus": "Authorization",
+         "typeOfOperation": "Debit", "accountAmount": 99}]}  # авторизация — не проведена, не берём
+    page2 = {"nextCursor": "c2", "operations": [  # тот же курсор — больше не спрашиваем
+        {"operationId": "op-2", "operationDate": "2026-10-04T09:00:00Z", "operationStatus": "Transaction",
+         "typeOfOperation": "Debit", "accountAmount": 200, "description": "Комиссия",
+         "receiver": {"name": "АО ТБанк", "inn": "7710140679"}}]}
     with respx.mock() as mock:
-        mock.get(f"{TBANK}/api/v4/bank-accounts").respond(json=[
-            {"accountNumber": OUR, "name": "Основной", "currency": "643", "bankBik": "044525974",
-             "balance": {"otb": 1500.25}}])
+        accounts = mock.get(f"{TBANK}/api/v4/bank-accounts").respond(json=[
+            {"accountNumber": OUR, "name": "Основной", "status": "NORM", "currency": "643", "bankBik": "044525974",
+             "balance": {"balance": 1500.25, "otb": 51500.25, "realOtb": 1500.25}},
+            {"accountNumber": SECOND, "name": "Закрытый", "status": "CLSC", "currency": "643", "bankBik": "044525974",
+             "balance": {"balance": 0, "otb": 0}}])
         route = mock.get(f"{TBANK}/api/v1/statement").mock(side_effect=[httpx.Response(200, json=page1),
                                                                          httpx.Response(200, json=page2)])
         async with TBankProvider(TB_TOKEN, sleep=no_sleep) as p:
-            [acc] = (await p.check_access()).accounts
-            assert await p.balances([acc]) == {OUR: D("1500.25")}
+            [acc] = (await p.check_access()).accounts  # закрытый счёт не берём
+            assert await p.balances([acc]) == {OUR: D("1500.25")}  # остаток без овердрафта (otb)
             st = await p.statement(acc, date(2026, 10, 1), TODAY)
+    assert accounts.call_count == 1  # счета и остатки — одним запросом
     first, second = (r.request for r in route.calls)
-    assert first.url.params["withBalances"] == "true" and "cursor" not in first.url.params
+    assert (first.url.params["from"], first.url.params["to"]) == ("2026-09-30T21:00:00Z", "2026-10-14T21:00:00Z")
+    assert first.url.params["operationStatus"] == "Transaction" and first.url.params["withBalances"] == "true"
     assert second.url.params["cursor"] == "c2" and "withBalances" not in second.url.params  # остатки — в первой порции
     assert first.headers["Authorization"] == f"Bearer {TB_TOKEN}"
     assert (st.opening, st.closing) == (D("1000.00"), D("1500.00"))
-    assert [(o.bank_id, o.day, o.amount, o.counterparty_inn) for o in st.operations] == [
-        ("op-1", date(2026, 10, 3), D("700.00"), "7701234567"), ("op-2", date(2026, 10, 4), D("-200.00"), "7710140679")]
+    assert [(o.bank_id, o.day, o.amount, o.counterparty_inn, o.counterparty_account) for o in st.operations] == [
+        ("doc:2026-10-02T21:30:00Z:15:700.00:c", date(2026, 10, 3), D("700.00"), "7701234567", "40702810700000011111"),
+        ("op-2", date(2026, 10, 4), D("-200.00"), "7710140679", None)]
+
+
+def test_bank_tls_trusts_russian_root_ca():
+    """Сайты Т-Банка и Точки подписаны корневым сертификатом Минцифры — его нет в стандартных хранилищах."""
+    from app.integrations.bank.base import RU_ROOT_CA, ssl_context
+
+    names = [dict(x[0] for x in c["subject"]).get("commonName") for c in ssl_context().get_ca_certs()]
+    assert "Russian Trusted Root CA" in names and RU_ROOT_CA.exists()
 
 
 async def test_errors_are_russian_and_without_token(caplog):
