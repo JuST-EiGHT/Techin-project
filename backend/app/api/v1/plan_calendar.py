@@ -4,7 +4,7 @@ import uuid
 from datetime import date, timedelta
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.planning import _fail, _file, _read_upload
@@ -24,6 +24,7 @@ from app.schemas.plan_calendar import (
     PlanVersion,
 )
 from app.schemas.planning import ImportCounts, ImportResponse
+from app.services import audit
 from app.services import payment_plan as pp
 from app.services import plan_calendar as svc
 from app.services import plan_import
@@ -160,11 +161,14 @@ async def plans_template(
 
 @router.post("/plans/import", response_model=ImportResponse)
 async def import_plans(
+    request: Request,
     file: UploadFile = File(..., description="XLSX или CSV по шаблону"),
     dry_run: bool = Query(True, description="true — только предпросмотр, false — применить"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    if dry_run:
+        audit.not_a_change(request)
     content = await _read_upload(file)
     try:
         result = await plan_import.import_plans(db, user.id, content, file.filename or "", apply=not dry_run)
@@ -178,7 +182,7 @@ async def import_plans(
     )
 
 
-@router.post("/plans/import/errors", response_class=Response)
+@router.post("/plans/import/errors", response_class=Response, dependencies=[Depends(audit.read_only)])
 async def plans_import_errors(
     file: UploadFile = File(..., description="Тот же файл, что загружали в /plans/import"),
     user: User = Depends(get_current_user),

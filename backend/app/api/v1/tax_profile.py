@@ -26,7 +26,7 @@ from app.schemas.tax import (
     TaxProfileOut,
     TaxProfileState,
 )
-from app.services import plan_calendar
+from app.services import audit, plan_calendar
 from app.services import tax_profile as svc
 from app.services.auth import get_current_user
 from app.services.pnl_stale import affected_period, invalidate
@@ -210,7 +210,7 @@ def _engine_profile(data: svc.ProfileData) -> engine.Profile:
     )
 
 
-@router.post("/preview", response_model=TaxPreview)
+@router.post("/preview", response_model=TaxPreview, dependencies=[Depends(audit.read_only)])
 async def preview_tax(body: TaxProfileIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Как посчитается налог при таком профиле: словами и на примерах. Ничего не сохраняет."""
     day = body.effective_from or today_msk()

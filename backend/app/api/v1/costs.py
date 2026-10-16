@@ -4,7 +4,7 @@
 from decimal import Decimal
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.files import attachment
@@ -21,6 +21,7 @@ from app.schemas.costs import (
     ImportResponse,
     ImportRowOut,
 )
+from app.services import audit
 from app.services import costs as svc
 from app.services.auth import get_current_user
 from app.services.cost_import import TEMPLATE_NAMES, CostImportError, cost_template, error_file, import_costs
@@ -148,6 +149,7 @@ async def _read_upload(file: UploadFile) -> bytes:
 
 @router.post("/import", response_model=ImportResponse)
 async def import_file(
+    request: Request,
     file: UploadFile = File(
         ..., description="CSV или XLSX: артикул, себестоимость без НДС, коэффициент НДС, комментарий"
     ),
@@ -155,6 +157,8 @@ async def import_file(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    if dry_run:
+        audit.not_a_change(request)
     content = await _read_upload(file)
     try:
         result = await import_costs(db, user.id, content, file.filename or "", apply=not dry_run)
@@ -168,7 +172,7 @@ async def import_file(
     )
 
 
-@router.post("/import/errors", response_class=Response)
+@router.post("/import/errors", response_class=Response, dependencies=[Depends(audit.read_only)])
 async def import_errors_file(
     file: UploadFile = File(..., description="Тот же файл, что загружали в /import"),
     user: User = Depends(get_current_user),

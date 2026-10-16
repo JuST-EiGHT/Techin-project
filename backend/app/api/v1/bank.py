@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.planning import _fail, _read_upload
@@ -19,6 +19,7 @@ from app.schemas.bank import (
     StatementInfo,
     StatementPreview,
 )
+from app.services import audit
 from app.services import bank as svc
 from app.services import bank_import
 from app.services import planning as planning_svc
@@ -64,6 +65,7 @@ def _preview(result: bank_import.ImportResult) -> StatementPreview:
 
 @router.post("/statements/upload", response_model=StatementPreview)
 async def upload_statement(
+    request: Request,
     file: UploadFile = File(..., description="Выписка в формате 1С (1CClientBankExchange, обычно .txt)"),
     dry_run: bool = Query(True, description="true — только предпросмотр, false — загрузить"),
     account_id: uuid.UUID | None = Query(None, description="К какому счёту без номера привязать выписку; пусто — по номеру или новый"),
@@ -72,6 +74,8 @@ async def upload_statement(
 ):
     """Предпросмотр: счёт, период, сколько новых операций, уже загруженных, поступлений от Ozon и похожих на ручные.
     dry_run=false — записать. Повторная загрузка того же периода дублей не создаёт."""
+    if dry_run:
+        audit.not_a_change(request)
     content = await _read_upload(file)
     try:
         result = await bank_import.analyze(db, user.id, content, file.filename or "", account_id)

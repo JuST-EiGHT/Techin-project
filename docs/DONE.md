@@ -1060,3 +1060,58 @@ API: GET `/api/v1/supply/recommendations?target_days&lead_time_days` (не пе�
 Excel, переход в карточку товара; миграция 0023 — накат, откат, накат, `alembic check`. Синхронизация отправлений проверена на
 записанных ответах Ozon (по документации), с реальным ключом — нет. Создание заявки на поставку через API Ozon (черновик,
 таймслоты) — не делали: рекомендации и Excel.
+
+## 6.1 — Аудит-лог и проверки безопасности изменения цен (ни одна цена не меняется)
+
+Решения владельца (16.10.2026): откат — без часовой паузы и лимита 20 %, но только ровно к прошлой цене, не старше 7 дней,
+дошедший до Ozon, не откат и не откаченный, и цена с тех пор не менялась; цена дальше 50 % от медианы за 30 дней — вручную
+предупреждение, в автоправилах (фаза 9) — блокировка. Правила и как они сделаны — BUSINESS_LOGIC §8 «Как сделано в
+сервисе (шаг 6.1)», поля Ozon — OZON_API.md «Цена товара».
+
+Миграция 0024 расширяет `audit_log` шага 4.3 (не новая таблица): данные до и после, запрос и ответ Ozon — JSONB
+(`models/audit.JSONData`: JSONB в Postgres, JSON в SQLite тестов), `product_id` (у записей 4.3 миграция заполнила его по
+«<акция>:<товар Ozon>»), `request_id`, `method`, `path`, `http_status`; индексы по товару и `request_id`; триггер
+`audit_log_immutable` — UPDATE и DELETE запрещены (удаление пользователя каскадом тоже), удалить можно только с
+`SET LOCAL app.audit_log_allow_delete = 'on'`. Откат миграции удаляет записи запросов (`entity_type = 'http'`).
+`price_changes` — изменения цен (запишет 6.2): товар, артикул, кто (`manual_single | manual_bulk | auto_rule`), причина, цена
+и мин. цена до и после, `is_dry_run`, `is_applied`, итог `status` (preview | applied | blocked | rejected | failed | unknown),
+`errors` / `warnings` проверок, `error` Ozon, `rollback_of_id`. **`ozon_task_id` из промпта нет**: `/v1/product/import/prices`
+отвечает синхронно (`result[{product_id, updated, errors}]`), номера задания не возвращает — ответ Ozon хранится в `audit_log`.
+Сущности журнала — `PROMOTION_ENTITY` (4.3), `PRICE_ENTITY` = `product_price` (6.2: `entity_id` — id из `price_changes`),
+`HTTP_ENTITY`.
+
+Middleware (`core/audit_middleware.py`, чистый ASGI): POST / PUT / PATCH / DELETE под `/api/` с действительным токеном →
+запись `http.<метод>`, `entity_id` — шаблон пути (`/api/v1/costs/{offer_id:path}`), статус ok (< 400) | rejected (4xx) |
+failed (5xx и необработанное исключение), IP (первый из X-Forwarded-For), User-Agent, `request_id` (кладётся в
+`request.state` до эндпоинта — `audit.record` берёт его, метод и путь для записи действия). Тело не пишем (пароли, ключи
+Ozon, токены банков); без входа и с ответом 401 — не пишем; БД — та же, что у эндпоинтов (`dependency_overrides[get_db]`,
+в тестах — тестовая); запись не удалась — запрос проходит, в лог — предупреждение. Запросы, которые ничего не меняют,
+помечены: зависимость `audit.read_only` (POST `/price/calculate`, `/reports/parse`, `/tax-profile/preview`,
+`/planning/rules/preview`, файлы ошибок импорта) и `audit.not_a_change(request)` при `dry_run=true` (импорт себестоимости,
+плановых платежей, операций, выписки банка) и при предпросмотре входа и выхода из акции. Новый предпросмотр — помечать так же.
+
+`services/price_safety.py`: константы §8 (`MAX_CHANGE_PCT`, `COST_FLOOR`, `PAUSE`, `CONFIRM_ABOVE`, `CONFIRM_WORD_ABOVE`,
+`CONFIRM_WORD`, `MAX_PRODUCTS`, `OZON_BATCH`, `OZON_BATCH_PAUSE_SEC`, `ROLLBACK_MAX_AGE`, `ANOMALY_COMMISSION_PCT`, медиана);
+`PriceCheck` (новая и текущая цена и мин. цена, себестоимость с НДС, комиссия, медиана, последнее изменение, `Rollback`) →
+`PriceSafetyChecker(mode, now).check` → `SafetyResult` (errors, warnings, `floor`, `change_pct`, `allowed_from` /
+`allowed_to` — что можно за один раз, `next_change_at`); `check_request(offer_ids, confirmed, confirm_word)` и
+`required_confirmation(n)` → None | confirm | word. Из БД: `gather(db, user_id, [Proposal(product, new_price,
+new_min_price, rollback)])` — последний снимок цен (`sync/products.latest_prices`), себестоимость на сегодня × НДС записи
+или профиля, `median_prices` (цена на конец дня по Москве, `engine/products.daily_prices`, ≥ 7 дней), `last_changes`
+(applied и unknown за час); `rollback_info(change)`; `check(...)` — всё вместе. Вход в акции (4.3) берёт `COST_FLOOR`,
+`PAUSE` и порог комиссии отсюда — проверки и тексты те же; записи журнала 4.3 теперь с `product_id` (`_record`).
+
+API: GET `/api/v1/audit/prices` (product_id, kind price | promotion, status applied | rejected | failed | unknown, action,
+date_from / date_to — дни по Москве, по умолчанию 90 дней, не больше 366; limit ≤ 200, offset) — действия с ценой товара и
+ценой в акциях, новые первыми: действие и его название, итог и пояснение, товар, до и после, запрос и ответ Ozon, ошибка,
+IP, User-Agent, HTTP-запрос (метод, путь, что ответил сервис — из записи middleware по `request_id`). Записи запросов сюда не
+входят. Чужой товар — 404. Интерфейса на шаге нет.
+
+Тесты (566 всего, +1 только с Postgres): `test_price_safety.py` — каждое правило (20 %, себестоимость × 1,05 и нет себестоимости, пауза, цена 0, комиссия,
+медиана вручную и в автоправилах, мин. цена, откат и его запреты, подтверждения и 500 товаров, факты из БД);
+`test_audit.py` — middleware (что пишется, секреты не попадают, предпросмотры и запросы без входа не пишутся, сбой записи не
+ломает запрос, 500 — failed), GET `/audit/prices` с фильтрами; `test_audit_log_is_immutable_in_postgres` — только с
+`TEST_POSTGRES_URL` (база после `alembic upgrade head`). В `test_promotion_actions.audit_rows` — только записи об акциях.
+Миграция 0024 проверена на Postgres с записями 4.3: перенос `product_id`, JSONB, триггер, откат, накат, откат ниже 0021,
+`alembic check`; живой API на Postgres пишет запрос в журнал. Для 6.2: `OzonClient(..., retry=False)` для
+`/v1/product/import/prices` решить там (OZON_API.md); предпросмотр можно хранить строкой `price_changes` со `status=preview`.

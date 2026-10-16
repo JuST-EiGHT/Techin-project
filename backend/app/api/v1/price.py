@@ -12,6 +12,7 @@ from app.engine.products import matches
 from app.models.product import Product
 from app.models.user import User
 from app.schemas.pricing import CalculateRequest, CalculateResponse, PricesPage, Suggestions
+from app.services import audit
 from app.services import pricing as svc
 from app.services.auth import get_current_user
 from app.services.user_settings import get_settings
@@ -31,7 +32,7 @@ def _tax(ctx: svc.PricingContext) -> dict:
             "profit_tax_pct": ctx.tax.profit_tax_pct}
 
 
-@router.post("/calculate", response_model=CalculateResponse)
+@router.post("/calculate", response_model=CalculateResponse, dependencies=[Depends(audit.read_only)])
 async def calculate(data: CalculateRequest, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Минимальная и целевая цена товара, маржа при текущей цене и в акции. Переданные поля заменяют данные Ozon,
     справочника и настроек только для этого расчёта."""

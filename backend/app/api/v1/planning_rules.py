@@ -17,6 +17,7 @@ from app.schemas.planning import (
     RuleSaved,
     RulesPage,
 )
+from app.services import audit
 from app.services import categorization as svc
 from app.services import planning as planning_svc
 from app.services.auth import get_current_user
@@ -52,7 +53,7 @@ async def create_rule(data: RuleIn, user: User = Depends(get_current_user), db: 
     return await _saved(db, user, rule.id, applied)
 
 
-@router.post("/rules/preview", response_model=RulePreview)
+@router.post("/rules/preview", response_model=RulePreview, dependencies=[Depends(audit.read_only)])
 async def preview_rule(data: RuleIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Сколько операций без ручной разметки подойдёт под условия — до сохранения."""
     try:

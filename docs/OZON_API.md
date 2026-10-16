@@ -185,6 +185,20 @@ Seller API нельзя: есть только отчёты по вывозу и
 Все методы Ozon — POST: повтор после таймаута может применить изменение дважды. Для
 изменяющих запросов в фазе 6 решить, где нужен `OzonClient(..., retry=False)`.
 
+### Цена товара (сверено на шаге 6.1, отправка — шаг 6.2)
+
+- Запрос `/v1/product/import/prices`: `{"prices": [{"product_id", "price": "1448", "min_price": "800", "old_price": "0",
+  "currency_code": "RUB"}]}`, до 1000 товаров (у нас — батчами по 100, BUSINESS_LOGIC §8). Передавать только
+  `product_id` (с `offer_id` вместе Ozon берёт `offer_id`). `old_price` «0» — сбросить зачёркнутую цену.
+- Ответ синхронный: `result[{product_id, offer_id, updated, errors[]}]` — **номера задания (`task_id`) у метода нет**,
+  поэтому в `price_changes` нет `ozon_task_id` из промпта 6.1: итог по товару — `updated` и `errors`, полный ответ — в
+  `audit_log`. Применяется Ozon не мгновенно (обновить цены через 1–3 минуты).
+- Ограничения Ozon, которые проверяем заранее (`services/price_safety.py`): минимальная цена ниже цены
+  (`price_less_than_min_auto_price`, `min_auto_price_too_big`) и не меньше 50 % цены (`min_auto_price_too_small`);
+  цену товара — не больше 10 раз в час (`error limiting: acquire limit per item…`, у нас пауза час строже).
+  Остальные — только от Ozon: `price_out_of_range` (порог категории), `old_price_less_than_price`,
+  `action_price_enabled_min_price_missing` (мин. цена при включённом автоприменении в акции).
+
 ### Вход и выход из акции (шаг 4.3)
 
 | Что | Запрос | Ответ |

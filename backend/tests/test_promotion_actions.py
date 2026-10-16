@@ -75,8 +75,11 @@ async def post(client, tokens, path, **body):
 
 
 async def audit_rows(sessions, user_id) -> list[AuditLog]:
+    """Записи о действиях в акциях; записи запросов к API (middleware, шаг 6.1) — отдельно, в tests/test_audit.py."""
     async with sessions() as db:
-        return list((await db.execute(select(AuditLog).where(AuditLog.user_id == user_id).order_by(AuditLog.created_at))).scalars())
+        return list((await db.execute(select(AuditLog).where(
+            AuditLog.user_id == user_id, AuditLog.entity_type == "promotion_product",
+        ).order_by(AuditLog.created_at))).scalars())
 
 
 async def current(sessions, env, action_id, pid) -> list[PromotionProduct]:
