@@ -317,8 +317,8 @@ function PromoBlock({ data }: { data: ProductDetail }) {
       title="Акции"
       testid="panel-promos"
       more={
-        <Link href="/dashboard/promotions" className="text-accent hover:underline">
-          Все акции →
+        <Link href={`/dashboard/promotions?tab=history&product=${data.item.id}`} className="text-accent hover:underline">
+          История участия →
         </Link>
       }
     >

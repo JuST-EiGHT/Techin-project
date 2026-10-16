@@ -16,10 +16,11 @@ from app.integrations.ozon.client import OzonClient
 from app.models.api_credential import ApiCredential
 from app.models.product import Product, ProductPrice
 from app.models.product_cost import BEGINNING, ProductCost
-from app.models.promotion import Promotion, PromotionProduct
+from app.models.promotion import Promotion, PromotionPriceSnapshot, PromotionProduct
 from app.models.sync_run import SUCCESS
 from app.models.user import User
 from app.models.warehouse import ProductStock, Warehouse
+from app.schemas.sync import utc
 from app.services.encryption import encrypt
 from app.services.sync import promotions as sync_mod
 from app.services.sync import runner
@@ -143,6 +144,7 @@ async def test_first_sync(sessions, ozon):
     assert stats.as_dict() == {
         "actions": 4, "participating_actions": 2, "whole_stock_actions": 2,
         "products_active": 3, "candidates": 3, "auto_added": 2, "unknown_products": 1,
+        "entered": 3, "left": 0, "price_changes": 0,
     }
     promos = await promotions(sessions, user_id)
     p = promos[71001]
@@ -365,3 +367,108 @@ async def test_api_margin_is_fresh(sessions, client, tokens, ozon):
     await client.patch("/api/v1/settings", json={"price_ad_pct": "5"}, headers=auth(tokens))
     data = (await client.get(url, headers=auth(tokens))).json()
     assert data["items"][0]["margin_in_promo"] == "-1.16" and data["items"][0]["margin_level"] == "negative"
+
+
+# ── история участия (шаг 4.3) ──
+async def pair_rows(sessions, user_id, action_id: int, ozon_product_id: int) -> list[PromotionProduct]:
+    """Все строки участия пары акция × товар — от старых к новым (кандидаты не входят)."""
+    async with sessions() as db:
+        res = await db.execute(
+            select(PromotionProduct)
+            .join(Promotion, Promotion.id == PromotionProduct.promotion_id)
+            .join(Product, Product.id == PromotionProduct.product_id)
+            .where(Promotion.user_id == user_id, Promotion.ozon_action_id == action_id,
+                   Product.ozon_product_id == ozon_product_id, PromotionProduct.is_active.is_(True))
+            .order_by(PromotionProduct.first_seen_at)
+        )
+        return list(res.scalars())
+
+
+async def snapshots(sessions, row_id) -> list[tuple[Decimal | None, int | None]]:
+    async with sessions() as db:
+        res = await db.execute(
+            select(PromotionPriceSnapshot).where(PromotionPriceSnapshot.promotion_product_id == row_id)
+            .order_by(PromotionPriceSnapshot.snapshot_at)
+        )
+        return [(s.action_price, s.stock) for s in res.scalars()]
+
+
+async def test_exit_and_reentry_keep_history(sessions, ozon):
+    user_id = await setup_user(sessions)
+    await sync(sessions, user_id)
+    everyone = ozon.products[71001]["products"]
+    ozon.products[71001]["products"] = [p for p in everyone if p["id"] != 1001]  # 1001 вышел из акции
+    stats = await sync(sessions, user_id)
+    assert (stats.left, stats.entered) == (1, 0)
+    rows = await pair_rows(sessions, user_id, 71001, 1001)
+    assert len(rows) == 1 and rows[0].left_at is not None  # строка осталась, с датой выхода
+    assert await snapshots(sessions, rows[0].id) == [(Decimal("459.00"), 0)]
+    ozon.products[71001]["products"] = everyone  # вернулся — новая строка, прошлое участие не тронуто
+    stats = await sync(sessions, user_id)
+    assert (stats.left, stats.entered) == (0, 1)
+    rows = await pair_rows(sessions, user_id, 71001, 1001)
+    assert len(rows) == 2 and rows[0].left_at is not None and rows[1].left_at is None
+    assert utc(rows[1].first_seen_at) >= utc(rows[0].left_at)
+
+
+async def test_action_price_change_snapshot(sessions, ozon):
+    user_id = await setup_user(sessions)
+    await sync(sessions, user_id)
+    ozon.products[71001]["products"][0]["action_price"] = {"amount": "440", "currency": "RUB"}
+    stats = await sync(sessions, user_id)
+    assert stats.price_changes == 1
+    ozon.products[71001]["products"][0]["stock"] = 5  # заявленное количество — тоже снимок
+    await sync(sessions, user_id)
+    await sync(sessions, user_id)  # ничего не изменилось — снимка нет
+    rows = await pair_rows(sessions, user_id, 71001, 1001)
+    assert len(rows) == 1 and rows[0].action_price == Decimal("440.00")
+    assert await snapshots(sessions, rows[0].id) == [(Decimal("459.00"), 0), (Decimal("440.00"), 0), (Decimal("440.00"), 5)]
+
+
+async def test_finished_promotion_closes_participation(sessions, ozon):
+    user_id = await setup_user(sessions)
+    await sync(sessions, user_id)
+    ozon.actions["result"] = [a for a in ozon.actions["result"] if a["id"] != 71001]  # Ozon больше не отдаёт акцию
+    await sync(sessions, user_id)
+    assert 71001 in await promotions(sessions, user_id)  # закончившиеся акции не удаляем
+    for pid in (1001, 1002):
+        rows = await pair_rows(sessions, user_id, 71001, pid)
+        assert len(rows) == 1 and rows[0].left_at is not None
+    assert (71001, 1003) not in await promo_rows(sessions, user_id)  # кандидата в закончившейся акции больше нет
+
+
+async def test_api_history(sessions, client, tokens, ozon):
+    user_id = await api_user(sessions, client, tokens)
+    everyone = ozon.products[71001]["products"]
+    ozon.products[71001]["products"] = [p for p in everyone if p["id"] != 1001]
+    await sync(sessions, user_id)  # 1001 вышел
+    everyone[0]["action_price"] = {"amount": "440", "currency": "RUB"}
+    ozon.products[71001]["products"] = everyone
+    await sync(sessions, user_id)  # вернулся по 440
+    async with sessions() as db:
+        pid = (await db.execute(select(Product.id).where(Product.user_id == user_id, Product.ozon_product_id == 1001))).scalar_one()
+    url = "/api/v1/promotions/history"
+    data = (await client.get(url, params={"product_id": str(pid)}, headers=auth(tokens))).json()
+    items = data["items"]
+    assert [i["status"] for i in items] == ["active", "left"]  # новые первыми
+    assert items[0]["promotion"]["title"] == "Скидка на сток" and items[0]["left_at"] is None
+    assert [p["action_price"] for p in items[0]["prices"]] == ["440.00"] and items[0]["action_price"] == "440.00"
+    assert items[1]["left_at"] is not None and [p["action_price"] for p in items[1]["prices"]] == ["459.00"]
+    assert items[0]["added_automatically"] is False and items[0]["product"]["offer_id"] == "6001-2RS.C3.SRL.NAC.TH"
+    # все товары: 1001 дважды и 1002 в «Скидке на сток», 1003 в «Эластичном бустинге»
+    every = (await client.get(url, headers=auth(tokens))).json()["items"]
+    assert sorted(i["product"]["offer_id"] for i in every) == sorted(
+        ["6001-2RS.C3.SRL.NAC.TH", "6001-2RS.C3.SRL.NAC.TH", "ACB305523.NAC.JP", "6000-2RS.C3.SRL.NAC.JP"])
+    # период: вчера — участий ещё не было; завтра — только текущее
+    yesterday, tomorrow = today_msk() - timedelta(days=1), today_msk() + timedelta(days=1)
+    assert (await client.get(url, params={"date_from": str(yesterday), "date_to": str(yesterday)}, headers=auth(tokens))).json()["items"] == []
+    later = (await client.get(url, params={"product_id": str(pid), "date_from": str(tomorrow), "date_to": str(tomorrow)}, headers=auth(tokens))).json()
+    assert [i["status"] for i in later["items"]] == ["active"]
+    # ошибки: период, чужой товар
+    bad = await client.get(url, params={"date_from": str(tomorrow), "date_to": str(yesterday)}, headers=auth(tokens))
+    assert bad.status_code == 400 and "дата начала позже" in bad.json()["detail"]
+    assert (await client.get(url, params={"product_id": str(uuid.uuid4())}, headers=auth(tokens))).status_code == 404
+    # текущие списки — только текущее участие: 1001 в акции один раз
+    promo_id = next(p["id"] for p in (await client.get("/api/v1/promotions", headers=auth(tokens))).json() if p["ozon_action_id"] == 71001)
+    rows = (await client.get(f"/api/v1/promotions/{promo_id}/products", headers=auth(tokens))).json()["items"]
+    assert [r["product"]["offer_id"] for r in rows].count("6001-2RS.C3.SRL.NAC.TH") == 1

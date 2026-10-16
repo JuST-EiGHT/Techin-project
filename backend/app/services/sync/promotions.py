@@ -33,7 +33,8 @@ from app.engine.price_calculator import margin_at
 from app.engine.promotions import is_whole_stock
 from app.integrations.ozon.client import OzonClient
 from app.models.product import Product
-from app.models.promotion import Promotion, PromotionProduct
+from app.models.promotion import Promotion, PromotionPriceSnapshot, PromotionProduct
+from app.schemas.sync import utc
 from app.services import pricing
 from app.services.sync.parsing import to_count, to_decimal, to_id, to_str
 
@@ -60,6 +61,9 @@ class PromotionSyncStats:
     products_active: int = 0  # товаров в акциях (участвуют)
     candidates: int = 0
     auto_added: int = 0
+    entered: int = 0  # вошли в акцию с прошлой синхронизации
+    left: int = 0  # вышли (строка участия закрыта датой выхода)
+    price_changes: int = 0  # у участника сменилась цена или количество в акции
     unknown_products: int = 0  # товары Ozon, которых нет в БД (нужна синхронизация товаров)
 
     def as_dict(self) -> dict[str, int]:
@@ -165,6 +169,24 @@ def _promotion_attrs(a: dict) -> dict[str, Any]:
     }
 
 
+def _close(row: PromotionProduct, when: datetime) -> None:
+    """Товар вышел из акции: строка остаётся с датой выхода (история участия)."""
+    row.left_at = when
+
+
+def snapshot(db: AsyncSession, row: PromotionProduct, when: datetime) -> None:
+    """Цена и количество товара в акции на момент входа или изменения."""
+    db.add(PromotionPriceSnapshot(promotion_product_id=row.id, snapshot_at=when, action_price=row.action_price, stock=row.stock))
+
+
+async def current_rows(db: AsyncSession, promotion_id: uuid.UUID) -> list[PromotionProduct]:
+    """Текущие строки акции: участие без даты выхода и кандидаты."""
+    res = await db.execute(
+        select(PromotionProduct).where(PromotionProduct.promotion_id == promotion_id, PromotionProduct.left_at.is_(None))
+    )
+    return list(res.scalars())
+
+
 async def sync_promotions(db: AsyncSession, user_id: uuid.UUID, client: OzonClient) -> PromotionSyncStats:
     stats = PromotionSyncStats()
     now = datetime.now(timezone.utc)
@@ -177,10 +199,12 @@ async def sync_promotions(db: AsyncSession, user_id: uuid.UUID, client: OzonClie
         p.ozon_action_id: p
         for p in (await db.execute(select(Promotion).where(Promotion.user_id == user_id))).scalars()
     }
+    seen_actions: set[int] = set()
     for a in await fetch_actions(client):
         action_id = to_id(a.get("id"))
         if not action_id:
             continue
+        seen_actions.add(action_id)
         attrs = _promotion_attrs(a)
         promo = existing.get(action_id)
         if promo is None:
@@ -199,32 +223,15 @@ async def sync_promotions(db: AsyncSession, user_id: uuid.UUID, client: OzonClie
         candidates = await fetch_action_products(client, CANDIDATES_PATH, action_id)
         auto_ids = await fetch_auto_added(client, action_id, promo.auto_add_dates or [], now) if active else set()
 
-        rows = {
-            r.product_id: r
-            for r in (await db.execute(select(PromotionProduct).where(PromotionProduct.promotion_id == promo.id))).scalars()
-        }
-        seen: set[uuid.UUID] = set()
-        for item, is_active in [(i, True) for i in active] + [(i, False) for i in candidates]:
-            product = products.get(to_id(item.get("id") or item.get("product_id")))
-            if product is None:
-                stats.unknown_products += 1
-                continue
-            if product.id in seen:  # участвующий товар не перезаписываем строкой кандидата
-                continue
-            seen.add(product.id)
+        rows = await current_rows(db, promo.id)
+        joined = {r.product_id: r for r in rows if r.is_active}  # участвуют сейчас
+        offered = {r.product_id: r for r in rows if not r.is_active}  # кандидаты
 
-            row = rows.get(product.id)
-            mode = to_str(item.get("add_mode"), 32)
-            by_mode = auto_by_mode(mode)
-            auto = is_active and (
-                by_mode is True
-                or (by_mode is None and product.ozon_product_id in auto_ids)
-                or (by_mode is None and row is not None and row.added_automatically)
-            )
+        def values(item: dict, product: Product, is_active: bool, auto: bool, mode: str | None) -> dict:
             last_price = ctx.prices.get(product.id)
             params = ctx.product_params(product)
             action_price = money(item.get("action_price"))
-            values = {
+            return {
                 "action_price": action_price,
                 "price": money(item.get("price")),
                 # 0 у Ozon — «не задана»: тогда мин. цена товара, а если и она 0 — пусто
@@ -237,21 +244,91 @@ async def sync_promotions(db: AsyncSession, user_id: uuid.UUID, client: OzonClie
                 "margin_in_promo": margin_at(params, action_price) if params is not None else None,
                 "synced_at": now,
             }
+
+        # 1. участники: новый — вход (строка и снимок), уже участвует — изменение цены или количества — снимок
+        seen_active: set[uuid.UUID] = set()
+        for item in active:
+            product = products.get(to_id(item.get("id") or item.get("product_id")))
+            if product is None:
+                stats.unknown_products += 1
+                continue
+            if product.id in seen_active:
+                continue
+            seen_active.add(product.id)
+            row = joined.get(product.id)
+            mode = to_str(item.get("add_mode"), 32)
+            by_mode = auto_by_mode(mode)
+            auto = (
+                by_mode is True
+                or (by_mode is None and product.ozon_product_id in auto_ids)
+                or (by_mode is None and row is not None and row.added_automatically)
+            )
+            vals = values(item, product, True, auto, mode)
             if row is None:
-                db.add(PromotionProduct(promotion_id=promo.id, product_id=product.id, first_seen_at=now, **values))
+                if (cand := offered.pop(product.id, None)) is not None:  # был кандидатом — теперь участник
+                    await db.delete(cand)
+                    await db.flush()
+                row = PromotionProduct(promotion_id=promo.id, product_id=product.id, first_seen_at=now, **vals)
+                db.add(row)
+                await db.flush()
+                snapshot(db, row, now)
+                stats.entered += 1
             else:
-                for field, value in values.items():
+                changed = row.action_price != vals["action_price"] or row.stock != vals["stock"]
+                for field, value in vals.items():
                     setattr(row, field, value)
-            stats.products_active += is_active
-            stats.candidates += not is_active
+                if changed:
+                    snapshot(db, row, now)
+                    stats.price_changes += 1
+            stats.products_active += 1
             stats.auto_added += auto
 
-        # товары, которых нет ни среди участников, ни среди кандидатов, — из акции ушли
-        gone = [pid for pid in rows if pid not in seen]
-        if gone:
-            await db.execute(
-                delete(PromotionProduct).where(PromotionProduct.promotion_id == promo.id, PromotionProduct.product_id.in_(gone))
+        # 2. участвовал, а среди участников больше нет — вышел: дата выхода, строка остаётся
+        for product_id, row in joined.items():
+            if product_id not in seen_active:
+                _close(row, now)
+                stats.left += 1
+        await db.flush()
+
+        # 3. кандидаты — текущее состояние Ozon: заменяем
+        seen_offered: set[uuid.UUID] = set()
+        for item in candidates:
+            product = products.get(to_id(item.get("id") or item.get("product_id")))
+            if product is None:
+                stats.unknown_products += 1
+                continue
+            if product.id in seen_active or product.id in seen_offered:  # участвующий — не кандидат
+                continue
+            seen_offered.add(product.id)
+            vals = values(item, product, False, False, to_str(item.get("add_mode"), 32))
+            vals["min_stock"] = to_count(item.get("min_stock")) if item.get("min_stock") is not None else None
+            vals["recommended_stock"] = (
+                to_count(item.get("recommended_stock")) if item.get("recommended_stock") is not None else None
             )
+            row = offered.get(product.id)
+            if row is None:
+                db.add(PromotionProduct(promotion_id=promo.id, product_id=product.id, first_seen_at=now, **vals))
+            else:
+                for field, value in vals.items():
+                    setattr(row, field, value)
+            stats.candidates += 1
+        gone = [r.id for pid, r in offered.items() if pid not in seen_offered]
+        if gone:
+            await db.execute(delete(PromotionProduct).where(PromotionProduct.id.in_(gone)))
+
+    # акции, которых Ozon больше не отдаёт (закончились или отменены), не удаляем: участие в них закрываем датой
+    # окончания (или сейчас, если она ещё не наступила), кандидатов убираем
+    for action_id, promo in existing.items():
+        if action_id in seen_actions:
+            continue
+        date_to = utc(promo.date_to)
+        end = date_to if date_to is not None and date_to < now else now
+        for row in await current_rows(db, promo.id):
+            if row.is_active:
+                _close(row, end)
+                stats.left += 1
+            else:
+                await db.delete(row)
 
     await db.commit()
     log.info("Синхронизация акций: пользователь %s → %s", user_id, stats.as_dict())

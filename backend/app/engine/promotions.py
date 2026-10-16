@@ -26,3 +26,10 @@ def is_whole_stock(title: str | None, action_type: str | None) -> bool:
     t = (title or "").lower().replace("ё", "е")
     kind = (action_type or "").upper()
     return any(m in t for m in _WHOLE_STOCK_TITLES) or any(m in kind for m in _WHOLE_STOCK_TYPES)
+
+
+def is_boosting(title: str | None, action_type: str | None) -> bool:
+    """«Эластичный» и «Максимальный бустинг»: выйти из них методом выхода нельзя — Ozon убирает товар через цену в
+    акции (документация /v2/actions/products/deactivate)."""
+    t = (title or "").lower().replace("ё", "е")
+    return "бустинг" in t or "BOOST" in (action_type or "").upper()

@@ -202,7 +202,7 @@ async def current_promotions(
         select(PromotionProduct, Promotion)
         .join(Promotion, Promotion.id == PromotionProduct.promotion_id)
         .where(
-            Promotion.user_id == user_id, PromotionProduct.is_active.is_(True),
+            Promotion.user_id == user_id, PromotionProduct.is_active.is_(True), PromotionProduct.left_at.is_(None),
             or_(Promotion.date_to.is_(None), Promotion.date_to >= datetime.now(timezone.utc)),
         )
         .order_by(Promotion.date_to, Promotion.title)

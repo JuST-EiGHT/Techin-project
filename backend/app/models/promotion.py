@@ -8,6 +8,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -15,6 +16,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -50,10 +52,20 @@ class Promotion(Base):
 
 
 class PromotionProduct(Base):
-    """Товар в акции: участвует (is_active) или может участвовать (кандидат)."""
+    """Товар в акции: участие (is_active) или кандидат — может участвовать.
+
+    История (шаг 4.3, правило 12): участие не удаляется — выход из акции ставит left_at, повторный вход — новая
+    строка; смена акционной цены или количества — снимок `promotion_price_snapshots`. Кандидаты — текущее
+    состояние Ozon, заменяются при синхронизации. Текущая строка пары товар × акция — с left_at = NULL, она одна.
+    """
 
     __tablename__ = "promotion_products"
-    __table_args__ = (UniqueConstraint("promotion_id", "product_id", name="uq_promotion_products_pair"),)
+    __table_args__ = (
+        Index(
+            "uq_promotion_products_current", "promotion_id", "product_id", unique=True,
+            postgresql_where=text("left_at IS NULL"), sqlite_where=text("left_at IS NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     promotion_id: Mapped[uuid.UUID] = mapped_column(
@@ -69,5 +81,23 @@ class PromotionProduct(Base):
     added_automatically: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     add_mode: Mapped[str | None] = mapped_column(String(32))  # как отдал Ozon: SELLER, MANUAL, NOT_SET…
     margin_in_promo: Mapped[Decimal | None] = mapped_column(Numeric(7, 2))  # %, простая формула (engine/promotions.py)
-    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)  # вошёл в акцию
+    left_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # вышел; NULL — участвует сейчас
+    min_stock: Mapped[int | None] = mapped_column(Integer)  # кандидат: сколько штук Ozon требует минимум
+    recommended_stock: Mapped[int | None] = mapped_column(Integer)  # кандидат: сколько Ozon советует заявить
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class PromotionPriceSnapshot(Base):
+    """Цена и количество товара в акции: снимок при входе и при каждом изменении (как цены в шаге 1.2)."""
+
+    __tablename__ = "promotion_price_snapshots"
+    __table_args__ = (Index("ix_promotion_price_snapshots_row", "promotion_product_id", "snapshot_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    promotion_product_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("promotion_products.id", ondelete="CASCADE"), nullable=False
+    )
+    snapshot_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    action_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    stock: Mapped[int | None] = mapped_column(Integer)
