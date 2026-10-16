@@ -164,3 +164,15 @@ async def avg_daily_by_product(
     for pid, offer in await db.execute(select(Product.id, Product.offer_id).where(Product.user_id == user_id)):
         out[pid] = engine.avg_daily(net.get(offer, 0), with_data)
     return out
+
+
+async def last_sales(db: AsyncSession, user_id: uuid.UUID, offer_id: str | None = None) -> dict[str, date]:
+    """Последний день с продажей по артикулу (страница товаров 4.1, склады 5.1). Нет в ответе — продаж в данных нет."""
+    q = (
+        select(SalesDaily.offer_id, func.max(SalesDaily.day))
+        .where(SalesDaily.user_id == user_id, SalesDaily.qty_sold > 0)
+        .group_by(SalesDaily.offer_id)
+    )
+    if offer_id is not None:
+        q = q.where(SalesDaily.offer_id == offer_id)
+    return {offer: day for offer, day in await db.execute(q)}

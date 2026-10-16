@@ -3,7 +3,7 @@ from datetime import datetime
 
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Uuid, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, Numeric, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -47,6 +47,17 @@ class UserSettings(Base):
     # калькулятор цены (шаг 4.2): реклама, % от цены, и целевая маржа, %; пусто — по умолчанию
     price_ad_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     price_target_margin_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    # пороги статуса остатка, дней запаса (шаг 5.1); пусто — 7 / 14 / 60 (engine/stocks.Thresholds)
+    stock_critical_days: Mapped[int | None] = mapped_column(Integer)
+    stock_low_days: Mapped[int | None] = mapped_column(Integer)
+    stock_excess_days: Mapped[int | None] = mapped_column(Integer)
+    # параметры отчёта «Кандидаты на вывоз» (шаг 5.1): вывезти всего, шт. (пусто — без ограничения), оставлять в
+    # кластере у товара без продаж и у продающегося (пусто — 2 и 10, engine/withdrawal); исключённые кластеры — id
+    # кластеров Ozon строками (пусто — ни один: СПб у владельца — его настройка, не умолчание)
+    withdrawal_total: Mapped[int | None] = mapped_column(Integer)
+    withdrawal_keep_cluster: Mapped[int | None] = mapped_column(Integer)
+    withdrawal_keep_selling: Mapped[int | None] = mapped_column(Integer)
+    withdrawal_excluded_clusters: Mapped[list | None] = mapped_column(JSON)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

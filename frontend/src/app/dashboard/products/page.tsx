@@ -24,7 +24,7 @@ import {
   type ProductsPage,
   type QuickFilter,
 } from '@/lib/products'
-import { useOnPriceSettingsChange } from '@/lib/settings'
+import { useOnPriceSettingsChange, useSettings } from '@/lib/settings'
 
 type Sort = 'offer_id' | 'name' | ColumnKey
 type SyncStatus = {
@@ -207,6 +207,9 @@ function Products() {
   const closePanel = useCallback(() => setUrl({ product: null }), [setUrl])
   const reloadList = useCallback(() => setReload((n) => n + 1), [])
   useOnPriceSettingsChange(reloadList) // маржа считается калькулятором цены
+  const settings = useSettings() // пороги остатков (шаг 5.1) — для подсказок
+  const lowDays = settings?.stock_low_days ?? 14
+  const criticalDays = settings?.stock_critical_days ?? 7
 
   const lastSuccess = sync?.products.last_success_at
   const failed = sync?.products.last_run?.status === 'failed' ? sync.products.last_run.error : null
@@ -256,7 +259,7 @@ function Products() {
             <Counter
               label="Критичный остаток"
               value={data.sales_known ? c!.critical_stock : null}
-              hint={data.sales_known ? 'меньше 7 дней запаса' : 'мало данных о продажах'}
+              hint={data.sales_known ? `меньше ${criticalDays} дн. запаса` : 'мало данных о продажах'}
               tone={c!.critical_stock ? 'text-bad' : ''}
               active={filters.length === 1 && filters[0] === 'critical_stock'}
               onClick={() => toggleFilter('critical_stock', true)}
@@ -271,7 +274,7 @@ function Products() {
                 <button
                   key={f.value}
                   type="button"
-                  title={f.hint}
+                  title={f.value === 'low_stock' ? `Запаса меньше чем на ${lowDays} дн. продаж` : f.hint}
                   aria-pressed={on}
                   onClick={() => toggleFilter(f.value)}
                   className={`rounded-full border px-3 py-1 text-sm ${on ? 'border-accent bg-accent text-white' : 'border-line bg-card text-muted hover:border-accent hover:text-fg'}`}

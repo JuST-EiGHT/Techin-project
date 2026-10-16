@@ -108,6 +108,13 @@ _FIELD_NAMES = {
     "price": "Цена",
     "promo_price": "Цена в акции",
     "filters": "Фильтры",
+    "stock_critical_days": "Порог «Критично»",
+    "stock_low_days": "Порог «Мало»",
+    "stock_excess_days": "Порог «Избыток»",
+    "total": "Вывезти всего",
+    "keep_idle": "Оставлять у товара без продаж",
+    "keep_selling": "Оставлять у продающегося",
+    "excluded": "Исключённые кластеры",
 }
 
 

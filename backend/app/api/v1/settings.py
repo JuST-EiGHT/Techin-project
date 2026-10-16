@@ -1,4 +1,5 @@
-"""Основные настройки сервиса: тема, «Откуда товар», расчёт цены. Налог и НДС — в налоговом профиле (tax_profile.py)."""
+"""Основные настройки сервиса: тема, «Откуда товар», расчёт цены, пороги остатков. Налог и НДС — в налоговом профиле
+(tax_profile.py)."""
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,10 +15,12 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 def _response(s: UserSettings) -> SettingsResponse:
     ad, margin = svc.price_settings(s)
+    t = svc.stock_thresholds(s)
     return SettingsResponse(
         theme=s.theme, supplier_payment=s.supplier_payment, supplier_deferral_days=s.supplier_deferral_days,
         cost_label=COST_LABELS[s.supplier_payment], price_ad_pct=ad, price_target_margin_pct=margin,
         price_defaults=s.price_ad_pct is None and s.price_target_margin_pct is None,
+        stock_critical_days=t.critical, stock_low_days=t.low, stock_excess_days=t.excess,
     )
 
 

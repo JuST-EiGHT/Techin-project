@@ -18,7 +18,8 @@ async def test_settings_defaults_and_update(client, tokens):
     # калькулятор цены (шаг 4.2): реклама 0 % и маржа 20 % — по умолчанию, не цифры владельца
     assert (await get()).json() == {"theme": "dark", "supplier_payment": "upfront", "supplier_deferral_days": None,
                                     "cost_label": "Себестоимость с НДС", "price_ad_pct": "0",
-                                    "price_target_margin_pct": "20", "price_defaults": True}
+                                    "price_target_margin_pct": "20", "price_defaults": True,
+                                    "stock_critical_days": 7, "stock_low_days": 14, "stock_excess_days": 60}
 
     r = await client.patch("/api/v1/settings", json={"theme": "light"}, headers=auth(tokens))
     assert r.status_code == 200 and r.json()["theme"] == "light"
@@ -35,7 +36,7 @@ async def test_supplier_payment_names_cost_in_pnl(client, tokens):
     r = await client.patch("/api/v1/settings", json={"supplier_payment": "after_sale"}, headers=auth(tokens))
     assert r.json() == {"theme": "dark", "supplier_payment": "after_sale", "supplier_deferral_days": None,
                         "cost_label": "Долг поставщику", "price_ad_pct": "0", "price_target_margin_pct": "20",
-                        "price_defaults": True}
+                        "price_defaults": True, "stock_critical_days": 7, "stock_low_days": 14, "stock_excess_days": 60}
     r = await client.patch("/api/v1/settings", json={"theme": "light"}, headers=auth(tokens))
     assert r.json()["supplier_payment"] == "after_sale"  # не переданное не меняется
     r = await client.patch("/api/v1/settings", json={"supplier_payment": "later"}, headers=auth(tokens))
@@ -59,6 +60,25 @@ async def test_where_goods_come_from(client, tokens):
     assert (r.json()["supplier_payment"], r.json()["supplier_deferral_days"]) == ("mixed", None)  # отсрочка сброшена
     r = await patch({"supplier_deferral_days": 400})
     assert r.status_code == 400
+
+
+async def test_stock_thresholds(client, tokens):
+    """Пороги статуса остатка (шаг 5.1): по умолчанию 7 / 14 / 60 дней, меняются по одному, идут по возрастанию."""
+    patch = lambda body: client.patch("/api/v1/settings", json=body, headers=auth(tokens))  # noqa: E731
+    days = lambda r: (r.json()["stock_critical_days"], r.json()["stock_low_days"], r.json()["stock_excess_days"])  # noqa: E731
+    r = await patch({"stock_low_days": 21})
+    assert r.status_code == 200 and days(r) == (7, 21, 60)
+    r = await patch({"stock_critical_days": 10, "stock_excess_days": 90})
+    assert days(r) == (10, 21, 90)
+    r = await patch({"stock_critical_days": 21})
+    assert (r.status_code, r.json()["detail"]) == (
+        400, "Пороги остатков идут по возрастанию: «Критично» меньше «Мало», «Мало» меньше «Избыток»"
+    )
+    r = await patch({"stock_excess_days": 20})
+    assert r.status_code == 400
+    r = await patch({"stock_excess_days": 400})
+    assert r.status_code == 400
+    assert days(await client.get("/api/v1/settings", headers=auth(tokens))) == (10, 21, 90)  # ошибка ничего не меняет
 
 
 async def test_new_reports_follow_tax_profile_until_edited(client, tokens):
