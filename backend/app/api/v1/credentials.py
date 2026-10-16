@@ -41,9 +41,10 @@ async def add_credential(data: CredentialCreate, user: User = Depends(get_curren
 
 
 async def _start_finance_backfill(db: AsyncSession, user_id: uuid.UUID) -> None:
-    """Ключ подключён — разово загружаем начисления и баланс у Ozon (выплаты) за последние 90 дней (уже
-    загруженные дни пропускаются). Сбой очереди не мешает сохранить ключ: догрузят плановые задачи раз в 6 часов."""
-    for kind in ("finance", "balance"):
+    """Ключ подключён — разово загружаем начисления, баланс у Ozon (выплаты) и отправления (поставки, шаг 5.2) за
+    последние 90 дней (уже загруженные дни начислений пропускаются). Сбой очереди не мешает сохранить ключ: догрузят
+    плановые задачи раз в 6 часов."""
+    for kind in ("finance", "balance", "postings"):
         try:
             await sync_api.queue_sync(db, user_id, kind)
         except (SyncAlreadyRunning, sync_api.QueueUnavailable):

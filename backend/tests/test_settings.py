@@ -19,7 +19,8 @@ async def test_settings_defaults_and_update(client, tokens):
     assert (await get()).json() == {"theme": "dark", "supplier_payment": "upfront", "supplier_deferral_days": None,
                                     "cost_label": "Себестоимость с НДС", "price_ad_pct": "0",
                                     "price_target_margin_pct": "20", "price_defaults": True,
-                                    "stock_critical_days": 7, "stock_low_days": 14, "stock_excess_days": 60}
+                                    "stock_critical_days": 7, "stock_low_days": 14, "stock_excess_days": 60,
+                                    "supply_target_days": 45, "supply_lead_time_days": 7}
 
     r = await client.patch("/api/v1/settings", json={"theme": "light"}, headers=auth(tokens))
     assert r.status_code == 200 and r.json()["theme"] == "light"
@@ -36,7 +37,8 @@ async def test_supplier_payment_names_cost_in_pnl(client, tokens):
     r = await client.patch("/api/v1/settings", json={"supplier_payment": "after_sale"}, headers=auth(tokens))
     assert r.json() == {"theme": "dark", "supplier_payment": "after_sale", "supplier_deferral_days": None,
                         "cost_label": "Долг поставщику", "price_ad_pct": "0", "price_target_margin_pct": "20",
-                        "price_defaults": True, "stock_critical_days": 7, "stock_low_days": 14, "stock_excess_days": 60}
+                        "price_defaults": True, "stock_critical_days": 7, "stock_low_days": 14, "stock_excess_days": 60,
+                        "supply_target_days": 45, "supply_lead_time_days": 7}
     r = await client.patch("/api/v1/settings", json={"theme": "light"}, headers=auth(tokens))
     assert r.json()["supplier_payment"] == "after_sale"  # не переданное не меняется
     r = await client.patch("/api/v1/settings", json={"supplier_payment": "later"}, headers=auth(tokens))

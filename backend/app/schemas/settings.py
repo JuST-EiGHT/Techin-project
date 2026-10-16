@@ -23,6 +23,9 @@ class SettingsResponse(BaseModel):
     stock_critical_days: int
     stock_low_days: int
     stock_excess_days: int
+    # планирование поставок (шаг 5.2): запас после поставки, дней, и сколько дней поставка в пути
+    supply_target_days: int
+    supply_lead_time_days: int
 
 
 class SettingsUpdate(BaseModel):
@@ -36,3 +39,5 @@ class SettingsUpdate(BaseModel):
     stock_critical_days: int | None = Field(None, ge=1, le=365)
     stock_low_days: int | None = Field(None, ge=1, le=365)
     stock_excess_days: int | None = Field(None, ge=1, le=365)
+    supply_target_days: int | None = Field(None, ge=1, le=365)
+    supply_lead_time_days: int | None = Field(None, ge=0, le=180)

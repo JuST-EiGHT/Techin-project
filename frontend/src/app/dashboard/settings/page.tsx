@@ -11,6 +11,7 @@ import { useTheme } from '@/contexts/ThemeContext'
 import { api, errorMessage } from '@/lib/api'
 import { type SupplierPayment, saveSettings, useSettings } from '@/lib/settings'
 import { SUPPLIER_OPTIONS, SUPPLIER_WHY } from '@/lib/supplier'
+import { LEAD_WHY, TARGET_WHY } from '@/lib/supply'
 import type { ThemePreference } from '@/lib/theme'
 
 const THEMES: { value: ThemePreference; label: string; hint: string; Icon: React.ComponentType<{ className?: string }> }[] = [
@@ -315,6 +316,86 @@ function StockSection() {
   )
 }
 
+function SupplySection() {
+  const { user } = useAuth()
+  const settings = useSettings()
+  const [target, setTarget] = useState('')
+  const [lead, setLead] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
+
+  useEffect(() => {
+    if (!settings) return
+    setTarget(String(settings.supply_target_days))
+    setLead(String(settings.supply_lead_time_days))
+  }, [settings])
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault()
+    if (!user) return
+    setError(null)
+    setDone(false)
+    const t = Number(target)
+    const l = Number(lead)
+    if (!/^\d+$/.test(target) || t < 1 || t > 365) return setError('Запас после поставки — от 1 до 365 дней')
+    if (!/^\d+$/.test(lead) || l > 180) return setError('Дней в пути — от 0 до 180')
+    try {
+      await saveSettings(user.id, { supply_target_days: t, supply_lead_time_days: l })
+      setDone(true)
+    } catch (err) {
+      setError(errorMessage(err, 'Не сохранилось — попробуйте ещё раз'))
+    }
+  }
+
+  const fields = [
+    { id: 'supply_target_days', label: 'Запас после поставки', value: target, set: setTarget, why: TARGET_WHY },
+    { id: 'supply_lead_time_days', label: 'Поставка в пути', value: lead, set: setLead, why: LEAD_WHY },
+  ]
+  return (
+    <Section title="Поставки" hint="По ним «Поставки» считают, сколько везти в каждый кластер Ozon и что закупить на свой склад.">
+      <form onSubmit={save} className="space-y-3" data-testid="supply-settings">
+        <FormError message={error} />
+        <div className="grid gap-3 sm:grid-cols-2">
+          {fields.map((f) => (
+            <div key={f.id}>
+              <label htmlFor={f.id} className="block text-sm text-muted">
+                {f.label}
+              </label>
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  id={f.id}
+                  inputMode="numeric"
+                  disabled={!settings}
+                  value={f.value}
+                  onChange={(e) => {
+                    setDone(false)
+                    f.set(e.target.value.replace(/\D/g, ''))
+                  }}
+                  className="w-20 rounded-lg border border-line bg-bg px-3 py-1.5 outline-none focus:border-accent disabled:opacity-60"
+                  data-testid={`settings-${f.id}`}
+                />
+                <span className="text-sm text-muted">дн.</span>
+              </div>
+              <p className="mt-1 text-xs text-faint">{f.why}</p>
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="submit"
+            disabled={!settings}
+            className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+            data-testid="settings-supply-save"
+          >
+            Сохранить
+          </button>
+          {done && <span className="text-sm text-ok">Сохранено — поставки пересчитаны</span>}
+        </div>
+      </form>
+    </Section>
+  )
+}
+
 type PlanningState = { enabled: boolean; setup_done: boolean }
 
 function PlanningSection() {
@@ -377,6 +458,7 @@ export default function SettingsPage() {
       <SupplierSection />
       <PriceSection />
       <StockSection />
+      <SupplySection />
       <PlanningSection />
     </div>
   )

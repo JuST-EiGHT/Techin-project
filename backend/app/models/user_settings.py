@@ -58,6 +58,9 @@ class UserSettings(Base):
     withdrawal_keep_cluster: Mapped[int | None] = mapped_column(Integer)
     withdrawal_keep_selling: Mapped[int | None] = mapped_column(Integer)
     withdrawal_excluded_clusters: Mapped[list | None] = mapped_column(JSON)
+    # планирование поставок (шаг 5.2): запас после поставки, дней, и сколько дней везти; пусто — 45 и 7
+    supply_target_days: Mapped[int | None] = mapped_column(Integer)
+    supply_lead_time_days: Mapped[int | None] = mapped_column(Integer)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

@@ -115,6 +115,10 @@ _FIELD_NAMES = {
     "keep_idle": "Оставлять у товара без продаж",
     "keep_selling": "Оставлять у продающегося",
     "excluded": "Исключённые кластеры",
+    "supply_target_days": "Запас после поставки",
+    "supply_lead_time_days": "Дней в пути",
+    "target_days": "Запас после поставки",
+    "lead_time_days": "Дней в пути",
 }
 
 

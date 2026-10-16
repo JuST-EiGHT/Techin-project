@@ -5,6 +5,7 @@ from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.stocks import DEFAULT_THRESHOLDS, Thresholds
+from app.engine.supply_planner import DEFAULT_LEAD_TIME_DAYS, DEFAULT_TARGET_DAYS
 from app.models.user_settings import (
     DEFAULT_AD_PCT,
     DEFAULT_SUPPLIER_PAYMENT,
@@ -42,6 +43,13 @@ def stock_thresholds(s: UserSettings) -> Thresholds:
 
 async def load_thresholds(db: AsyncSession, user_id: uuid.UUID) -> Thresholds:
     return stock_thresholds(await get_settings(db, user_id))
+
+
+def supply_params(s: UserSettings) -> tuple[int, int]:
+    """Поставки (шаг 5.2): запас после поставки и дней в пути; не заданы — 45 и 7 (engine/supply_planner)."""
+    target = DEFAULT_TARGET_DAYS if s.supply_target_days is None else s.supply_target_days
+    lead = DEFAULT_LEAD_TIME_DAYS if s.supply_lead_time_days is None else s.supply_lead_time_days
+    return target, lead
 
 
 class SettingsError(Exception):

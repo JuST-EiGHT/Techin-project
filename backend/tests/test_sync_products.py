@@ -349,7 +349,8 @@ async def test_api_sync_without_key(client, tokens, enqueued):
     status = (await client.get("/api/v1/sync/status", headers=auth(tokens))).json()
     empty = {"last_run": None, "last_success_at": None}
     assert status == {"has_active_key": False, "products": empty, "stocks": empty, "finance": empty, "promotions": empty,
-                      "balance": empty, "has_bank": False, "bank": empty}  # банк по API — шаг 3.12
+                      "balance": empty, "has_bank": False, "bank": empty,  # банк по API — шаг 3.12
+                      "postings": empty}  # отправления — шаг 5.2
 
 
 async def test_api_manual_sync_flow(sessions, client, tokens, enqueued, ozon):

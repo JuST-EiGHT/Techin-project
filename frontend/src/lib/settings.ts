@@ -20,6 +20,9 @@ export type UserSettings = {
   stock_critical_days: number
   stock_low_days: number
   stock_excess_days: number
+  // планирование поставок (шаг 5.2): запас после поставки, дней, и сколько дней поставка в пути
+  supply_target_days: number
+  supply_lead_time_days: number
 }
 
 /** Как называется себестоимость с НДС в P&L (подпись приходит с бэкенда — это запасной вариант). */

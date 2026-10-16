@@ -1,0 +1,43 @@
+{
+  "cursor": "",
+  "has_next": false,
+  "postings": [
+    {
+      "addressee": {"name": "Иван Петров"},
+      "analytics_data": {
+        "city": "Москва", "region": "Московская область", "delivery_type": "PVZ", "is_legal": false,
+        "is_premium": false, "payment_type_group_name": "Банковская карта", "tpl_provider": "Доставка Ozon",
+        "tpl_provider_id": 24, "warehouse": "Склад Подольск", "warehouse_id": 20605650762000
+      },
+      "barcodes": {"lower_barcode": "601302481800001", "upper_barcode": "601302481800001"},
+      "cancellation": {"cancel_reason": "", "cancel_reason_id": 0, "cancellation_initiator": "", "cancellation_type": ""},
+      "customer": {
+        "address": {"address_tail": "д. 15, кв. 78", "city": "Москва", "comment": "Домофон не работает",
+                    "latitude": 55.7558, "longitude": 37.6176, "zip_code": "101000"},
+        "customer_email": "ivan.petrov@example.com", "customer_id": 12345678, "name": "Иван Петров",
+        "phone": "+79031234567"
+      },
+      "delivery_method": {
+        "id": 20605650762000, "name": "Доставка Ozon самостоятельно, Склад Подольск", "tpl_provider": "Доставка Ozon",
+        "tpl_provider_id": 24, "warehouse": "Склад Подольск", "warehouse_id": 20605650762000
+      },
+      "delivery_schema": "fbs",
+      "financial_data": {"cluster_from": "Москва, МО и Дальние регионы", "cluster_to": "Казань", "products": []},
+      "in_process_at": "2026-10-12T08:00:00.000Z",
+      "is_express": false,
+      "legal_info": {"company_name": "", "inn": "", "kpp": ""},
+      "order_id": 33301885134,
+      "order_number": "0208245774-0029",
+      "posting_number": "0208245774-0029-1",
+      "products": [
+        {"imei": ["123456789012345"], "is_marketplace_buyout": false, "name": "Подшипник 6001-2RS NACHI",
+         "offer_id": "6001-2RS.C3.SRL.NAC.TH", "price": {"amount": "1290.00", "currency": "RUB"}, "quantity": 1,
+         "sku": 900001001}
+      ],
+      "shipment_date": "2026-10-13T12:00:00.000Z",
+      "status": "awaiting_packaging",
+      "substatus": "posting_created",
+      "tracking_number": "TRK1234567890"
+    }
+  ]
+}

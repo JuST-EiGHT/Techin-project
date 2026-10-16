@@ -138,6 +138,17 @@ def sync_bank_for_user(user_id: str, run_id: str | None = None, connection_id: s
     return asyncio.run(_sync_for_user("bank", user_id, run_id, params))
 
 
+@celery_app.task(name="tasks.sync_postings_for_user")
+def sync_postings_for_user(user_id: str, run_id: str | None = None) -> dict:
+    """Отправления FBO и FBS (шаг 5.2): первый раз — за 90 дней, дальше — последние 35 дней."""
+    return asyncio.run(_sync_for_user("postings", user_id, run_id))
+
+
+@celery_app.task(name="tasks.sync_postings_all")
+def sync_postings_all() -> int:
+    return _fan_out("postings", sync_postings_for_user)
+
+
 async def _bank_users() -> list[uuid.UUID]:
     from app.services.bank_connections import users_with_connections
 
@@ -166,4 +177,5 @@ FOR_USER_TASKS = {
     "promotions": sync_promotions_for_user,
     "balance": sync_balance_for_user,
     "bank": sync_bank_for_user,
+    "postings": sync_postings_for_user,
 }
