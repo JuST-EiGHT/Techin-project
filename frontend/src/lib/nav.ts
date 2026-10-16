@@ -1,7 +1,6 @@
 // Меню кабинета — один конфиг на шапку, мобильное меню и меню аккаунта (шаг 0.5).
 // Страница попадает сюда, только когда она сделана: новый шаг добавляет свой пункт.
 // Ещё появятся: Товары — история цен (6.4);
-// Склады — кандидаты на вывоз (5.1), поставки (5.2).
 // Меню аккаунта — уведомления (7.3), тариф (8.1).
 
 export type NavItem = { href: string; label: string; description?: string }
@@ -61,7 +60,23 @@ export const NAV: NavSection[] = [
   },
   {
     label: 'Склады',
-    items: [{ href: '/dashboard/warehouses', label: 'Остатки по складам', description: 'FBO по кластерам, FBS и rFBS' }],
+    items: [
+      {
+        href: '/dashboard/warehouses',
+        label: 'Остатки по складам',
+        description: 'Что заканчивается и что лежит: склады FBO по кластерам, FBS и rFBS',
+      },
+      {
+        href: '/dashboard/supply',
+        label: 'Поставки',
+        description: 'Что, в какой кластер и сколько везти — срочные первыми, Excel для логиста',
+      },
+      {
+        href: '/dashboard/warehouses/withdrawal',
+        label: 'Кандидаты на вывоз',
+        description: 'Что, откуда и сколько забрать со складов Ozon — Excel для логиста',
+      },
+    ],
   },
 ]
 

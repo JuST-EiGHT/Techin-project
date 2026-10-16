@@ -44,3 +44,4 @@ class SyncStatusResponse(BaseModel):
     balance: KindStatus  # баланс у Ozon и выплаты (шаг 3.6)
     has_bank: bool = False  # подключён банк по API (шаг 3.12) — ключ Ozon для этого не нужен
     bank: KindStatus | None = None
+    postings: KindStatus | None = None  # отправления FBO и FBS (шаг 5.2)

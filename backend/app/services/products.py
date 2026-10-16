@@ -18,16 +18,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.engine import price_calculator as calc
 from app.engine import products as engine
 from app.engine.promotions import margin_level
-from app.engine.stocks import days_of_supply, stock_status
+from app.engine.stocks import DEFAULT_THRESHOLDS, Thresholds, days_of_supply, stock_status
 from app.models.product import Product, ProductPrice
 from app.models.promotion import Promotion, PromotionProduct
-from app.models.sales_daily import SalesDaily
 from app.models.warehouse import ProductStock, Warehouse
 from app.schemas.products import ProductPromo
 from app.schemas.sync import utc
 from app.services import pricing
+from app.services.sales import last_sales
 from app.services.stocks import avg_daily_sales, latest_stocks
 from app.services.sync.finance import MSK
+from app.services.user_settings import load_thresholds
 
 MARGIN_NOTE = (
     "Маржа при текущей цене — как в калькуляторе цены: цена минус комиссия Ozon, эквайринг, реклама, логистика "
@@ -56,21 +57,11 @@ class Context:
     sales: dict[uuid.UUID, Decimal]  # продажи в день; пусто — мало данных
     promos: dict[uuid.UUID, list[tuple[PromotionProduct, Promotion]]] = field(default_factory=dict)
     last_sale: dict[str, date] = field(default_factory=dict)
+    thresholds: Thresholds = DEFAULT_THRESHOLDS  # пороги статуса остатка пользователя (шаг 5.1)
 
     @property
     def today(self) -> date:
         return self.pricing.today
-
-
-async def _last_sales(db: AsyncSession, user_id: uuid.UUID, offer_id: str | None) -> dict[str, date]:
-    q = (
-        select(SalesDaily.offer_id, func.max(SalesDaily.day))
-        .where(SalesDaily.user_id == user_id, SalesDaily.qty_sold > 0)
-        .group_by(SalesDaily.offer_id)
-    )
-    if offer_id is not None:
-        q = q.where(SalesDaily.offer_id == offer_id)
-    return {offer: day for offer, day in await db.execute(q)}
 
 
 async def _has_stocks(db: AsyncSession, user_id: uuid.UUID) -> bool:
@@ -97,7 +88,8 @@ async def load_context(db: AsyncSession, user_id: uuid.UUID, products: list[Prod
         stocks_known=bool(snapshots) or await _has_stocks(db, user_id),
         sales=sales,
         promos=await pricing.current_promotions(db, user_id, one.id if one else None),
-        last_sale=await _last_sales(db, user_id, one.offer_id if one else None),
+        last_sale=await last_sales(db, user_id, one.offer_id if one else None),
+        thresholds=await load_thresholds(db, user_id),
     )
 
 
@@ -136,7 +128,7 @@ def build_row(ctx: Context, p: Product) -> dict:
         "cost_price": cost, "cost_with_vat": cost_with_vat,
         "stock": stock, "in_transit": transit, "avg_daily_sales": avg,
         "days_of_supply": days_of_supply(stock, avg) if stock is not None else None,
-        "stock_status": stock_status(stock, avg) if stock is not None else None,
+        "stock_status": stock_status(stock, avg, ctx.thresholds) if stock is not None else None,
         "unit_profit": current.profit if current else None,
         "margin": margin, "margin_level": margin_level(margin),
         "price_index": engine.price_index_level(snap.price_index) if snap else None,

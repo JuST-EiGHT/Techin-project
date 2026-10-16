@@ -13,6 +13,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { api, errorMessage } from '@/lib/api'
 import { type Preset, presetRange, todayMsk } from '@/lib/period'
 import { useCostLabel } from '@/lib/settings'
+import { type RunningOut, STATUS, num, perDay, productHref, qty } from '@/lib/stocks'
 
 type BoardPreset = Exclude<Preset, 'custom'>
 
@@ -153,6 +154,7 @@ function Dashboard() {
                   </Link>
                 </section>
               )}
+              {shown.setup.has_key && <RunningOutWidget />}
             </>
           )}
         </>
@@ -226,6 +228,71 @@ function Figures({ data, finance, against, costLabel }: { data: OzonDashboard; f
         )}
       </FigureLink>
     </div>
+  )
+}
+
+/** Заканчиваются (шаг 5.1): «Критично» и «Мало» по порогам пользователя — меньше всего дней запаса первыми. */
+function RunningOutWidget() {
+  const [data, setData] = useState<RunningOut | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    api
+      .get<RunningOut>('/stocks/running-out', { params: { limit: 5 } })
+      .then(({ data }) => setData(data))
+      .catch((err) => setError(errorMessage(err)))
+  }, [])
+  if (error) return <FormError message={error} />
+  if (!data) return null
+  const total = data.critical + data.low
+  return (
+    <section className="rounded-xl border border-line bg-card" data-testid="running-out">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line px-4 py-3">
+        <h2 className="font-semibold">Заканчиваются</h2>
+        {data.sales_known && data.stocks_known && (
+          <span className="text-sm">
+            <span className={data.critical ? 'text-bad' : 'text-muted'}>критично: {data.critical}</span>
+            <span className="text-faint"> · </span>
+            <span className={data.low ? 'text-warn' : 'text-muted'}>мало: {data.low}</span>
+          </span>
+        )}
+        <Link href={total ? '/dashboard/products?filter=low_stock' : '/dashboard/warehouses'} className="ml-auto text-sm text-accent hover:underline">
+          {total ? 'Все →' : 'Склады →'}
+        </Link>
+      </div>
+      {!data.stocks_known ? (
+        <p className="px-4 py-3 text-sm text-muted">Остатки ещё не загружены — они обновляются из Ozon API каждые 30 минут.</p>
+      ) : !data.sales_known ? (
+        <p className="px-4 py-3 text-sm text-muted">
+          Мало данных о продажах — дни запаса считаются, когда за последние 30 дней есть начисления хотя бы за 7 дней.
+        </p>
+      ) : total === 0 ? (
+        <p className="px-4 py-3 text-sm text-muted" data-testid="running-out-none">
+          Запаса хватает всем товарам — меньше чем на {data.thresholds.low} дн. продаж нет ни у одного.
+        </p>
+      ) : (
+        <ul className="divide-y divide-line">
+          {data.items.map((p) => (
+            <li key={p.product.id}>
+              <Link href={productHref(p.product.id)} className="flex items-start gap-3 px-4 py-2 hover:bg-bg" data-testid="running-out-item">
+                <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${STATUS[p.status ?? 'no_data'].dot}`} aria-hidden />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">{p.product.offer_id}</span>
+                  {p.product.name && <span className="block truncate text-xs text-muted">{p.product.name}</span>}
+                </span>
+                <span className="shrink-0 text-right text-sm">
+                  <span className={`block font-medium ${STATUS[p.status ?? 'no_data'].text}`}>
+                    {p.available === 0 ? 'кончился' : `на ${num(p.days_of_supply)} дн.`}
+                  </span>
+                  <span className="block text-xs text-faint">
+                    {qty(p.available)} · {perDay(p.avg_daily_sales)} в день{p.in_transit ? ` · в пути ${p.in_transit}` : ''}
+                  </span>
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }
 

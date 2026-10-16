@@ -16,6 +16,13 @@ export type UserSettings = {
   price_ad_pct: string // калькулятор цены (шаг 4.2): реклама, % от цены
   price_target_margin_pct: string // целевая маржа, %
   price_defaults: boolean // реклама и маржа ещё не заданы — значения по умолчанию
+  // пороги статуса остатка, дней запаса (шаг 5.1): меньше — «Критично», меньше — «Мало», больше — «Избыток»
+  stock_critical_days: number
+  stock_low_days: number
+  stock_excess_days: number
+  // планирование поставок (шаг 5.2): запас после поставки, дней, и сколько дней поставка в пути
+  supply_target_days: number
+  supply_lead_time_days: number
 }
 
 /** Как называется себестоимость с НДС в P&L (подпись приходит с бэкенда — это запасной вариант). */

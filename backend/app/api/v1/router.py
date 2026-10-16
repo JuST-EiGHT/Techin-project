@@ -21,6 +21,7 @@ from app.api.v1 import (
     sales,
     settings,
     stocks,
+    supply,
     sync,
     tax_profile,
 )
@@ -32,6 +33,7 @@ api_router.include_router(sync.router)
 api_router.include_router(bank_connections.router)
 api_router.include_router(stocks.warehouses_router)
 api_router.include_router(stocks.stocks_router)
+api_router.include_router(supply.router)
 api_router.include_router(finance.router)
 api_router.include_router(products.router)
 api_router.include_router(price.router)

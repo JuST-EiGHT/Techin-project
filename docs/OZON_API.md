@@ -69,8 +69,8 @@ HTTP-коды для этих текстов в документации не у
 | Остатки (FBO, FBS, rFBS, FBP) | POST | `/v4/product/info/stocks` | `limit` до 1000, `cursor` |
 | Остатки FBO по кластерам/складам, продажи за 28 дней | POST | `/v1/analytics/stocks` | раздел «FBO → Управление остатками»; только одно из `cluster_ids` / `macrolocal_cluster_ids`; кластеры — `/v1/cluster/list` |
 | Склады FBS и rFBS | POST | `/v2/warehouse/list` | `limit` ≤ 200, `cursor`; FBO-складов в нём нет |
-| Отправления FBO | POST | `/v3/posting/fbo/list` | период не больше года |
-| Отправления FBS | POST | `/v4/posting/fbs/list` | |
+| Отправления FBO | POST | `/v3/posting/fbo/list` | период по дате заказа не больше года; `limit` ≤ 100, `cursor`; `with.analytics_data` — склад отгрузки, `with.financial_data` — `cluster_from` / `cluster_to` (шаг 5.2) |
+| Отправления FBS и rFBS | POST | `/v4/posting/fbs/list` | `filter.since` / `to` (не больше года), `limit` ≤ 100, `cursor`; склад продавца — `delivery_method.warehouse_id`; в ответе персональные данные покупателя (шаг 5.2) |
 | Начисления по отправлениям | POST | `/v1/finance/accrual/postings` | `posting_numbers` 1–200 |
 | Справочник типов начислений | POST | `/v1/finance/accrual/types` | |
 | Начисления за день | POST | `/v1/finance/accrual/by-day` | `last_id` = `date` из предыдущего ответа |
@@ -112,7 +112,11 @@ HTTP-коды для этих текстов в документации не у
 `/v1/analytics/stocks` требует `skus` (до 100, строками), без пагинации; одна пара SKU × склад
 может прийти несколькими строками (разные теги/зоны) — складываем. Там же есть `ads`
 (продажи в день за 28 дней), `idc` (дни запаса), `turnover_grade` — пока не используем:
-дни запаса считаем по своим продажам (появятся на шаге 1.4).
+дни запаса считаем по своим продажам (появятся на шаге 1.4). Сверено для шага 5.1 (выгрузка 2026-10): там же
+`days_without_sales` / `days_without_sales_cluster`, `ads_cluster`, `idc_cluster`, `excess_stock_count` (излишки с поставки,
+доступные к вывозу) — «Кандидаты на вывоз» считаем по своим продажам и не используем их. Создать заявку на вывоз через
+Seller API нельзя: есть только отчёты по вывозу и утилизации FBO (`/v1/removal/from-supply/list`, `/v1/removal/from-stock/list`,
+бета) — заявка делается в кабинете.
 
 ### Начисления (шаг 1.4)
 
@@ -144,6 +148,30 @@ HTTP-коды для этих текстов в документации не у
 Пригодится позже: `price.net_price` — себестоимость, которую продавец может передать в Ozon
 через `/v1/product/import/prices` (`prices.net_price`); `/v1/product/prices/details` — цена
 для покупателя (`customer_price`), но только с подпиской Premium Pro.
+
+### Отправления (шаг 5.2)
+
+Продажи по кластерам и складам для планирования поставок. Сверено с выгрузкой документации 2026-10.
+
+| Наше поле | FBO: `/v3/posting/fbo/list` | FBS / rFBS: `/v4/posting/fbs/list` |
+|---|---|---|
+| `posting_number`, `order_number`, `status` | так же | так же |
+| `ordered_at` (день — по Москве) | `created_at` (иначе `in_process_at`) | `in_process_at` (`created_at` в примере ответа нет) |
+| `warehouse_id`, `warehouse_name` | `analytics_data.warehouse_id`, `warehouse_name` — склад Ozon, откуда отгрузили | `delivery_method.warehouse_id`, `name` — склад продавца |
+| `cluster_from`, `cluster_to` | `financial_data.cluster_from` / `cluster_to` — кластер склада и кластер покупателя | так же |
+| товары | `products[]{sku, offer_id, quantity, price{amount}}` | так же |
+
+- Запрос: `filter{since, to}`, `limit` 100, `cursor` (первый — пустая строка), `sort_dir` ASC,
+  `with{analytics_data, financial_data}` — **без** `legal_info`. Следующая страница — пока `has_next` и есть `cursor`.
+- Первый запуск — 90 дней, дальше — последние 35 (отмены и смена статуса за окно расчёта). Статусы FBO: `awaiting_packaging`,
+  `awaiting_deliver`, `delivering`, `delivered`, `cancelled`; в спрос не идут `cancelled*` и `not_accepted`.
+- В ответе FBS — имя, телефон, email и адрес покупателя (`customer`, `addressee`), юрлицо (`legal_info`), штрихкоды и
+  `scanit`, у FBO — коды активации (`digital_codes`), у FBS — `imei`. Это не храним: `raw_json` — только разрешённые поля,
+  из `analytics_data` убираем город и регион. Сборку FBS сервис не делает, поэтому `scanit` и штрихкоды не нужны.
+- Кластер покупателя приходит названием (`"Екатеринбург"`), остатки (`/v1/analytics/stocks`) — названием и id; сопоставляем
+  по названию без учёта регистра, «ё» и пробелов. Поставку FBO Ozon принимает в кластер (`/v1/draft/*/create` —
+  обязательный `cluster_info`), поэтому рекомендации — по кластеру. Создание заявки на поставку через API (черновик,
+  таймслоты) — не делаем: рекомендации и Excel для логиста.
 
 ## Изменение (только через систему безопасности, см. BUSINESS_LOGIC.md §8)
 

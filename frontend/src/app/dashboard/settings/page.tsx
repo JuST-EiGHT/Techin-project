@@ -11,6 +11,7 @@ import { useTheme } from '@/contexts/ThemeContext'
 import { api, errorMessage } from '@/lib/api'
 import { type SupplierPayment, saveSettings, useSettings } from '@/lib/settings'
 import { SUPPLIER_OPTIONS, SUPPLIER_WHY } from '@/lib/supplier'
+import { LEAD_WHY, TARGET_WHY } from '@/lib/supply'
 import type { ThemePreference } from '@/lib/theme'
 
 const THEMES: { value: ThemePreference; label: string; hint: string; Icon: React.ComponentType<{ className?: string }> }[] = [
@@ -190,6 +191,211 @@ function PriceSection() {
   )
 }
 
+const STOCK_FIELDS = [
+  {
+    key: 'stock_critical_days',
+    label: '«Критично» — меньше',
+    why: 'Товар вот-вот кончится: красным на складах, в «Заканчиваются» на главной и в фильтре «Критичный остаток».',
+  },
+  {
+    key: 'stock_low_days',
+    label: '«Мало» — меньше',
+    why: 'Пора планировать поставку: жёлтым на складах, в «Заканчиваются» и в фильтре «Мало остатков» на странице товаров.',
+  },
+  {
+    key: 'stock_excess_days',
+    label: '«Избыток» — больше',
+    why: 'Лежит дольше, чем продастся: такие товары попадают в «Кандидаты на вывоз» — за хранение платить дольше.',
+  },
+] as const
+
+type StockKey = (typeof STOCK_FIELDS)[number]['key']
+
+function StockSection() {
+  const { user } = useAuth()
+  const settings = useSettings()
+  const [values, setValues] = useState<Record<StockKey, string>>({ stock_critical_days: '', stock_low_days: '', stock_excess_days: '' })
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
+
+  useEffect(() => {
+    if (!settings) return
+    setValues({
+      stock_critical_days: String(settings.stock_critical_days),
+      stock_low_days: String(settings.stock_low_days),
+      stock_excess_days: String(settings.stock_excess_days),
+    })
+  }, [settings])
+
+  async function save(next: Record<StockKey, string>) {
+    if (!user) return
+    setError(null)
+    setDone(false)
+    const days = Object.fromEntries(STOCK_FIELDS.map(({ key }) => [key, Number(next[key])])) as Record<StockKey, number>
+    if (Object.values(days).some((d) => !Number.isInteger(d) || d < 1 || d > 365)) return setError('Пороги — целые числа дней от 1 до 365')
+    if (!(days.stock_critical_days < days.stock_low_days && days.stock_low_days < days.stock_excess_days))
+      return setError('Пороги идут по возрастанию: «Критично» меньше «Мало», «Мало» меньше «Избыток»')
+    try {
+      await saveSettings(user.id, days)
+      setDone(true)
+    } catch (err) {
+      setError(errorMessage(err, 'Не сохранилось — попробуйте ещё раз'))
+    }
+  }
+
+  const isDefault = values.stock_critical_days === '7' && values.stock_low_days === '14' && values.stock_excess_days === '60'
+  return (
+    <Section
+      title="Остатки"
+      hint="На сколько дней продаж хватит остатка — по этим порогам товар получает статус на складах, на главной и на странице товаров."
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          save(values)
+        }}
+        className="space-y-3"
+        data-testid="stock-settings"
+      >
+        <FormError message={error} />
+        <div className="grid gap-3 sm:grid-cols-3">
+          {STOCK_FIELDS.map(({ key, label, why }) => (
+            <div key={key}>
+              <label htmlFor={key} className="block text-sm text-muted">
+                {label}
+              </label>
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  id={key}
+                  inputMode="numeric"
+                  disabled={!settings}
+                  value={values[key]}
+                  onChange={(e) => {
+                    setDone(false)
+                    setValues((v) => ({ ...v, [key]: e.target.value.replace(/\D/g, '') }))
+                  }}
+                  className="w-20 rounded-lg border border-line bg-bg px-3 py-1.5 outline-none focus:border-accent disabled:opacity-60"
+                  data-testid={`settings-${key}`}
+                />
+                <span className="text-sm text-muted">дн. запаса</span>
+              </div>
+              <p className="mt-1 text-xs text-faint">{why}</p>
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="submit"
+            disabled={!settings}
+            className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+            data-testid="settings-stock-save"
+          >
+            Сохранить
+          </button>
+          {!isDefault && (
+            <button
+              type="button"
+              onClick={() => {
+                const next = { stock_critical_days: '7', stock_low_days: '14', stock_excess_days: '60' }
+                setValues(next)
+                save(next)
+              }}
+              className="text-sm text-accent hover:underline"
+              data-testid="settings-stock-reset"
+            >
+              Вернуть 7 / 14 / 60
+            </button>
+          )}
+          {done && <span className="text-sm text-ok">Сохранено — статусы пересчитаны</span>}
+        </div>
+        <p className="text-xs text-faint">
+          Дни запаса — остаток товара на всех складах, делённый на продажи в день за последние 30 дней.
+        </p>
+      </form>
+    </Section>
+  )
+}
+
+function SupplySection() {
+  const { user } = useAuth()
+  const settings = useSettings()
+  const [target, setTarget] = useState('')
+  const [lead, setLead] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
+
+  useEffect(() => {
+    if (!settings) return
+    setTarget(String(settings.supply_target_days))
+    setLead(String(settings.supply_lead_time_days))
+  }, [settings])
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault()
+    if (!user) return
+    setError(null)
+    setDone(false)
+    const t = Number(target)
+    const l = Number(lead)
+    if (!/^\d+$/.test(target) || t < 1 || t > 365) return setError('Запас после поставки — от 1 до 365 дней')
+    if (!/^\d+$/.test(lead) || l > 180) return setError('Дней в пути — от 0 до 180')
+    try {
+      await saveSettings(user.id, { supply_target_days: t, supply_lead_time_days: l })
+      setDone(true)
+    } catch (err) {
+      setError(errorMessage(err, 'Не сохранилось — попробуйте ещё раз'))
+    }
+  }
+
+  const fields = [
+    { id: 'supply_target_days', label: 'Запас после поставки', value: target, set: setTarget, why: TARGET_WHY },
+    { id: 'supply_lead_time_days', label: 'Поставка в пути', value: lead, set: setLead, why: LEAD_WHY },
+  ]
+  return (
+    <Section title="Поставки" hint="По ним «Поставки» считают, сколько везти в каждый кластер Ozon и что закупить на свой склад.">
+      <form onSubmit={save} className="space-y-3" data-testid="supply-settings">
+        <FormError message={error} />
+        <div className="grid gap-3 sm:grid-cols-2">
+          {fields.map((f) => (
+            <div key={f.id}>
+              <label htmlFor={f.id} className="block text-sm text-muted">
+                {f.label}
+              </label>
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  id={f.id}
+                  inputMode="numeric"
+                  disabled={!settings}
+                  value={f.value}
+                  onChange={(e) => {
+                    setDone(false)
+                    f.set(e.target.value.replace(/\D/g, ''))
+                  }}
+                  className="w-20 rounded-lg border border-line bg-bg px-3 py-1.5 outline-none focus:border-accent disabled:opacity-60"
+                  data-testid={`settings-${f.id}`}
+                />
+                <span className="text-sm text-muted">дн.</span>
+              </div>
+              <p className="mt-1 text-xs text-faint">{f.why}</p>
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="submit"
+            disabled={!settings}
+            className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+            data-testid="settings-supply-save"
+          >
+            Сохранить
+          </button>
+          {done && <span className="text-sm text-ok">Сохранено — поставки пересчитаны</span>}
+        </div>
+      </form>
+    </Section>
+  )
+}
+
 type PlanningState = { enabled: boolean; setup_done: boolean }
 
 function PlanningSection() {
@@ -251,6 +457,8 @@ export default function SettingsPage() {
       <TaxesSection />
       <SupplierSection />
       <PriceSection />
+      <StockSection />
+      <SupplySection />
       <PlanningSection />
     </div>
   )

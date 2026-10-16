@@ -98,7 +98,7 @@ export const MARGIN_TONE = { negative: 'text-bad', low: 'text-warn', ok: 'text-o
 
 export const QUICK_FILTERS: { value: QuickFilter; label: string; hint: string; count: keyof ProductsPage['counts'] }[] = [
   { value: 'negative', label: 'В минус', hint: 'Маржа при текущей цене ниже нуля', count: 'negative' },
-  { value: 'low_stock', label: 'Мало остатков', hint: 'Запаса меньше чем на 14 дней продаж', count: 'low_stock' },
+  { value: 'low_stock', label: 'Мало остатков', hint: 'Запаса меньше порога «Мало» (по умолчанию 14 дней продаж)', count: 'low_stock' },
   { value: 'in_promo', label: 'В акции', hint: 'Участвует в текущей акции Ozon', count: 'in_promo' },
   { value: 'no_cost', label: 'Нет себестоимости', hint: 'Без неё не посчитать маржу и прибыль', count: 'no_cost' },
 ]
