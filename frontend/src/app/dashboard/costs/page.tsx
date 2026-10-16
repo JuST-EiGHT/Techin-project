@@ -7,6 +7,7 @@ import { FormError } from '@/components/AuthForm'
 import { CostTemplateButton } from '@/components/CostTemplateButton'
 import { Badge, fmtDateTime, fmtDay, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
+import { VAT_OPTIONS, costPath, since, toNumber, vatText } from '@/lib/costs'
 import { downloadCostErrors, type TemplateFormat } from '@/lib/download'
 
 type CostRow = {
@@ -44,7 +45,6 @@ type ImportResult = {
   rows: ImportRow[]
 }
 
-const BEGINNING = '2000-01-01' // первая цена без даты — «с начала учёта»
 const SOURCE_LABEL: Record<string, string> = { manual: 'вручную', import: 'из файла' }
 const STATUS: Record<ImportStatus, { label: string; tone: 'accent' | 'warn' | 'muted' | 'bad' }> = {
   error: { label: 'Ошибка', tone: 'bad' },
@@ -54,33 +54,13 @@ const STATUS: Record<ImportStatus, { label: string; tone: 'accent' | 'warn' | 'm
   unchanged: { label: 'Без изменений', tone: 'muted' },
 }
 const ORDER = Object.keys(STATUS) as ImportStatus[] // ошибки и изменения — наверху
-// ставка НДС поставщика → коэффициент (как в шаблоне); пусто — как в «Основных настройках»
-const VAT_OPTIONS = [
-  { value: '1.220', label: '22 %' },
-  { value: '1.200', label: '20 %' },
-  { value: '1.100', label: '10 %' },
-  { value: '1.070', label: '7 %' },
-  { value: '1.050', label: '5 %' },
-  { value: '1.000', label: 'без НДС' },
-]
-
-const since = (d: string | null) => (d === null ? '—' : d === BEGINNING ? 'с начала учёта' : `с ${fmtDay(d)}`)
-const toNumber = (text: string) => {
-  const n = Number(text.replace(/\s/g, '').replace(',', '.'))
-  return text.trim() && Number.isFinite(n) ? n : null
-}
-function vatText(v: string | null): string {
-  if (v === null) return 'по профилю'
-  const pct = Math.round((Number(v) - 1) * 1000) / 10
-  return pct === 0 ? 'без НДС' : `${pct.toLocaleString('ru-RU')} %`
-}
 
 function HistoryRows({ offerId }: { offerId: string }) {
   const [records, setRecords] = useState<CostRecord[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     api
-      .get<CostRecord[]>(`/costs/${offerId.split('/').map(encodeURIComponent).join('/')}/history`)
+      .get<CostRecord[]>(`${costPath(offerId)}/history`)
       .then((r) => setRecords(r.data))
       .catch((err) => setError(errorMessage(err)))
   }, [offerId])
@@ -135,7 +115,7 @@ function EditRow({ row, onSaved, onCancel }: { row: CostRow; onSaved: (row: Cost
     setBusy(true)
     try {
       const { data } = await api.put<{ item: CostRow; recosted_reports: number }>(
-        `/costs/${row.offer_id.split('/').map(encodeURIComponent).join('/')}`,
+        costPath(row.offer_id),
         { cost_price: p.toFixed(2), vat_multiplier: vat || null, note: note.trim() || null, effective_from: from || null },
       )
       onSaved(data.item, data.recosted_reports)

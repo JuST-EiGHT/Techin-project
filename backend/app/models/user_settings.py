@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Uuid, func
+from decimal import Decimal
+
+from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -20,6 +22,10 @@ COST_LABELS = {
     "mixed": "Себестоимость с НДС",
 }
 MAX_DEFERRAL_DAYS = 365
+# Калькулятор цены (шаг 4.2): не задано — шаблон по умолчанию. Реклама — 0: свою долю продавец знает сам
+# (цифры магазина владельца из BUSINESS_LOGIC §4 — не умолчания); целевая маржа — ориентир, который легко поменять.
+DEFAULT_AD_PCT = Decimal(0)
+DEFAULT_TARGET_MARGIN_PCT = Decimal(20)
 
 
 class UserSettings(Base):
@@ -38,6 +44,9 @@ class UserSettings(Base):
         String(16), nullable=False, default=DEFAULT_SUPPLIER_PAYMENT, server_default=DEFAULT_SUPPLIER_PAYMENT
     )
     supplier_deferral_days: Mapped[int | None] = mapped_column(Integer)  # отсрочка оплаты — только у deferred
+    # калькулятор цены (шаг 4.2): реклама, % от цены, и целевая маржа, %; пусто — по умолчанию
+    price_ad_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    price_target_margin_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

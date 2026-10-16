@@ -1,6 +1,6 @@
 // Меню кабинета — один конфиг на шапку, мобильное меню и меню аккаунта (шаг 0.5).
 // Страница попадает сюда, только когда она сделана: новый шаг добавляет свой пункт.
-// Ещё появятся: Товары — товары (4.1), цены (4.2), история цен (6.4); Акции — история участия (4.3);
+// Ещё появятся: Товары — история цен (6.4);
 // Склады — кандидаты на вывоз (5.1), поставки (5.2).
 // Меню аккаунта — уведомления (7.3), тариф (8.1).
 
@@ -9,6 +9,21 @@ export type NavSection = { label: string; href?: string; items?: NavItem[] }
 
 export const NAV: NavSection[] = [
   { label: 'Главная', href: '/dashboard' },
+  {
+    label: 'Товары',
+    items: [
+      {
+        href: '/dashboard/products',
+        label: 'Все товары',
+        description: 'Цена, комиссия, себестоимость, маржа, остаток и акции каждого товара',
+      },
+      {
+        href: '/dashboard/prices',
+        label: 'Цены',
+        description: 'Минимальная и целевая цена, маржа сейчас и в акции, что поднять',
+      },
+    ],
+  },
   {
     label: 'Финансы',
     items: [
@@ -35,12 +50,13 @@ export const NAV: NavSection[] = [
   {
     label: 'Акции',
     items: [
-      { href: '/dashboard/promotions', label: 'Все акции', description: 'Участие, товары и маржа в акции' },
+      { href: '/dashboard/promotions', label: 'Все акции', description: 'Маржа в акции, вход и выход, «срочно» перед заморозкой' },
       {
         href: '/dashboard/promotions?tab=auto',
         label: 'Добавленные автоматически',
         description: 'Товары, которые Ozon добавил в акции без вас',
       },
+      { href: '/dashboard/promotions?tab=history', label: 'История участия', description: 'В каких акциях был товар, когда и по какой цене' },
     ],
   },
   {

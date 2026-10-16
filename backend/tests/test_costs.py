@@ -11,7 +11,6 @@ from sqlalchemy import func, select
 
 from app.models.product import Product
 from app.models.product_cost import ProductCost
-from app.services import costs as costs_svc
 from app.services.costs import CostHistory
 from tests.conftest import REFERENCE_COSTS_CSV
 
@@ -291,28 +290,26 @@ async def test_users_do_not_see_each_others_costs(client, tokens):
     assert (await client.get(f"/api/v1/costs/{ART}/history", headers=auth(other))).status_code == 404
 
 
-async def test_cost_prices_for_promotions(client, tokens, sessions):
+async def test_cost_with_vat_for_pricing(client, tokens, sessions):
+    """Себестоимость с НДС поставщика в калькуляторе цены и марже акций: ставка записи → профиль → общая 22 %."""
     me = (await client.get("/api/v1/auth/me", headers=auth(tokens))).json()
     user_id = uuid.UUID(me["id"])
     async with sessions() as db:
         product = Product(
             user_id=user_id, ozon_product_id=5, ozon_sku=1, offer_id=ART, synced_at=datetime.now(timezone.utc)
         )
-        db.add_all(
-            [
-                product,
-                Product(user_id=user_id, ozon_product_id=6, offer_id="NO-COST", synced_at=datetime.now(timezone.utc)),
-            ]
-        )
+        db.add(product)
         await db.commit()
+
+    async def cost_with_vat() -> str:
+        r = await client.post("/api/v1/price/calculate", json={"product_id": str(product.id)}, headers=auth(tokens))
+        return r.json()["inputs"]["cost_with_vat"]
+
     await client.put(f"/api/v1/costs/{ART}", json={"cost_price": "164"}, headers=auth(tokens))
-    async with sessions() as db:  # НДС поставщика не указан, профиля нет — общая ставка 22 %
-        assert await costs_svc.cost_prices_with_vat(db, user_id) == {product.id: Decimal("200.08")}
+    assert await cost_with_vat() == "200.08"  # НДС поставщика не указан, профиля нет — общая ставка 22 %
     profile = {"legal_form": "ip", "regime": "usn_income", "supplier_vat_pct": "0"}  # поставщик без НДС
     assert (await client.put("/api/v1/tax-profile", json=profile, headers=auth(tokens))).status_code == 200
-    async with sessions() as db:
-        assert await costs_svc.cost_prices_with_vat(db, user_id) == {product.id: Decimal("164.00")}
+    assert await cost_with_vat() == "164.00"
     await client.put(f"/api/v1/costs/{ART}", json={"cost_price": "164", "vat_multiplier": "1.1"}, headers=auth(tokens))
-    async with sessions() as db:  # своя ставка в записи себестоимости важнее профиля
-        assert await costs_svc.cost_prices_with_vat(db, user_id) == {product.id: Decimal("180.40")}
+    assert await cost_with_vat() == "180.40"  # своя ставка в записи себестоимости важнее профиля
 

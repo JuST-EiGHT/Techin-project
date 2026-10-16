@@ -15,8 +15,10 @@ async def test_settings_defaults_and_update(client, tokens):
     get = lambda: client.get("/api/v1/settings", headers=auth(tokens))  # noqa: E731
     assert (await client.get("/api/v1/settings")).status_code == 401
     # налог и НДС — в налоговом профиле (шаг 2.5)
+    # калькулятор цены (шаг 4.2): реклама 0 % и маржа 20 % — по умолчанию, не цифры владельца
     assert (await get()).json() == {"theme": "dark", "supplier_payment": "upfront", "supplier_deferral_days": None,
-                                    "cost_label": "Себестоимость с НДС"}
+                                    "cost_label": "Себестоимость с НДС", "price_ad_pct": "0",
+                                    "price_target_margin_pct": "20", "price_defaults": True}
 
     r = await client.patch("/api/v1/settings", json={"theme": "light"}, headers=auth(tokens))
     assert r.status_code == 200 and r.json()["theme"] == "light"
@@ -32,7 +34,8 @@ async def test_supplier_payment_names_cost_in_pnl(client, tokens):
     """Поставщик получает деньги после продажи — себестоимость с НДС в P&L называется «долг поставщику» (шаг 3.3)."""
     r = await client.patch("/api/v1/settings", json={"supplier_payment": "after_sale"}, headers=auth(tokens))
     assert r.json() == {"theme": "dark", "supplier_payment": "after_sale", "supplier_deferral_days": None,
-                        "cost_label": "Долг поставщику"}
+                        "cost_label": "Долг поставщику", "price_ad_pct": "0", "price_target_margin_pct": "20",
+                        "price_defaults": True}
     r = await client.patch("/api/v1/settings", json={"theme": "light"}, headers=auth(tokens))
     assert r.json()["supplier_payment"] == "after_sale"  # не переданное не меняется
     r = await client.patch("/api/v1/settings", json={"supplier_payment": "later"}, headers=auth(tokens))

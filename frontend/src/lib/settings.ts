@@ -1,5 +1,5 @@
 // Основные настройки аккаунта для страниц: загружаются один раз на пользователя, обновляются при сохранении.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { useAuth } from '@/contexts/AuthContext'
 import { api } from '@/lib/api'
@@ -13,6 +13,9 @@ export type UserSettings = {
   supplier_payment: SupplierPayment
   supplier_deferral_days: number | null
   cost_label: string
+  price_ad_pct: string // калькулятор цены (шаг 4.2): реклама, % от цены
+  price_target_margin_pct: string // целевая маржа, %
+  price_defaults: boolean // реклама и маржа ещё не заданы — значения по умолчанию
 }
 
 /** Как называется себестоимость с НДС в P&L (подпись приходит с бэкенда — это запасной вариант). */
@@ -32,7 +35,10 @@ export function loadSettings(userId: string): Promise<UserSettings> {
   return cache.settings
 }
 
-export async function saveSettings(userId: string, changes: Partial<Omit<UserSettings, 'cost_label'>>): Promise<UserSettings> {
+export async function saveSettings(
+  userId: string,
+  changes: Partial<Omit<UserSettings, 'cost_label' | 'price_defaults'>>,
+): Promise<UserSettings> {
   const { data } = await api.patch<UserSettings>('/settings', changes)
   cache = { userId, settings: Promise.resolve(data) }
   listeners.forEach((l) => l(data))
@@ -61,4 +67,18 @@ export function useSettings(): UserSettings | null {
 /** «Себестоимость с НДС», «Долг поставщику» или «Себестоимость производства» — по «Откуда товар». */
 export function useCostLabel(): string {
   return useSettings()?.cost_label ?? DEFAULT_COST_LABEL
+}
+
+/** Реклама или целевая маржа поменялись (например, сохранили в панели товара) — onChange: таблица пересчитает цены. */
+export function useOnPriceSettingsChange(onChange: () => void) {
+  const settings = useSettings()
+  const key = settings ? `${settings.price_ad_pct}/${settings.price_target_margin_pct}` : null
+  const last = useRef<string | null>(null)
+  const callback = useRef(onChange)
+  callback.current = onChange
+  useEffect(() => {
+    if (key === null) return
+    if (last.current !== null && last.current !== key) callback.current()
+    last.current = key
+  }, [key])
 }
