@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useState } from 'react'
 
+import { RecentPriceChanges } from '@/components/price-history'
 import { FormError } from '@/components/AuthForm'
 import { Change, FigureLink, Hint, type OzonDashboard, RevenueChart } from '@/components/dashboard'
 import { SourceNote } from '@/components/finance'
@@ -155,6 +156,7 @@ function Dashboard() {
                 </section>
               )}
               {shown.setup.has_key && <RunningOutWidget />}
+              {shown.setup.has_key && <RecentPriceChanges />}
             </>
           )}
         </>

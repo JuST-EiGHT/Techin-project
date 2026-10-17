@@ -150,6 +150,7 @@ export type PricePreview = {
   price_checked_at: string | null
   price_fresh: boolean
   reason: string | null
+  rollback_of?: { id: string; created_at: string; price_before: string | null; price_after: string | null } | null
 }
 
 export type PriceApplyResult = {
@@ -222,3 +223,47 @@ export const BULK_CONFIRM_ABOVE = 10
 export const BULK_WORD_ABOVE = 50
 export const BULK_WORD = 'ПОДТВЕРЖДАЮ'
 export const OZON_BATCH = 100
+
+// История изменений цен и откат (шаг 6.4).
+export type PriceChangeStatus = 'applied' | 'blocked' | 'rejected' | 'failed' | 'unknown' | 'queued'
+export type PriceChangeKind = 'single' | 'bulk' | 'rollback' | 'auto'
+
+export type PriceHistoryItem = {
+  id: string
+  created_at: string
+  product: { id: string; offer_id: string; name: string | null }
+  kind: PriceChangeKind
+  kind_title: string
+  reason: string | null
+  price_before: string | null
+  price_after: string | null
+  change_pct: string | null
+  status: PriceChangeStatus
+  status_title: string
+  error: string | null
+  warnings: string[]
+  batch_id: string | null
+  rollback_of: { id: string; created_at: string } | null
+  rolled_back_by: { id: string; created_at: string; status: string | null } | null
+  can_rollback: boolean
+  rollback_block: string | null
+}
+
+export type PriceHistoryPage = {
+  date_from: string
+  date_to: string
+  total: number
+  limit: number
+  offset: number
+  counts: Record<PriceChangeStatus | 'not_applied' | 'all', number>
+  items: PriceHistoryItem[]
+}
+
+export const CHANGE_STATUS_TONE: Record<PriceChangeStatus, 'ok' | 'warn' | 'muted' | 'bad'> = {
+  applied: 'ok',
+  unknown: 'warn',
+  queued: 'warn',
+  blocked: 'muted',
+  rejected: 'bad',
+  failed: 'bad',
+}

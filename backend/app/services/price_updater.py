@@ -50,6 +50,7 @@ from app.services.sync.products import PRICE_FIELDS, changed_snapshot, fetch_pri
 PREVIEW_TTL = timedelta(minutes=15)
 IMPORT_PATH = "/v1/product/import/prices"
 ACTION = "price.update"
+ROLLBACK_ACTION = "price.rollback"
 CENT = Decimal("0.01")
 
 ARCHIVED = "Товар в архиве Ozon — сначала верните его из архива в кабинете Ozon."
@@ -146,9 +147,11 @@ def margins(ctx: pricing.PricingContext, product: Product, before: Decimal | Non
 
 
 async def preview(
-    db: AsyncSession, user_id: uuid.UUID, product: Product, new_price: Decimal, reason: str | None = None
+    db: AsyncSession, user_id: uuid.UUID, product: Product, new_price: Decimal, reason: str | None = None,
+    rollback_of: PriceChange | None = None,
 ) -> dict:
-    """Что будет, если поставить цену, — и можно ли. Сохраняется как предпросмотр (preview_id), в Ozon не меняем."""
+    """Что будет, если поставить цену, — и можно ли. Сохраняется как предпросмотр (preview_id), в Ozon не меняем.
+    rollback_of — откат этого изменения (шаг 6.4): цена — ровно прежняя, правила отката §8."""
     warnings: list[str] = []
     fresh = True
     try:
@@ -166,7 +169,8 @@ async def preview(
             + (f"на {_when(snap.snapshot_at)}" if snap is not None else "последней синхронизации")
             + ". Перед применением сервис проверит её в Ozon ещё раз."
         )
-    [(_, safety)] = await price_safety.check(db, user_id, [price_safety.Proposal(product, new_price)])
+    rb = await price_safety.rollback_info(db, rollback_of) if rollback_of is not None else None
+    [(_, safety)] = await price_safety.check(db, user_id, [price_safety.Proposal(product, new_price, rollback=rb)])
     errors = list(safety.errors)
     if product.is_archived:
         errors.insert(0, ARCHIVED)
@@ -181,6 +185,7 @@ async def preview(
         change_type=MANUAL_SINGLE, reason=(reason or "").strip() or None, price_before=cur, price_after=new_price,
         min_price_before=positive(snap.min_price) if snap is not None else None, is_dry_run=True, is_applied=False,
         status=PREVIEW, errors=errors or None, warnings=warnings or None,
+        rollback_of_id=rollback_of.id if rollback_of is not None else None,
     )
     db.add(row)
     ctx = await pricing.load(db, user_id, [product])
@@ -198,7 +203,27 @@ async def preview(
         "next_change_at": safety.next_change_at,
         "price_checked_at": now if fresh else (utc(snap.snapshot_at) if snap is not None else None),
         "price_fresh": fresh, "reason": row.reason, **margins(ctx, product, cur, new_price),
+        "rollback_of": _rolled(rollback_of) if rollback_of is not None else None,
     }
+
+
+def _rolled(change: PriceChange) -> dict:
+    return {"id": change.id, "created_at": utc(change.created_at), "price_before": change.price_before,
+            "price_after": change.price_after}
+
+
+async def rollback_preview(db: AsyncSession, user_id: uuid.UUID, change_id: uuid.UUID) -> dict:
+    """Предпросмотр отката изменения (шаг 6.4): вернуть прежнюю цену. Применяется тем же apply по preview_id."""
+    original = await db.get(PriceChange, change_id)
+    if original is None or original.user_id != user_id or original.is_dry_run:
+        raise PriceUpdateError(404, "Изменение цены не найдено.")
+    if original.price_before is None or original.price_after is None:
+        raise PriceUpdateError(400, "У этого изменения нет прежней цены — откатывать нечего.")
+    product = await db.get(Product, original.product_id)
+    return await preview(
+        db, user_id, product, original.price_before, f"Откат изменения от {_when(original.created_at)} МСК",
+        rollback_of=original,
+    )
 
 
 def state(price: Decimal | None, min_price: Decimal | None = None) -> dict:
@@ -274,11 +299,14 @@ async def apply(db: AsyncSession, user_id: uuid.UUID, preview_id: uuid.UUID, req
         id=uuid.uuid4(), user_id=user_id, product_id=product.id, offer_id=product.offer_id, created_at=_now(),
         change_type=pv.change_type, reason=pv.reason, price_before=pv.price_before, price_after=new_price,
         min_price_before=pv.min_price_before, is_dry_run=False, is_applied=False, status=UNKNOWN, preview_id=pv.id,
+        rollback_of_id=pv.rollback_of_id,
     )
+    original = await db.get(PriceChange, pv.rollback_of_id) if pv.rollback_of_id else None
+    action = ROLLBACK_ACTION if original is not None else ACTION
 
     def log(status: str, **kw) -> None:
         audit.record(
-            db, user_id, action=ACTION, entity_type=audit_model.PRICE_ENTITY, entity_id=str(attempt.id),
+            db, user_id, action=action, entity_type=audit_model.PRICE_ENTITY, entity_id=str(attempt.id),
             product_id=product.id, status=status, before=state(attempt.price_before, attempt.min_price_before),
             after=state(new_price, attempt.min_price_before), request=request, **kw,
         )
@@ -316,7 +344,11 @@ async def apply(db: AsyncSession, user_id: uuid.UUID, preview_id: uuid.UUID, req
                 errors.append(
                     "Минимальная цена в Ozon изменилась после предпросмотра — рассчитайте последствия заново."
                 )
-            [(_, safety)] = await price_safety.check(db, user_id, [price_safety.Proposal(product, new_price)])
+            # откат — по правилам отката: уже откатили, пока смотрели предпросмотр? цена с тех пор менялась?
+            rb = await price_safety.rollback_info(db, original) if original is not None else None
+            [(_, safety)] = await price_safety.check(
+                db, user_id, [price_safety.Proposal(product, new_price, rollback=rb)]
+            )
             errors += safety.errors
             attempt.warnings = safety.warnings or None
             if errors:
@@ -362,5 +394,6 @@ async def apply(db: AsyncSession, user_id: uuid.UUID, preview_id: uuid.UUID, req
         "change_id": attempt.id, "status": APPLIED, "applied": True,
         "product": {"id": product.id, "offer_id": product.offer_id, "name": product.name},
         "price_before": attempt.price_before, "price_after": new_price, "warnings": safety.warnings,
-        "message": f"Цена {rub(new_price)} отправлена в Ozon. {PROCESSING}",
+        "message": (f"Цена возвращена: {rub(new_price)}" if original is not None else f"Цена {rub(new_price)}")
+        + f" отправлена в Ozon. {PROCESSING}",
     }

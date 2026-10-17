@@ -1,9 +1,11 @@
-"""Изменение цен в Ozon: одного товара (шаг 6.2) и списком (шаг 6.3) — предпросмотр → применение только по его id.
+"""Изменение цен в Ozon: одного товара (6.2), списком (6.3), история и откат (6.4) — предпросмотр → применение только по
+его id.
 
 Расчёт минимальной и целевой цены (ничего не меняет) — /price (шаг 4.2). Здесь — изменение цены в Ozon: правила
 безопасности BUSINESS_LOGIC §8, каждая попытка — в price_changes и audit_log.
 """
 import uuid
+from datetime import date, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, status
@@ -20,17 +22,21 @@ from app.schemas.prices import (
     BulkStatus,
     PriceApplyRequest,
     PriceApplyResult,
+    PriceHistoryPage,
     PricePreview,
     PricePreviewRequest,
 )
 from app.services import audit, pricing
 from app.services import price_bulk as bulk
+from app.services import price_history as history_svc
 from app.services import price_updater as svc
 from app.services.auth import get_current_user
+from app.services.promotion_history import MAX_DAYS
 from app.services.sync.finance import today_msk
 from app.services.templates import MEDIA_TYPES
 
 MAX_FILE_MB = 5
+HISTORY_DAYS = 30
 
 router = APIRouter(prefix="/prices", tags=["prices"])
 
@@ -61,6 +67,52 @@ async def apply(
         return await svc.apply(db, user.id, data.preview_id, request)
     except svc.PriceUpdateError as exc:
         raise HTTPException(exc.status_code, exc.message) from exc
+
+
+@router.post("/rollback/{change_id}", response_model=PricePreview, dependencies=[Depends(audit.read_only)])
+async def rollback_preview(
+    change_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
+    """Предпросмотр отката (шаг 6.4): вернуть цену, которая была до изменения. Применить — POST /prices/apply с
+    preview_id. Откат — только изменения не старше 7 дней, откат отката запрещён (BUSINESS_LOGIC §8)."""
+    try:
+        return await svc.rollback_preview(db, user.id, change_id)
+    except svc.PriceUpdateError as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
+
+
+@router.get("/history", response_model=PriceHistoryPage)
+async def price_history(
+    product_id: uuid.UUID | None = Query(None, description="Товар; без него — все"),
+    status_: Literal[history_svc.STATUSES + (history_svc.NOT_APPLIED,)] | None = Query(  # type: ignore[valid-type]
+        None, alias="status", description="applied | blocked | rejected | failed | unknown | queued | not_applied"
+    ),
+    kind: Literal[history_svc.KINDS] | None = Query(  # type: ignore[valid-type]
+        None, description="single | bulk | rollback | auto"
+    ),
+    search: str | None = Query(None, max_length=100, description="Артикул или название"),
+    date_from: date | None = Query(None, description="По умолчанию — 30 дней назад"),
+    date_to: date | None = Query(None, description="По умолчанию — сегодня"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """История изменений цен через сервис — применённые и нет, новые первыми; можно ли откатить."""
+    end = date_to or today_msk()
+    start = date_from or end - timedelta(days=HISTORY_DAYS - 1)
+    if start > end:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Период: дата начала позже даты окончания")
+    if (end - start).days + 1 > MAX_DAYS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Период: не больше {MAX_DAYS} дней за раз")
+    if product_id is not None:
+        product = await db.get(Product, product_id)
+        if product is None or product.user_id != user.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Товар не найден")
+    return await history_svc.history(
+        db, user.id, start, end, product_id=product_id, status=status_, kind=kind,
+        search=(search or "").strip() or None, limit=limit, offset=offset,
+    )
 
 
 # ── массовое изменение (шаг 6.3) ──

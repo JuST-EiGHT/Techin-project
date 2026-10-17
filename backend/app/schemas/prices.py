@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from typing import Literal
@@ -17,6 +17,15 @@ class PricePreviewRequest(BaseModel):
     product_id: uuid.UUID
     price: Decimal = Field(gt=0, le=100_000_000, decimal_places=2)
     reason: str | None = Field(None, max_length=500)  # для истории изменений, необязательно
+
+
+class RollbackRef(BaseModel):
+    """Какое изменение откатываем (шаг 6.4)."""
+
+    id: uuid.UUID
+    created_at: datetime
+    price_before: Decimal | None  # к ней и вернём
+    price_after: Decimal | None
 
 
 class PricePreview(BaseModel):
@@ -49,6 +58,7 @@ class PricePreview(BaseModel):
     price_checked_at: datetime | None  # когда узнали текущую цену
     price_fresh: bool  # только что из Ozon (иначе — по последнему снимку)
     reason: str | None
+    rollback_of: RollbackRef | None = None  # предпросмотр отката
 
 
 class PriceApplyRequest(BaseModel):
@@ -184,3 +194,41 @@ class BulkStatus(BaseModel):
     batches: list[BulkBatch]
     items: list[BulkStatusItem]
     message: str | None
+
+
+# ── история изменений (шаг 6.4) ──
+class HistoryRef(BaseModel):
+    id: uuid.UUID
+    created_at: datetime
+    status: str | None = None
+
+
+class PriceHistoryItem(BaseModel):
+    id: uuid.UUID
+    created_at: datetime
+    product: PriceProduct
+    kind: str  # single — вручную, bulk — списком, rollback — откат, auto — правило
+    kind_title: str
+    reason: str | None
+    price_before: Decimal | None
+    price_after: Decimal | None
+    change_pct: Decimal | None
+    status: str  # applied | blocked | rejected | failed | unknown | queued
+    status_title: str
+    error: str | None  # почему не применилось
+    warnings: list[str]
+    batch_id: uuid.UUID | None  # массовое изменение
+    rollback_of: HistoryRef | None  # это откат такого изменения
+    rolled_back_by: HistoryRef | None  # это изменение откатили
+    can_rollback: bool
+    rollback_block: str | None  # почему нельзя откатить
+
+
+class PriceHistoryPage(BaseModel):
+    date_from: date
+    date_to: date
+    total: int
+    limit: int
+    offset: int
+    counts: dict[str, int]  # по итогу за период (без фильтра итога): applied, blocked, …, not_applied, all
+    items: list[PriceHistoryItem]

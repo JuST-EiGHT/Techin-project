@@ -171,11 +171,16 @@ function PriceBlock({ data, onChange }: { data: ProductDetail; onChange: () => v
       title="Цена"
       testid="panel-price"
       more={
-        !item.is_archived && (
-          <button type="button" onClick={onChange} className="text-accent hover:underline" data-testid="price-change-open">
-            Изменить цену в Ozon
-          </button>
-        )
+        <span className="flex flex-wrap justify-end gap-x-3">
+          <Link href={`/dashboard/prices/history?product=${item.id}`} className="text-accent hover:underline">
+            История изменений →
+          </Link>
+          {!item.is_archived && (
+            <button type="button" onClick={onChange} className="text-accent hover:underline" data-testid="price-change-open">
+              Изменить цену в Ozon
+            </button>
+          )}
+        </span>
       }
     >
       <Row label="Цена">{rub(item.price)}</Row>

@@ -114,6 +114,7 @@ ACTION_TITLES = {
     "promotion.update": "Цена или количество в акции",
     "promotion.leave": "Выход из акции",
     "price.update": "Изменение цены",
+    "price.rollback": "Откат цены",
 }
 
 
