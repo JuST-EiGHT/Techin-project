@@ -338,7 +338,8 @@ async def test_api_list_count_acknowledge(client, tokens, sessions):
     get = lambda **params: client.get("/api/v1/anomalies", params=params, headers=auth(tokens))  # noqa: E731
 
     body = (await get()).json()
-    assert body["total"] == 5 and body["counts"] == {"active": 5, "unread": 5, "red": 4, "yellow": 1}
+    assert body["total"] == 5 and body["counts"] == {"active": 5, "unread": 5, "red": 4, "yellow": 1,
+                                                     "red_active": 4, "yellow_active": 1}
     assert body["checked_at"] is not None
     assert [i["severity"] for i in body["items"]] == ["red"] * 4 + ["yellow"]  # красные первыми
     item = next(i for i in body["items"] if i["type"] == "low_stock")
@@ -354,7 +355,7 @@ async def test_api_list_count_acknowledge(client, tokens, sessions):
     r = await client.post(f"/api/v1/anomalies/{item['id']}/acknowledge", headers=auth(tokens))
     assert r.status_code == 200 and r.json()["is_acknowledged"] is True and r.json()["resolved_at"] is None
     count = (await client.get("/api/v1/anomalies/count", headers=auth(tokens))).json()
-    assert count == {"active": 5, "unread": 4, "red": 3, "yellow": 1}  # «Ок» — не в счётчике, но активна
+    assert count == {"active": 5, "unread": 4, "red": 3, "yellow": 1, "red_active": 4, "yellow_active": 1}  # «Ок» — активна
     assert (await get(acknowledged="false")).json()["total"] == 4
     again = await client.post(f"/api/v1/anomalies/{item['id']}/acknowledge", headers=auth(tokens))
     assert again.json()["acknowledged_at"] == r.json()["acknowledged_at"]  # повторно — без изменений
@@ -409,3 +410,35 @@ def test_fanout(monkeypatch):
     monkeypatch.setattr(tasks.detect_anomalies_for_user, "delay", lambda uid: queued.append(uid))
     assert tasks.detect_anomalies_all() == 2 and queued == [str(u) for u in users]
     assert tasks.FOR_USER_TASKS["anomalies"] is tasks.detect_anomalies_for_user
+
+
+async def test_api_bell_order_groups_and_acknowledge_all(client, tokens, sessions):
+    """Шаг 7.2: колокольчик — новые первыми; числа у фильтров по группам; «Отметить все прочитанными» — по фильтрам."""
+    uid = await user_id_of(client, tokens)
+    p = await seed(sessions, uid)
+    await detect(sessions, uid)
+    async with sessions() as db:  # самая свежая — жёлтая: в колокольчике она первая, на странице — после красных
+        newest = (await db.execute(select(Anomaly).where(Anomaly.type == "promo_auto_added"))).scalar_one()
+        newest.detected_at = datetime.now(timezone.utc) + timedelta(minutes=1)
+        await db.commit()
+    get = lambda **params: client.get("/api/v1/anomalies", params=params, headers=auth(tokens))  # noqa: E731
+
+    bell = (await get(order="new", limit=5)).json()
+    assert bell["items"][0]["type"] == "promo_auto_added" and len(bell["items"]) == 5
+    assert (await get()).json()["items"][0]["severity"] == "red"
+    page = (await get(group="promo")).json()
+    assert page["total"] == 2
+    assert page["by_group"] == {"margin": 2, "stock": 1, "promo": 2}  # без фильтра группы — числа для всех групп
+    assert (await get(severity="yellow")).json()["by_group"] == {"promo": 1}
+    assert (await get(order="sideways")).status_code == 400
+
+    r = await client.post("/api/v1/anomalies/acknowledge-all", json={"group": "margin"}, headers=auth(tokens))
+    assert r.status_code == 200 and r.json()["acknowledged"] == 2
+    assert r.json()["counts"] == {"active": 5, "unread": 3, "red": 2, "yellow": 1, "red_active": 4, "yellow_active": 1}
+    r = await client.post("/api/v1/anomalies/acknowledge-all", json={"product_id": str(p["A"])}, headers=auth(tokens))
+    assert r.json()["acknowledged"] == 2  # промо-аномалии A; маржа A уже отмечена
+    r = await client.post("/api/v1/anomalies/acknowledge-all", json={}, headers=auth(tokens))
+    assert r.json()["acknowledged"] == 1 and r.json()["counts"]["unread"] == 0
+    assert len(active(await rows(sessions, uid))) == 5  # «прочитано» — не «закрыто»
+    bad = await client.post("/api/v1/anomalies/acknowledge-all", json={"type": "nonsense"}, headers=auth(tokens))
+    assert bad.status_code == 400

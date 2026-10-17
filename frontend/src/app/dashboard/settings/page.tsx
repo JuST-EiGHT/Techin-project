@@ -20,9 +20,9 @@ const THEMES: { value: ThemePreference; label: string; hint: string; Icon: React
   { value: 'system', label: 'Как в системе', hint: 'следует настройке устройства', Icon: Monitor },
 ]
 
-function Section({ title, children, hint }: { title: string; hint?: string; children: React.ReactNode }) {
+function Section({ title, children, hint, id }: { title: string; hint?: string; id?: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-xl border border-line bg-card p-5">
+    <section id={id} className="scroll-mt-4 rounded-xl border border-line bg-card p-5">
       <h2 className="text-lg font-semibold">{title}</h2>
       {hint && <p className="mt-1 text-sm text-muted">{hint}</p>}
       <div className="mt-4">{children}</div>
@@ -508,6 +508,7 @@ function AnomalySection() {
 
   return (
     <Section
+      id="anomalies"
       title="Аномалии и порог маржи"
       hint="Раз в час сервис проверяет продажи, цены, остатки, акции и выплаты и сообщает, если что-то пошло не так. Пороги — когда считать это проблемой."
     >

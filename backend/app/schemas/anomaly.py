@@ -43,6 +43,8 @@ class AnomalyCounts(BaseModel):
     unread: int  # активных без «Ок» — счётчик колокольчика (7.2)
     red: int  # из них красных
     yellow: int
+    red_active: int  # активных красных — с «Ок» и без
+    yellow_active: int
 
 
 class AnomaliesPage(BaseModel):
@@ -51,4 +53,19 @@ class AnomaliesPage(BaseModel):
     limit: int
     offset: int
     counts: AnomalyCounts
+    by_group: dict[str, int]  # сколько по группам при тех же фильтрах, кроме группы и типа (числа у фильтров)
     checked_at: datetime | None  # последняя проверка (раз в час); null — ещё не было
+
+
+class AcknowledgeAll(BaseModel):
+    """«Отметить все прочитанными» — по тем же фильтрам, что на странице; пусто — все активные."""
+
+    severity: Severity | None = None
+    group: Group | None = None
+    type: str | None = None
+    product_id: uuid.UUID | None = None
+
+
+class AcknowledgedAll(BaseModel):
+    acknowledged: int  # сколько отмечено
+    counts: AnomalyCounts

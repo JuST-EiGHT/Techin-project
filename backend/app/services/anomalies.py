@@ -270,25 +270,24 @@ def item(a: Anomaly, product: Product | None, today: date) -> dict:
 
 
 async def counts(db: AsyncSession, user_id: uuid.UUID) -> dict:
-    """Активные: всего и непрочитанные (без «Ок») — всего, красных и жёлтых. Для колокольчика (7.2) — один запрос."""
-    out = {"active": 0, "unread": 0, RED: 0, YELLOW: 0}
+    """Активные: всего и непрочитанные (без «Ок») — всего, красных и жёлтых; активные красные и жёлтые с «Ок» и без
+    (`red_active`, `yellow_active` — числа у фильтров страницы). Для колокольчика (7.2) — один запрос."""
+    out = {"active": 0, "unread": 0, RED: 0, YELLOW: 0, "red_active": 0, "yellow_active": 0}
     for severity, acknowledged, n in await db.execute(
         select(Anomaly.severity, Anomaly.is_acknowledged, func.count())
         .where(Anomaly.user_id == user_id, Anomaly.resolved_at.is_(None))
         .group_by(Anomaly.severity, Anomaly.is_acknowledged)
     ):
         out["active"] += n
+        out[f"{severity}_active"] = out.get(f"{severity}_active", 0) + n
         if not acknowledged:
             out["unread"] += n
             out[severity] = out.get(severity, 0) + n
     return out
 
 
-async def list_anomalies(
-    db: AsyncSession, user_id: uuid.UUID, *, status: str = "active", severity: str | None = None,
-    group: str | None = None, type_: str | None = None, product_id: uuid.UUID | None = None,
-    acknowledged: bool | None = None, limit: int = 50, offset: int = 0,
-) -> dict:
+def _filtered(user_id: uuid.UUID, *, status: str = "active", severity: str | None = None, group: str | None = None,
+              type_: str | None = None, product_id: uuid.UUID | None = None, acknowledged: bool | None = None):
     q = select(Anomaly).where(Anomaly.user_id == user_id)
     if status == "active":
         q = q.where(Anomaly.resolved_at.is_(None))
@@ -304,16 +303,53 @@ async def list_anomalies(
         q = q.where(Anomaly.product_id == product_id)
     if acknowledged is not None:
         q = q.where(Anomaly.is_acknowledged.is_(acknowledged))
+    return q
+
+
+async def list_anomalies(
+    db: AsyncSession, user_id: uuid.UUID, *, status: str = "active", severity: str | None = None,
+    group: str | None = None, type_: str | None = None, product_id: uuid.UUID | None = None,
+    acknowledged: bool | None = None, order: str | None = None, limit: int = 50, offset: int = 0,
+) -> dict:
+    """Аномалии по фильтрам. Порядок: severity — красные первыми, внутри новые (по умолчанию у активных); new — новые
+    первыми (колокольчик, 7.2); у закрытых по умолчанию — по времени закрытия. by_group — сколько по группам при тех же
+    фильтрах, кроме группы и типа (числа у фильтров страницы)."""
+    q = _filtered(user_id, status=status, severity=severity, group=group, type_=type_, product_id=product_id,
+                  acknowledged=acknowledged)
     total = await db.scalar(select(func.count()).select_from(q.subquery()))
-    # активные: красные первыми, внутри — новые первыми; закрытые — по времени закрытия
-    order = (Anomaly.severity == YELLOW, Anomaly.detected_at.desc()) if status == "active" else (
-        func.coalesce(Anomaly.resolved_at, Anomaly.detected_at).desc(),)
-    rows = list((await db.execute(q.order_by(*order, Anomaly.id).limit(limit).offset(offset))).scalars())
+    order = order or ("severity" if status == "active" else "resolved")
+    by = {
+        "severity": (Anomaly.severity == YELLOW, Anomaly.detected_at.desc()),
+        "new": (Anomaly.detected_at.desc(),),
+        "resolved": (func.coalesce(Anomaly.resolved_at, Anomaly.detected_at).desc(),),
+    }[order]
+    rows = list((await db.execute(q.order_by(*by, Anomaly.id).limit(limit).offset(offset))).scalars())
     names = {p.id: p for p in (await db.execute(select(Product).where(
         Product.id.in_({a.product_id for a in rows if a.product_id})))).scalars()} if rows else {}
+    by_group: dict[str, int] = {}
+    base = _filtered(user_id, status=status, severity=severity, product_id=product_id, acknowledged=acknowledged).subquery()
+    for type_name, n in await db.execute(select(base.c.type, func.count()).group_by(base.c.type)):
+        group_name = det.GROUPS.get(type_name)
+        if group_name:
+            by_group[group_name] = by_group.get(group_name, 0) + n
     today = today_msk()
     return {"items": [item(a, names.get(a.product_id), today) for a in rows], "total": total, "limit": limit,
-            "offset": offset}
+            "offset": offset, "by_group": by_group}
+
+
+async def acknowledge_all(
+    db: AsyncSession, user_id: uuid.UUID, *, severity: str | None = None, group: str | None = None,
+    type_: str | None = None, product_id: uuid.UUID | None = None,
+) -> int:
+    """«Отметить все прочитанными» — активные без «Ок» (по тем же фильтрам, что на странице). Сколько отмечено."""
+    rows = list((await db.execute(_filtered(
+        user_id, status="active", severity=severity, group=group, type_=type_, product_id=product_id, acknowledged=False,
+    ))).scalars())
+    now = _now()
+    for a in rows:
+        a.is_acknowledged, a.acknowledged_at = True, now
+    await db.commit()
+    return len(rows)
 
 
 class NotFound(Exception):
