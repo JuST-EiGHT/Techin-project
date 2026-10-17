@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Numeric, String, Text, Uuid, text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -13,9 +13,12 @@ CHANGE_TYPES = (MANUAL_SINGLE, MANUAL_BULK, AUTO_RULE)
 
 # Итог: preview — предпросмотр (в Ozon не ходили); applied — Ozon применил; blocked — не прошло проверки
 # безопасности (§8); rejected — Ozon отказал по товару; failed — ошибка запроса, ничего не изменилось;
-# unknown — Ozon не ответил, могло примениться (для паузы считается применённым)
+# unknown — Ozon не ответил, могло примениться (для паузы считается применённым); queued — массовое изменение: ждёт
+# своей очереди в Ozon (6.3), для паузы тоже считается — уйдёт через секунды
 PREVIEW, APPLIED, BLOCKED, REJECTED, FAILED, UNKNOWN = "preview", "applied", "blocked", "rejected", "failed", "unknown"
-STATUSES = (PREVIEW, APPLIED, BLOCKED, REJECTED, FAILED, UNKNOWN)
+QUEUED = "queued"
+STATUSES = (PREVIEW, APPLIED, BLOCKED, REJECTED, FAILED, UNKNOWN, QUEUED)
+REACHED_OZON = (APPLIED, UNKNOWN, QUEUED)  # дошло или вот-вот дойдёт до Ozon — для часовой паузы
 
 
 class PriceChange(Base):
@@ -32,6 +35,7 @@ class PriceChange(Base):
     __table_args__ = (
         Index("ix_price_changes_user_created", "user_id", "created_at"),
         Index("ix_price_changes_product_created", "product_id", "created_at"),
+        Index("ix_price_changes_batch", "batch_id"),
         # один предпросмотр — одна попытка применения (защита от двойного нажатия и повтора запроса)
         Index(
             "uq_price_changes_preview", "preview_id", unique=True,
@@ -58,3 +62,5 @@ class PriceChange(Base):
     error: Mapped[str | None] = mapped_column(Text)  # отказ или ошибка Ozon
     rollback_of_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("price_changes.id"))
     preview_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("price_changes.id"))  # попытка ← предпросмотр
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)  # массовое изменение (6.3): общий id предпросмотров
+    batch_no: Mapped[int | None] = mapped_column(Integer)  # массовое: номер запроса в Ozon (по 100 товаров), с 1

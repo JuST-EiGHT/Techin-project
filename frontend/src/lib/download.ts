@@ -58,3 +58,15 @@ export function downloadCostErrors(file: File): Promise<void> {
   form.append('file', file)
   return saveFile(api.post('/costs/import/errors', form, { responseType: 'blob' }), 'costs-errors.xlsx')
 }
+
+/** Шаблон цен с текущими ценами (шаг 6.3): поменять «Новая цена» и загрузить. */
+export function downloadPriceTemplate(format: TemplateFormat = 'xlsx'): Promise<void> {
+  return saveFile(api.get('/prices/bulk/template', { params: { format }, responseType: 'blob' }), `prices.${format}`)
+}
+
+/** Строки файла цен с ошибками и не прошедшие проверки — тем же шаблоном с колонкой «Ошибка». */
+export function downloadPriceErrors(file: File): Promise<void> {
+  const form = new FormData()
+  form.append('file', file)
+  return saveFile(api.post('/prices/bulk/upload/errors', form, { responseType: 'blob' }), 'prices-errors.xlsx')
+}

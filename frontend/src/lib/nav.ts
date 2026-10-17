@@ -21,6 +21,11 @@ export const NAV: NavSection[] = [
         label: 'Цены',
         description: 'Минимальная и целевая цена, маржа сейчас и в акции, что поднять',
       },
+      {
+        href: '/dashboard/prices/bulk',
+        label: 'Цены списком',
+        description: 'Поменять цены многих товаров в Ozon: по стратегии или из Excel',
+      },
     ],
   },
   {

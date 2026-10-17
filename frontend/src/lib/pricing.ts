@@ -161,3 +161,64 @@ export type PriceApplyResult = {
   warnings: string[]
   message: string
 }
+
+// Массовое изменение цен (шаг 6.3).
+export type BulkWay = 'target_margin' | 'percent' | 'min_plus' | 'file'
+export type BulkGroup = 'ok' | 'warn' | 'blocked'
+
+export type BulkPreviewItem = {
+  preview_id: string
+  product: { id: string; offer_id: string; name: string | null }
+  group: BulkGroup
+  price_before: string | null
+  price_after: string | null // null — цену не посчитать
+  change_pct: string | null
+  note: string | null // «по стратегии — …, за один раз можно до …»
+  line: number | null // строка файла
+  errors: string[]
+  warnings: string[]
+  profit_before: string | null
+  profit_after: string | null
+  margin_before: string | null
+  margin_after: string | null
+}
+
+export type BulkPreview = {
+  batch_id: string | null // null — менять нечего
+  created_at: string
+  expires_at: string
+  description: string | null
+  strategy: string | null
+  price_fresh: boolean
+  warnings: string[]
+  counts: { ok: number; warn: number; blocked: number; unchanged: number; total: number }
+  items: BulkPreviewItem[]
+  file: { rows: number; unchanged: number; errors: { line: number; offer_id: string; message: string }[] } | null
+}
+
+export type BulkItemStatus = 'applied' | 'rejected' | 'failed' | 'unknown' | 'blocked' | 'queued' | 'sending' | 'not_applied'
+
+export type BulkStatus = {
+  batch_id: string
+  started: boolean
+  finished: boolean
+  total: number
+  counts: Record<BulkItemStatus, number>
+  batches: { no: number; size: number; state: 'waiting' | 'sending' | 'done'; applied: number; rejected: number; failed: number; unknown: number }[]
+  items: {
+    preview_id: string
+    product: { id: string; offer_id: string; name: string | null }
+    status: BulkItemStatus
+    price_before: string | null
+    price_after: string | null
+    batch_no: number | null
+    error: string | null
+  }[]
+  message: string | null
+}
+
+export const BULK_LIMIT = 500
+export const BULK_CONFIRM_ABOVE = 10
+export const BULK_WORD_ABOVE = 50
+export const BULK_WORD = 'ПОДТВЕРЖДАЮ'
+export const OZON_BATCH = 100

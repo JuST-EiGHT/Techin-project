@@ -11,7 +11,8 @@
 - новая цена и новая минимальная цена — не ниже себестоимости с НДС × 1,05; себестоимости нет — нельзя (правило 5);
 - минимальная цена ниже цены и не меньше 50 % от неё — иначе Ozon не примет (min_auto_price_too_small,
   price_less_than_min_auto_price); новая цена ниже цены до скидки (зачёркнутой) — иначе Ozon не примет
-  (old_price_less_than_price); зачёркнутую сервис не меняет — решение владельца 17.10.2026, она меняется в кабинете Ozon;
+  (old_price_less_than_price); зачёркнутую сервис не меняет — решение владельца 17.10.2026, она меняется в кабинете
+  Ozon;
 - пауза между изменениями одного товара — час (считаются применённые и те, где Ozon не ответил);
 - цена дальше 50 % от медианы за 30 дней (текущая — похоже на сбой данных, новая — цена «уехала» за несколько шагов):
   вручную — предупреждение, в автоправилах — блокировка (решение владельца 16.10.2026).
@@ -35,7 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.engine import products as engine
 from app.engine.products import positive
 from app.engine.tax import num, rub
-from app.models.price_change import APPLIED, UNKNOWN, PriceChange
+from app.models.price_change import APPLIED, REACHED_OZON, UNKNOWN, PriceChange
 from app.models.product import Product, ProductPrice
 from app.schemas.sync import utc
 from app.services.costs import load_cost_history
@@ -124,6 +125,17 @@ class SafetyResult:
 
 def cost_floor(cost_with_vat: Decimal) -> Decimal:
     return (cost_with_vat * COST_FLOOR).quantize(CENT, ROUND_HALF_UP)
+
+
+def allowed_range(c: PriceCheck) -> tuple[Decimal | None, Decimal | None]:
+    """Какую цену можно поставить за один раз по фактам товара: ±20 % от текущей, не ниже себестоимости с НДС × 1,05 и
+    ниже зачёркнутой. Цены нет — (None, None)."""
+    cur = positive(c.current_price)
+    if cur is None:
+        return None, None
+    floor = cost_floor(c.cost_with_vat) if c.cost_with_vat is not None else None
+    old = positive(c.current_old_price)
+    return PriceSafetyChecker._range(cur, floor, old - CENT if old is not None else None)
 
 
 def required_confirmation(count: int) -> str | None:
@@ -389,14 +401,15 @@ async def median_prices(
 async def last_changes(
     db: AsyncSession, product_ids: Sequence[uuid.UUID], now: datetime | None = None
 ) -> dict[uuid.UUID, datetime]:
-    """Последнее изменение цены через сервис за час — если оно дошло до Ozon (применено или Ozon не ответил)."""
+    """Последнее изменение цены через сервис за час — если оно дошло до Ozon (применено, Ozon не ответил или ждёт
+    очереди в массовом изменении)."""
     if not product_ids:
         return {}
     since = (now or datetime.now(timezone.utc)) - PAUSE
     rows = await db.execute(
         select(PriceChange.product_id, func.max(PriceChange.created_at))
         .where(
-            PriceChange.product_id.in_(product_ids), PriceChange.status.in_((APPLIED, UNKNOWN)),
+            PriceChange.product_id.in_(product_ids), PriceChange.status.in_(REACHED_OZON),
             PriceChange.created_at >= since,
         )
         .group_by(PriceChange.product_id)

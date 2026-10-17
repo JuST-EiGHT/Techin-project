@@ -38,6 +38,8 @@ class PriceOzon:
             {"product_id": p["product_id"], "offer_id": "", "updated": True, "errors": []} for p in body["prices"]]}
         self.import_fail: int | Exception | None = None
         self.prices_fail: int | None = None
+        self.fail_next_batch = False  # следующий запрос цен (и все его повторы) — ошибка Ozon 500
+        self._failing: dict | None = None
         mock.post(PRICES).mock(side_effect=self._prices)
         mock.post(IMPORT).mock(side_effect=self._import)
 
@@ -52,6 +54,10 @@ class PriceOzon:
     def _import(self, request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         self.imports.append(body)
+        if self.fail_next_batch:
+            self._failing, self.fail_next_batch = body, False
+        if self._failing is not None and body == self._failing:
+            return httpx.Response(500, json={"code": 500, "message": "internal error"})
         if isinstance(self.import_fail, Exception):
             raise self.import_fail
         if self.import_fail:

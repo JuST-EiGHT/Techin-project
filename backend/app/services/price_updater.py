@@ -96,25 +96,37 @@ def _when(dt: datetime) -> str:
     return f"{utc(dt).astimezone(MSK):%d.%m.%Y %H:%M}"
 
 
-async def _fresh_price(db: AsyncSession, client: OzonClient, product: Product) -> ProductPrice | None:
-    """Цена товара прямо сейчас из Ozon; изменилась — новый снимок (правило 12). Ozon товар не вернул — None."""
-    item = (await fetch_prices(client, [product.ozon_product_id])).get(product.ozon_product_id)
-    if item is None:
-        return None
-    last = (await latest_prices(db, [product.id])).get(product.id)
-    snap = changed_snapshot(product.id, last, price_attrs(item), _now())
-    if snap is None:
-        return last
-    db.add(snap)
+async def fresh_prices(
+    db: AsyncSession, client: OzonClient, products: list[Product]
+) -> dict[uuid.UUID, ProductPrice | None]:
+    """Цены товаров прямо сейчас из Ozon (один запрос на 1000 товаров); изменилась — новый снимок (правило 12).
+    Товар, которого Ozon не вернул, — None."""
+    items = await fetch_prices(client, [p.ozon_product_id for p in products])
+    last = await latest_prices(db, [p.id for p in products])
+    now = _now()
+    out: dict[uuid.UUID, ProductPrice | None] = {}
+    for p in products:
+        item = items.get(p.ozon_product_id)
+        if item is None:
+            out[p.id] = None
+            continue
+        snap = changed_snapshot(p.id, last.get(p.id), price_attrs(item), now)
+        if snap is not None:
+            db.add(snap)
+        out[p.id] = snap or last.get(p.id)
     await db.flush()
-    return snap
+    return out
 
 
-def _auth_text(exc: OzonAuthError) -> str:
+async def _fresh_price(db: AsyncSession, client: OzonClient, product: Product) -> ProductPrice | None:
+    return (await fresh_prices(db, client, [product]))[product.id]
+
+
+def auth_text(exc: OzonAuthError) -> str:
     return f"{exc.message}. Проверьте, что у API-ключа есть права на цены товаров."
 
 
-def _margins(ctx: pricing.PricingContext, product: Product, before: Decimal | None, after: Decimal) -> dict:
+def margins(ctx: pricing.PricingContext, product: Product, before: Decimal | None, after: Decimal) -> dict:
     """Маржа и «с 1 шт.» при прежней и новой цене, минимальная и целевая — калькулятором 4.2."""
     inputs = ctx.inputs(product)
     params = ctx.params(inputs)
@@ -145,7 +157,7 @@ async def preview(
     except OzonNotConfiguredError as exc:
         raise PriceUpdateError(400, exc.message) from exc
     except OzonAuthError as exc:
-        raise PriceUpdateError(403, _auth_text(exc)) from exc
+        raise PriceUpdateError(403, auth_text(exc)) from exc
     except OzonAPIError as exc:
         fresh = False
         snap = (await latest_prices(db, [product.id])).get(product.id)
@@ -185,18 +197,18 @@ async def preview(
         "floor": safety.floor, "allowed_from": safety.allowed_from, "allowed_to": safety.allowed_to,
         "next_change_at": safety.next_change_at,
         "price_checked_at": now if fresh else (utc(snap.snapshot_at) if snap is not None else None),
-        "price_fresh": fresh, "reason": row.reason, **_margins(ctx, product, cur, new_price),
+        "price_fresh": fresh, "reason": row.reason, **margins(ctx, product, cur, new_price),
     }
 
 
-def _state(price: Decimal | None, min_price: Decimal | None = None) -> dict:
+def state(price: Decimal | None, min_price: Decimal | None = None) -> dict:
     return {"price": _s(price), "min_price": _s(min_price)}
 
 
-def _ozon_failure(exc: OzonAPIError) -> tuple[str, str, int, str]:
+def ozon_failure(exc: OzonAPIError) -> tuple[str, str, int, str]:
     """(итог в price_changes, итог в журнале, HTTP-статус, текст) для ошибки запроса к Ozon."""
     if isinstance(exc, OzonAuthError):
-        return FAILED, audit_model.FAILED, 403, _auth_text(exc) + " Цена не изменилась."
+        return FAILED, audit_model.FAILED, 403, auth_text(exc) + " Цена не изменилась."
     if isinstance(exc, OzonTimeoutError):
         return UNKNOWN, audit_model.UNKNOWN, 504, (
             "Ozon не ответил вовремя — цена могла измениться. Через 1–3 минуты обновите товары и проверьте цену."
@@ -205,7 +217,7 @@ def _ozon_failure(exc: OzonAPIError) -> tuple[str, str, int, str]:
     return FAILED, audit_model.FAILED, 502, f"{exc.message}{detail}. В Ozon ничего не изменилось."
 
 
-def _result_for(resp: dict, product: Product) -> tuple[bool, list[dict]]:
+def result_for(resp: dict, product: Product) -> tuple[bool, list[dict]]:
     """Итог по товару из ответа Ozon: обновлено ли и ошибки [{code, message}]."""
     for item in resp.get("result") or []:
         if not isinstance(item, dict):
@@ -217,7 +229,7 @@ def _result_for(resp: dict, product: Product) -> tuple[bool, list[dict]]:
     return False, []
 
 
-def _ozon_reasons(errors: list[dict]) -> str:
+def ozon_reasons(errors: list[dict]) -> str:
     texts = []
     for e in errors:
         code = str(e.get("code") or "").strip()
@@ -235,6 +247,8 @@ async def load_preview(db: AsyncSession, user_id: uuid.UUID, preview_id: uuid.UU
     pv = await db.get(PriceChange, preview_id)
     if pv is None or pv.user_id != user_id or pv.status != PREVIEW:
         raise PriceUpdateError(404, "Предпросмотр не найден — рассчитайте последствия заново.")
+    if pv.batch_id is not None:  # часть массового изменения — применяется только целиком (подтверждение, очередь)
+        raise PriceUpdateError(400, "Это часть массового изменения цен — примените его на странице «Цены списком».")
     return pv
 
 
@@ -265,8 +279,8 @@ async def apply(db: AsyncSession, user_id: uuid.UUID, preview_id: uuid.UUID, req
     def log(status: str, **kw) -> None:
         audit.record(
             db, user_id, action=ACTION, entity_type=audit_model.PRICE_ENTITY, entity_id=str(attempt.id),
-            product_id=product.id, status=status, before=_state(attempt.price_before, attempt.min_price_before),
-            after=_state(new_price, attempt.min_price_before), request=request, **kw,
+            product_id=product.id, status=status, before=state(attempt.price_before, attempt.min_price_before),
+            after=state(new_price, attempt.min_price_before), request=request, **kw,
         )
 
     async def stop(status: str, journal: str, code: int, text: str, **kw) -> None:
@@ -281,7 +295,7 @@ async def apply(db: AsyncSession, user_id: uuid.UUID, preview_id: uuid.UUID, req
             try:
                 snap = await _fresh_price(db, client, product)
             except OzonAPIError as exc:
-                code, text = (403, _auth_text(exc)) if isinstance(exc, OzonAuthError) else (502, exc.message)
+                code, text = (403, auth_text(exc)) if isinstance(exc, OzonAuthError) else (502, exc.message)
                 await stop(FAILED, audit_model.FAILED, code, f"Не удалось проверить текущую цену в Ozon: {text}. "
                            "Ничего не меняли — попробуйте через минуту.")
             # одно изменение товара за раз: вторая попытка ждёт и видит первую (пауза час)
@@ -299,7 +313,9 @@ async def apply(db: AsyncSession, user_id: uuid.UUID, preview_id: uuid.UUID, req
                     "рассчитайте последствия заново."
                 )
             elif positive(snap.min_price) != pv.min_price_before:
-                errors.append("Минимальная цена в Ozon изменилась после предпросмотра — рассчитайте последствия заново.")
+                errors.append(
+                    "Минимальная цена в Ozon изменилась после предпросмотра — рассчитайте последствия заново."
+                )
             [(_, safety)] = await price_safety.check(db, user_id, [price_safety.Proposal(product, new_price)])
             errors += safety.errors
             attempt.warnings = safety.warnings or None
@@ -320,16 +336,16 @@ async def apply(db: AsyncSession, user_id: uuid.UUID, preview_id: uuid.UUID, req
             try:
                 data = await client.request("POST", IMPORT_PATH, body)
             except OzonAPIError as exc:
-                status, journal, code, text = _ozon_failure(exc)
+                status, journal, code, text = ozon_failure(exc)
                 await stop(status, journal, code, text, ozon_request=req,
                            ozon_response={"status_code": exc.status_code, "message": exc.ozon_message})
     except OzonNotConfiguredError as exc:
         raise PriceUpdateError(400, exc.message) from exc
 
     resp = data if isinstance(data, dict) else {}
-    updated, ozon_errors = _result_for(resp, product)
+    updated, ozon_errors = result_for(resp, product)
     if not updated:
-        reasons = _ozon_reasons(ozon_errors)
+        reasons = ozon_reasons(ozon_errors)
         await stop(REJECTED, audit_model.REJECTED, 409,
                    "Ozon не изменил цену" + (f": {reasons}." if reasons else ", причину не сообщил."),
                    ozon_request=req, ozon_response=resp)

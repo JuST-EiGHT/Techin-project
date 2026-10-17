@@ -2,7 +2,9 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from pydantic import BaseModel, Field, model_validator
 
 
 class PriceProduct(BaseModel):
@@ -62,3 +64,123 @@ class PriceApplyResult(BaseModel):
     price_after: Decimal
     warnings: list[str]
     message: str
+
+
+# ── массовое изменение (шаг 6.3) ──
+class BulkStrategy(BaseModel):
+    """target_margin — цена с маржой value % (калькулятор 4.2); percent — текущая цена + value % (можно минус);
+    min_plus — минимальная цена (без убытка) + value %."""
+
+    kind: Literal["target_margin", "percent", "min_plus"]
+    value: Decimal = Field(ge=-90, le=500, decimal_places=2)
+    limit_step: bool = True  # дальше 20 % за раз — ближайшая допустимая цена
+
+    @model_validator(mode="after")
+    def _range(self):
+        if self.kind == "target_margin" and not 0 <= self.value <= 90:
+            raise ValueError("целевая маржа — от 0 до 90 %")
+        if self.kind == "min_plus" and self.value < 0:
+            raise ValueError("наценка к минимальной цене — не меньше 0 %")
+        return self
+
+
+class BulkPriceItem(BaseModel):
+    product_id: uuid.UUID
+    price: Decimal = Field(gt=0, le=100_000_000, decimal_places=2)
+
+
+class BulkPreviewRequest(BaseModel):
+    """Стратегия и product_ids — или готовые цены items."""
+
+    strategy: BulkStrategy | None = None
+    product_ids: list[uuid.UUID] = Field(default_factory=list, max_length=1000)
+    items: list[BulkPriceItem] = Field(default_factory=list, max_length=1000)
+    reason: str | None = Field(None, max_length=500)
+
+    @model_validator(mode="after")
+    def _one_way(self):
+        if (self.strategy is None) == (not self.items):
+            raise ValueError("укажите стратегию и товары или список цен")
+        if self.strategy is not None and not self.product_ids:
+            raise ValueError("выберите товары")
+        return self
+
+
+class BulkPreviewItem(BaseModel):
+    preview_id: uuid.UUID
+    product: PriceProduct
+    group: str  # ok — применится, warn — с предупреждением, blocked — заблокировано
+    price_before: Decimal | None
+    price_after: Decimal | None  # None — цену не посчитать (причина в errors)
+    change_pct: Decimal | None
+    note: str | None  # пояснение к цене: «по стратегии — …, за один раз можно до …»
+    line: int | None  # строка файла
+    errors: list[str]
+    warnings: list[str]
+    profit_before: Decimal | None
+    profit_after: Decimal | None
+    margin_before: Decimal | None
+    margin_after: Decimal | None
+
+
+class BulkFileError(BaseModel):
+    line: int
+    offer_id: str
+    message: str
+
+
+class BulkFileInfo(BaseModel):
+    rows: int  # строк с данными
+    unchanged: int  # цена та же или пусто — не меняется
+    errors: list[BulkFileError]
+
+
+class BulkPreview(BaseModel):
+    batch_id: uuid.UUID | None  # None — менять нечего
+    created_at: datetime
+    expires_at: datetime
+    description: str | None  # стратегия, «Цены из файла» или комментарий — уйдёт в историю
+    strategy: str | None
+    price_fresh: bool
+    warnings: list[str]
+    counts: dict[str, int]  # ok, warn, blocked, unchanged, total
+    items: list[BulkPreviewItem]
+    file: BulkFileInfo | None
+
+
+class BulkApplyRequest(BaseModel):
+    batch_id: uuid.UUID
+    include_warnings: bool = False  # применять и товары с предупреждениями
+    confirmed: bool = False  # больше 10 товаров
+    confirm_word: str | None = Field(None, max_length=50)  # больше 50 — «ПОДТВЕРЖДАЮ»
+
+
+class BulkStatusItem(BaseModel):
+    preview_id: uuid.UUID
+    product: PriceProduct
+    status: str  # applied | rejected | failed | unknown | blocked | queued | sending | not_applied
+    price_before: Decimal | None
+    price_after: Decimal | None
+    batch_no: int | None
+    error: str | None
+
+
+class BulkBatch(BaseModel):
+    no: int
+    size: int
+    state: str  # waiting | sending | done
+    applied: int
+    rejected: int
+    failed: int
+    unknown: int
+
+
+class BulkStatus(BaseModel):
+    batch_id: uuid.UUID
+    started: bool
+    finished: bool
+    total: int
+    counts: dict[str, int]
+    batches: list[BulkBatch]
+    items: list[BulkStatusItem]
+    message: str | None
