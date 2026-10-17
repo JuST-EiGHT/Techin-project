@@ -122,6 +122,18 @@ _FIELD_NAMES = {
     "action": "Действие",
     "preview_id": "Предпросмотр",
     "reason": "Комментарий",
+    "low_margin_pct": "Порог низкой маржи",
+    "anomaly_sales_drop_pct": "Падение продаж — жёлтый порог",
+    "anomaly_sales_drop_red_pct": "Падение продаж — красный порог",
+    "anomaly_sales_growth_pct": "Рост продаж",
+    "anomaly_price_pct": "Изменение цены — жёлтый порог",
+    "anomaly_price_red_pct": "Изменение цены — красный порог",
+    "anomaly_commission_pp": "Изменение комиссии",
+    "anomaly_payout_diff_pct": "Расхождение выплаты с прогнозом",
+    "anomaly_cash_gap_days": "Кассовый разрыв — дней вперёд",
+    "anomaly_uncategorized_days": "Операции без статьи — дней",
+    "severity": "Важность",
+    "group": "Группа",
 }
 
 

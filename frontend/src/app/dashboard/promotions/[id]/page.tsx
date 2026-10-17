@@ -9,7 +9,8 @@ import { FormError } from '@/components/AuthForm'
 import { PromoActionModal } from '@/components/promo-action'
 import { Badge, pctText, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
-import { MARGIN_TEXT, PROMO_TABS, fmtDate, tabOf, type PromoProductRow, type PromoTab, type ProductsResponse } from '@/lib/promotions'
+import { MARGIN_TEXT, PROMO_TAB_VALUES, fmtDate, promoTabs, tabOf, type PromoProductRow, type PromoTab, type ProductsResponse } from '@/lib/promotions'
+import { useLowMargin } from '@/lib/settings'
 
 export default function PromotionRoute() {
   return (
@@ -22,6 +23,7 @@ export default function PromotionRoute() {
 function PromotionPage() {
   const { id } = useParams<{ id: string }>()
   const params = useSearchParams()
+  const low = useLowMargin()
   const router = useRouter()
   const pathname = usePathname()
   const [data, setData] = useState<ProductsResponse | null>(null)
@@ -43,11 +45,12 @@ function PromotionPage() {
     load()
   }, [load])
 
-  const counts = Object.fromEntries(PROMO_TABS.map((t) => [t.value, 0])) as Record<PromoTab, number>
+  const counts = Object.fromEntries(PROMO_TAB_VALUES.map((t) => [t, 0])) as Record<PromoTab, number>
   data?.items.forEach((r) => (counts[tabOf(r)] += 1))
-  const first = PROMO_TABS.find((t) => counts[t.value] > 0)?.value ?? 'ok'
+  const first = PROMO_TAB_VALUES.find((t) => counts[t] > 0) ?? 'ok'
   const asked = params.get('tab') as PromoTab | null
-  const tab: PromoTab = asked && PROMO_TABS.some((t) => t.value === asked) ? asked : first
+  const tab: PromoTab = asked && PROMO_TAB_VALUES.includes(asked) ? asked : first
+  const lowPct = `${String(low).replace('.', ',')} %`
   const setTab = (t: PromoTab) => router.replace(`${pathname}?tab=${t}`, { scroll: false })
 
   if (error && !data) return <FormError message={error} />
@@ -100,7 +103,7 @@ function PromotionPage() {
       <FormError message={error} />
 
       <div className="flex gap-1 overflow-x-auto border-b border-line" role="tablist">
-        {PROMO_TABS.filter((t) => t.value !== 'none' || counts.none > 0).map((t) => (
+        {promoTabs(low).filter((t) => t.value !== 'none' || counts.none > 0).map((t) => (
           <button
             key={t.value}
             type="button"
@@ -149,7 +152,7 @@ function PromotionPage() {
       )}
       {data.margin_note && <p className="text-xs text-faint">{data.margin_note}</p>}
       <p className="text-xs text-faint">
-        Выгодные — маржа в акции от 10 %, невыгодные — от 0 до 10 %, убыточные — ниже нуля. У кандидатов маржа — при максимальной цене для
+        Выгодные — маржа в акции от {lowPct}, невыгодные — от 0 до {lowPct} (порог — в «Основных настройках»), убыточные — ниже нуля. У кандидатов маржа — при максимальной цене для
         участия. Добавить и убрать товар можно только после подтверждения; каждое действие записывается в журнал.
       </p>
 

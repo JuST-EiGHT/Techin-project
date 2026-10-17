@@ -26,6 +26,19 @@ class SettingsResponse(BaseModel):
     # планирование поставок (шаг 5.2): запас после поставки, дней, и сколько дней поставка в пути
     supply_target_days: int
     supply_lead_time_days: int
+    # порог «низкой маржи», % (шаг 7.1): акции, страница товаров, прибыль по товарам, аномалия «маржа ниже порога»
+    low_margin_pct: Decimal
+    # пороги аномалий (шаг 7.1, BUSINESS_LOGIC §7); дни запаса — пороги остатков выше
+    anomaly_sales_drop_pct: int  # падение продаж (3 дня против 7 предыдущих): жёлтая
+    anomaly_sales_drop_red_pct: int  # красная
+    anomaly_sales_growth_pct: int  # рост продаж — проверить цену
+    anomaly_price_pct: int  # изменение цены за 7 дней: жёлтая
+    anomaly_price_red_pct: int  # красная
+    anomaly_commission_pp: Decimal  # изменение комиссии Ozon, п. п.
+    anomaly_payout_diff_pct: int  # выплата Ozon разошлась с прогнозом
+    anomaly_cash_gap_days: int  # кассовый разрыв: на сколько дней вперёд смотреть (планирование)
+    anomaly_uncategorized_days: int  # операция без статьи дольше (планирование)
+    anomaly_defaults: bool  # пороги аномалий и маржи ещё не меняли
 
 
 class SettingsUpdate(BaseModel):
@@ -41,3 +54,13 @@ class SettingsUpdate(BaseModel):
     stock_excess_days: int | None = Field(None, ge=1, le=365)
     supply_target_days: int | None = Field(None, ge=1, le=365)
     supply_lead_time_days: int | None = Field(None, ge=0, le=180)
+    low_margin_pct: Decimal | None = Field(None, ge=0, le=90, decimal_places=2)
+    anomaly_sales_drop_pct: int | None = Field(None, ge=1, le=99)
+    anomaly_sales_drop_red_pct: int | None = Field(None, ge=1, le=99)
+    anomaly_sales_growth_pct: int | None = Field(None, ge=10, le=1000)
+    anomaly_price_pct: int | None = Field(None, ge=1, le=99)
+    anomaly_price_red_pct: int | None = Field(None, ge=1, le=99)
+    anomaly_commission_pp: Decimal | None = Field(None, ge=Decimal("0.1"), le=50, decimal_places=1)
+    anomaly_payout_diff_pct: int | None = Field(None, ge=1, le=100)
+    anomaly_cash_gap_days: int | None = Field(None, ge=1, le=90)
+    anomaly_uncategorized_days: int | None = Field(None, ge=1, le=90)

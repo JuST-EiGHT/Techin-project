@@ -8,7 +8,8 @@ import { type Coverage, type DataSource, SourceNote } from '@/components/finance
 import { Warnings, pctText, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
-import { useCostLabel } from '@/lib/settings'
+import { marginTone } from '@/lib/products'
+import { useCostLabel, useLowMargin } from '@/lib/settings'
 
 export type ProductRow = {
   offer_id: string
@@ -79,17 +80,12 @@ type ProductsPage = {
 
 type Sort = 'revenue' | 'profit' | 'margin' | 'qty'
 const PAGE = 50
-/** Порог «низкой маржи» — как в акциях; станет настройкой на шаге 7.1. */
-const LOW_MARGIN = 10
-
-export const marginTone = (m: string | null) =>
-  m === null ? 'text-muted' : Number(m) < 0 ? 'text-bad' : Number(m) <= LOW_MARGIN ? 'text-warn' : 'text-ok'
-
 const signTone = (v: string) => (Number(v) < 0 ? 'text-bad' : Number(v) > 0 ? 'text-ok' : 'text-muted')
 
 /** Прибыль по товарам: таблица с сортировкой, поиском, страницами, экспортом CSV и карточкой товара. */
 export function ProductsView({ query, showSource, pnlHref }: { query: Record<string, string>; showSource: boolean; pnlHref: string }) {
   const costLabel = useCostLabel()
+  const low = useLowMargin()
   const [unit, setUnit] = useState(false) // «На 1 шт.» — юнит-экономика
   const [sort, setSort] = useState<Sort>('revenue')
   const [order, setOrder] = useState<'asc' | 'desc'>('desc')
@@ -325,7 +321,7 @@ export function ProductsView({ query, showSource, pnlHref }: { query: Record<str
                             </td>
                           </>
                         )}
-                        <td className={`whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums ${marginTone(r.margin)}`} data-testid="margin">
+                        <td className={`whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums ${marginTone(r.margin, low)}`} data-testid="margin">
                           {pctText(r.margin)}
                         </td>
                       </tr>
@@ -346,7 +342,7 @@ export function ProductsView({ query, showSource, pnlHref }: { query: Record<str
                         {/* не у всех товаров есть себестоимость — среднее было бы занижено */}
                         <Num v={t.missing_cost === 0 ? perQty(t.cost, t.qty) : null} />
                         <Num v={t.missing_cost === 0 ? perQty(t.profit, t.qty) : null} />
-                        <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${marginTone(t.margin)}`}>{pctText(t.margin)}</td>
+                        <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${marginTone(t.margin, low)}`}>{pctText(t.margin)}</td>
                       </tr>
                       <tr className="text-xs text-muted">
                         <td className="px-3 py-2" colSpan={10}>
@@ -367,7 +363,7 @@ export function ProductsView({ query, showSource, pnlHref }: { query: Record<str
                         <Num v={t.other} />
                         <Num v={t.cost} />
                         <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${signTone(t.profit)}`}>{rub(t.profit)}</td>
-                        <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${marginTone(t.margin)}`}>{pctText(t.margin)}</td>
+                        <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${marginTone(t.margin, low)}`}>{pctText(t.margin)}</td>
                       </tr>
                       <tr onClick={() => setSelected('unallocated')} className="cursor-pointer text-muted hover:bg-line/40" data-testid="unallocated-row">
                         <td className="px-3 py-2" colSpan={8}>
@@ -408,7 +404,7 @@ export function ProductsView({ query, showSource, pnlHref }: { query: Record<str
           </section>
           <p className="text-xs text-faint">
             Прибыль по товару — до налога: всё, что Ozon начислил по товару, минус {costTitle.charAt(0).toLowerCase() + costTitle.slice(1)} проданного. Налог и НДС
-            считаются на весь период — вкладка «P&amp;L». Маржа: красным — в минус, жёлтым — до {LOW_MARGIN} %, зелёным — выше.
+            считаются на весь период — вкладка «P&amp;L». Маржа: красным — в минус, жёлтым — ниже {String(low).replace('.', ',')} % (порог — в «Основных настройках»), зелёным — выше.
           </p>
           <MoneyWent data={data} costTitle={costTitle} pnlHref={pnlHref} />
           <Warnings items={data.warnings} />
@@ -515,6 +511,7 @@ function ProductCard({
   costTitle: string
   onClose: () => void
 }) {
+  const low = useLowMargin()
   const close = useRef<HTMLButtonElement>(null)
   useEffect(() => {
     close.current?.focus()
@@ -577,7 +574,7 @@ function ProductCard({
             <dt className="font-semibold">Прибыль до налога</dt>
             <dd className={`text-right font-semibold tabular-nums ${row.profit === null ? 'text-muted' : signTone(row.profit)}`}>
               {rub(row.profit)}
-              {row.margin !== null && <span className={`ml-1 text-xs ${marginTone(row.margin)}`}>{pctText(row.margin)}</span>}
+              {row.margin !== null && <span className={`ml-1 text-xs ${marginTone(row.margin, low)}`}>{pctText(row.margin)}</span>}
             </dd>
           </dl>
         )}

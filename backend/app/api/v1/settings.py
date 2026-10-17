@@ -1,9 +1,10 @@
-"""Основные настройки сервиса: тема, «Откуда товар», расчёт цены, пороги остатков, поставки. Налог и НДС — в налоговом профиле
-(tax_profile.py)."""
+"""Основные настройки сервиса: тема, «Откуда товар», расчёт цены, пороги остатков, поставки, пороги аномалий и «низкой
+маржи». Налог и НДС — в налоговом профиле (tax_profile.py)."""
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.engine.anomaly_detector import DEFAULT_THRESHOLDS
 from app.models.user import User
 from app.models.user_settings import COST_LABELS, UserSettings
 from app.schemas.settings import SettingsResponse, SettingsUpdate
@@ -17,12 +18,18 @@ def _response(s: UserSettings) -> SettingsResponse:
     ad, margin = svc.price_settings(s)
     t = svc.stock_thresholds(s)
     target, lead = svc.supply_params(s)
+    a = svc.anomaly_thresholds(s)
     return SettingsResponse(
         theme=s.theme, supplier_payment=s.supplier_payment, supplier_deferral_days=s.supplier_deferral_days,
         cost_label=COST_LABELS[s.supplier_payment], price_ad_pct=ad, price_target_margin_pct=margin,
         price_defaults=s.price_ad_pct is None and s.price_target_margin_pct is None,
         stock_critical_days=t.critical, stock_low_days=t.low, stock_excess_days=t.excess,
         supply_target_days=target, supply_lead_time_days=lead,
+        low_margin_pct=a.low_margin, anomaly_sales_drop_pct=a.sales_drop, anomaly_sales_drop_red_pct=a.sales_drop_red,
+        anomaly_sales_growth_pct=a.sales_growth, anomaly_price_pct=a.price, anomaly_price_red_pct=a.price_red,
+        anomaly_commission_pp=a.commission_pp, anomaly_payout_diff_pct=a.payout_diff,
+        anomaly_cash_gap_days=a.cash_gap_days, anomaly_uncategorized_days=a.uncategorized_days,
+        anomaly_defaults=all(getattr(a, f) == getattr(DEFAULT_THRESHOLDS, f) for f in svc.ANOMALY_FIELDS.values()),
     )
 
 

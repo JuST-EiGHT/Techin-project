@@ -28,6 +28,8 @@ celery_app.conf.update(
         "sync-promotions-every-3h": {"task": "tasks.sync_promotions_all", "schedule": crontab(minute=33, hour="*/3")},
         # отправления FBO и FBS — продажи по кластерам для поставок (шаг 5.2): каждые 6 часов, последние 35 дней
         "sync-postings-every-6h": {"task": "tasks.sync_postings_all", "schedule": crontab(minute=38, hour="*/6")},
+        # аномалии (шаг 7.1): раз в час, после синхронизаций часа (товары :07, остатки :43, банки :52)
+        "detect-anomalies-hourly": {"task": "tasks.detect_anomalies_all", "schedule": crontab(minute=57)},
     },
 )
 

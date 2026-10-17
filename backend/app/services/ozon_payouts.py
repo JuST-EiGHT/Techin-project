@@ -93,7 +93,23 @@ def _d(v: Decimal | None) -> str | None:
     return None if v is None else str(Decimal(v).quantize(Decimal("0.01")))
 
 
-async def payouts(db: AsyncSession, user_id: uuid.UUID, horizon_weeks: int = 8) -> dict:
+@dataclass
+class State:
+    """Выплаты за 12 недель (и недели продаж перед ними) и действующий график — для страницы и аномалий (шаг 7.1)."""
+
+    today: date
+    days: dict[date, OzonBalanceDay]  # загруженные дни — последний снимок
+    weeks: dict[date, Decimal]  # начислено по полным неделям
+    facts: list[engine.Payout]  # выплаты по дням, по порядку
+    detected: engine.Schedule | None  # найденный по выплатам
+    row: OzonPayoutSettings | None  # своя настройка
+    schedule: engine.Schedule  # действующий
+
+    def overdue(self) -> list[date]:
+        return engine.overdue(self.schedule, self.today, {p.day for p in self.facts}, set(self.days))
+
+
+async def load_state(db: AsyncSession, user_id: uuid.UUID) -> State:
     today = today_msk()
     start = engine.monday(today) - timedelta(weeks=HISTORY_WEEKS + engine.MAX_LAG + 1)
     days = await load_days(db, user_id, start, today)
@@ -101,7 +117,14 @@ async def payouts(db: AsyncSession, user_id: uuid.UUID, horizon_weeks: int = 8) 
     facts = [engine.Payout(d, abs(r.payments)) for d, r in sorted(days.items()) if r.payments]
     detected = engine.detect_schedule(facts, weeks, today, HISTORY_WEEKS)
     row, _ = await current_settings(db, user_id)
-    schedule = resolve(row, detected, today)
+    return State(today, days, weeks, facts, detected, row, resolve(row, detected, today))
+
+
+async def payouts(db: AsyncSession, user_id: uuid.UUID, horizon_weeks: int = 8) -> dict:
+    st = await load_state(db, user_id)
+    today, days, weeks, facts, detected, row, schedule = (
+        st.today, st.days, st.weeks, st.facts, st.detected, st.row, st.schedule
+    )
 
     latest = max(days.values(), key=lambda r: r.day) if days else None
     balance = latest.closing if latest is not None else None
@@ -120,7 +143,7 @@ async def payouts(db: AsyncSession, user_id: uuid.UUID, horizon_weeks: int = 8) 
             "expected": _d(exp[1]) if exp else None,
             "diff": _d(p.amount - exp[1]) if exp and exp[1] is not None else None,
         })
-    late = engine.overdue(schedule, today, {p.day for p in facts}, set(days))
+    late = st.overdue()
 
     chart: dict[date, dict] = {}
     for p in facts:

@@ -5,8 +5,6 @@
 """
 from decimal import Decimal
 
-LOW_MARGIN_PCT = Decimal("10")  # порог «низкой маржи» по умолчанию (BUSINESS_LOGIC §7)
-
 NEGATIVE, LOW, OK = "negative", "low", "ok"
 
 # С 6.10.2026 в этих акциях нельзя ограничить количество: участвует весь остаток (BUSINESS_LOGIC §9)
@@ -14,7 +12,8 @@ _WHOLE_STOCK_TITLES = ("эластичный бустинг", "скидка на
 _WHOLE_STOCK_TYPES = ("ELASTIC_BOOSTING", "STOCK_DISCOUNT")
 
 
-def margin_level(margin: Decimal | None, low: Decimal = LOW_MARGIN_PCT) -> str | None:
+def margin_level(margin: Decimal | None, low: Decimal) -> str | None:
+    """В минус, низкая (от 0 до порога пользователя — «Основные настройки», шаг 7.1, по умолчанию 10 %) или нормальная."""
     if margin is None:
         return None
     if margin < 0:

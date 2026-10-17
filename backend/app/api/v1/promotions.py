@@ -38,6 +38,7 @@ from app.services.promotion_history import history as participation_history
 from app.services.sync.finance import MSK, today_msk
 from app.services.auth import get_current_user
 from app.services.stocks import latest_stocks
+from app.services.user_settings import load_low_margin
 
 router = APIRouter(prefix="/promotions", tags=["promotions"])
 
@@ -46,11 +47,24 @@ _NOT_FOUND = "Акция не найдена"
 MarginOf = Callable[[PromotionProduct], Decimal | None]
 
 
+class Margins:
+    """Маржа в акции на момент запроса и порог «низкой маржи» пользователя (шаг 7.1)."""
+
+    def __init__(self, of: MarginOf, low: Decimal):
+        self.of, self.low = of, low
+
+    def __call__(self, r: PromotionProduct) -> Decimal | None:
+        return self.of(r)
+
+    def level(self, margin: Decimal | None) -> str | None:
+        return margin_level(margin, self.low)
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-async def _margins(db: AsyncSession, user_id: uuid.UUID) -> MarginOf:
+async def _margins(db: AsyncSession, user_id: uuid.UUID) -> Margins:
     """Маржа в акции — калькулятором цены (шаг 4.2) на момент запроса: себестоимость, настройки и логистика могли
     измениться после синхронизации, сохранённая в строке — снимок на её время."""
     products = {p.id: p for p in (await db.execute(select(Product).where(Product.user_id == user_id))).scalars()}
@@ -66,7 +80,7 @@ async def _margins(db: AsyncSession, user_id: uuid.UUID) -> MarginOf:
         price = r.action_price if r.is_active else (positive(r.max_action_price) or r.action_price)
         return margin_at(p, price) if p is not None else None
 
-    return margin_of
+    return Margins(margin_of, await load_low_margin(db, user_id))
 
 
 def is_urgent(freeze: datetime | None, now: datetime) -> bool:
@@ -74,10 +88,10 @@ def is_urgent(freeze: datetime | None, now: datetime) -> bool:
     return freeze is not None and freeze > now and freeze.astimezone(MSK).date() <= now.astimezone(MSK).date() + timedelta(days=1)
 
 
-def _promotion(p: Promotion, rows: list[PromotionProduct], margin_of: MarginOf) -> PromotionResponse:
+def _promotion(p: Promotion, rows: list[PromotionProduct], margin_of: Margins) -> PromotionResponse:
     active = [r for r in rows if r.is_active]
     margins = [m for r in active if (m := margin_of(r)) is not None]
-    levels = [margin_level(m) for m in margins]
+    levels = [margin_of.level(m) for m in margins]
     freeze = utc(p.freeze_date)
     return PromotionResponse(
         avg_margin=(sum(margins) / len(margins)).quantize(Decimal("0.01")) if margins else None,
@@ -96,7 +110,7 @@ def _promotion(p: Promotion, rows: list[PromotionProduct], margin_of: MarginOf) 
     )
 
 
-def _product_row(r: PromotionProduct, product: Product, on_hand: int, margin: Decimal | None) -> dict:
+def _product_row(r: PromotionProduct, product: Product, on_hand: int, margin: Decimal | None, low: Decimal) -> dict:
     discount = None
     if r.price and r.action_price is not None and r.price > 0:
         discount = ((r.price - r.action_price) / r.price * 100).quantize(Decimal("0.1"))
@@ -106,7 +120,7 @@ def _product_row(r: PromotionProduct, product: Product, on_hand: int, margin: De
         max_action_price=r.max_action_price,
         below_min_price=bool(r.min_price and r.action_price is not None and r.action_price < r.min_price),
         stock=r.stock, stock_on_hand=on_hand, is_active=r.is_active, added_automatically=r.added_automatically,
-        add_mode=r.add_mode, margin_in_promo=margin, margin_level=margin_level(margin),
+        add_mode=r.add_mode, margin_in_promo=margin, margin_level=margin_level(margin, low),
         first_seen_at=utc(r.first_seen_at),
     )
 
@@ -118,7 +132,7 @@ async def _on_hand(db: AsyncSession, user_id: uuid.UUID) -> dict[uuid.UUID, int]
     return totals
 
 
-def _margin_note(rows: list[PromotionProduct], margin_of: MarginOf) -> str | None:
+def _margin_note(rows: list[PromotionProduct], margin_of: Margins) -> str | None:
     return NO_COST_NOTE if any(margin_of(r) is None for r in rows if r.is_active) else None
 
 
@@ -169,7 +183,7 @@ async def auto_added(user: User = Depends(get_current_user), db: AsyncSession = 
     items = [
         AutoAddedItem(
             promotion=_promotion(promo, rows[promo.id], margin_of),
-            **_product_row(r, product, on_hand.get(product.id, 0), margin_of(r)),
+            **_product_row(r, product, on_hand.get(product.id, 0), margin_of(r), margin_of.low),
         )
         for r, product, promo in found
     ]
@@ -230,7 +244,7 @@ async def promotion_products(
     on_hand = await _on_hand(db, user.id)
     margin_of = await _margins(db, user.id)
     items = [
-        PromotionProductResponse(**_product_row(r, product, on_hand.get(product.id, 0), margin_of(r)))
+        PromotionProductResponse(**_product_row(r, product, on_hand.get(product.id, 0), margin_of(r), margin_of.low))
         for r, product in pairs
         if participating is None or r.is_active == participating
     ]
