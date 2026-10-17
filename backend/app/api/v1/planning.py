@@ -4,7 +4,7 @@ from datetime import date, timedelta
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,7 +34,7 @@ from app.schemas.planning import (
     SetupOptions,
     TemplateCodes,
 )
-from app.services import operation_import
+from app.services import audit, operation_import
 from app.services import planning as svc
 from app.services.auth import get_current_user
 from app.services.sync.finance import today_msk
@@ -338,11 +338,14 @@ async def _read_upload(file: UploadFile) -> bytes:
 
 @router.post("/operations/import", response_model=ImportResponse)
 async def import_operations(
+    request: Request,
     file: UploadFile = File(..., description="XLSX или CSV по шаблону: дата, приход / расход, счёт, статья"),
     dry_run: bool = Query(True, description="true — только предпросмотр, false — применить"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    if dry_run:
+        audit.not_a_change(request)
     content = await _read_upload(file)
     try:
         result = await operation_import.import_operations(
@@ -358,7 +361,7 @@ async def import_operations(
     )
 
 
-@router.post("/operations/import/errors", response_class=Response)
+@router.post("/operations/import/errors", response_class=Response, dependencies=[Depends(audit.read_only)])
 async def import_errors_file(
     file: UploadFile = File(..., description="Тот же файл, что загружали в /operations/import"),
     user: User = Depends(get_current_user),

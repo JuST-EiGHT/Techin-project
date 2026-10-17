@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    audit,
     auth,
     bank,
     bank_connections,
@@ -15,6 +16,7 @@ from app.api.v1 import (
     planning_rules,
     pnl,
     price,
+    prices,
     products,
     promotions,
     reports,
@@ -37,7 +39,9 @@ api_router.include_router(supply.router)
 api_router.include_router(finance.router)
 api_router.include_router(products.router)
 api_router.include_router(price.router)
+api_router.include_router(prices.router)
 api_router.include_router(promotions.router)
+api_router.include_router(audit.router)
 api_router.include_router(reports.router)
 api_router.include_router(settings.router)
 api_router.include_router(costs.router)

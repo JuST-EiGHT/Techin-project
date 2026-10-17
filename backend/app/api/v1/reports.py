@@ -24,6 +24,7 @@ from app.schemas.report import (
     ReportsPage,
     ReportUpdate,
 )
+from app.services import audit
 from app.services import reports as svc
 from app.services import bank as bank_svc
 from app.services.auth import get_current_user
@@ -114,7 +115,7 @@ async def _owned(db: AsyncSession, user: User, report_id: uuid.UUID, deleted: bo
     return report
 
 
-@router.post("/parse", response_model=ParsedReport)
+@router.post("/parse", response_model=ParsedReport, dependencies=[Depends(audit.read_only)])
 async def parse_report_file(
     file: UploadFile = File(..., description=FILE_DESCRIPTION),
     user: User = Depends(get_current_user),

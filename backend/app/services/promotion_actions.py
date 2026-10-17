@@ -20,7 +20,7 @@ POST /v1/actions/products/update, выход — POST /v2/actions/products/deact
 """
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import Request
@@ -38,25 +38,27 @@ from app.integrations.ozon.errors import (
     OzonTimeoutError,
 )
 from app.integrations.ozon.factory import get_ozon_client
-from app.models.audit import APPLIED, FAILED, REJECTED, UNKNOWN
+from app.models.audit import APPLIED, FAILED, PROMOTION_ENTITY, REJECTED, UNKNOWN
 from app.models.product import Product
 from app.models.promotion import Promotion, PromotionProduct
 from app.schemas.promotion import WHOLE_STOCK_WARNING
 from app.schemas.sync import utc
-from app.services import audit, pricing
+from app.services import audit, price_safety, pricing
 from app.services.stocks import latest_stocks
 from app.services.sync.finance import MSK
 from app.services.sync.parsing import to_id
 from app.services.sync.promotions import snapshot
 
 JOIN, UPDATE, LEAVE = "promotion.join", "promotion.update", "promotion.leave"
-ENTITY = "promotion_product"
+ENTITY = PROMOTION_ENTITY
 UPDATE_PATH = "/v1/actions/products/update"
 DEACTIVATE_PATH = "/v2/actions/products/deactivate"
-COST_FLOOR = Decimal("1.05")  # цена не ниже себестоимости × 1,05 (BUSINESS_LOGIC §8)
-PAUSE = timedelta(hours=1)  # пауза между изменениями одной пары товар × акция
+# лимиты §8 — общие с изменением цен (services/price_safety): себестоимость с НДС × 1,05, час между изменениями пары
+# товар × акция, комиссия от 90 % — ошибка данных
+COST_FLOOR = price_safety.COST_FLOOR
+PAUSE = price_safety.PAUSE
+SUSPICIOUS_COMMISSION_PCT = price_safety.ANOMALY_COMMISSION_PCT
 EXTREME_DISCOUNT_PCT = Decimal(70)  # Ozon помечает скидку больше 70 % как «слишком низкую цену»
-SUSPICIOUS_COMMISSION_PCT = Decimal(90)
 CENT = Decimal("0.01")
 
 
@@ -286,6 +288,12 @@ def _ozon_failure(exc: OzonAPIError) -> tuple[str, int, str]:
     return FAILED, 502, f"{exc.message}{detail}. В Ozon ничего не изменилось."
 
 
+def _record(db: AsyncSession, user_id: uuid.UUID, t: Target, action: str, status: str, preview: dict, **kw) -> None:
+    """Запись журнала о действии с парой товар × акция (данные до и после — из предпросмотра)."""
+    audit.record(db, user_id, action=action, entity_type=ENTITY, entity_id=t.entity_id, product_id=t.product.id,
+                 status=status, before=preview["before"], after=preview["after"], **kw)
+
+
 async def apply_join(
     db: AsyncSession, user_id: uuid.UUID, t: Target, action_price: Decimal | None, stock: int | None,
     accept_loss: bool, request: Request | None,
@@ -296,8 +304,7 @@ async def apply_join(
     if preview["needs_loss_ack"] and not accept_loss:
         errors.append("Цена в минус — подтвердите, что понимаете: каждая продажа будет убыточной.")
     if errors:
-        audit.record(db, user_id, action=action, entity_type=ENTITY, entity_id=t.entity_id, status=REJECTED,
-                     before=preview["before"], after=preview["after"], error=" ".join(errors), request=request)
+        _record(db, user_id, t, action, REJECTED, preview, error=" ".join(errors), request=request)
         await db.commit()
         raise ActionError(400, " ".join(errors))
 
@@ -311,10 +318,8 @@ async def apply_join(
         resp = await _call_ozon(db, user_id, UPDATE_PATH, body)
     except OzonAPIError as exc:
         status, code, text = _ozon_failure(exc)
-        audit.record(db, user_id, action=action, entity_type=ENTITY, entity_id=t.entity_id, status=status,
-                     before=preview["before"], after=preview["after"], ozon_request=req,
-                     ozon_response={"status_code": exc.status_code, "message": exc.ozon_message}, error=text,
-                     request=request)
+        _record(db, user_id, t, action, status, preview, ozon_request=req, error=text, request=request,
+                ozon_response={"status_code": exc.status_code, "message": exc.ozon_message})
         await db.commit()
         raise ActionError(code, text) from exc
 
@@ -324,9 +329,8 @@ async def apply_join(
         reason = _reason(resp.get("rejected"), pid) or _reason(resp.get("warnings"), pid)
         text = f"Ozon не {'добавил товар в акцию' if action == JOIN else 'изменил товар в акции'}" + (
             f": {reason}" if reason else ", причину не сообщил") + "."
-        audit.record(db, user_id, action=action, entity_type=ENTITY, entity_id=t.entity_id, status=REJECTED,
-                     before=preview["before"], after=preview["after"], ozon_request=req, ozon_response=resp,
-                     error=text, request=request)
+        _record(db, user_id, t, action, REJECTED, preview, ozon_request=req, ozon_response=resp, error=text,
+                request=request)
         await db.commit()
         raise ActionError(409, text)
 
@@ -352,8 +356,7 @@ async def apply_join(
         row.action_price, row.stock, row.margin_in_promo = price, preview["stock"], preview["margin"]
     snapshot(db, row, now)
     warn = [r for it in resp.get("warnings") or [] if isinstance(it, dict) and (r := str(it.get("reason") or "").strip())]
-    audit.record(db, user_id, action=action, entity_type=ENTITY, entity_id=t.entity_id, status=APPLIED,
-                 before=preview["before"], after=preview["after"], ozon_request=req, ozon_response=resp, request=request)
+    _record(db, user_id, t, action, APPLIED, preview, ozon_request=req, ozon_response=resp, request=request)
     await db.commit()
     message = (f"Товар добавлен в акцию по {rub(price)}" if action == JOIN else f"Цена в акции — {rub(price)}") + "."
     return {**preview, "applied": True, "warnings": preview["warnings"] + warn, "message": message}
@@ -363,8 +366,7 @@ async def apply_leave(db: AsyncSession, user_id: uuid.UUID, t: Target, request: 
     preview = await leave_preview(db, user_id, t)
     if preview["errors"]:
         text = " ".join(preview["errors"])
-        audit.record(db, user_id, action=LEAVE, entity_type=ENTITY, entity_id=t.entity_id, status=REJECTED,
-                     before=preview["before"], after=preview["after"], error=text, request=request)
+        _record(db, user_id, t, LEAVE, REJECTED, preview, error=text, request=request)
         await db.commit()
         raise ActionError(400, text)
     body = {"action_id": t.promo.ozon_action_id, "product_ids": [str(t.product.ozon_product_id)]}
@@ -373,22 +375,18 @@ async def apply_leave(db: AsyncSession, user_id: uuid.UUID, t: Target, request: 
         resp = await _call_ozon(db, user_id, DEACTIVATE_PATH, body)
     except OzonAPIError as exc:
         status, code, text = _ozon_failure(exc)
-        audit.record(db, user_id, action=LEAVE, entity_type=ENTITY, entity_id=t.entity_id, status=status,
-                     before=preview["before"], after=preview["after"], ozon_request=req,
-                     ozon_response={"status_code": exc.status_code, "message": exc.ozon_message}, error=text,
-                     request=request)
+        _record(db, user_id, t, LEAVE, status, preview, ozon_request=req, error=text, request=request,
+                ozon_response={"status_code": exc.status_code, "message": exc.ozon_message})
         await db.commit()
         raise ActionError(code, text) from exc
     if t.product.ozon_product_id not in _ids(resp.get("product_ids")):
         reason = _reason(resp.get("rejected"), t.product.ozon_product_id)
         text = "Ozon не убрал товар из акции" + (f": {reason}" if reason else ", причину не сообщил") + "."
-        audit.record(db, user_id, action=LEAVE, entity_type=ENTITY, entity_id=t.entity_id, status=REJECTED,
-                     before=preview["before"], after=preview["after"], ozon_request=req, ozon_response=resp,
-                     error=text, request=request)
+        _record(db, user_id, t, LEAVE, REJECTED, preview, ozon_request=req, ozon_response=resp, error=text,
+                request=request)
         await db.commit()
         raise ActionError(409, text)
     t.current.left_at = datetime.now(timezone.utc)  # строка остаётся — это история участия
-    audit.record(db, user_id, action=LEAVE, entity_type=ENTITY, entity_id=t.entity_id, status=APPLIED,
-                 before=preview["before"], after=preview["after"], ozon_request=req, ozon_response=resp, request=request)
+    _record(db, user_id, t, LEAVE, APPLIED, preview, ozon_request=req, ozon_response=resp, request=request)
     await db.commit()
     return {**preview, "applied": True, "message": "Товар убран из акции."}

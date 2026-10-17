@@ -1,7 +1,6 @@
 // Меню кабинета — один конфиг на шапку, мобильное меню и меню аккаунта (шаг 0.5).
 // Страница попадает сюда, только когда она сделана: новый шаг добавляет свой пункт.
-// Ещё появятся: Товары — история цен (6.4);
-// Меню аккаунта — уведомления (7.3), тариф (8.1).
+// Ещё появятся: меню аккаунта — уведомления (7.3), тариф (8.1).
 
 export type NavItem = { href: string; label: string; description?: string }
 export type NavSection = { label: string; href?: string; items?: NavItem[] }
@@ -20,6 +19,16 @@ export const NAV: NavSection[] = [
         href: '/dashboard/prices',
         label: 'Цены',
         description: 'Минимальная и целевая цена, маржа сейчас и в акции, что поднять',
+      },
+      {
+        href: '/dashboard/prices/bulk',
+        label: 'Цены списком',
+        description: 'Поменять цены многих товаров в Ozon: по стратегии или из Excel',
+      },
+      {
+        href: '/dashboard/prices/history',
+        label: 'История цен',
+        description: 'Что меняли, когда и чем закончилось; откат за 7 дней',
       },
     ],
   },

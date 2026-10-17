@@ -24,4 +24,5 @@ from app.models.planning import (  # noqa: F401
 )
 from app.models.bank import BankBalance, BankConnection, BankStatement, BankTransaction, MergeDismissal  # noqa: F401
 from app.models.audit import AuditLog  # noqa: F401
+from app.models.price_change import PriceChange  # noqa: F401
 from app.models.posting import Posting, PostingItem, PostingSync  # noqa: F401

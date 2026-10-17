@@ -120,3 +120,150 @@ export function fieldNumber(text: string): number | null {
   const t = text.replace(/\s/g, '').replace(',', '.')
   return t === '' ? null : Number(t)
 }
+
+// Изменение цены в Ozon (шаг 6.2): предпросмотр → применение по preview_id.
+export type PricePreview = {
+  preview_id: string
+  created_at: string
+  expires_at: string // после — не применить, нужен новый предпросмотр
+  can_apply: boolean
+  errors: string[] // блокируют
+  warnings: string[]
+  product: { id: string; offer_id: string; name: string | null }
+  price_before: string | null // сейчас в Ozon
+  price_after: string
+  old_price: string | null // зачёркнутая — сервис её не меняет
+  min_price_ozon: string | null
+  change_pct: string | null
+  change_rub: string | null
+  floor: string | null // ниже нельзя: себестоимость с НДС × 1,05
+  allowed_from: string | null // что можно за один раз
+  allowed_to: string | null
+  next_change_at: string | null
+  profit_before: string | null
+  profit_after: string | null
+  margin_before: string | null
+  margin_after: string | null
+  min_price: string | null // наша минимальная (без убытка)
+  target_price: string | null
+  margin_note: string | null
+  price_checked_at: string | null
+  price_fresh: boolean
+  reason: string | null
+  rollback_of?: { id: string; created_at: string; price_before: string | null; price_after: string | null } | null
+}
+
+export type PriceApplyResult = {
+  change_id: string
+  status: string
+  applied: boolean
+  price_before: string | null
+  price_after: string
+  warnings: string[]
+  message: string
+}
+
+// Массовое изменение цен (шаг 6.3).
+export type BulkWay = 'target_margin' | 'percent' | 'min_plus' | 'file'
+export type BulkGroup = 'ok' | 'warn' | 'blocked'
+
+export type BulkPreviewItem = {
+  preview_id: string
+  product: { id: string; offer_id: string; name: string | null }
+  group: BulkGroup
+  price_before: string | null
+  price_after: string | null // null — цену не посчитать
+  change_pct: string | null
+  note: string | null // «по стратегии — …, за один раз можно до …»
+  line: number | null // строка файла
+  errors: string[]
+  warnings: string[]
+  profit_before: string | null
+  profit_after: string | null
+  margin_before: string | null
+  margin_after: string | null
+}
+
+export type BulkPreview = {
+  batch_id: string | null // null — менять нечего
+  created_at: string
+  expires_at: string
+  description: string | null
+  strategy: string | null
+  price_fresh: boolean
+  warnings: string[]
+  counts: { ok: number; warn: number; blocked: number; unchanged: number; total: number }
+  items: BulkPreviewItem[]
+  file: { rows: number; unchanged: number; errors: { line: number; offer_id: string; message: string }[] } | null
+}
+
+export type BulkItemStatus = 'applied' | 'rejected' | 'failed' | 'unknown' | 'blocked' | 'queued' | 'sending' | 'not_applied'
+
+export type BulkStatus = {
+  batch_id: string
+  started: boolean
+  finished: boolean
+  total: number
+  counts: Record<BulkItemStatus, number>
+  batches: { no: number; size: number; state: 'waiting' | 'sending' | 'done'; applied: number; rejected: number; failed: number; unknown: number }[]
+  items: {
+    preview_id: string
+    product: { id: string; offer_id: string; name: string | null }
+    status: BulkItemStatus
+    price_before: string | null
+    price_after: string | null
+    batch_no: number | null
+    error: string | null
+  }[]
+  message: string | null
+}
+
+export const BULK_LIMIT = 500
+export const BULK_CONFIRM_ABOVE = 10
+export const BULK_WORD_ABOVE = 50
+export const BULK_WORD = 'ПОДТВЕРЖДАЮ'
+export const OZON_BATCH = 100
+
+// История изменений цен и откат (шаг 6.4).
+export type PriceChangeStatus = 'applied' | 'blocked' | 'rejected' | 'failed' | 'unknown' | 'queued'
+export type PriceChangeKind = 'single' | 'bulk' | 'rollback' | 'auto'
+
+export type PriceHistoryItem = {
+  id: string
+  created_at: string
+  product: { id: string; offer_id: string; name: string | null }
+  kind: PriceChangeKind
+  kind_title: string
+  reason: string | null
+  price_before: string | null
+  price_after: string | null
+  change_pct: string | null
+  status: PriceChangeStatus
+  status_title: string
+  error: string | null
+  warnings: string[]
+  batch_id: string | null
+  rollback_of: { id: string; created_at: string } | null
+  rolled_back_by: { id: string; created_at: string; status: string | null } | null
+  can_rollback: boolean
+  rollback_block: string | null
+}
+
+export type PriceHistoryPage = {
+  date_from: string
+  date_to: string
+  total: number
+  limit: number
+  offset: number
+  counts: Record<PriceChangeStatus | 'not_applied' | 'all', number>
+  items: PriceHistoryItem[]
+}
+
+export const CHANGE_STATUS_TONE: Record<PriceChangeStatus, 'ok' | 'warn' | 'muted' | 'bad'> = {
+  applied: 'ok',
+  unknown: 'warn',
+  queued: 'warn',
+  blocked: 'muted',
+  rejected: 'bad',
+  failed: 'bad',
+}

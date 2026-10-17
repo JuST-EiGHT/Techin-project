@@ -31,7 +31,7 @@ from app.schemas.promotion import (
     PromotionResponse,
 )
 from app.schemas.sync import utc
-from app.services import pricing
+from app.services import audit, pricing
 from app.services import promotion_actions as actions
 from app.services.promotion_history import MAX_DAYS
 from app.services.promotion_history import history as participation_history
@@ -252,6 +252,8 @@ async def join_promotion(
 ):
     """Добавить товар в акцию (или изменить его цену и количество в ней). Без confirm — предпросмотр: проверки, маржа,
     предупреждения; в Ozon не ходим. С confirm=true — те же проверки заново, запрос в Ozon, запись в журнал."""
+    if not data.confirm:
+        audit.not_a_change(request)  # предпросмотр ничего не меняет
     try:
         t = await actions.load_target(db, user.id, promotion_id, product_id)
         if not data.confirm:
@@ -271,6 +273,8 @@ async def leave_promotion(
     db: AsyncSession = Depends(get_db),
 ):
     """Убрать товар из акции. Без confirm — предпросмотр; с confirm=true — запрос в Ozon и запись в журнал."""
+    if not data.confirm:
+        audit.not_a_change(request)  # предпросмотр ничего не меняет
     try:
         t = await actions.load_target(db, user.id, promotion_id, product_id)
         if not data.confirm:

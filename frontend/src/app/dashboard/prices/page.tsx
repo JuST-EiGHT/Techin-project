@@ -1,6 +1,6 @@
 'use client'
 // Цены (шаг 4.2): цена, минимальная и целевая, маржа и маржа в акции по каждому товару; подсказки «что поднять».
-// Только расчёт — цены в Ozon здесь не меняются (это шаги 6.x).
+// Здесь только расчёт; цену в Ozon меняют в панели товара (6.2) и на странице «Цены списком» (6.3).
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
@@ -133,7 +133,11 @@ function Prices() {
       <div>
         <h1 className="text-2xl font-semibold">Цены</h1>
         <p className="mt-1 text-sm text-muted">
-          Минимальная цена — без прибыли и без убытка, целевая — с вашей маржой. Здесь только расчёт: цены в Ozon не меняются.
+          Минимальная цена — без прибыли и без убытка, целевая — с вашей маржой. Изменить цену в Ozon — в карточке товара (клик по
+          строке) или многих сразу:{' '}
+          <Link href="/dashboard/prices/bulk" className="text-accent hover:underline" data-testid="bulk-link">
+            Цены списком →
+          </Link>
         </p>
       </div>
       <FormError message={error} />

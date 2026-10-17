@@ -119,6 +119,9 @@ _FIELD_NAMES = {
     "supply_lead_time_days": "Дней в пути",
     "target_days": "Запас после поставки",
     "lead_time_days": "Дней в пути",
+    "action": "Действие",
+    "preview_id": "Предпросмотр",
+    "reason": "Комментарий",
 }
 
 
