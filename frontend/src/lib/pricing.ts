@@ -120,3 +120,44 @@ export function fieldNumber(text: string): number | null {
   const t = text.replace(/\s/g, '').replace(',', '.')
   return t === '' ? null : Number(t)
 }
+
+// Изменение цены в Ozon (шаг 6.2): предпросмотр → применение по preview_id.
+export type PricePreview = {
+  preview_id: string
+  created_at: string
+  expires_at: string // после — не применить, нужен новый предпросмотр
+  can_apply: boolean
+  errors: string[] // блокируют
+  warnings: string[]
+  product: { id: string; offer_id: string; name: string | null }
+  price_before: string | null // сейчас в Ozon
+  price_after: string
+  old_price: string | null // зачёркнутая — сервис её не меняет
+  min_price_ozon: string | null
+  change_pct: string | null
+  change_rub: string | null
+  floor: string | null // ниже нельзя: себестоимость с НДС × 1,05
+  allowed_from: string | null // что можно за один раз
+  allowed_to: string | null
+  next_change_at: string | null
+  profit_before: string | null
+  profit_after: string | null
+  margin_before: string | null
+  margin_after: string | null
+  min_price: string | null // наша минимальная (без убытка)
+  target_price: string | null
+  margin_note: string | null
+  price_checked_at: string | null
+  price_fresh: boolean
+  reason: string | null
+}
+
+export type PriceApplyResult = {
+  change_id: string
+  status: string
+  applied: boolean
+  price_before: string | null
+  price_after: string
+  warnings: string[]
+  message: string
+}

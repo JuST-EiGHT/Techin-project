@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Numeric, String, Text, Uuid
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Numeric, String, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -22,8 +22,9 @@ class PriceChange(Base):
     """Изменение цены (или минимальной цены) товара в Ozon через сервис — с шага 6.2; таблица — шаг 6.1.
 
     Цены «до» — что было в Ozon по последним данным в момент изменения, «после» — что отправили; не меняющееся поле —
-    пусто. is_dry_run / is_applied — быстрые признаки для отбора, точный итог — status. Откат (6.4) — новая запись
-    с rollback_of_id. Подробности запроса и ответа Ozon — в audit_log (entity_type product_price, entity_id — id
+    пусто. is_dry_run / is_applied — быстрые признаки для отбора, точный итог — status. Предпросмотр — запись со
+    status preview (живёт 15 минут), применение — новая запись с preview_id. Откат (6.4) — новая запись с
+    rollback_of_id. Подробности запроса и ответа Ozon — в audit_log (entity_type product_price, entity_id — id
     этой записи).
     """
 
@@ -31,6 +32,11 @@ class PriceChange(Base):
     __table_args__ = (
         Index("ix_price_changes_user_created", "user_id", "created_at"),
         Index("ix_price_changes_product_created", "product_id", "created_at"),
+        # один предпросмотр — одна попытка применения (защита от двойного нажатия и повтора запроса)
+        Index(
+            "uq_price_changes_preview", "preview_id", unique=True,
+            postgresql_where=text("preview_id IS NOT NULL"), sqlite_where=text("preview_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -51,3 +57,4 @@ class PriceChange(Base):
     warnings: Mapped[list | None] = mapped_column(JSON)
     error: Mapped[str | None] = mapped_column(Text)  # отказ или ошибка Ozon
     rollback_of_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("price_changes.id"))
+    preview_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("price_changes.id"))  # попытка ← предпросмотр

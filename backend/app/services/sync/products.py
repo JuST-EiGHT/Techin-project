@@ -93,7 +93,7 @@ def _product_attrs(list_item: dict, info: dict | None) -> dict[str, Any]:
     }
 
 
-def _price_attrs(item: dict) -> dict[str, Any]:
+def price_attrs(item: dict) -> dict[str, Any]:
     price = item.get("price") if isinstance(item.get("price"), dict) else {}
     commissions = item.get("commissions") if isinstance(item.get("commissions"), dict) else {}
     indexes = item.get("price_indexes") if isinstance(item.get("price_indexes"), dict) else {}
@@ -109,6 +109,16 @@ def _price_attrs(item: dict) -> dict[str, Any]:
         "auto_action_enabled": auto if isinstance(auto, bool) else None,
         "price_index": _str(indexes.get("color_index"), 32),
     }
+
+
+def changed_snapshot(
+    product_id: uuid.UUID, last: ProductPrice | None, attrs: dict[str, Any], now: datetime
+) -> ProductPrice | None:
+    """Новый снепшот цены, если поля отличаются от последнего сохранённого; иначе None (правило 12: изменение —
+    новая запись, без изменений — без записи)."""
+    if last is not None and all(_same(getattr(last, f), attrs[f]) for f in PRICE_FIELDS):
+        return None
+    return ProductPrice(product_id=product_id, snapshot_at=now, **attrs)
 
 
 def _same(a: Any, b: Any) -> bool:
@@ -219,10 +229,9 @@ async def sync_products(db: AsyncSession, user_id: uuid.UUID, client: OzonClient
                 product.synced_at = now
 
             if pid in prices:
-                price_attrs = _price_attrs(prices[pid])
                 last = last_prices.get(product.id)
-                if last is None or any(not _same(getattr(last, f), price_attrs[f]) for f in PRICE_FIELDS):
-                    db.add(ProductPrice(product_id=product.id, snapshot_at=now, **price_attrs))
+                if (snap := changed_snapshot(product.id, last, price_attrs(prices[pid]), now)) is not None:
+                    db.add(snap)
                     stats.price_snapshots += 1
                     changed = changed or last is not None
 

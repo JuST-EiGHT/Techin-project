@@ -10,7 +10,8 @@
 - изменение цены — не больше 20 % за раз (в ответе — диапазон, который можно сейчас);
 - новая цена и новая минимальная цена — не ниже себестоимости с НДС × 1,05; себестоимости нет — нельзя (правило 5);
 - минимальная цена ниже цены и не меньше 50 % от неё — иначе Ozon не примет (min_auto_price_too_small,
-  price_less_than_min_auto_price);
+  price_less_than_min_auto_price); новая цена ниже цены до скидки (зачёркнутой) — иначе Ozon не примет
+  (old_price_less_than_price); зачёркнутую сервис не меняет — решение владельца 17.10.2026, она меняется в кабинете Ozon;
 - пауза между изменениями одного товара — час (считаются применённые и те, где Ozon не ответил);
 - цена дальше 50 % от медианы за 30 дней (текущая — похоже на сбой данных, новая — цена «уехала» за несколько шагов):
   вручную — предупреждение, в автоправилах — блокировка (решение владельца 16.10.2026).
@@ -97,6 +98,7 @@ class PriceCheck:
     current_price: Decimal | None  # последний снимок Ozon; 0 — не задана
     new_min_price: Decimal | None = None
     current_min_price: Decimal | None = None
+    current_old_price: Decimal | None = None  # цена до скидки (зачёркнутая); 0 — не задана
     cost_with_vat: Decimal | None = None  # себестоимость на сегодня × НДС поставщика; None — не задана
     commission_pct: Decimal | None = None
     median_price: Decimal | None = None  # медиана цены по дням за 30 дней; None — мало данных
@@ -176,6 +178,8 @@ class PriceSafetyChecker:
             return r
 
         cur, cur_min = positive(c.current_price), positive(c.current_min_price)
+        old = positive(c.current_old_price)
+        ceiling = old - CENT if old is not None else None  # цена должна быть ниже зачёркнутой
         rb = c.rollback
         if cur is None:
             r.errors.append(NO_PRICE)
@@ -209,11 +213,17 @@ class PriceSafetyChecker:
             if rb is None and abs(pct) > MAX_CHANGE_PCT:
                 r.errors.append(
                     f"Изменение на {_pct(pct)} — больше {num(MAX_CHANGE_PCT)} % за раз (защита от опечаток). "
-                    + self._range_text(cur, r.floor)
+                    + self._range_text(cur, r.floor, ceiling)
                 )
             if r.floor is not None and new < r.floor:
                 r.errors.append(
                     f"Цена ниже себестоимости с НДС + 5 % ({rub(r.floor)}) — так нельзя, это защита от ошибки."
+                )
+            if old is not None and new >= old:
+                r.errors.append(
+                    f"Новая цена {rub(new)} не ниже цены до скидки ({rub(old)}, её покупатель видит зачёркнутой) — "
+                    f"Ozon такую не примет. Поставьте цену ниже {rub(old)} или сначала измените цену до скидки в "
+                    "кабинете Ozon."
                 )
             if med and _deviation(new, med) > MEDIAN_DEVIATION_PCT:
                 self._anomaly(r, (
@@ -249,22 +259,30 @@ class PriceSafetyChecker:
         if rb is not None:
             self._rollback(r, c, cur, cur_min)
         elif cur is not None:
-            r.allowed_from, r.allowed_to = self._range(cur, r.floor)
+            r.allowed_from, r.allowed_to = self._range(cur, r.floor, ceiling)
         return r
 
     @staticmethod
-    def _range(cur: Decimal, floor: Decimal | None) -> tuple[Decimal | None, Decimal | None]:
+    def _range(
+        cur: Decimal, floor: Decimal | None, ceiling: Decimal | None = None
+    ) -> tuple[Decimal | None, Decimal | None]:
+        """Какую цену можно поставить за один раз: ±20 %, не ниже floor и не выше ceiling."""
         share = MAX_CHANGE_PCT / 100
         lo = (cur * (1 - share)).quantize(CENT, ROUND_CEILING)
         hi = (cur * (1 + share)).quantize(CENT, ROUND_FLOOR)
         if floor is not None:
             lo = max(lo, floor)
+        if ceiling is not None:
+            hi = min(hi, ceiling)
         return (lo, hi) if lo <= hi else (None, None)
 
-    def _range_text(self, cur: Decimal, floor: Decimal | None) -> str:
-        lo, hi = self._range(cur, floor)
+    def _range_text(self, cur: Decimal, floor: Decimal | None, ceiling: Decimal | None) -> str:
+        lo, hi = self._range(cur, floor, ceiling)
         if lo is None:
-            return "Сейчас цену не поменять: даже +20 % ниже себестоимости с НДС + 5 %."
+            return (
+                "Сейчас цену за один раз не поменять: в пределах ±20 % нет цены не ниже себестоимости с НДС + 5 %"
+                + (" и ниже цены до скидки." if ceiling is not None else ".")
+            )
         return f"За один раз сейчас можно от {rub(lo)} до {rub(hi)}; дальше — следующим шагом, не раньше чем через час."
 
     def _rollback(self, r: SafetyResult, c: PriceCheck, cur: Decimal | None, cur_min: Decimal | None) -> None:
@@ -422,6 +440,7 @@ async def gather(
         out.append(PriceCheck(
             offer_id=p.product.offer_id, new_price=p.new_price, new_min_price=p.new_min_price,
             current_price=snap.price if snap else None, current_min_price=snap.min_price if snap else None,
+            current_old_price=snap.old_price if snap else None,
             cost_with_vat=cost, commission_pct=snap.commission_pct if snap else None,
             median_price=medians.get(p.product.id), last_change_at=last.get(p.product.id), rollback=p.rollback,
             product_id=p.product.id,

@@ -124,6 +124,19 @@ def test_min_price():
     assert check(current_min_price=D(0), new_price=D("850")).ok  # 0 = мин. цена не задана
 
 
+def test_below_old_price():
+    # Ozon не принимает цену не ниже зачёркнутой (old_price_less_than_price); зачёркнутую сервис не меняет
+    r = check(current_old_price=D("1150"), new_price=D("1150"))
+    assert has(r.errors, "не ниже цены до скидки (1 150,00 ₽") and has(r.errors, "в кабинете Ozon")
+    r = check(current_old_price=D("1150"), new_price=D("1100"))
+    assert r.ok and r.allowed_to == D("1149.99")  # диапазон «за один раз» — ниже зачёркнутой
+    assert check(current_old_price=D(0), new_price=D("1150")).ok  # 0 — зачёркнутой нет
+    r = check(current_old_price=D("1150"), new_price=D("1250"))
+    assert has(r.errors, "от 800,00 ₽ до 1 149,99 ₽")
+    r = check(current_old_price=D("700"), new_price=D("900"), current_price=D("690"), cost_with_vat=D("700"))
+    assert has(r.errors, "нет цены не ниже себестоимости с НДС + 5 % и ниже цены до скидки")
+
+
 def rollback(**kw) -> Rollback:
     """Изменение 1000 → 800 ₽ (−20 %) десять минут назад."""
     base = dict(change_id=uuid.uuid4(), created_at=NOW - timedelta(minutes=10), applied=True, is_rollback=False,

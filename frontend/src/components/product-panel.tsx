@@ -8,6 +8,7 @@ import { FormError } from '@/components/AuthForm'
 import { TipBox, useDrill, type Drill } from '@/components/charts'
 import { useTokenColors } from '@/components/finance'
 import { PriceCalcBlock } from '@/components/price-calc'
+import { PriceChangeModal } from '@/components/price-change'
 import { Badge, fmtDateTime, fmtDay, pctText, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { VAT_OPTIONS, costPath, since, toNumber, vatText } from '@/lib/costs'
@@ -20,7 +21,11 @@ const num = (v: string | null) => (v === null ? '—' : Number(v).toLocaleString
 export function ProductPanel({ productId, onClose, onChanged }: { productId: string; onClose: () => void; onChanged: () => void }) {
   const [data, setData] = useState<ProductDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [changing, setChanging] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
   const close = useRef<HTMLButtonElement>(null)
+  const modalOpen = useRef(false)
+  modalOpen.current = changing
 
   const load = useCallback(async () => {
     try {
@@ -33,12 +38,14 @@ export function ProductPanel({ productId, onClose, onChanged }: { productId: str
 
   useEffect(() => {
     setData(null)
+    setNotice(null)
     load()
   }, [load])
 
   useEffect(() => {
     close.current?.focus()
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    // Esc при открытом окне изменения цены закрывает только окно
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !modalOpen.current && onClose()
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
@@ -79,8 +86,16 @@ export function ProductPanel({ productId, onClose, onChanged }: { productId: str
           {data && item && (
             <>
               <IdLine data={data} />
+              {notice && (
+                <div className="flex items-start gap-3 rounded-lg bg-ok/10 px-3 py-2 text-sm" role="status" data-testid="price-notice">
+                  <span>{notice}</span>
+                  <button type="button" onClick={() => setNotice(null)} className="ml-auto text-muted hover:text-fg" aria-label="Скрыть">
+                    ✕
+                  </button>
+                </div>
+              )}
               <PriceCalcBlock productId={productId} refreshKey={data} />
-              <PriceBlock data={data} />
+              <PriceBlock data={data} onChange={() => setChanging(true)} />
               <StockBlock data={data} />
               <PromoBlock data={data} />
               <CostBlock
@@ -94,6 +109,19 @@ export function ProductPanel({ productId, onClose, onChanged }: { productId: str
           )}
         </div>
       </aside>
+      {changing && item && (
+        <PriceChangeModal
+          product={{ id: item.id, offer_id: item.offer_id, name: item.name }}
+          current={item.price}
+          onClose={() => setChanging(false)}
+          onDone={(message) => {
+            setChanging(false)
+            setNotice(message)
+            load()
+            onChanged()
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -135,11 +163,21 @@ function IdLine({ data }: { data: ProductDetail }) {
   )
 }
 
-function PriceBlock({ data }: { data: ProductDetail }) {
+function PriceBlock({ data, onChange }: { data: ProductDetail; onChange: () => void }) {
   const { item } = data
   const idx = item.price_index ? PRICE_INDEX[item.price_index] : null
   return (
-    <Section title="Цена" testid="panel-price">
+    <Section
+      title="Цена"
+      testid="panel-price"
+      more={
+        !item.is_archived && (
+          <button type="button" onClick={onChange} className="text-accent hover:underline" data-testid="price-change-open">
+            Изменить цену в Ozon
+          </button>
+        )
+      }
+    >
       <Row label="Цена">{rub(item.price)}</Row>
       {item.old_price && <Row label="До скидки (зачёркнутая)">{rub(item.old_price)}</Row>}
       {item.marketing_price && item.marketing_price !== item.price && <Row label="С вашими акциями">{rub(item.marketing_price)}</Row>}
