@@ -134,6 +134,9 @@ _FIELD_NAMES = {
     "anomaly_uncategorized_days": "Операции без статьи — дней",
     "severity": "Важность",
     "group": "Группа",
+    "quiet_from": "Тихие часы — с",
+    "quiet_to": "Тихие часы — до",
+    "timezone": "Часовой пояс",
 }
 
 

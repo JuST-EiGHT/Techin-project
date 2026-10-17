@@ -79,8 +79,16 @@ async def _bank_job(db: AsyncSession, user_id: uuid.UUID, connection_id: str | N
 
 async def _anomalies_job(db: AsyncSession, user_id: uuid.UUID) -> dict:
     from app.services.anomalies import detect  # поиск аномалий (шаг 7.1) читает почти все данные — импорт внутри
+    from app.services.notifier import after_detect
 
-    return await detect(db, user_id)
+    stats = await detect(db, user_id)
+    try:  # новые — в Telegram (шаг 7.3); сбой отправки не отменяет найденное
+        stats["telegram"] = await after_detect(db, user_id, stats["new_ids"])
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+        log.exception("Аномалии: уведомления в Telegram для %s не отправлены", user_id)
+        stats["telegram"] = {"error": "не отправлено"}
+    return stats
 
 
 JOBS: dict[str, Job] = {

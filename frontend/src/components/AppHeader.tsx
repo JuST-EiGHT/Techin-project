@@ -1,7 +1,7 @@
 'use client'
 
 // Шапка кабинета: разделы с выпадающими списками, статус синхронизации, уведомления (7.2), меню аккаунта.
-import { ChevronDown, KeyRound, LogOut, Menu, Settings, UserRound, X } from 'lucide-react'
+import { Bell, ChevronDown, KeyRound, LogOut, Menu, Settings, UserRound, X } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -18,6 +18,7 @@ const ACCOUNT_ICONS: Record<string, React.ComponentType<{ className?: string }>>
   '/dashboard/settings/account': UserRound,
   '/dashboard/settings/api-keys': KeyRound,
   '/dashboard/settings': Settings,
+  '/dashboard/settings/notifications': Bell,
 }
 
 /** Стрелки вверх/вниз по пунктам меню, Esc — закрыть и вернуть фокус на кнопку. */

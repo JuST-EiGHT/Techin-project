@@ -137,6 +137,10 @@ function Alerts() {
           {data?.checked_at ? `Последняя проверка — ${whenText(data.checked_at)}. ` : 'Проверок ещё не было. '}
           <Link href="/dashboard/settings#anomalies" className="text-accent hover:underline">
             Пороги — когда считать проблемой →
+          </Link>{' '}
+          ·{' '}
+          <Link href="/dashboard/settings/notifications" className="text-accent hover:underline" data-testid="alerts-telegram">
+            Получать в Telegram →
           </Link>
         </p>
       </div>

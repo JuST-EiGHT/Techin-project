@@ -1,6 +1,6 @@
 // Меню кабинета — один конфиг на шапку, мобильное меню и меню аккаунта (шаг 0.5).
 // Страница попадает сюда, только когда она сделана: новый шаг добавляет свой пункт.
-// Ещё появятся: меню аккаунта — настройки уведомлений в Telegram (7.3), тариф (8.1).
+// Ещё появятся: меню аккаунта — тариф (8.1).
 
 export type NavItem = { href: string; label: string; description?: string }
 export type NavSection = { label: string; href?: string; items?: NavItem[]; bellOnDesktop?: boolean }
@@ -97,6 +97,7 @@ export const ACCOUNT_MENU: NavItem[] = [
   { href: '/dashboard/settings/banks', label: 'Банки' },
   { href: '/dashboard/settings/taxes', label: 'Налоги и НДС' },
   { href: '/dashboard/settings', label: 'Основные настройки' },
+  { href: '/dashboard/settings/notifications', label: 'Уведомления' },
 ]
 
 const path = (href: string) => href.split('?')[0]

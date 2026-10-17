@@ -57,6 +57,19 @@ services:
     depends_on:
       redis: { condition: service_healthy }
     command: celery -A app.tasks.celery_app beat --loglevel=info --schedule /tmp/celerybeat-schedule
+  bot:
+    # Telegram-бот уведомлений (шаг 7.3): привязка чата по коду с сайта, /start /stop /status /test.
+    # Без TELEGRAM_BOT_TOKEN в .env выходит сразу и не перезапускается; уведомления об аномалиях шлёт worker
+    build: { context: ./backend, dockerfile: ../docker/backend/Dockerfile }
+    restart: on-failure
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ozon}:${POSTGRES_PASSWORD:-ozon_secret}@db:5432/${POSTGRES_DB:-ozon_analytics}
+      REDIS_URL: redis://redis:6379/0
+    volumes: [./backend:/app]
+    depends_on:
+      db: { condition: service_healthy }
+    command: python -m app.bot
   frontend:
     build: { context: ./frontend, dockerfile: ../docker/frontend/Dockerfile }
     restart: unless-stopped

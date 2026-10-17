@@ -204,6 +204,20 @@ def detect_anomalies_all() -> int:
     return queued
 
 
+async def _send_notifications() -> dict:
+    from app.services.notifier import send_due
+
+    async with task_sessions() as sessions, sessions() as db:
+        return await send_due(db)
+
+
+@celery_app.task(name="tasks.send_notifications")
+def send_notifications() -> dict:
+    """Уведомления в Telegram, которым пора (шаг 7.3): закончились тихие часы, повтор после сбоя сети или лимита
+    Telegram. Новые аномалии уходят сразу после поиска — здесь только отложенные."""
+    return asyncio.run(_send_notifications())
+
+
 # Задача Celery для каждого вида синхронизации — для ручного запуска из API
 FOR_USER_TASKS = {
     "products": sync_products_for_user,

@@ -30,6 +30,8 @@ celery_app.conf.update(
         "sync-postings-every-6h": {"task": "tasks.sync_postings_all", "schedule": crontab(minute=38, hour="*/6")},
         # аномалии (шаг 7.1): раз в час, после синхронизаций часа (товары :07, остатки :43, банки :52)
         "detect-anomalies-hourly": {"task": "tasks.detect_anomalies_all", "schedule": crontab(minute=57)},
+        # уведомления в Telegram, отложенные тихими часами или сбоем (шаг 7.3): каждые 5 минут
+        "send-notifications-every-5-min": {"task": "tasks.send_notifications", "schedule": crontab(minute="*/5")},
     },
 )
 
