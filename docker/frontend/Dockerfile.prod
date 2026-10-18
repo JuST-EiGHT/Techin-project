@@ -1,14 +1,26 @@
-FROM node:20-alpine AS builder
+# Прод-образ фронтенда (шаг 8.4): `next build` с output: 'standalone' — сервер Next (то же, что `next start`) без
+# исходников и dev-зависимостей. Версии пакетов — строго из package-lock.json (npm ci).
+FROM node:20-alpine AS deps
 WORKDIR /app
-COPY package.json ./
-RUN npm install
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# NEXT_PUBLIC_* вписываются в код браузера при сборке: Sentry фронта и версия
+ARG NEXT_PUBLIC_SENTRY_DSN=""
+ARG APP_VERSION=dev
+ENV NEXT_TELEMETRY_DISABLED=1 NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN NEXT_PUBLIC_APP_VERSION=$APP_VERSION
 RUN npm run build
+
 FROM node:20-alpine
 WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
+COPY --from=build --chown=node:node /app/public ./public
+COPY --from=build --chown=node:node /app/.next/standalone ./
+COPY --from=build --chown=node:node /app/.next/static ./.next/static
+USER node
 EXPOSE 3000
 CMD ["node", "server.js"]

@@ -7,6 +7,7 @@ import { Suspense, useState } from 'react'
 import { AuthCard, Field, FormError, SubmitButton } from '@/components/AuthForm'
 import { useAuth } from '@/contexts/AuthContext'
 import { errorMessage } from '@/lib/api'
+import { useRegistrationMode, type RegistrationMode } from '@/lib/registration'
 import { safeNext } from '@/lib/session'
 
 function LoginForm() {
@@ -48,19 +49,36 @@ function LoginForm() {
   )
 }
 
-export default function LoginPage() {
+// Подвал под формой — по режиму регистрации; почты пока нет (шаг 8.3a): забытый пароль сбрасывает администратор
+function Footer({ mode }: { mode: RegistrationMode | null }) {
   return (
-    <AuthCard
-      title="Вход"
-      footer={
+    <>
+      {mode === 'open' && (
         <>
           Нет аккаунта?{' '}
           <Link href="/register" className="text-accent">
             Зарегистрироваться
           </Link>
         </>
-      }
-    >
+      )}
+      {mode === 'invite' && (
+        <>
+          Есть приглашение?{' '}
+          <Link href="/register" className="text-accent">
+            Зарегистрироваться
+          </Link>
+        </>
+      )}
+      {mode === 'closed' && <>Нет аккаунта? Доступ выдаёт администратор сервиса.</>}
+      <span className="block mt-2 text-xs">Забыли пароль? Новый выдаёт администратор сервиса.</span>
+    </>
+  )
+}
+
+export default function LoginPage() {
+  const mode = useRegistrationMode()
+  return (
+    <AuthCard title="Вход" footer={<Footer mode={mode} />}>
       <Suspense>
         <LoginForm />
       </Suspense>

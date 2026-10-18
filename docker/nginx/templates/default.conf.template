@@ -1,0 +1,86 @@
+# Сайт (шаг 8.4). ${DOMAIN} подставляет образ nginx при старте (envsubst); переменные Nginx ($host и др.) не трогает.
+# HTTPS — сертификат Let's Encrypt (сервис certbot продлевает, Nginx перечитывает раз в 6 часов — reload-certs.sh).
+
+# Внутренний DNS Docker: адреса api и frontend меняются при пересоздании контейнеров (выкладка) — спрашиваем заново
+resolver 127.0.0.11 valid=10s ipv6=off;
+
+# Чужие имена и заход по IP — закрыть соединение без ответа
+server {
+  listen 80 default_server;
+  server_name _;
+  return 444;
+}
+server {
+  listen 443 ssl default_server;
+  server_name _;
+  ssl_reject_handshake on;
+}
+
+# HTTP: проверка Let's Encrypt и перенаправление на HTTPS
+server {
+  listen 80;
+  server_name ${DOMAIN};
+
+  location /.well-known/acme-challenge/ { root /var/www/certbot; }
+  location / { return 301 https://${DOMAIN}$request_uri; }
+}
+
+server {
+  listen 443 ssl;
+  http2 on;
+  server_name ${DOMAIN};
+
+  ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+  ssl_protocols TLSv1.2 TLSv1.3;
+  ssl_prefer_server_ciphers off;
+  ssl_session_cache shared:SSL:10m;
+  ssl_session_timeout 1d;
+  ssl_session_tickets off;
+
+  # Заголовки безопасности — на всех ответах (в location ниже своих add_header нет, поэтому они наследуются)
+  add_header Strict-Transport-Security "max-age=31536000" always;
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header X-Frame-Options "DENY" always;
+  add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+  add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()" always;
+  add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" always;
+
+  # Отчёты Ozon и выписки банка — до 10 МБ (REPORT_MAX_SIZE_MB); по умолчанию Nginx режет на 1 МБ
+  client_max_body_size 16m;
+
+  # Заголовки к API и серверу Next — только здесь: свой proxy_set_header в location отменил бы все эти
+  proxy_http_version 1.1;
+  proxy_set_header Host $host;
+  # Адрес посетителя: присланные браузером X-Forwarded-For и X-Real-IP перезаписываем — им верят лимит входа и журнал
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-For $remote_addr;
+  proxy_set_header X-Forwarded-Proto https;
+  proxy_set_header Upgrade $http_upgrade;
+  proxy_set_header Connection $connection_upgrade;
+  proxy_read_timeout 300s;  # массовое изменение цен идёт в Ozon пачками с паузами
+
+  # Проверка доступности (внешний мониторинг, scripts/deploy.sh): БД, Redis, версия
+  location = /health {
+    set $api http://api:8000;
+    proxy_pass $api;
+  }
+
+  location = /api/session/login {
+    limit_req zone=login burst=10 nodelay;
+    error_page 429 = @too_many;
+    set $frontend http://frontend:3000;
+    proxy_pass $frontend;
+  }
+
+  # API бэкенда снаружи не открыт: браузер ходит к нему только через сервер Next (/api/session/*)
+  location / {
+    set $frontend http://frontend:3000;
+    proxy_pass $frontend;
+  }
+
+  location @too_many {
+    default_type application/json;
+    return 429 '{"detail": "Слишком много попыток входа. Подождите минуту и попробуйте снова.", "code": 429}';
+  }
+}

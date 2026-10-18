@@ -1,5 +1,5 @@
 // Только для серверного кода (route handlers): обращение к FastAPI и работа с cookies токенов.
-import { NextResponse } from 'next/server'
+import { NextResponse, type NextRequest } from 'next/server'
 
 import { ACCESS_COOKIE, REFRESH_COOKIE } from '@/lib/session'
 
@@ -15,6 +15,17 @@ export function backendUrl(path: string): string {
 
 export function errorResponse(detail: string, code: number) {
   return NextResponse.json({ detail, code }, { status: code })
+}
+
+/** IP и браузер посетителя — бэкенду для журнала действий и лимита попыток входа (иначе он видит только адрес сервера
+ * Next). На сервере X-Real-IP и X-Forwarded-For ставит Nginx — адрес соединения, присланное браузером он перезаписывает. */
+export function clientHeaders(req: NextRequest): Record<string, string> {
+  const headers: Record<string, string> = {}
+  const ip = req.headers.get('x-real-ip') || req.headers.get('x-forwarded-for')?.split(',')[0].trim()
+  if (ip) headers['x-forwarded-for'] = ip
+  const agent = req.headers.get('user-agent')
+  if (agent) headers['user-agent'] = agent
+  return headers
 }
 
 /** fetch к бэкенду; если бэкенд недоступен — понятная ошибка 502, а не исключение. */

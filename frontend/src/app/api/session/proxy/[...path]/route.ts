@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 
-import { backendFetch, errorResponse, passThrough } from '@/lib/server/backend'
+import { backendFetch, clientHeaders, errorResponse, passThrough } from '@/lib/server/backend'
 import { ACCESS_COOKIE } from '@/lib/session'
 
 // Прокси браузер → бэкенд: /api/session/proxy/<путь> → <API>/api/v1/<путь>.
@@ -15,7 +15,7 @@ async function handle(req: NextRequest, { params }: { params: { path: string[] }
   const path = params.path.join('/')
   if (BLOCKED.has(path)) return errorResponse('Не найдено', 404)
 
-  const headers: Record<string, string> = {}
+  const headers: Record<string, string> = clientHeaders(req) // IP и браузер — в журнал действий
   const type = req.headers.get('content-type')
   if (type) headers['content-type'] = type
   const access = req.cookies.get(ACCESS_COOKIE)?.value

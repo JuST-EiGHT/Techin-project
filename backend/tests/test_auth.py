@@ -11,7 +11,7 @@ def auth(t):
 # ── health ──
 async def test_health(client):
     r = await client.get("/health")
-    assert r.status_code == 200 and r.json() == {"status": "ok"}
+    assert r.status_code in (200, 503) and r.json()["db"] == "ok"  # подробно — test_deploy.py
 
 
 # ── security primitives ──

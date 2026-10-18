@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
@@ -8,11 +9,18 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     full_name: str | None = Field(default=None, max_length=255)
+    invite_code: str | None = Field(default=None, max_length=64)  # REGISTRATION_MODE=invite (шаг 8.4)
 
     @field_validator("email")
     @classmethod
     def lower_email(cls, v: str) -> str:
         return v.lower()
+
+
+class RegistrationInfo(BaseModel):
+    """Кто может зарегистрироваться: closed — никто (аккаунт создаёт администратор), invite — по приглашению, open — любой."""
+
+    mode: Literal["closed", "invite", "open"]
 
 
 class UserLogin(BaseModel):

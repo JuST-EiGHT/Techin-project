@@ -1,5 +1,6 @@
 import './globals.css'
 
+import SentryInit from '@/components/SentryInit'
 import { AuthProvider } from '@/contexts/AuthContext'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { THEME_INIT_SCRIPT } from '@/lib/theme'
@@ -14,6 +15,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body>
+        <SentryInit />
         <AuthProvider>
           <ThemeProvider>{children}</ThemeProvider>
         </AuthProvider>

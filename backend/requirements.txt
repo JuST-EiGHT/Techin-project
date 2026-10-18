@@ -18,3 +18,4 @@ certifi==2026.7.22  # корни TLS для банков + сертификат 
 openpyxl==3.1.5
 pandas==2.2.3
 python-telegram-bot==22.8  # Telegram-бот и уведомления (шаг 7.3); httpx <0.29 — совместимо
+sentry-sdk==2.70.0  # ошибки API, воркера и бота в Sentry / GlitchTip (шаг 8.4); без SENTRY_DSN выключен
