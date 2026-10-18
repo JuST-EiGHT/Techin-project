@@ -96,6 +96,10 @@ export const INDEX_NOTE =
 
 export const MARGIN_TONE = { negative: 'text-bad', low: 'text-warn', ok: 'text-ok' } as const
 
+/** Цвет маржи, %: в минус — красным, ниже порога «низкой маржи» пользователя — жёлтым, выше — зелёным; нет — серым. */
+export const marginTone = (m: string | null, low: number) =>
+  m === null ? 'text-muted' : Number(m) < 0 ? MARGIN_TONE.negative : Number(m) < low ? MARGIN_TONE.low : MARGIN_TONE.ok
+
 export const QUICK_FILTERS: { value: QuickFilter; label: string; hint: string; count: keyof ProductsPage['counts'] }[] = [
   { value: 'negative', label: 'В минус', hint: 'Маржа при текущей цене ниже нуля', count: 'negative' },
   { value: 'low_stock', label: 'Мало остатков', hint: 'Запаса меньше порога «Мало» (по умолчанию 14 дней продаж)', count: 'low_stock' },

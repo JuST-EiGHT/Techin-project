@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useState } from 'react'
 
+import { AlertsWidget } from '@/components/alerts'
 import { RecentPriceChanges } from '@/components/price-history'
 import { FormError } from '@/components/AuthForm'
 import { Change, FigureLink, Hint, type OzonDashboard, RevenueChart } from '@/components/dashboard'
@@ -123,6 +124,7 @@ function Dashboard() {
                   {shown.compare_note}
                 </p>
               )}
+              <AlertsWidget />
               {shown.data_source !== 'none' && (
                 <RevenueChart
                   series={shown.series}

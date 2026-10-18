@@ -29,6 +29,15 @@ class Settings(BaseSettings):
 
     REPORT_MAX_SIZE_MB: int = 10  # предел размера загружаемого отчёта (промпт 2.2)
 
+    # Telegram-бот (шаг 7.3). Токен — только здесь (.env): не логируется и не возвращается в API. Пусто — уведомления в
+    # Telegram выключены, на сайте — колокольчик. Имя бота (без @) — для ссылки «Открыть бота» с кодом привязки.
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_BOT_USERNAME: str = ""
+    # Свой сервер Bot API (https://github.com/tdlib/telegram-bot-api) или фейк для проверки; пусто — api.telegram.org
+    TELEGRAM_API_URL: str = ""
+    # Адрес сайта для ссылок в уведомлениях («Открыть в Ozon Analytics»)
+    SITE_URL: str = "http://localhost:3000"
+
     # В .env задаётся строкой через запятую
     ALLOWED_ORIGINS: list[str] | str = ["http://localhost:3000", "http://127.0.0.1:3000"]
 

@@ -11,17 +11,13 @@ import { ProductPanel } from '@/components/product-panel'
 import { Badge, pctText, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { PRICE_FILTERS, type PriceFilter, type PriceRow, type PricesPage, type Suggestion, type Suggestions } from '@/lib/pricing'
-import { MARGIN_TONE } from '@/lib/products'
-import { useOnPriceSettingsChange } from '@/lib/settings'
+import { marginTone } from '@/lib/products'
+import { useLowMargin, useOnPriceSettingsChange } from '@/lib/settings'
 
 type Sort = 'offer_id' | 'price' | 'min_price' | 'target_price' | 'margin' | 'promo_margin'
 
 const PAGE = 50
 const ALL: PriceFilter[] = PRICE_FILTERS.map((f) => f.value)
-const LOW_MARGIN = 10 // как margin_level на бэкенде; станет настройкой в 7.1
-
-const tone = (m: string | null) =>
-  m === null ? 'text-muted' : Number(m) < 0 ? MARGIN_TONE.negative : Number(m) < LOW_MARGIN ? MARGIN_TONE.low : MARGIN_TONE.ok
 const num = (v: string) => Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 2 })
 
 export default function PricesRoute() {
@@ -315,6 +311,7 @@ function Prices() {
 const td = 'whitespace-nowrap px-3 py-2 text-right tabular-nums'
 
 function Row({ r, selected, onOpen }: { r: PriceRow; selected: boolean; onOpen: () => void }) {
+  const low = useLowMargin()
   const why = [...r.missing, ...r.errors].join(' ')
   return (
     <tr
@@ -338,14 +335,14 @@ function Row({ r, selected, onOpen }: { r: PriceRow; selected: boolean; onOpen: 
       <td className={`${td} ${r.below_target ? 'text-accent' : ''}`} title={r.errors.join(' ') || undefined}>
         {rub(r.target_price)}
       </td>
-      <td className={`${td} font-medium ${tone(r.margin)}`} data-testid="price-margin">
+      <td className={`${td} font-medium ${marginTone(r.margin, low)}`} data-testid="price-margin">
         {pctText(r.margin)}
         {r.unit_profit && <div className="text-[11px] font-normal">{rub(r.unit_profit)} с шт.</div>}
       </td>
       <td className={`${td} max-w-[11rem]`} title={r.promo ? `${r.promo.title}: ${rub(r.promo.action_price)}` : undefined}>
         {r.promo ? (
           <>
-            <div className={`font-medium ${tone(r.promo.margin)}`}>{pctText(r.promo.margin)}</div>
+            <div className={`font-medium ${marginTone(r.promo.margin, low)}`}>{pctText(r.promo.margin)}</div>
             <div className="truncate text-[11px] text-faint">
               {rub(r.promo.action_price)}
               {r.promo.count > 1 && ` · акций ${r.promo.count}`}

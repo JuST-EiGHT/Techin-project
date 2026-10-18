@@ -15,6 +15,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.engine import anomaly_detector
 from app.engine import price_calculator as calc
 from app.engine import products as engine
 from app.engine.promotions import margin_level
@@ -28,7 +29,7 @@ from app.services import pricing
 from app.services.sales import last_sales
 from app.services.stocks import avg_daily_sales, latest_stocks
 from app.services.sync.finance import MSK
-from app.services.user_settings import load_thresholds
+from app.services.user_settings import load_low_margin, load_thresholds
 
 MARGIN_NOTE = (
     "Маржа при текущей цене — как в калькуляторе цены: цена минус комиссия Ozon, эквайринг, реклама, логистика "
@@ -58,6 +59,7 @@ class Context:
     promos: dict[uuid.UUID, list[tuple[PromotionProduct, Promotion]]] = field(default_factory=dict)
     last_sale: dict[str, date] = field(default_factory=dict)
     thresholds: Thresholds = DEFAULT_THRESHOLDS  # пороги статуса остатка пользователя (шаг 5.1)
+    low_margin: Decimal = anomaly_detector.DEFAULT_THRESHOLDS.low_margin  # порог «низкой маржи» пользователя, % (7.1)
 
     @property
     def today(self) -> date:
@@ -90,6 +92,7 @@ async def load_context(db: AsyncSession, user_id: uuid.UUID, products: list[Prod
         promos=await pricing.current_promotions(db, user_id, one.id if one else None),
         last_sale=await last_sales(db, user_id, one.offer_id if one else None),
         thresholds=await load_thresholds(db, user_id),
+        low_margin=await load_low_margin(db, user_id),
     )
 
 
@@ -130,7 +133,7 @@ def build_row(ctx: Context, p: Product) -> dict:
         "days_of_supply": days_of_supply(stock, avg) if stock is not None else None,
         "stock_status": stock_status(stock, avg, ctx.thresholds) if stock is not None else None,
         "unit_profit": current.profit if current else None,
-        "margin": margin, "margin_level": margin_level(margin),
+        "margin": margin, "margin_level": margin_level(margin, ctx.low_margin),
         "price_index": engine.price_index_level(snap.price_index) if snap else None,
         "promotions": promos,
         "last_sale": ctx.last_sale.get(p.offer_id),

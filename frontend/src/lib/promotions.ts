@@ -95,15 +95,20 @@ export type ActionPreview = {
 
 export const MARGIN_TEXT: Record<MarginLevel, string> = { negative: 'text-bad', low: 'text-warn', ok: 'text-ok' }
 
-/** Вкладки страницы акции: маржа участвующих (порог 10 % — BUSINESS_LOGIC §7) и кандидаты. */
+/** Вкладки страницы акции: маржа участвующих (порог «низкой маржи» — настройка пользователя, по умолчанию 10 %,
+ * BUSINESS_LOGIC §7) и кандидаты. */
 export type PromoTab = 'ok' | 'low' | 'negative' | 'none' | 'candidates'
-export const PROMO_TABS: { value: PromoTab; label: string; hint: string }[] = [
-  { value: 'ok', label: 'Выгодные', hint: 'маржа в акции от 10 %' },
-  { value: 'low', label: 'Невыгодные', hint: 'маржа от 0 до 10 %' },
-  { value: 'negative', label: 'Убыточные', hint: 'каждая продажа в минус' },
-  { value: 'none', label: 'Без маржи', hint: 'нет себестоимости, комиссии или данных о логистике' },
-  { value: 'candidates', label: 'Можно добавить', hint: 'Ozon предлагает добавить эти товары' },
-]
+export const PROMO_TAB_VALUES: PromoTab[] = ['ok', 'low', 'negative', 'none', 'candidates']
+export function promoTabs(low: number): { value: PromoTab; label: string; hint: string }[] {
+  const pct = `${String(low).replace('.', ',')} %`
+  return [
+    { value: 'ok', label: 'Выгодные', hint: `маржа в акции от ${pct}` },
+    { value: 'low', label: 'Невыгодные', hint: `маржа от 0 до ${pct}` },
+    { value: 'negative', label: 'Убыточные', hint: 'каждая продажа в минус' },
+    { value: 'none', label: 'Без маржи', hint: 'нет себестоимости, комиссии или данных о логистике' },
+    { value: 'candidates', label: 'Можно добавить', hint: 'Ozon предлагает добавить эти товары' },
+  ]
+}
 
 export function tabOf(row: PromoProductRow): PromoTab {
   if (!row.is_active) return 'candidates'

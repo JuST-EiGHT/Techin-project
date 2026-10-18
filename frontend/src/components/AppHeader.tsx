@@ -1,13 +1,15 @@
 'use client'
 
-// Шапка кабинета: разделы с выпадающими списками, статус синхронизации, меню аккаунта.
-import { ChevronDown, KeyRound, LogOut, Menu, Settings, UserRound, X } from 'lucide-react'
+// Шапка кабинета: разделы с выпадающими списками, статус синхронизации, уведомления (7.2), меню аккаунта.
+import { Bell, ChevronDown, KeyRound, LogOut, Menu, Settings, UserRound, X } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { AlertBell } from '@/components/alerts'
 import { SyncStatus } from '@/components/SyncStatus'
 import { useAuth } from '@/contexts/AuthContext'
+import { useDismiss } from '@/hooks/useDismiss'
 import { ACCOUNT_MENU, NAV, type NavSection, sectionActive } from '@/lib/nav'
 
 const CLOSE_DELAY_MS = 150 // курсор ушёл с меню — закрыть не сразу, чтобы не мигало
@@ -16,20 +18,7 @@ const ACCOUNT_ICONS: Record<string, React.ComponentType<{ className?: string }>>
   '/dashboard/settings/account': UserRound,
   '/dashboard/settings/api-keys': KeyRound,
   '/dashboard/settings': Settings,
-}
-
-/** Закрытие выпадающего списка: клик мимо, Esc, переход на другую страницу. */
-function useDismiss(open: boolean, close: () => void, ref: React.RefObject<HTMLElement>) {
-  const pathname = usePathname()
-  useEffect(() => close(), [pathname, close])
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: PointerEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) close()
-    }
-    document.addEventListener('pointerdown', onDown)
-    return () => document.removeEventListener('pointerdown', onDown)
-  }, [open, close, ref])
+  '/dashboard/settings/notifications': Bell,
 }
 
 /** Стрелки вверх/вниз по пунктам меню, Esc — закрыть и вернуть фокус на кнопку. */
@@ -215,7 +204,7 @@ function AccountMenu({ onLogout, leaving }: { onLogout: () => void; leaving: boo
 
 function MobileNav({ pathname, onClose }: { pathname: string; onClose: () => void }) {
   return (
-    <nav className="border-b border-line bg-card px-4 py-3 md:hidden" data-testid="mobile-nav">
+    <nav className="border-b border-line bg-card px-4 py-3 lg:hidden" data-testid="mobile-nav">
       {NAV.map((section) =>
         section.href ? (
           <Link key={section.label} href={section.href} onClick={onClose} className={`block py-2 font-medium ${sectionActive(section, pathname) ? 'text-accent' : ''}`}>
@@ -246,7 +235,7 @@ export function AppHeader({ onLogout, leaving }: { onLogout: () => void; leaving
       <header className="flex items-center gap-4 border-b border-line px-4 py-3 md:px-6">
         <button
           type="button"
-          className="rounded-lg p-1.5 text-muted hover:text-fg md:hidden"
+          className="rounded-lg p-1.5 text-muted hover:text-fg lg:hidden"
           aria-label={mobileOpen ? 'Закрыть меню' : 'Открыть меню'}
           aria-expanded={mobileOpen}
           onClick={() => setMobileOpen((o) => !o)}
@@ -256,8 +245,8 @@ export function AppHeader({ onLogout, leaving }: { onLogout: () => void; leaving
         <Link href="/dashboard" className="font-semibold">
           Ozon Analytics
         </Link>
-        <nav className="hidden items-center gap-1 text-sm md:flex" aria-label="Разделы">
-          {NAV.map((section) =>
+        <nav className="hidden items-center gap-1 text-sm lg:flex" aria-label="Разделы">
+          {NAV.filter((section) => !section.bellOnDesktop).map((section) =>
             section.href ? (
               <Link
                 key={section.label}
@@ -274,7 +263,8 @@ export function AppHeader({ onLogout, leaving }: { onLogout: () => void; leaving
         <div className="ml-auto hidden sm:block">
           <SyncStatus />
         </div>
-        <div className="ml-auto sm:ml-0">
+        <div className="ml-auto flex items-center gap-2 sm:ml-0">
+          <AlertBell />
           <AccountMenu onLogout={onLogout} leaving={leaving} />
         </div>
       </header>

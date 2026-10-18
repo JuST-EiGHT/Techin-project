@@ -23,7 +23,23 @@ export type UserSettings = {
   // планирование поставок (шаг 5.2): запас после поставки, дней, и сколько дней поставка в пути
   supply_target_days: number
   supply_lead_time_days: number
+  // порог «низкой маржи», % (шаг 7.1): акции, товары, прибыль по товарам, цены, аномалия «маржа ниже порога»
+  low_margin_pct: string
+  // пороги аномалий (шаг 7.1, BUSINESS_LOGIC §7); дни запаса — пороги остатков выше
+  anomaly_sales_drop_pct: number
+  anomaly_sales_drop_red_pct: number
+  anomaly_sales_growth_pct: number
+  anomaly_price_pct: number
+  anomaly_price_red_pct: number
+  anomaly_commission_pp: string
+  anomaly_payout_diff_pct: number
+  anomaly_cash_gap_days: number
+  anomaly_uncategorized_days: number
+  anomaly_defaults: boolean // пороги аномалий и маржи — по умолчанию
 }
+
+/** Порог «низкой маржи» по умолчанию, % (BUSINESS_LOGIC §7). */
+export const DEFAULT_LOW_MARGIN = 10
 
 /** Как называется себестоимость с НДС в P&L (подпись приходит с бэкенда — это запасной вариант). */
 export const DEFAULT_COST_LABEL = 'Себестоимость с НДС'
@@ -44,7 +60,7 @@ export function loadSettings(userId: string): Promise<UserSettings> {
 
 export async function saveSettings(
   userId: string,
-  changes: Partial<Omit<UserSettings, 'cost_label' | 'price_defaults'>>,
+  changes: Partial<Omit<UserSettings, 'cost_label' | 'price_defaults' | 'anomaly_defaults'>>,
 ): Promise<UserSettings> {
   const { data } = await api.patch<UserSettings>('/settings', changes)
   cache = { userId, settings: Promise.resolve(data) }
@@ -74,6 +90,12 @@ export function useSettings(): UserSettings | null {
 /** «Себестоимость с НДС», «Долг поставщику» или «Себестоимость производства» — по «Откуда товар». */
 export function useCostLabel(): string {
   return useSettings()?.cost_label ?? DEFAULT_COST_LABEL
+}
+
+/** Порог «низкой маржи» пользователя, % («Основные настройки → Аномалии и порог маржи»): ниже — жёлтым, ниже нуля — красным. */
+export function useLowMargin(): number {
+  const value = useSettings()?.low_margin_pct
+  return value === undefined ? DEFAULT_LOW_MARGIN : Number(value)
 }
 
 /** Реклама или целевая маржа поменялись (например, сохранили в панели товара) — onChange: таблица пересчитает цены. */

@@ -61,6 +61,19 @@ class UserSettings(Base):
     # планирование поставок (шаг 5.2): запас после поставки, дней, и сколько дней везти; пусто — 45 и 7
     supply_target_days: Mapped[int | None] = mapped_column(Integer)
     supply_lead_time_days: Mapped[int | None] = mapped_column(Integer)
+    # порог «низкой маржи», % (шаг 7.1): акции, страница товаров, прибыль по товарам и аномалия «маржа ниже порога»;
+    # пусто — 10 % (engine/anomaly_detector.Thresholds)
+    low_margin_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    # пороги аномалий (шаг 7.1, BUSINESS_LOGIC §7); пусто — по умолчанию. Дни запаса — пороги остатков выше (5.1)
+    anomaly_sales_drop_pct: Mapped[int | None] = mapped_column(Integer)  # падение продаж: жёлтая, % (40)
+    anomaly_sales_drop_red_pct: Mapped[int | None] = mapped_column(Integer)  # красная, % (70)
+    anomaly_sales_growth_pct: Mapped[int | None] = mapped_column(Integer)  # рост продаж, % (200)
+    anomaly_price_pct: Mapped[int | None] = mapped_column(Integer)  # изменение цены: жёлтая, % (10)
+    anomaly_price_red_pct: Mapped[int | None] = mapped_column(Integer)  # красная, % (30)
+    anomaly_commission_pp: Mapped[Decimal | None] = mapped_column(Numeric(4, 1))  # изменение комиссии, п. п. (2)
+    anomaly_payout_diff_pct: Mapped[int | None] = mapped_column(Integer)  # выплата разошлась с прогнозом, % (10)
+    anomaly_cash_gap_days: Mapped[int | None] = mapped_column(Integer)  # кассовый разрыв: смотрим вперёд, дней (14)
+    anomaly_uncategorized_days: Mapped[int | None] = mapped_column(Integer)  # операция без статьи дольше, дней (7)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

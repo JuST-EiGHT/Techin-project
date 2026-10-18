@@ -38,7 +38,9 @@ def load(name: str) -> dict:
 
 # ── расчёты ──
 def test_margin_level_and_whole_stock():
-    assert [margin_level(m) for m in (None, Decimal("-0.01"), Decimal("9.99"), Decimal("10"))] == [None, "negative", "low", "ok"]
+    assert [margin_level(m, Decimal(10)) for m in (None, Decimal("-0.01"), Decimal("9.99"), Decimal("10"))] == [
+        None, "negative", "low", "ok"]
+    assert margin_level(Decimal("12"), Decimal(15)) == "low"  # порог — настройка пользователя (шаг 7.1)
     assert is_whole_stock("Скидка на сток", "DISCOUNT") and is_whole_stock("Акция", "ELASTIC_BOOSTING")
     assert is_whole_stock("ЭЛАСТИЧНЫЙ БУСТИНГ x2", None) and not is_whole_stock("Осенняя распродажа", "DISCOUNT")
 
@@ -363,6 +365,10 @@ async def test_api_margin_is_fresh(sessions, client, tokens, ozon):
     data = (await client.get(url, headers=auth(tokens))).json()
     assert data["items"][0]["margin_in_promo"] == "3.84" and data["items"][0]["margin_level"] == "low"
     assert data["promotion"]["min_margin"] == "3.84"
+    # порог «низкой маржи» — настройка пользователя (шаг 7.1): при 3 % маржа 3,84 % — выгодная
+    await client.patch("/api/v1/settings", json={"low_margin_pct": "3"}, headers=auth(tokens))
+    data = (await client.get(url, headers=auth(tokens))).json()
+    assert data["items"][0]["margin_level"] == "ok" and data["promotion"]["profitable"] == 1
     # реклама 5 % от цены: 17,615 − 459 × 5 % = −5,335 ₽ → −1,16 %
     await client.patch("/api/v1/settings", json={"price_ad_pct": "5"}, headers=auth(tokens))
     data = (await client.get(url, headers=auth(tokens))).json()

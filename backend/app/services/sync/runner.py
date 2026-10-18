@@ -5,7 +5,8 @@
 запуск через STALE_AFTER считается проваленным и не блокирует новые.
 Ошибки Ozon и любые другие записываются в run.error и наружу не пробрасываются:
 сбой у одного пользователя не мешает остальным.
-Банк по API (шаг 3.12, kind="bank") — тот же журнал, но без клиента Ozon: токены банков — в подключениях.
+Банк по API (шаг 3.12, kind="bank") — тот же журнал, но без клиента Ozon: токены банков — в подключениях. Поиск
+аномалий (шаг 7.1, kind="anomalies") — тоже без клиента: только данные, уже загруженные в сервис.
 """
 import logging
 import uuid
@@ -76,6 +77,20 @@ async def _bank_job(db: AsyncSession, user_id: uuid.UUID, connection_id: str | N
     return await sync_user(db, user_id, connection_id)
 
 
+async def _anomalies_job(db: AsyncSession, user_id: uuid.UUID) -> dict:
+    from app.services.anomalies import detect  # поиск аномалий (шаг 7.1) читает почти все данные — импорт внутри
+    from app.services.notifier import after_detect
+
+    stats = await detect(db, user_id)
+    try:  # новые — в Telegram (шаг 7.3); сбой отправки не отменяет найденное
+        stats["telegram"] = await after_detect(db, user_id, stats["new_ids"])
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+        log.exception("Аномалии: уведомления в Telegram для %s не отправлены", user_id)
+        stats["telegram"] = {"error": "не отправлено"}
+    return stats
+
+
 JOBS: dict[str, Job] = {
     "products": _products_job,
     "stocks": _stocks_job,
@@ -84,8 +99,9 @@ JOBS: dict[str, Job] = {
     "balance": _balance_job,
     "bank": _bank_job,
     "postings": _postings_job,
+    "anomalies": _anomalies_job,
 }
-NO_OZON_CLIENT = {"bank"}  # задачи, которым клиент Ozon не нужен
+NO_OZON_CLIENT = {"bank", "anomalies"}  # задачи, которым клиент Ozon не нужен
 
 
 class SyncAlreadyRunning(Exception):

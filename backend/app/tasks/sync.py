@@ -169,6 +169,55 @@ def sync_bank_all() -> int:
     return queued
 
 
+@celery_app.task(name="tasks.detect_anomalies_for_user")
+def detect_anomalies_for_user(user_id: str, run_id: str | None = None) -> dict:
+    """Поиск аномалий (шаг 7.1): новые — записи, прошедшие — закрываются."""
+    return asyncio.run(_sync_for_user("anomalies", user_id, run_id))
+
+
+async def users_for_anomalies(db: AsyncSession) -> list[uuid.UUID]:
+    """Кому искать аномалии: действующий ключ Ozon или включённое «Планирование» (денежные проверки — без Ozon)."""
+    from app.models.planning import PlanningSettings
+
+    planning = await db.execute(
+        select(PlanningSettings.user_id).join(User, User.id == PlanningSettings.user_id)
+        .where(User.is_active.is_(True), PlanningSettings.enabled.is_(True))
+    )
+    return sorted(set(await users_with_active_keys(db)) | set(planning.scalars()), key=str)
+
+
+async def _anomaly_users() -> list[uuid.UUID]:
+    async with task_sessions() as sessions, sessions() as db:
+        return await users_for_anomalies(db)
+
+
+@celery_app.task(name="tasks.detect_anomalies_all")
+def detect_anomalies_all() -> int:
+    """По расписанию, раз в час — каждому пользователю своя задача: сбой у одного не влияет на остальных."""
+    queued = 0
+    for user_id in asyncio.run(_anomaly_users()):
+        try:
+            detect_anomalies_for_user.delay(str(user_id))
+            queued += 1
+        except Exception:  # noqa: BLE001
+            log.exception("Не удалось поставить поиск аномалий в очередь для %s", user_id)
+    return queued
+
+
+async def _send_notifications() -> dict:
+    from app.services.notifier import send_due
+
+    async with task_sessions() as sessions, sessions() as db:
+        return await send_due(db)
+
+
+@celery_app.task(name="tasks.send_notifications")
+def send_notifications() -> dict:
+    """Уведомления в Telegram, которым пора (шаг 7.3): закончились тихие часы, повтор после сбоя сети или лимита
+    Telegram. Новые аномалии уходят сразу после поиска — здесь только отложенные."""
+    return asyncio.run(_send_notifications())
+
+
 # Задача Celery для каждого вида синхронизации — для ручного запуска из API
 FOR_USER_TASKS = {
     "products": sync_products_for_user,
@@ -178,4 +227,5 @@ FOR_USER_TASKS = {
     "balance": sync_balance_for_user,
     "bank": sync_bank_for_user,
     "postings": sync_postings_for_user,
+    "anomalies": detect_anomalies_for_user,
 }
