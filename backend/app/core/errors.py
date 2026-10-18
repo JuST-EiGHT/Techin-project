@@ -15,6 +15,7 @@ _FIELD_NAMES = {
     "email": "Email",
     "password": "Пароль",
     "full_name": "Имя",
+    "invite_code": "Код приглашения",
     "refresh_token": "Refresh-токен",
     "label": "Название",
     "client_id": "Client-Id",

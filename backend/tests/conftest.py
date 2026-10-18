@@ -6,6 +6,7 @@ os.environ["REDIS_URL"] = "redis://127.0.0.1:1/0"  # недоступен → in
 os.environ["SECRET_KEY"] = "test-secret"
 os.environ["ENCRYPTION_KEY"] = "q0bQ3jZ8m0kVq1z5c3k1m4yJgk1aB8tXz9tq2v6l1hE="  # тестовый Fernet-ключ
 os.environ["OZON_API_URL"] = "https://ozon.test"
+os.environ["REGISTRATION_MODE"] = "open"  # тесты регистрируют пользователей; закрытые режимы — test_deploy.py
 
 import pytest  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
@@ -16,6 +17,7 @@ import app.models  # noqa: E402,F401
 from app.db.base import Base  # noqa: E402
 from app.db.session import get_db  # noqa: E402
 from app.main import app  # noqa: E402
+from app.services.login_limit import counters as login_counters  # noqa: E402
 from app.services.pnl_cache import cache as pnl_cache  # noqa: E402
 from app.services.token_blacklist import blacklist  # noqa: E402
 
@@ -44,6 +46,12 @@ async def client(sessions):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def fresh_login_limits():
+    """Счётчики попыток входа — в памяти процесса (Redis в тестах нет): каждый тест начинает с нуля."""
+    login_counters.clear_memory()
 
 
 @pytest.fixture(autouse=True)

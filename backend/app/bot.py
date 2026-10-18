@@ -15,6 +15,7 @@ from telegram.error import TelegramError
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from app.core.config import settings
+from app.core.monitoring import init_sentry
 from app.integrations.telegram import NO_PREVIEW, configured, protect_logs, redact
 from app.services import telegram_bot as commands
 
@@ -106,6 +107,7 @@ def main() -> int:
     if not configured():
         log.warning("TELEGRAM_BOT_TOKEN не задан — бот не запущен (уведомления только на сайте)")
         return 0
+    init_sentry("bot")
     try:
         build(settings.TELEGRAM_BOT_TOKEN).run_polling(allowed_updates=["message"])
     except TelegramError as e:  # например, токен не принят — текст ошибки PTB содержит токен

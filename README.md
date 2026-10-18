@@ -12,13 +12,17 @@ cp .env.example .env          # задать SECRET_KEY и пароли
 docker compose up --build
 ```
 
-Миграции применяются автоматически при старте контейнера `api`.
+Миграции применяются автоматически при старте контейнера `api`. При разработке регистрация открыта
+(`REGISTRATION_MODE=open` в `.env`).
+
+**Сервер (прод):** `README-DEPLOY.md` — какой сервер выбрать, домен, установка (`scripts/setup.sh`), первый пользователь
+(`scripts/admin.sh`), бэкапы, обновление (`scripts/deploy.sh`), что делать, если сайт не открывается.
 
 | Сервис | Адрес |
 |---|---|
 | Frontend | http://localhost:3000 |
 | API | http://localhost:8000 |
-| Документация API (Swagger) | http://localhost:8000/docs |
+| Документация API (Swagger, только при разработке) | http://localhost:8000/docs |
 | Health | http://localhost:8000/health |
 
 ## Авторизация (шаг 0.2)

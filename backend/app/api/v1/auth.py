@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -12,6 +12,7 @@ from app.schemas.user import (
     PasswordChange,
     ProfileUpdate,
     RefreshRequest,
+    RegistrationInfo,
     Token,
     UserCreate,
     UserLogin,
@@ -31,6 +32,8 @@ from app.services.auth import (
     utcnow,
     verify_password,
 )
+from app.services import login_limit, registration
+from app.services.audit import client_info
 from app.services.token_blacklist import blacklist
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -44,21 +47,55 @@ def _issue_tokens(user_id: uuid.UUID) -> Token:
     )
 
 
+def _too_many(seconds: int, what: str = "входа") -> HTTPException:
+    return HTTPException(
+        status.HTTP_429_TOO_MANY_REQUESTS, login_limit.wait_message(seconds, what), headers={"Retry-After": str(seconds)}
+    )
+
+
+@router.get("/registration", response_model=RegistrationInfo)
+async def registration_info():
+    """Режим регистрации — страницы входа и регистрации показывают ссылку, поле кода приглашения или «закрыто»."""
+    return RegistrationInfo(mode=settings.registration_mode)
+
+
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
+async def register(data: UserCreate, request: Request, db: AsyncSession = Depends(get_db)):
+    mode = settings.registration_mode
+    if mode == registration.CLOSED:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, registration.CLOSED_MESSAGE)
+    invite = None
+    if mode == registration.INVITE:
+        ip, _ = client_info(request)
+        if wait := await login_limit.invite_wait(ip):
+            raise _too_many(wait, "ввода кода приглашения")
+        try:
+            invite = await registration.check_invite(db, data.invite_code, data.email)
+        except registration.InviteError as e:
+            await login_limit.invite_failed(ip)
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
     if await crud_user.get_user_by_email(db, data.email):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Пользователь с таким email уже зарегистрирован")
-    return await crud_user.create_user(db, data)
+    try:
+        return await registration.register(db, data, invite)
+    except registration.InviteError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
 
 
 @router.post("/login", response_model=Token)
-async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
+async def login(data: UserLogin, request: Request, db: AsyncSession = Depends(get_db)):
+    ip, _ = client_info(request)
+    # Сверх лимита неудачных попыток пароль не проверяем вовсе — подбор упирается в окно
+    if wait := await login_limit.login_wait(data.email, ip):
+        raise _too_many(wait)
     user = await crud_user.get_user_by_email(db, data.email)
     # Одинаковый ответ для «нет пользователя» и «неверный пароль» — не раскрываем, какие email зарегистрированы
     if user is None or not verify_password(data.password, user.hashed_password):
+        await login_limit.login_failed(data.email, ip)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Неверный email или пароль")
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Аккаунт деактивирован")
+    await login_limit.login_succeeded(data.email, ip)
     return _issue_tokens(user.id)
 
 

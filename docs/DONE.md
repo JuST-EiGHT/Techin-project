@@ -1438,3 +1438,95 @@ API и бота (`python -m app.bot`) на Postgres, Playwright, 18 провер
 ждёт, после выключения тихих часов — уходит со ссылкой на сайт; `/stop` в чате; токена нет ни в одном ответе сайта, ни в журналах
 API и бота. Сквозная проверка нашла и исправила: выключение тихих часов не отпускало ждущие сообщения. **С настоящим Telegram не
 проверено**: `TELEGRAM_BOT_TOKEN` в среде нет (api.telegram.org из облачной среды отвечает).
+
+## 8.4 — Деплой на сервер (прод-сборка, закрытая регистрация, команды администратора, HTTPS, бэкапы, Sentry)
+
+Инструкция владельцу — `README-DEPLOY.md` (выбор сервера в РФ и 152-ФЗ, домен и DNS, deploy key GitHub, установка,
+первый пользователь, Telegram, хранилище копий, Sentry и UptimeRobot, обновление, «если сайт не открывается»). Сервер
+покупает и запускает владелец: из облачной среды доступа к нему нет — всё остальное собрано и проверено здесь на той же
+прод-сборке (ниже).
+
+Бэкенд. Настройки (`core/config.py`): `REGISTRATION_MODE` closed | invite | open (не задан: на сервере — closed, при разработке — open; в
+`.env.prod.example` — invite, в `.env.example` — open), `INVITE_DAYS` (7), лимиты входа
+`LOGIN_MAX_ATTEMPTS` (5 на пару IP + email), `LOGIN_MAX_ATTEMPTS_PER_IP` (20), `LOGIN_WINDOW_MINUTES` (15),
+`INVITE_MAX_ATTEMPTS_PER_IP` (10 в час), `SENTRY_DSN`, `APP_VERSION` (коммит, ставит deploy.sh); `production_problems()` —
+в проде API не стартует с SECRET_KEY по умолчанию или короче 32 символов, DEBUG, SITE_URL / ALLOWED_ORIGINS без https.
+`main.create_app()`: в проде `/docs`, `/redoc`, `/openapi.json` — 404; `/health` проверяет БД и Redis (3 с на проверку),
+503 при сбое, отдаёт версию.
+Миграция 0029: `invites` (sha256 кода, последние 4 знака, email — если приглашение именное, для кого, срок, использовано —
+когда и кем, отозвано; записи не удаляются). `services/registration.py`: код — 16 знаков без похожих (80 бит) группами по 4,
+регистр, пробелы и дефисы не важны; `check_invite` — понятные причины отказа (не найден, использовано, отозвано, истекло,
+другой email); `register` — пользователь и «использовано» одной транзакцией (одно приглашение — один аккаунт и при гонке).
+`services/login_limit.py`: счётчики с окном в Redis (общие для процессов uvicorn), без Redis — память; сверх лимита — 429
+«Попробуйте через N мин.» и Retry-After, пароль не проверяется; удачный вход обнуляет пару; IP — первый X-Forwarded-For.
+API: GET `/auth/registration` → `{mode}`; POST `/auth/register` — closed → 403, invite → `invite_code` обязателен (400 с
+причиной, неверные коды — лимит по IP).
+`app/admin.py` (`python -m app.admin`, на сервере `scripts/admin.sh`): `create-user` (пароль случайный 16 знаков или
+`--ask`, `is_verified`), `reset-password` (новый пароль, `tokens_valid_after` — выход везде, снимает блокировку входа),
+`invite` (код и ссылка `SITE_URL/register?invite=…`, `--email`, `--note`, `--days`; предупреждает, если режим не invite),
+`invites [--all]`, `revoke-invite` (id или код), `users`, `deactivate` / `activate`, `unblock`; действия с пользователем —
+в `audit_log` (`admin.*`, user_agent `admin-cli`).
+`core/monitoring.init_sentry` (sentry-sdk 2.70.0) — API, воркер и beat (`celery_app`), бот: без IP, cookies, заголовков,
+тел запросов и значений переменных в трассировке, токен бота вырезается из события и «хлебных крошек».
+
+Фронт. `lib/registration.ts` (`useRegistrationMode`): «Регистрация» — closed: «Регистрация закрыта» и «Войти»; invite: поле
+«Код приглашения» с пояснением (код из `?invite=` уже вписан); вход — «Есть приглашение? / Нет аккаунта? Доступ выдаёт
+администратор» и «Забыли пароль? Новый выдаёт администратор»; на главной кнопка регистрации — по режиму.
+`lib/server/backend.clientHeaders` — IP (X-Real-IP от Nginx) и User-Agent посетителя уходят в бэкенд из входа и прокси:
+лимит входа и журнал действий видят настоящий адрес (раньше — адрес сервера Next). Sentry фронта — `@sentry/browser`
+10.75.3, грузится только при `NEXT_PUBLIC_SENTRY_DSN` (вписывается при сборке), код приглашения из адреса вырезается;
+`app/error.tsx` и `app/global-error.tsx` — понятная страница ошибки и отправка в Sentry. `next.config.js` — без
+X-Powered-By.
+
+Прод-сборка. `docker-compose.prod.yml` (проект `ozon-analytics`): один образ бэкенда `ozon-analytics/backend:<версия>` на
+api (uvicorn ×2, без reload и server-заголовка), worker (concurrency 2, max-tasks-per-child), beat, bot (`on-failure` — без
+токена выходит), фронт (`next build` standalone, `npm ci` по lock-файлу, без секретов в окружении), Nginx, certbot (продление
+дважды в сутки), backup; лимиты памяти, healthcheck (api — `/health`, worker — `celery inspect ping`, фронт — `/login`),
+журналы json-file 5 × 10 МБ, Redis с appendonly (отозванные токены переживают перезапуск); наружу — только 80 и 443.
+Dockerfile бэкенда — двухэтапный (компилятор только при сборке), пользователь `appuser`; `.dockerignore`. Миграции — не при
+старте контейнера, а шагом выкладки. `.env.prod.example` — все переменные с пояснениями.
+Nginx (`docker/nginx`): шаблон с `${DOMAIN}` (envsubst только DOMAIN), 80 → 443 кроме `/.well-known/acme-challenge/`,
+TLS 1.2/1.3, HSTS, nosniff, X-Frame-Options DENY, Referrer-Policy, Permissions-Policy, CSP, `server_tokens off`, gzip,
+`client_max_body_size 16m`, чужие имена и заход по IP — закрыть соединение (444 / `ssl_reject_handshake`), `resolver
+127.0.0.11` (адреса контейнеров меняются при выкладке), X-Real-IP / X-Forwarded-For перезаписываются адресом соединения,
+вход — 10 запросов в минуту с IP (429 JSON по-русски); API бэкенда наружу не открыт — только `/health`; перечитывание
+сертификата раз в 6 часов (`reload-certs.sh`).
+Скрипты: `scripts/setup.sh` (Docker из пакетов Ubuntu или get.docker.com, зеркало Docker Hub mirror.gcr.io и ротация
+журналов, swap 2 ГБ, ufw — SSH / 80 / 443, fail2ban, автообновления; `.env.prod` с секретами — SECRET_KEY, Fernet-ключ,
+пароль БД; проверка A-записи домена; сертификат certbot `--standalone`; `--self-signed` и `--no-system` — для проверки);
+`scripts/deploy.sh` (git pull --ff-only → сборка с тегом коммита → копия `predeploy` → `alembic upgrade` → `up -d` и перезапуск
+Nginx → `/health` с нужной версией и `/login` через Nginx и HTTPS за 180 с; иначе откат: `alembic downgrade` до прежней
+ревизии новым кодом, `git reset` на прежний коммит, прежние образы; сборка или миграция не прошли — сайт не трогается;
+хранит текущую и прошлую версии образов; тело в `{ … }` — git pull не ломает выполняющийся скрипт); `scripts/compose.sh`
+(compose с `.env.prod` и версией из `.deploy/version`), `scripts/admin.sh`, `scripts/restore.sh` (список копий, «ВОССТАНОВИТЬ»,
+копия текущей БД, остановка пишущих сервисов, восстановление, миграции).
+Копии (`docker/backup`, образ postgres:16-alpine + rclone + crond): `backup.sh` (pg_dump custom, проверка чтением, S3:
+6h ×30, daily ×30, monthly ×12, на сервере 4; `predeploy` — 5), `restore-check.sh` (1-го числа: в отдельную БД, сверка
+таблиц, версии схемы и строк ключевых таблиц, удаление), `restore-db.sh`; сбой — событие в Sentry (store API через curl),
+удача — `BACKUP_HEARTBEAT_URL`; S3 — любой совместимый (Timeweb, Yandex, Selectel).
+
+Тесты (673 всего; `test_deploy.py` — 27): режимы регистрации и режим по умолчанию, приглашение (регистр и дефисы,
+одноразовое, только хэш, истекло, отозвано, именное), лимит неверных кодов по IP; лимит входа — пара IP + email (верный
+пароль сверх лимита — 429, с другого IP — входит), сброс после удачного входа, лимит IP на разные email, окно истекает;
+команды администратора — create-user (вход, `audit_log`, повтор, неверный email, `--ask` без вывода пароля, короткий пароль),
+reset-password (старые токены и пароль не работают, блокировка снята), invite → регистрация → invites, предупреждение о
+режиме, revoke-invite, приглашение на занятый email, users / deactivate / activate, unblock; `/docs`, `/redoc`,
+`/openapi.json` закрыты в проде и открыты при разработке; проверка настроек прода; `/health` (версия, 503 без Redis);
+Sentry — токен вырезается, без DSN выключен. Миграция 0029 на Postgres — накат, откат, накат, `alembic check`.
+Проверка прод-сборки в Docker (локальный клон как «сервер», домен localhost, самоподписанный сертификат — та же
+последовательность, что у владельца): `setup.sh --no-system --self-signed` → `deploy.sh` собрал и поднял все 10 сервисов;
+заголовки безопасности, 80 → 443, 444 для чужого имени, gzip, `/docs` и `/openapi.json` — 404 и через сайт, и в самом API,
+лимиты памяти и ротация журналов, бот без токена — выход 0; команды администратора в контейнере; Playwright — 40 проверок:
+вход (подвал по режиму, неверный пароль), cookies HttpOnly + Secure + SameSite=Lax, 13 главных страниц в обеих темах без
+ошибок, 390 px без горизонтальной прокрутки, регистрация по ссылке-приглашению (код вписан, чужой email — отказ, свой —
+вход), лимит входа через сайт; режим closed — страницы регистрации, входа и главная, API 403. Обновление `deploy.sh` (новый
+коммит) — с копией перед выкладкой и удалением старых образов; «сломанная» версия (новая миграция + API падает при старте) —
+откат: миграция отменена, прежние код и образы, сайт отвечает. Копии на S3-совместимом хранилище (`rclone serve s3`):
+выгрузка в 6h / daily / monthly, ротация 30 / 30 / 12, вторая копия за день — только 6h, проверка восстановления, crond
+по расписанию, сбой выгрузки → событие в Sentry-совместимом приёмнике; `restore.sh` — пользователь, созданный после копии,
+исчез, триггер неизменяемости `audit_log` после восстановления работает. Sentry бэкенда из прод-контейнера — событие с версией
+и тегом компонента, токен бота вырезан. Проверка нашла и исправила: X-Real-IP не доходил до сервера Next (свой
+`proxy_set_header` в location отменял заголовки server — в журнал писался адрес Nginx); `up -d` с упавшим API обрывал
+deploy.sh до отката; deploy.sh падал на очистке образов, когда удалять нечего; Nginx не перечитывал шаблон при выкладке.
+**Не проверено здесь**: настоящий Let's Encrypt, DNS, Object Storage провайдера и sentry.io — нужны домен и сервер владельца;
+установка Docker и ufw / fail2ban на чистой Ubuntu (`setup.sh` без `--no-system`).

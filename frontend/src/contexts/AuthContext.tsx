@@ -13,7 +13,7 @@ export type User = {
   created_at: string
 }
 
-export type RegisterData = { email: string; password: string; full_name?: string }
+export type RegisterData = { email: string; password: string; full_name?: string; invite_code?: string }
 
 type AuthContextValue = {
   user: User | null

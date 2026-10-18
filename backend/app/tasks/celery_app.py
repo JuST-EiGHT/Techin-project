@@ -2,6 +2,9 @@ from celery import Celery
 from celery.schedules import crontab
 
 from app.core.config import settings
+from app.core.monitoring import init_sentry
+
+init_sentry("worker")  # воркер и расписание (beat); без SENTRY_DSN — ничего
 
 celery_app = Celery(
     "ozon_analytics",

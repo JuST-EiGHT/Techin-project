@@ -28,3 +28,4 @@ from app.models.price_change import PriceChange  # noqa: F401
 from app.models.posting import Posting, PostingItem, PostingSync  # noqa: F401
 from app.models.anomaly import Anomaly  # noqa: F401
 from app.models.notification import NotificationLog, NotificationSettings  # noqa: F401
+from app.models.invite import Invite  # noqa: F401
