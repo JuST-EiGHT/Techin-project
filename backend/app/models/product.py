@@ -53,6 +53,7 @@ class ProductPrice(Base):
     old_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     marketing_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     commission_pct: Mapped[Decimal | None] = mapped_column(Numeric(7, 3))  # комиссия FBO, %
-    acquiring_pct: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))  # как отдаёт Ozon, см. docs/OZON_API.md
+    # эквайринг, ₽ — как отдаёт Ozon (`acquiring`: максимальная комиссия при этой цене); % — engine.products.acquiring_pct
+    acquiring: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
     auto_action_enabled: Mapped[bool | None] = mapped_column(Boolean)
     price_index: Mapped[str | None] = mapped_column(String(32))  # цветовой индекс цены Ozon

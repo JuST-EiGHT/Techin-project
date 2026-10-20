@@ -18,7 +18,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine import price_calculator as calc
-from app.engine.products import positive
+from app.engine.products import acquiring_pct, positive
 from app.models.product import Product, ProductPrice
 from app.models.promotion import Promotion, PromotionProduct
 from app.services import product_pnl
@@ -123,7 +123,8 @@ class PricingContext:
         cost = pick("cost", ov.cost, Decimal(record.cost_price) if record else None, "из справочника себестоимости")
         vat = Decimal(record.vat_multiplier) if record and record.vat_multiplier is not None else self.default_vat
         commission = pick("commission_pct", ov.commission_pct, snap.commission_pct if snap else None, "из Ozon (FBO)")
-        acquiring = pick("acquiring_pct", ov.acquiring_pct, snap.acquiring_pct if snap else None, "из Ozon")
+        acquiring = pick("acquiring_pct", ov.acquiring_pct, acquiring_pct(snap.acquiring, snap.price) if snap else None,
+                         "из Ozon")
         ad = pick("ad_pct", ov.ad_pct, self.ad_pct, "ваша настройка")
         margin = pick("target_margin_pct", ov.target_margin_pct, self.target_margin_pct, "ваша настройка")
         price = pick("price", ov.price, positive(snap.price) if snap else None, "текущая цена в Ozon")

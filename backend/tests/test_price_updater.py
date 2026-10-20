@@ -47,7 +47,8 @@ class PriceOzon:
         if self.prices_fail:
             return httpx.Response(self.prices_fail, json={"code": self.prices_fail, "message": "internal error"})
         ids = [int(i) for i in json.loads(request.content)["filter"]["product_id"]]
-        items = [{"product_id": pid, "acquiring": 1.5, "price": {**self.items[pid], "currency_code": "RUB"},
+        items = [{"product_id": pid, "acquiring": float(D(self.items[pid]["price"]) * D("0.015")),  # ₽: 1,5 % от цены
+                  "price": {**self.items[pid], "currency_code": "RUB"},
                   "commissions": {"sales_percent_fbo": 38}} for pid in ids if pid in self.items]
         return httpx.Response(200, json={"items": items, "cursor": "", "total_items": len(items)})
 

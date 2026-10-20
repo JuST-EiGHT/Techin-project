@@ -35,6 +35,15 @@ def positive(value: Decimal | None) -> Decimal | None:
     return value if value is not None and value > 0 else None
 
 
+def acquiring_pct(acquiring: Decimal | None, price: Decimal | None) -> Decimal | None:
+    """Эквайринг в % от цены. Ozon отдаёт его в рублях при текущей цене (`acquiring`), а платится он процентом от цены
+    продажи — для расчёта при другой цене нужен процент."""
+    price = positive(price)
+    if acquiring is None or price is None:
+        return None
+    return (acquiring / price * 100).quantize(Decimal("0.001"), ROUND_HALF_UP)
+
+
 def percent_of(price: Decimal | None, pct: Decimal | None) -> Decimal | None:
     """Комиссия или эквайринг в рублях от цены."""
     if price is None or pct is None:

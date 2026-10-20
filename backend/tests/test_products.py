@@ -37,6 +37,12 @@ def test_percent_of():
     assert engine.percent_of(None, D("38")) is None and engine.percent_of(D("459"), None) is None
 
 
+def test_acquiring_pct():
+    # Ozon отдаёт эквайринг в рублях при текущей цене: 19,8 ₽ при 1320 ₽ — это 1,5 %, а не 19,8 %
+    assert engine.acquiring_pct(D("19.8"), D("1320")) == D("1.500")
+    assert engine.acquiring_pct(None, D("1320")) is None and engine.acquiring_pct(D("19.8"), D("0")) is None
+
+
 def test_positive_price():
     assert engine.positive(D("0")) is None and engine.positive(None) is None and engine.positive(D("1")) == D("1")
 
@@ -104,11 +110,11 @@ async def seed(sessions, user_id: uuid.UUID, *, sales: bool = True) -> dict[str,
         db.add_all([
             # A: цена была 500, 10 дней назад стала 459
             ProductPrice(product_id=p["A"].id, snapshot_at=at_msk(today - timedelta(days=40)), price=D("500"),
-                         min_price=D("400"), old_price=D("600"), commission_pct=D("38"), acquiring_pct=D("1.5"),
+                         min_price=D("400"), old_price=D("600"), commission_pct=D("38"), acquiring=D("7.5"),
                          price_index="YELLOW"),
             ProductPrice(product_id=p["A"].id, snapshot_at=at_msk(today - timedelta(days=10)), price=D("459"),
                          min_price=D("400"), old_price=D("600"), marketing_price=D("449"), commission_pct=D("38"),
-                         acquiring_pct=D("1.5"), price_index="COLOR_INDEX_GREEN"),
+                         acquiring=D("6.885"), price_index="COLOR_INDEX_GREEN"),  # эквайринг 1,5 % от 459 ₽
             ProductPrice(product_id=p["B"].id, snapshot_at=at_msk(today - timedelta(days=3)), price=D("200"),
                          min_price=D("0"), commission_pct=D("38"), price_index="RED"),
             ProductPrice(product_id=p["E"].id, snapshot_at=at_msk(today - timedelta(days=3)), price=D("100"),
