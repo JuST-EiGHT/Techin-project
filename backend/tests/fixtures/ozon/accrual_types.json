@@ -1,11 +1,15 @@
 {
   "accrual_types": [
-    {"id": 101, "name": "Выручка", "description": "Начисление за проданный товар"},
-    {"id": 102, "name": "Вознаграждение за продажу", "description": "Комиссия Ozon за продажу"},
-    {"id": 103, "name": "Логистика", "description": "Доставка до покупателя"},
-    {"id": 104, "name": "Баллы за скидки", "description": "Компенсация скидки баллами Ozon"},
-    {"id": 105, "name": "Обработка отправления", "description": "Сборка и обработка отправления"},
-    {"id": 201, "name": "Подписка Premium", "description": "Оплата подписки"},
-    {"id": 202, "name": "Хранение", "description": "Размещение товаров на складе Ozon"}
+    {"id": 1, "name": "Acquiring", "description": "Эквайринг"},
+    {"id": 12, "name": "CrossDock", "description": "Кросс-докинг"},
+    {"id": 29, "name": "LastMileCourier", "description": "Доставка до места выдачи"},
+    {"id": 32, "name": "Logistic", "description": "Логистика"},
+    {"id": 46, "name": "Placements", "description": "Размещение товаров на складах Ozon"},
+    {"id": 54, "name": "Promotion", "description": "Продвижение товара"},
+    {"id": 59, "name": "ReturnFlowLogistic", "description": "Обратная логистика"},
+    {"id": 69, "name": "SaleCommission", "description": "Вознаграждение за продажу"},
+    {"id": 71, "name": "SellerReturns", "description": "Вывоз товара со склада силами Ozon"},
+    {"id": 74, "name": "StarsMembership", "description": "Звёздные товары"},
+    {"id": 84, "name": "ItemPacking", "description": "Дополнительная упаковка на складе Ozon"}
   ]
 }

@@ -26,11 +26,14 @@ log = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def task_sessions() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    from app.services.pnl_cache import cache as pnl_cache
+
     engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
     try:
         yield async_sessionmaker(engine, expire_on_commit=False)
     finally:
         await engine.dispose()
+        await pnl_cache.aclose()  # клиент Redis кэша P&L привязан к циклу этого запуска
 
 
 async def users_with_active_keys(db: AsyncSession) -> list[uuid.UUID]:

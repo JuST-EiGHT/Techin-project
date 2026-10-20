@@ -27,7 +27,8 @@ from app.tasks import sync as tasks
 FIXTURES = Path(__file__).parent / "fixtures" / "ozon"
 API_KEY = "a1b2c3d4-0000-4bad-beef-secretOZONkey"
 DAY = date(2026, 10, 10)
-P1, P2 = "0123456789-0001-1", "0123456789-0002-1"
+P1, P2, P3 = "0123456789-0001-1", "0123456789-0002-1", "0123456789-0003-1"
+OFFER1, OFFER2 = "6001-2RS.C3.SRL.NAC.TH", "ACB305523.NAC.JP"
 
 
 def load(name: str) -> dict:
@@ -35,15 +36,16 @@ def load(name: str) -> dict:
 
 
 class FakeOzon:
+    """Ozon на записанных ответах реального формата (номера и суммы выдуманы). /v1/finance/accrual/postings сервис не
+    вызывает — маршрута для него нет: любой запрос к нему уронит тест."""
+
     def __init__(self, mock: respx.MockRouter) -> None:
         self.types = load("accrual_types")
         self.days = {(DAY.isoformat(), ""): load("accrual_by_day_p1"), (DAY.isoformat(), "p2"): load("accrual_by_day_p2")}
-        self.postings = {p["posting_number"]: p for p in load("accrual_postings")["posting_accruals"]}
-        self.calls: dict[str, list[dict]] = {"types": [], "day": [], "postings": []}
+        self.calls: dict[str, list[dict]] = {"types": [], "day": []}
         self.fail_dates: set[str] = set()  # by-day за эти даты отвечает 400
         mock.post("/v1/finance/accrual/types").mock(side_effect=self._types)
         mock.post("/v1/finance/accrual/by-day").mock(side_effect=self._day)
-        mock.post("/v1/finance/accrual/postings").mock(side_effect=self._postings)
 
     def _types(self, request: httpx.Request) -> httpx.Response:
         self.calls["types"].append(json.loads(request.content or b"{}"))
@@ -55,12 +57,6 @@ class FakeOzon:
         if body["date"] in self.fail_dates:
             return httpx.Response(400, json={"code": 3, "message": "invalid date"})
         return httpx.Response(200, json=self.days.get((body["date"], body["last_id"]), {"accruals": [], "last_id": ""}))
-
-    def _postings(self, request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content)
-        self.calls["postings"].append(body)
-        found = [self.postings[n] for n in body["posting_numbers"] if n in self.postings]
-        return httpx.Response(200, json={"posting_accruals": found})
 
 
 @pytest.fixture
@@ -110,40 +106,76 @@ async def test_sync_day(sessions, ozon):
     user_id = await make_user(sessions)
     stats = await sync(sessions, user_id, DAY, DAY)
     assert stats.as_dict() == {
-        "days": 1, "entries": 4, "postings": 1, "postings_fallback": 1, "lines": 9, "types": 7,
+        "days": 1, "entries": 7, "postings": 3, "unbalanced": 0, "lines": 18, "types": 16,
         "date_from": "2026-10-10", "date_to": "2026-10-10",
     }
-    # пагинация by-day по last_id с тем же date (требование документации)
+    # пагинация by-day по last_id с тем же date (требование документации); /postings не вызывается
     assert ozon.calls["day"] == [{"date": "2026-10-10", "last_id": ""}, {"date": "2026-10-10", "last_id": "p2"}]
-    assert ozon.calls["postings"] == [{"posting_numbers": [P1, P2]}]
 
     rows = await accruals(sessions, user_id)
-    by_scope = {}
-    for r in rows:
-        by_scope.setdefault(r.sync_scope, []).append(r)
-
-    # отправление из /postings: строки с типом, SKU, количеством; товар привязан по SKU
-    p1 = by_scope[f"posting:{P1}"]
-    assert [(r.accrual_type_id, r.amount, r.accrual_date, r.quantity) for r in p1] == [
-        (101, Decimal("540.00"), DAY, 1), (102, Decimal("-205.20"), DAY, 1),
-        (103, Decimal("-63.00"), DAY, 1), (104, Decimal("27.70"), date(2026, 10, 11), 1),
+    assert {r.sync_scope for r in rows} == {"day:2026-10-10"} and {r.source for r in rows} == {"api"}
+    lines = [(r.posting_number, r.accrual_type_id, r.amount, r.quantity) for r in rows]
+    assert lines == [
+        # продажа 1 шт.: выручка = sale_amount − bonus − coinvestment, баллы, партнёры, комиссия, доставка
+        (P1, fin.REVENUE, Decimal("537.50"), 1), (P1, fin.BONUS, Decimal("450.20"), 1),
+        (P1, fin.PARTNERS, Decimal("12.30"), 1), (P1, fin.COMMISSION, Decimal("-520.00"), 1),
+        (P1, 32, Decimal("-80.00"), 1), (P1, 29, Decimal("-9.50"), 1),
+        # 2 шт.: суммы — за строку целиком; нулевых программ партнёров нет
+        (P2, fin.REVENUE, Decimal("2000.00"), 2), (P2, fin.BONUS, Decimal("1000.00"), 2),
+        (P2, fin.COMMISSION, Decimal("-1560.00"), 2), (P2, 32, Decimal("-150.00"), 2), (P2, 29, Decimal("-20.00"), 2),
+        # ITEM: эквайринг и «Звёздные товары» по товару; NON_ITEM: размещение
+        (P1, 1, Decimal("-10.75"), None), (P1, 74, Decimal("-27.50"), None),
+        ("1234567890123", 46, Decimal("-120.40"), None),
+        # стр. 2: доставка без продажи (невыкуп), вывоз со склада по номеру поставки, кросс-докинг по грузоместам
+        (P3, 32, Decimal("-85.00"), 1), ("RU12-AB123456789", 71, Decimal("-250.00"), None),
+        ("12345678", 12, Decimal("-30.00"), None), ("12345678", 12, Decimal("-12.00"), None),
     ]
-    assert {r.posting_number for r in p1} == {P1} and all(r.product_id for r in p1)
-    assert p1[0].raw_json["seller_price"]["amount"] == "540.00"  # сырой ответ сохранён
+    # товар привязан по SKU, у начислений без товара — нет; исходная запись Ozon сохранена
+    by_line = {(r.posting_number, r.accrual_type_id): r for r in rows}
+    assert by_line[(P1, fin.REVENUE)].product_id and by_line[(P1, 1)].product_id
+    assert by_line[("1234567890123", 46)].product_id is None
+    assert by_line[(P1, fin.REVENUE)].raw_json["unit_number"] == P1
+    # сумма строк дня = сумма total_amount записей Ozon
+    assert sum(r.amount for r in rows) == Decimal("1124.85")
 
-    # отправление, которого /postings не вернул, — разобрано из by-day и помечено
-    fb = by_scope[f"posting-day:{P2}:2026-10-10"]
-    assert [(r.accrual_type_id, r.amount) for r in fb] == [(101, Decimal("2150.00")), (999, Decimal("-450.00"))]
-    assert fb[0].raw_json["fallback"] == "by-day" and fb[0].product_id is not None
-    assert fb[0].raw_json["unit_number"] == P2  # исходная запись by-day сохранена для перепроверки
 
-    # начисления без товара: подписка и хранение (container_fees — две строки)
-    day = by_scope["day:2026-10-10"]
-    assert sorted((r.accrual_type_id, r.amount) for r in day) == [
-        (201, Decimal("-1990.00")), (202, Decimal("-8.40")), (202, Decimal("-4.00")),
+def test_parse_entry_like_xlsx_report():
+    """Сверено с отчётом XLSX владельца: Выручка = sale_amount − bonus − coinvestment, Баллы за скидки = bonus,
+    Программы партнёров = coinvestment, Вознаграждение за продажу = commission; сумма строк = total_amount."""
+    entry = load("accrual_by_day_p1")["accruals"][0]
+    lines = fin.parse_entry(entry, DAY)
+    amounts = {ln["type_id"]: ln["amount"] for ln in lines}
+    assert amounts[fin.REVENUE] == Decimal("537.50")  # = sale_price при 1 шт.
+    assert amounts[fin.REVENUE] + amounts[fin.BONUS] + amounts[fin.PARTNERS] == Decimal("1000.00")  # = seller_price
+    assert fin.is_balanced(entry, lines)
+    assert {ln["date"] for ln in lines} == {DAY} and {ln["posting"] for ln in lines} == {P1}
+
+
+def test_parse_return_and_unknown_formats():
+    ret = {"accrued_category": "POSTING", "date": "2026-10-12", "unit_number": P1,
+           "total_amount": {"amount": "-480"},
+           "posting": {"products": [{"sku": 900001001, "quantity": 1, "commission": {
+               "sale_amount": {"amount": "-1000"}, "bonus": {"amount": "-450.2"}, "coinvestment": {"amount": "-12.3"},
+               "commission": {"amount": "520"}}, "delivery": {"services": []}}]}}
+    lines = fin.parse_entry(ret, DAY)
+    # отрицательная выручка — «Возврат выручки» (по реальному возврату ещё не сверено — шаг 8.4a)
+    assert [(ln["type_id"], ln["amount"]) for ln in lines] == [
+        (fin.RETURN, Decimal("-537.50")), (fin.BONUS, Decimal("-450.20")), (fin.PARTNERS, Decimal("-12.30")),
+        (fin.COMMISSION, Decimal("520.00")),
     ]
-    assert all(r.posting_number is None and r.product_id is None for r in day)
-    assert {r.source for r in rows} == {"api"}
+    assert lines[0]["date"] == date(2026, 10, 12)
+    # разобрать нечего — итог записи по accrual_id; сумма не сходится — запись помечается
+    bare = {"accrual_id": 46, "date": "2026-10-10", "total_amount": {"amount": "-5"}}
+    assert [(ln["type_id"], ln["amount"]) for ln in fin.parse_entry(bare, DAY)] == [(46, Decimal("-5.00"))]
+    odd = {"total_amount": {"amount": "-100"}, "non_item_fee": {"type_id": 46, "accrued": {"amount": "-60"}}}
+    assert not fin.is_balanced(odd, fin.parse_entry(odd, DAY))
+
+
+async def test_unbalanced_entries_counted(sessions, ozon):
+    user_id = await make_user(sessions)
+    ozon.days[(DAY.isoformat(), "p2")]["accruals"][1]["total_amount"]["amount"] = "-999"
+    stats = await sync(sessions, user_id, DAY, DAY)
+    assert stats.unbalanced == 1 and stats.lines == 18  # строки всё равно сохранены — как их разобрал Ozon
 
 
 async def test_sync_marks_pnl_snapshots_stale(sessions, ozon):
@@ -167,10 +199,25 @@ async def test_types_and_categories(sessions, ozon):
     await sync(sessions, user_id, DAY, DAY)
     async with sessions() as db:
         types = {t.id: t for t in (await db.execute(select(AccrualType))).scalars()}
-    assert types[101].name_ru == "Выручка" and types[101].category == "income"
-    assert types[102].category == "expense" and types[201].category == "expense"
-    assert types[999].name_ru == "Начисление #999"  # нет в справочнике — заглушка
-    assert types[105].category is None  # не встречался — категория неизвестна
+    # русское название — из description справочника, английский код — в code
+    assert (types[69].code, types[69].name_ru) == ("SaleCommission", "Вознаграждение за продажу")
+    assert (types[32].name_ru, types[32].category) == ("Логистика", "expense")
+    # служебные типы сумм продажи — с названиями как в отчёте XLSX и категорией
+    assert {t: (types[t].name_ru, types[t].category) for t in fin.VIRTUAL_TYPES} == {
+        fin.REVENUE: ("Выручка", "income"), fin.RETURN: ("Возврат выручки", "expense"),
+        fin.BONUS: ("Баллы за скидки", "income"), fin.PARTNERS: ("Программы партнёров", "income"),
+        fin.COMMISSION: ("Вознаграждение за продажу", "expense"),
+    }
+    assert types[84].category is None  # не встречался — категория неизвестна
+
+
+async def test_unknown_type_gets_stub(sessions, ozon):
+    user_id = await make_user(sessions)
+    ozon.days[(DAY.isoformat(), "p2")]["accruals"][2]["container_fees"]["fees"][0]["type_id"] = 999
+    await sync(sessions, user_id, DAY, DAY)
+    async with sessions() as db:
+        stub = await db.get(AccrualType, 999)
+    assert stub.name_ru == "Начисление #999" and stub.category == "expense"
 
 
 async def test_resync_no_duplicates(sessions, ozon):
@@ -179,36 +226,34 @@ async def test_resync_no_duplicates(sessions, ozon):
     first = len(await accruals(sessions, user_id))
     await sync(sessions, user_id, DAY, DAY)
     await sync(sessions, user_id, DAY, DAY)
-    assert len(await accruals(sessions, user_id)) == first == 9
+    assert len(await accruals(sessions, user_id)) == first == 18
 
 
-async def test_fallback_replaced_when_postings_returns_it(sessions, ozon):
+async def test_api_lines_feed_pnl_sales_and_dashboard(sessions, ozon):
+    """Главная и P&L по данным API: выручка из записей отправлений, продажи по дням — по штукам (жалоба владельца
+    20.10.2026: на главной не было продаж за месяц)."""
+    from app.engine.product_pnl import group_of
+    from app.models.sales_daily import SalesDaily
+    from app.services import dashboard, pnl_service
+
     user_id = await make_user(sessions)
     await sync(sessions, user_id, DAY, DAY)
-    ozon.postings[P2] = {"posting_number": P2, "accruals": [
-        {"accrual_date": "2026-10-10", "type_id": 101, "sku": 900001002, "quantity": 1, "accrued": {"amount": "2150.00"}},
-        {"accrual_date": "2026-10-10", "type_id": 102, "sku": 900001002, "quantity": 1, "accrued": {"amount": "-817.00"}},
-    ]}
-    stats = await sync(sessions, user_id, DAY, DAY)
-    assert stats.postings == 2 and stats.postings_fallback == 0
-    scopes = {r.sync_scope for r in await accruals(sessions, user_id)}
-    assert f"posting:{P2}" in scopes and not any(s.startswith("posting-day:") for s in scopes)
-
-
-async def test_no_fallback_for_already_loaded_posting(sessions, ozon):
-    user_id = await make_user(sessions)
-    await sync(sessions, user_id, DAY, DAY)
-    del ozon.postings[P1]  # в следующий раз /postings его не вернул
-    await sync(sessions, user_id, DAY, DAY)
-    scopes = {r.sync_scope for r in await accruals(sessions, user_id)}
-    assert f"posting:{P1}" in scopes and f"posting-day:{P1}:2026-10-10" not in scopes
-
-
-async def test_postings_batches_of_200(sessions, ozon, monkeypatch):
-    monkeypatch.setattr(fin, "POSTINGS_BATCH", 1)
-    user_id = await make_user(sessions)
-    await sync(sessions, user_id, DAY, DAY)
-    assert ozon.calls["postings"] == [{"posting_numbers": [P1]}, {"posting_numbers": [P2]}]
+    async with sessions() as db:
+        pnl = await pnl_service.get_pnl(db, user_id, pnl_service.PnLRequest(DAY, DAY))
+        sales = {r.offer_id: (r.qty_sold, r.revenue) for r in (await db.execute(select(SalesDaily))).scalars()}
+        home = await dashboard.ozon_dashboard(db, user_id, date(2026, 10, 1), DAY)
+    assert pnl["data_source"] == "api" and Decimal(pnl["revenue_base"]) == Decimal("2537.50")
+    assert {k: Decimal(v) for k, v in pnl["by_type"].items() if k in (
+        "Выручка", "Баллы за скидки", "Программы партнёров", "Вознаграждение за продажу", "Логистика")} == {
+        "Выручка": Decimal("2537.50"), "Баллы за скидки": Decimal("1450.20"), "Программы партнёров": Decimal("12.30"),
+        "Вознаграждение за продажу": Decimal("-2080.00"), "Логистика": Decimal("-315.00"),
+    }
+    assert sales == {OFFER1: (1, Decimal("537.50")), OFFER2: (2, Decimal("2000.00"))}
+    assert Decimal(home["figures"]["revenue"]["value"]) == Decimal("2537.50")
+    # группы прибыли по товарам — по русским названиям справочника
+    assert [group_of(n) for n in ("Вознаграждение за продажу", "Логистика", "Доставка до места выдачи", "Эквайринг")] == [
+        "commission", "logistics", "logistics", "other",
+    ]
 
 
 async def test_missing_periods_and_default_days(sessions, ozon, today):
@@ -229,7 +274,7 @@ async def test_missing_periods_and_default_days(sessions, ozon, today):
         # всё загружено — по расписанию снова только вчера и сегодня
         assert await fin.days_to_sync(db, user_id) == [date(2026, 10, 10), date(2026, 10, 11)]
         days = {d.day: d.entries for d in (await db.execute(select(AccrualDay))).scalars()}
-    assert days == {date(2026, 10, 9): 0, date(2026, 10, 10): 4, date(2026, 10, 11): 0}  # пустой день тоже отмечен
+    assert days == {date(2026, 10, 9): 0, date(2026, 10, 10): 7, date(2026, 10, 11): 0}  # пустой день тоже отмечен
 
 
 async def test_gaps_in_middle(sessions, ozon):
@@ -250,13 +295,46 @@ async def test_failure_midway_keeps_loaded_days(sessions, ozon):
     async with sessions() as db:
         # первый день сохранён, второй — в пропусках
         assert await fin.get_missing_periods(db, user_id, DAY, date(2026, 10, 11)) == [(date(2026, 10, 11), date(2026, 10, 11))]
-    assert len(await accruals(sessions, user_id)) == 9
+    assert len(await accruals(sessions, user_id)) == 18
 
 
 async def test_run_sync_finance_with_params(sessions, ozon):
     user_id = await make_user(sessions)
     run = await runner.run_sync("finance", user_id, sessions, params={"date_from": "2026-10-10", "date_to": "2026-10-10"})
-    assert run.status == SUCCESS and run.kind == "finance" and run.stats["lines"] == 9
+    assert run.status == SUCCESS and run.kind == "finance" and run.stats["lines"] == 18
+
+
+async def test_failed_run_keeps_ozon_text(sessions, ozon):
+    """Общий отказ Ozon (HTTP 400) — в журнале запусков и на сайте видно метод и текст Ozon, а не только код."""
+    from app.integrations.ozon.errors import OzonAuthError
+
+    user_id = await make_user(sessions)
+    ozon.fail_dates.add("2026-10-10")
+    run = await runner.run_sync("finance", user_id, sessions, params={"date_from": "2026-10-10", "date_to": "2026-10-10"})
+    assert run.status == "failed"
+    assert run.error == "Ozon отклонил запрос (HTTP 400) — /v1/finance/accrual/by-day: invalid date"
+    # ошибки ключа уже объясняют причину — без технических подробностей
+    auth_error = OzonAuthError("Ozon не принял API-ключ", ozon_message="Invalid Api-Key", path="/v1/roles")
+    assert runner.ozon_error_text(auth_error) == "Ozon не принял API-ключ"
+
+
+async def test_task_sessions_close_pnl_cache_client():
+    """Клиент Redis кэша P&L закрывается в цикле своей задачи Celery — без «Event loop is closed» в журнале."""
+    import asyncio
+
+    from app.services.pnl_cache import cache
+
+    class FakeRedis:
+        closed = False
+
+        async def aclose(self):
+            self.closed = True
+
+    fake = FakeRedis()
+    cache._client, cache._loop = fake, asyncio.get_running_loop()
+    async with tasks.task_sessions():
+        pass
+    assert fake.closed and cache._client is None
 
 
 # ── API ──
@@ -292,19 +370,19 @@ async def test_api_accruals(sessions, client, tokens, ozon):
 
     data = (await get()).json()
     assert data["data_source"] == "api" and "расходиться с личным кабинетом" in data["warning"] and "XLSX" in data["warning"]
-    assert data["total"] == 9 and len(data["items"]) == 9
-    # доход = 540 + 27.70 + 2150; расход = −205.20 − 63 − 450 − 1990 − 8.40 − 4
-    assert data["totals"] == {"income": "2717.70", "expense": "-2720.60", "net": "-2.90"}
-    first = data["items"][0]  # сортировка: новые даты сверху
-    assert first["accrual_date"] == "2026-10-11" and first["type_name"] == "Баллы за скидки" and first["category"] == "income"
-    assert first["product"]["offer_id"] == "6001-2RS.C3.SRL.NAC.TH" and first["posting_number"] == P1
+    assert data["total"] == 18 and len(data["items"]) == 18
+    # доход: выручка, баллы, партнёры; расход: комиссия, доставка, эквайринг, размещение, вывоз, кросс-докинг
+    assert data["totals"] == {"income": "4000.00", "expense": "-2875.15", "net": "1124.85"}
+    first = data["items"][0]
+    assert first["accrual_date"] == "2026-10-10" and first["type_name"] == "Выручка" and first["category"] == "income"
+    assert first["product"]["offer_id"] == OFFER1 and first["posting_number"] == P1 and first["quantity"] == 1
 
-    assert (await get(type_id=202)).json()["total"] == 2
-    assert (await get(posting_number=P1)).json()["total"] == 4
+    assert (await get(type_id=32)).json()["total"] == 3
+    assert (await get(posting_number=P1)).json()["total"] == 8
     product_id = first["product"]["id"]
-    assert (await get(product_id=product_id)).json()["total"] == 4
+    assert (await get(product_id=product_id)).json()["total"] == 9
     page = (await get(limit=3, offset=3)).json()
-    assert page["total"] == 9 and len(page["items"]) == 3 and page["totals"]["net"] == "-2.90"  # итоги — по всему фильтру
+    assert page["total"] == 18 and len(page["items"]) == 3 and page["totals"]["net"] == "1124.85"  # итоги — по всему фильтру
 
 
 async def test_api_by_day(sessions, client, tokens, ozon):
@@ -312,12 +390,8 @@ async def test_api_by_day(sessions, client, tokens, ozon):
     data = (await client.get("/api/v1/finance/accruals/by-day", params={"date_from": "2026-10-08", "date_to": "2026-10-11"},
                              headers=auth(tokens))).json()
     assert data["data_source"] == "api" and data["warning"]
-    assert data["days"] == [
-        {"date": "2026-10-10", "income": "2690.00", "expense": "-2720.60", "net": "-30.60", "lines": 8},
-        {"date": "2026-10-11", "income": "27.70", "expense": "0.00", "net": "27.70", "lines": 1},
-    ]
-    assert data["totals"]["net"] == "-2.90"
-    # загружен только 10.10 (11.10 пришло внутри отправления, но сам день не загружался)
+    assert data["days"] == [{"date": "2026-10-10", "income": "4000.00", "expense": "-2875.15", "net": "1124.85", "lines": 18}]
+    assert data["totals"]["net"] == "1124.85"
     assert data["missing_periods"] == [
         {"date_from": "2026-10-08", "date_to": "2026-10-09"}, {"date_from": "2026-10-11", "date_to": "2026-10-11"},
     ]
@@ -455,8 +529,12 @@ async def test_db_unique_scope_line(sessions):
 
 
 def test_fixtures_documented_format():
-    assert "accrual_types" in load("accrual_types") and "posting_accruals" in load("accrual_postings")
+    """Фикстуры — формат ответов Ozon с реального магазина (20.10.2026), номера и суммы выдуманы."""
+    types = load("accrual_types")["accrual_types"]
+    assert all({"id", "name", "description"} == set(t) for t in types)
     for name in ("accrual_by_day_p1", "accrual_by_day_p2"):
         data = load(name)
-        assert set(data) == {"accruals", "last_id"} and all("accrual_id" in a and "unit_number" in a for a in data["accruals"])
-
+        assert set(data) == {"accruals", "last_id"}
+        for a in data["accruals"]:
+            assert {"accrual_id", "accrued_category", "date", "unit_number", "total_amount", "posting", "item_fees",
+                    "non_item_fee", "container_fees"} == set(a)

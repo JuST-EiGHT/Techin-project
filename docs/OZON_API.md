@@ -71,7 +71,7 @@ HTTP-коды для этих текстов в документации не у
 | Склады FBS и rFBS | POST | `/v2/warehouse/list` | `limit` ≤ 200, `cursor`; FBO-складов в нём нет |
 | Отправления FBO | POST | `/v3/posting/fbo/list` | период по дате заказа не больше года; `limit` ≤ 100, `cursor`; `with.analytics_data` — склад отгрузки, `with.financial_data` — `cluster_from` / `cluster_to` (шаг 5.2) |
 | Отправления FBS и rFBS | POST | `/v4/posting/fbs/list` | `filter.since` / `to` (не больше года), `limit` ≤ 100, `cursor`; склад продавца — `delivery_method.warehouse_id`; в ответе персональные данные покупателя (шаг 5.2) |
-| Начисления по отправлениям | POST | `/v1/finance/accrual/postings` | `posting_numbers` 1–200 |
+| Начисления по отправлениям | POST | `/v1/finance/accrual/postings` | `posting_numbers` 1–200, только вида `123-456-7`; **не используем** (ниже) |
 | Справочник типов начислений | POST | `/v1/finance/accrual/types` | |
 | Начисления за день | POST | `/v1/finance/accrual/by-day` | `last_id` = `date` из предыдущего ответа |
 | Баланс у Ozon: начислено, выплаты, остаток (шаг 3.6) | POST | `/v1/finance/balance` | **бета**, «Финансы → Баланс»; `date_from`, `date_to` (YYYY-MM-DD), период ≤ 30 дней; `total{opening_balance, accrued, payments[], closing_balance}`, `cashflows{sales, returns, services[]}`; **дат выплат нет** — запрашиваем по одному дню (`services/sync/ozon_balance.py`; предположение «выплаты за день = выплата этого дня» проверить на реальном ключе, сверка по полумесяцам покажет расхождение) |
@@ -118,18 +118,22 @@ HTTP-коды для этих текстов в документации не у
 Seller API нельзя: есть только отчёты по вывозу и утилизации FBO (`/v1/removal/from-supply/list`, `/v1/removal/from-stock/list`,
 бета) — заявка делается в кабинете.
 
-### Начисления (шаг 1.4)
+### Начисления (шаг 1.4; по реальным ответам — 20.10.2026)
 
-Методы `/v1/finance/accrual/*` в документации помечены как **бета**; вложенные поля by-day
-описаны не полностью (свёрнуты в выгрузке), поэтому сырой ответ храним в `accruals.raw_json`.
+Методы `/v1/finance/accrual/*` в документации помечены как **бета**, вложенные поля by-day свёрнуты в выгрузке. Формат
+ниже сверен с ответами Ozon на магазине владельца и с его отчётом XLSX по начислениям (три отправления — копейка в
+копейку). Сырой ответ храним в `accruals.raw_json`.
 
 | Что | Откуда | Примечание |
 |---|---|---|
-| справочник типов | `/v1/finance/accrual/types` → `accrual_types[]{id, name, description}` | категории доход/расход нет — ставим по знаку сумм |
-| записи дня | `/v1/finance/accrual/by-day` (`date`, `last_id`) → `accruals[]` | один день за запрос; `last_id` живёт 15 мин, с ним передаётся тот же `date`; `accrual_id` — бывший `type_id` |
-| признак отправления | `unit_number` + непустые `posting.products` или `item_fees.fees` | иначе — начисление без товара: `non_item_fee`, `container_fees[]`, иначе `total_amount` |
-| строки отправления | `/v1/finance/accrual/postings` (`posting_numbers` 1–200) → `posting_accruals[].accruals[]{accrual_date, type_id, sku, quantity, accrued.amount}` | полный список начислений отправления за все даты |
-| сумма | `accrued.amount` (строка) | знак как у Ozon: + доход, − расход |
+| справочник типов | `/v1/finance/accrual/types` → `accrual_types[]{id, name, description}` | 135 типов; **`name` — английский код** (`SaleCommission`, `Logistic`), **`description` — русское название** («Вознаграждение за продажу», «Логистика» — как в отчёте XLSX); категории доход/расход нет — ставим по знаку сумм. **Типа «Выручка» в справочнике нет** |
+| записи дня | `/v1/finance/accrual/by-day` (`date`, `last_id`) → `accruals[]{accrual_id, accrued_category, date, unit_number, total_amount, posting, item_fees, non_item_fee, container_fees}` | один день за запрос; `last_id` живёт 15 мин, с ним передаётся тот же `date`; незаполненные блоки — `null` |
+| продажа и доставка по отправлению | `accrued_category: POSTING` → `posting{delivery_schema, products[{sku, quantity, commission{seller_price, sale_price, sale_amount, commission, sale_commission, bonus, coinvestment, commission_ratio}, delivery{services[{type_id, accrued}], total_accrued}}]}` | **«Выручка» = `sale_amount` − `bonus` − `coinvestment`** (= `sale_price` при 1 шт.), «Баллы за скидки» = `bonus`, «Программы партнёров» = `coinvestment`, «Вознаграждение за продажу» = `commission` (= `sale_commission`); `seller_price` = выручка + баллы + партнёры; `commission_ratio` — строка вида `value:"0.520000"`; у невыкупа поля `commission` — `null`, только доставка. Сумма строк записи = `total_amount` |
+| начисления по товару | `ITEM` → `item_fees.fees[{sku, fees[{type_id, accrued}]}]` | эквайринг, «Звёздные товары», вывоз со склада… — отдельными записями с тем же `unit_number` |
+| без товара | `NON_ITEM` → `non_item_fee{type_id, accrued}`; `container_fees.fees[]` | размещение, кросс-докинг, продвижение, доп. упаковка |
+| `unit_number` | номер отправления (`12345678-0001-1`), заказа (`1234567890-0001`), поставки (`RU12-AB123456789`), услуги (`1234567890123`) | храним в `posting_number` — как «ID начисления» отчёта XLSX |
+| строки отправления | `/v1/finance/accrual/postings` → `posting_accruals[].accruals[]{accrual_date, type_id, sku, quantity, seller_price, accrued}` | **не используем**: принимает только номера вида `\d+-\d+-\d+` (иначе 400 «value does not match regex pattern» — так падала первая загрузка), эквайринга в ответе нет, лимит в секунду маленький (429 уже на втором запросе); выручки типом нет и здесь (только `seller_price` у строки комиссии) |
+| сумма | `accrued.amount`, `total_amount.amount` (строка) | знак как у Ozon: + доход, − расход |
 
 ### Акции (шаг 1.5)
 
