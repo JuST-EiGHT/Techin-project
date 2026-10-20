@@ -1,23 +1,29 @@
 """Финансовые начисления из Ozon API (/v1/finance/accrual/*) в БД.
 
-Сверено с документацией Ozon (docs/ozon/seller_api_2026-10.txt):
-- /v1/finance/accrual/types   — справочник типов начислений (id, name, description);
-- /v1/finance/accrual/by-day  — начисления за ОДИН день (date ≥ 2022-01-01), пагинация
-  по last_id (живёт 15 минут, в следующих запросах передаётся тот же date);
-- /v1/finance/accrual/postings — плоские начисления по номерам отправлений (1–200 за раз):
-  accrual_date, type_id, sku, accrued.amount, quantity.
-/v3/finance/transaction/list отключён (8.09.2026). Периода в новых методах нет, поэтому
-период = цикл по дням, разбивка на месяцы не нужна.
+Сверено с документацией Ozon (docs/ozon/seller_api_2026-10.txt) и с ответами Ozon на реальном магазине (20.10.2026):
+- /v1/finance/accrual/types   — справочник: `name` — английский код (SaleCommission, Logistic…), `description` —
+  русское название («Вознаграждение за продажу», «Логистика»); его и показываем;
+- /v1/finance/accrual/by-day  — все начисления за ОДИН день (date ≥ 2022-01-01), пагинация по last_id (живёт 15 минут,
+  в следующих запросах — тот же date). Виды записей (accrued_category):
+  POSTING — продажа или доставка по отправлению: posting.products[] с commission (sale_amount, bonus, coinvestment,
+  commission…) и delivery.services[] (логистика, доставка до места выдачи…);
+  ITEM — начисления по товару: item_fees.fees[].fees[] (эквайринг, «Звёздные товары», вывоз со склада…);
+  NON_ITEM — начисления без товара: non_item_fee (размещение, кросс-докинг, продвижение…); container_fees — по грузоместам.
+/v3/finance/transaction/list отключён (8.09.2026). Периода в новых методах нет — период = цикл по дням.
 
-Схема (согласована с владельцем): by-day даёт список записей дня. Записи с товарами
-отправления (unit_number + posting/item_fees) → номер отправления, его строки берём
-из /postings (привязка к товару — по SKU строки). Записи без товаров (подписка, услуги,
-хранение…) пишем из by-day как есть. Если /postings не вернул отправление — строки
-разбираем из by-day (item_fees) и помечаем raw_json.fallback.
+Выручки как типа в справочнике нет: она — в записи отправления. Сверено с отчётом XLSX по начислениям на трёх
+отправлениях владельца копейка в копейку: «Выручка» = sale_amount − bonus − coinvestment (= sale_price при 1 шт.),
+«Баллы за скидки» = bonus, «Программы партнёров» = coinvestment, «Вознаграждение за продажу» = commission; сумма строк
+записи = total_amount. Эти суммы пишем служебными типами с отрицательным id (VIRTUAL_TYPES) — так их видят P&L, прибыль
+по товарам, продажи по дням и список начислений. Отрицательная выручка — «Возврат выручки» (по реальному возврату ещё
+не сверено — шаг 8.4a).
 
-Защита от дублей — замена по областям: `posting:<номер>` и `day:<дата>`; см. models/accrual.py.
-Каждый день — своя транзакция: при сбое на 40-м дне из 90 первые 39 уже сохранены,
-а get_missing_periods покажет, что догрузить.
+/v1/finance/accrual/postings не используем: начисления по отправлению в нём неполные (нет эквайринга), номера —
+только вида 123-456-7 (у части записей by-day unit_number другого вида — Ozon отвечал 400 и загрузка падала), а лимит
+запросов в секунду у метода маленький (429). Всё нужное есть в by-day.
+
+Защита от дублей — замена области `day:<дата>` целиком; см. models/accrual.py. Каждый день — своя транзакция: при
+сбое на 40-м дне из 90 первые 39 уже сохранены, а get_missing_periods покажет, что догрузить.
 """
 import logging
 import uuid
@@ -39,14 +45,22 @@ log = logging.getLogger(__name__)
 
 TYPES_PATH = "/v1/finance/accrual/types"
 BY_DAY_PATH = "/v1/finance/accrual/by-day"
-POSTINGS_PATH = "/v1/finance/accrual/postings"
 
-POSTINGS_BATCH = 200  # максимум posting_numbers в /postings
 BACKFILL_DAYS = 90  # «последние 90 дней» при подключении ключа
 MAX_PERIOD_DAYS = 92  # ручная перезагрузка за раз
 OZON_MIN_DATE = date(2022, 1, 1)  # «самая ранняя — 1 января 2022 года»
 MAX_PAGES = 1000
 MSK = timezone(timedelta(hours=3))  # даты начислений Ozon — по Москве (без перехода на летнее время)
+
+# Суммы продажи из записи отправления — служебные типы (в справочнике Ozon их нет). Названия — как в отчёте XLSX.
+REVENUE, RETURN, BONUS, PARTNERS, COMMISSION = -1, -2, -3, -4, -5
+VIRTUAL_TYPES = {
+    REVENUE: ("SaleRevenue", "Выручка", INCOME),
+    RETURN: ("SaleRevenueReturn", "Возврат выручки", EXPENSE),
+    BONUS: ("DiscountPoints", "Баллы за скидки", INCOME),
+    PARTNERS: ("PartnerPrograms", "Программы партнёров", INCOME),
+    COMMISSION: ("SaleCommissionFromPosting", "Вознаграждение за продажу", EXPENSE),
+}
 
 _CENT = Decimal("0.01")
 
@@ -59,8 +73,8 @@ def today_msk() -> date:
 class FinanceSyncStats:
     days: int = 0
     entries: int = 0  # записей by-day
-    postings: int = 0  # отправлений, загруженных через /postings
-    postings_fallback: int = 0  # отправлений, которые /postings не вернул (разобраны из by-day)
+    postings: int = 0  # записей с отправлением (продажи, доставка, возвраты)
+    unbalanced: int = 0  # записей, где сумма разобранных строк не сошлась с total_amount Ozon (формат изменился?)
     lines: int = 0  # сохранено строк начислений
     types: int = 0  # типов в справочнике после синхронизации
     date_from: str = ""  # какие дни загружали
@@ -72,8 +86,12 @@ class FinanceSyncStats:
 
 # ── разбор ──
 def _money(obj: Any) -> Decimal | None:
-    """{"amount": "-12.50", "currency": "RUB"} → Decimal."""
+    """{"amount": "-12.50", "currency": "RUB"} → Decimal; нет суммы — None."""
     return to_decimal(obj.get("amount"), _CENT) if isinstance(obj, dict) else None
+
+
+def _dict(value: Any) -> dict:
+    return value if isinstance(value, dict) else {}
 
 
 def _date(value: Any, default: date) -> date:
@@ -83,57 +101,66 @@ def _date(value: Any, default: date) -> date:
         return default
 
 
-def _is_posting_entry(e: dict) -> bool:
-    posting = e.get("posting") if isinstance(e.get("posting"), dict) else {}
-    item_fees = e.get("item_fees") if isinstance(e.get("item_fees"), dict) else {}
-    return bool(to_str(e.get("unit_number"), 64)) and bool(posting.get("products") or item_fees.get("fees"))
+def _qty(value: Any) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
-def _non_item_lines(e: dict, day: date) -> list[dict]:
-    """Записи by-day без товаров: non_item_fee, container_fees, иначе total_amount."""
-    lines = []
-    fee = e.get("non_item_fee") if isinstance(e.get("non_item_fee"), dict) else None
-    if fee and _money(fee.get("accrued")) is not None:
-        lines.append({"type_id": to_id(fee.get("type_id")) or to_id(e.get("accrual_id")), "amount": _money(fee.get("accrued"))})
-    container = e.get("container_fees") if isinstance(e.get("container_fees"), dict) else {}
-    for f in container.get("fees") or []:
-        if isinstance(f, dict) and _money(f.get("accrued")) is not None:
-            lines.append({"type_id": to_id(f.get("type_id")), "amount": _money(f.get("accrued"))})
-    if not lines and _money(e.get("total_amount")) is not None:
-        lines.append({"type_id": to_id(e.get("accrual_id")), "amount": _money(e.get("total_amount"))})
+def parse_entry(e: dict, day: date) -> list[dict]:
+    """Запись by-day → строки начислений: {type_id, amount, sku, quantity, date, posting}."""
     d = _date(e.get("date"), day)
-    return [{**ln, "date": d, "sku": None, "quantity": None} for ln in lines if ln["type_id"]]
+    unit = to_str(e.get("unit_number"), 64)  # «ID начисления», как в отчёте XLSX: номер отправления, заказа, поставки…
+    lines: list[dict] = []
 
+    def add(type_id: int | None, amount: Decimal | None, sku: int | None = None, qty: int | None = None) -> None:
+        if type_id and amount is not None:
+            lines.append({"type_id": type_id, "amount": amount, "sku": sku, "quantity": qty, "date": d, "posting": unit})
 
-def _fallback_posting_lines(e: dict, day: date) -> list[dict]:
-    """Отправление, которого нет в ответе /postings: строки из item_fees by-day."""
-    d = _date(e.get("date"), day)
-    lines = []
-    item_fees = e.get("item_fees") if isinstance(e.get("item_fees"), dict) else {}
-    for item in item_fees.get("fees") or []:
+    for product in _dict(e.get("posting")).get("products") or []:
+        if not isinstance(product, dict):
+            continue
+        sku, qty = to_id(product.get("sku")), _qty(product.get("quantity"))
+        c = _dict(product.get("commission"))
+        sale, bonus, partners = _money(c.get("sale_amount")), _money(c.get("bonus")), _money(c.get("coinvestment"))
+        commission = _money(c.get("commission"))
+        if commission is None:
+            commission = _money(c.get("sale_commission"))
+        if sale:
+            revenue = sale - (bonus or 0) - (partners or 0)
+            add(REVENUE if revenue >= 0 else RETURN, revenue, sku, qty)
+        if bonus:
+            add(BONUS, bonus, sku, qty)
+        if partners:
+            add(PARTNERS, partners, sku, qty)
+        if commission:
+            add(COMMISSION, commission, sku, qty)
+        for service in _dict(product.get("delivery")).get("services") or []:
+            if isinstance(service, dict):
+                add(to_id(service.get("type_id")), _money(service.get("accrued")), sku, qty)
+    for item in _dict(e.get("item_fees")).get("fees") or []:
         if not isinstance(item, dict):
             continue
         sku = to_id(item.get("sku"))
-        for f in item.get("fees") or []:
-            if isinstance(f, dict) and to_id(f.get("type_id")) and _money(f.get("accrued")) is not None:
-                lines.append({"type_id": to_id(f["type_id"]), "amount": _money(f["accrued"]), "sku": sku, "date": d, "quantity": None})
-    if not lines and to_id(e.get("accrual_id")) and _money(e.get("total_amount")) is not None:
-        lines.append({"type_id": to_id(e["accrual_id"]), "amount": _money(e["total_amount"]), "sku": None, "date": d, "quantity": None})
+        for fee in item.get("fees") or []:
+            if isinstance(fee, dict):
+                add(to_id(fee.get("type_id")), _money(fee.get("accrued")), sku)
+    fee = _dict(e.get("non_item_fee"))
+    if fee:
+        add(to_id(fee.get("type_id")) or to_id(e.get("accrual_id")), _money(fee.get("accrued")))
+    for fee in _dict(e.get("container_fees")).get("fees") or []:
+        if isinstance(fee, dict):
+            add(to_id(fee.get("type_id")), _money(fee.get("accrued")))
+    if not lines:  # разбирать нечего — итог записи, чтобы сумма дня сошлась с Ozon
+        add(to_id(e.get("accrual_id")), _money(e.get("total_amount")))
     return lines
 
 
-def _posting_lines(accruals: list[dict], default_day: date) -> list[dict]:
-    lines = []
-    for a in accruals:
-        if not isinstance(a, dict) or not to_id(a.get("type_id")) or _money(a.get("accrued")) is None:
-            continue
-        qty = a.get("quantity")
-        lines.append({
-            "type_id": to_id(a["type_id"]), "amount": _money(a["accrued"]), "sku": to_id(a.get("sku")),
-            "date": _date(a.get("accrual_date"), default_day), "quantity": int(qty) if isinstance(qty, int) else None,
-            "raw": a,
-        })
-    return lines
+def is_balanced(e: dict, lines: list[dict]) -> bool:
+    """Сумма разобранных строк = total_amount записи (нет итога — проверять не с чем)."""
+    total = _money(e.get("total_amount"))
+    return total is None or abs(sum((ln["amount"] for ln in lines), Decimal(0)) - total) <= _CENT
 
 
 # ── запросы к Ozon ──
@@ -157,32 +184,29 @@ async def fetch_day(client: OzonClient, day: date) -> list[dict]:
     return entries
 
 
-async def fetch_postings(client: OzonClient, numbers: list[str]) -> dict[str, list[dict]]:
-    out: dict[str, list[dict]] = {}
-    for start in range(0, len(numbers), POSTINGS_BATCH):
-        batch = numbers[start:start + POSTINGS_BATCH]
-        data = await client.request("POST", POSTINGS_PATH, {"posting_numbers": batch})
-        for p in (data.get("posting_accruals") if isinstance(data, dict) else None) or []:
-            if isinstance(p, dict) and (num := to_str(p.get("posting_number"), 64)):
-                out[num] = [a for a in p.get("accruals") or [] if isinstance(a, dict)]
-    return out
-
-
 # ── БД ──
 async def sync_accrual_types(db: AsyncSession, client: OzonClient) -> int:
+    """Справочник Ozon и служебные типы. Русское название — description (в name Ozon отдаёт английский код)."""
     existing = {t.id: t for t in (await db.execute(select(AccrualType))).scalars()}
+    wanted: dict[int, tuple[str | None, str, str | None]] = {}
     for t in await fetch_types(client):
         type_id = to_id(t.get("id"))
         if not type_id:
             continue
-        name = to_str(t.get("name"), 255) or f"Начисление #{type_id}"
+        code = to_str(t.get("name"), 100)
         description = to_str(t.get("description"), 10_000)
+        wanted[type_id] = (code, to_str(description, 255) or code or f"Начисление #{type_id}", description)
+    for type_id, (code, name, _category) in VIRTUAL_TYPES.items():
+        wanted[type_id] = (code, name, None)
+    for type_id, (code, name, description) in wanted.items():
         row = existing.get(type_id)
         if row is None:
-            existing[type_id] = AccrualType(id=type_id, name_ru=name, description=description)
-            db.add(existing[type_id])
-        elif (row.name_ru, row.description) != (name, description):
-            row.name_ru, row.description = name, description
+            existing[type_id] = row = AccrualType(id=type_id, code=code, name_ru=name, description=description)
+            db.add(row)
+        elif (row.code, row.name_ru, row.description) != (code, name, description):
+            row.code, row.name_ru, row.description = code, name, description
+        if type_id in VIRTUAL_TYPES:
+            row.category = VIRTUAL_TYPES[type_id][2]
     await db.commit()
     return len(existing)
 
@@ -204,19 +228,17 @@ async def _ensure_types(db: AsyncSession, lines: list[dict]) -> None:
 
 
 async def _replace_scope(
-    db: AsyncSession, user_id: uuid.UUID, scope: str, lines: list[dict], *,
-    posting_number: str | None, products_by_sku: dict[int, uuid.UUID], raw_extra: dict | None = None,
+    db: AsyncSession, user_id: uuid.UUID, scope: str, lines: list[dict], products_by_sku: dict[int, uuid.UUID],
 ) -> int:
     await db.execute(delete(Accrual).where(
         Accrual.user_id == user_id, Accrual.source == SOURCE_API, Accrual.sync_scope == scope,
     ))
     for n, ln in enumerate(lines):
-        raw = ln.get("raw") or {k: (str(v) if isinstance(v, (Decimal, date)) else v) for k, v in ln.items()}
         db.add(Accrual(
             user_id=user_id, product_id=products_by_sku.get(ln["sku"]) if ln["sku"] else None,
-            posting_number=posting_number, sku=ln["sku"], accrual_type_id=ln["type_id"], accrual_date=ln["date"],
+            posting_number=ln["posting"], sku=ln["sku"], accrual_type_id=ln["type_id"], accrual_date=ln["date"],
             amount=ln["amount"], quantity=ln["quantity"], source=SOURCE_API, sync_scope=scope, line_no=n,
-            raw_json={**raw, **(raw_extra or {})},
+            raw_json=ln["raw"],
         ))
     return len(lines)
 
@@ -226,46 +248,19 @@ async def _sync_day(
     products_by_sku: dict[int, uuid.UUID], stats: FinanceSyncStats,
 ) -> None:
     entries = await fetch_day(client, day)
-    posting_entries: dict[str, list[dict]] = {}
-    day_lines: list[dict] = []
+    lines: list[dict] = []
     for e in entries:
-        if _is_posting_entry(e):
-            posting_entries.setdefault(to_str(e["unit_number"], 64), []).append(e)
-        else:
-            day_lines.extend({**ln, "raw": e} for ln in _non_item_lines(e, day))
-
-    postings = await fetch_postings(client, sorted(posting_entries))
-    res = await db.execute(select(Accrual.posting_number).where(
-        Accrual.user_id == user_id, Accrual.source == SOURCE_API,
-        Accrual.sync_scope.in_([f"posting:{n}" for n in posting_entries]),
-    ).distinct())
-    already_loaded = set(res.scalars())
-    all_lines = list(day_lines)
-    scopes: list[tuple[str, list[dict], str | None, dict | None]] = [(f"day:{day.isoformat()}", day_lines, None, None)]
-    for number, es in posting_entries.items():
-        if number in postings:
-            lines = _posting_lines(postings[number], day)
-            scopes.append((f"posting:{number}", lines, number, None))
+        parsed = parse_entry(e, day)
+        if _dict(e.get("posting")).get("products"):
             stats.postings += 1
-            # полные данные отправления пришли — строки, разобранные раньше из by-day, больше не нужны
-            await db.execute(delete(Accrual).where(
-                Accrual.user_id == user_id, Accrual.source == SOURCE_API,
-                Accrual.sync_scope.like(f"posting-day:{number}:%"),
-            ))
-        elif number in already_loaded:
-            continue  # отправление уже загружено через /postings — из by-day не дублируем
-        else:
-            lines = [{**ln, "raw": e} for e in es for ln in _fallback_posting_lines(e, day)]
-            # отдельная область: строки из by-day не затирают уже загруженные из /postings
-            scopes.append((f"posting-day:{number}:{day.isoformat()}", lines, number, {"fallback": "by-day"}))
-            stats.postings_fallback += 1
-        all_lines.extend(lines)
+        if not is_balanced(e, parsed):
+            stats.unbalanced += 1
+            log.warning("Начисления %s: сумма строк записи не сошлась с total_amount Ozon (вид %s)",
+                        day, e.get("accrued_category"))
+        lines.extend({**ln, "raw": e} for ln in parsed)  # исходная запись Ozon — для перепроверки и перечитывания
 
-    await _ensure_types(db, all_lines)
-    for scope, lines, number, extra in scopes:
-        stats.lines += await _replace_scope(
-            db, user_id, scope, lines, posting_number=number, products_by_sku=products_by_sku, raw_extra=extra
-        )
+    await _ensure_types(db, lines)
+    stats.lines += await _replace_scope(db, user_id, f"day:{day.isoformat()}", lines, products_by_sku)
 
     mark = await db.get(AccrualDay, (user_id, day))
     if mark is None:

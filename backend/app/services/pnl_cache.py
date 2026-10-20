@@ -56,6 +56,17 @@ class PnLCache:
         digest = hashlib.sha1(json.dumps(params, sort_keys=True, default=str).encode()).hexdigest()
         return f"pnl:{user_id}:{await self._version(user_id)}:{kind}:{digest}"
 
+    async def aclose(self) -> None:
+        """Закрыть клиент Redis в его же цикле событий. Задачи Celery вызывают в конце каждого запуска (у каждого свой
+        asyncio.run): брошенный клиент закрывался бы сборщиком мусора уже без цикла — «Event loop is closed» в журнале."""
+        client, loop = self._client, self._loop
+        self._client = self._loop = None
+        if client is not None and loop is asyncio.get_running_loop():
+            try:
+                await client.aclose()
+            except Exception:  # noqa: BLE001 — закрытие соединения не должно ронять задачу
+                pass
+
     async def get(self, user_id: uuid.UUID, kind: str, params: dict) -> dict | None:
         key = await self._key(user_id, kind, params)
         r = await self._redis()

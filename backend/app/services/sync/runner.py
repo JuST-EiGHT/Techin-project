@@ -33,6 +33,15 @@ log = logging.getLogger(__name__)
 
 STALE_AFTER = timedelta(minutes=30)
 INTERNAL_ERROR = "Внутренняя ошибка синхронизации, попробуйте позже"
+OZON_TEXT_MAX = 500
+
+
+def ozon_error_text(e: OzonAPIError) -> str:
+    """Текст ошибки для журнала запусков и интерфейса. Общий отказ Ozon («отклонил запрос (HTTP 400)») сам по себе
+    причину не объясняет — добавляем метод и текст Ozon (без ключа: клиент его вырезает)."""
+    if type(e) is OzonAPIError and e.ozon_message:
+        return f"{e.message} — {e.path}: {e.ozon_message}"[:OZON_TEXT_MAX]
+    return e.message
 
 Job = Callable[..., Awaitable[Any]]  # (db, user_id, client, **params) -> stats
 
@@ -186,7 +195,7 @@ async def run_sync(
         except OzonAPIError as e:
             await db.rollback()
             log.warning("Синхронизация %s у пользователя %s: %s (%s)", kind, user_id, e.message, e.ozon_message)
-            await fail_run(db, run, e.message)
+            await fail_run(db, run, ozon_error_text(e))
             return run
         except Exception:  # noqa: BLE001 — любая ошибка одного пользователя не должна ронять остальных
             await db.rollback()

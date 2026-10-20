@@ -26,11 +26,18 @@ SOURCE_API, SOURCE_XLSX = "api", "xlsx"
 
 
 class AccrualType(Base):
-    """Справочник типов начислений Ozon (/v1/finance/accrual/types) — общий для всех пользователей."""
+    """Справочник типов начислений Ozon (/v1/finance/accrual/types) — общий для всех пользователей.
+
+    Ozon отдаёт `name` — английский код (`SaleCommission`), `description` — русское название («Вознаграждение за
+    продажу»): код — в `code`, русское название — в `name_ru` (по нему P&L, прибыль по товарам и отчёты XLSX
+    сопоставляют строки). Служебные типы с отрицательным id — суммы продажи из записи отправления, которых в
+    справочнике нет: выручка, возврат выручки, баллы за скидки, программы партнёров (services/sync/finance.py).
+    """
 
     __tablename__ = "accrual_types"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)  # type_id Ozon
+    code: Mapped[str | None] = mapped_column(String(100))  # name из справочника Ozon: SaleCommission, Logistic …
     name_ru: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     # Ozon категорию не отдаёт: ставим по знаку первой ненулевой суммы этого типа (доход > 0, расход < 0)
@@ -43,9 +50,8 @@ class AccrualType(Base):
 class Accrual(Base):
     """Строка начисления: один тип начисления по отправлению/товару на дату.
 
-    Защита от дублей: строки API пишутся «областями» (sync_scope) — все начисления одного
-    отправления (`posting:<номер>`) или все начисления дня без отправления (`day:<дата>`).
-    При повторной синхронизации область целиком заменяется; уникальный индекс
+    Защита от дублей: строки API пишутся «областями» (sync_scope) — все начисления одного дня из
+    /v1/finance/accrual/by-day (`day:<дата>`). При повторной синхронизации область целиком заменяется; уникальный индекс
     (user_id, source, sync_scope, line_no) не даёт записать её дважды.
     Строки XLSX: область `report:<id>` — все строки одного загруженного отчёта.
     """
