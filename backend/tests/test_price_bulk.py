@@ -60,7 +60,7 @@ async def add_products(sessions, ozon, user_id, n, start=5000, price="1000") -> 
             db.add(p)
             await db.flush()
             db.add(ProductPrice(product_id=p.id, snapshot_at=NOW(), price=D(price), commission_pct=D("38"),
-                                acquiring_pct=D("1.5")))
+                                acquiring=D(price) * D("0.015")))
             db.add(ProductCost(user_id=user_id, offer_id=p.offer_id, cost_price=D("400"), vat_multiplier=D("1.22"),
                                effective_from=BEGINNING, source="manual", created_at=NOW()))
             ozon.items[pid] = {"price": price, "old_price": "0", "min_price": "0", "marketing_seller_price": price}
@@ -186,7 +186,7 @@ async def test_warnings_and_changed_price(client, tokens, sessions, ozon):  # no
     [wid] = await add_products(sessions, ozon, env["user_id"], 1, start=7000, price="1000")
     async with sessions() as db:  # месяц цена была 600 — сейчас 1000 дальше 50 % от медианы: предупреждение
         db.add(ProductPrice(product_id=wid, snapshot_at=NOW() - timedelta(days=40), price=D("600"),
-                            commission_pct=D("38"), acquiring_pct=D("1.5")))
+                            commission_pct=D("38"), acquiring=D("9")))
         await db.commit()
     p = (await bulk_preview(client, tokens, strategy={"kind": "percent", "value": "5"},
                             product_ids=[str(wid)])).json()

@@ -141,8 +141,8 @@ async def test_first_sync_creates_products_and_prices(sessions, ozon):
     assert (snap.price, snap.old_price, snap.min_price, snap.marketing_price) == (
         Decimal("540.00"), Decimal("720.00"), Decimal("420.00"), Decimal("512.30"),
     )
-    assert (snap.commission_pct, snap.acquiring_pct, snap.auto_action_enabled, snap.price_index) == (
-        Decimal("38.000"), Decimal("1.500"), False, "GREEN",
+    assert (snap.commission_pct, snap.acquiring, snap.auto_action_enabled, snap.price_index) == (
+        Decimal("38.000"), Decimal("8.100"), False, "GREEN",  # эквайринг — рубли, как отдаёт Ozon
     )
     # цены строками (как в старых версиях API) разбираются так же
     [snap3] = await snapshots(sessions, ps[1003].id)

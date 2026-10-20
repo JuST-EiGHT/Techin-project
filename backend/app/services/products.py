@@ -101,7 +101,7 @@ def build_row(ctx: Context, p: Product) -> dict:
     snap = pc.prices.get(p.id)
     price = engine.positive(snap.price) if snap else None
     commission_pct = snap.commission_pct if snap else None
-    acquiring_pct = snap.acquiring_pct if snap else None
+    acquiring_pct = engine.acquiring_pct(snap.acquiring, snap.price) if snap else None
     record = pc.history.record_at(p.offer_id, ctx.today)
     cost = money(record.cost_price) if record else None
     cost_with_vat = money(record.cost_price * (record.vat_multiplier or pc.default_vat)) if record else None

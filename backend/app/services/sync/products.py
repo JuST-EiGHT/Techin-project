@@ -45,7 +45,7 @@ _VAT_Q = Decimal("0.0001")
 # Поля снепшота цены, по которым определяется «изменилось»
 PRICE_FIELDS = (
     "price", "min_price", "old_price", "marketing_price",
-    "commission_pct", "acquiring_pct", "auto_action_enabled", "price_index",
+    "commission_pct", "acquiring", "auto_action_enabled", "price_index",
 )
 PRODUCT_FIELDS = ("ozon_sku", "offer_id", "name", "category_id", "barcode", "vat", "is_archived")
 
@@ -105,7 +105,7 @@ def price_attrs(item: dict) -> dict[str, Any]:
         # price.marketing_price Ozon удалил 12.11.2025; описание marketing_seller_price в выгрузке документации свёрнуто
         "marketing_price": _dec(price.get("marketing_seller_price"), _CENT),
         "commission_pct": _dec(commissions.get("sales_percent_fbo"), _MILLI),  # магазин работает по FBO
-        "acquiring_pct": _dec(item.get("acquiring"), _MILLI),  # в примерах Ozon 1.5 при цене ~3000 — процент
+        "acquiring": _dec(item.get("acquiring"), _MILLI),  # ₽, не процент: у реальных товаров 19,8 при цене ~1300
         "auto_action_enabled": auto if isinstance(auto, bool) else None,
         "price_index": _str(indexes.get("color_index"), 32),
     }

@@ -44,7 +44,7 @@ async def seed(sessions, user_id) -> dict[str, Product]:
             db.add(p[key])
             await db.flush()
             db.add(ProductPrice(product_id=p[key].id, snapshot_at=now, price=D(price), commission_pct=D("38"),
-                                acquiring_pct=D("1.5")))
+                                acquiring=D(price) * D("0.015")))  # Ozon отдаёт рубли: 1,5 % от цены
             if key != "D":
                 db.add(ProductCost(user_id=user_id, offer_id=f"ART-{key}", cost_price=D("164"), vat_multiplier=D("1.22"),
                                    effective_from=BEGINNING, source="manual", created_at=now))

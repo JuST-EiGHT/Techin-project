@@ -97,7 +97,7 @@ HTTP-коды для этих текстов в документации не у
 | `price`, `min_price`, `old_price` | `/v5/product/info/prices` → `price.*` | 0 у Ozon = «не задано», храним как есть |
 | `marketing_price` | `price.marketing_seller_price` | `price.marketing_price` Ozon удалил 12.11.2025; описание поля в выгрузке свёрнуто |
 | `commission_pct` | `commissions.sales_percent_fbo` | магазин FBO; для FBS-продавцов есть `sales_percent_fbs` |
-| `acquiring_pct` | `acquiring` | описание свёрнуто; в примерах 1.5 и 1.8 при цене ~3000 и ~6000 — это **процент**, не рубли |
+| `acquiring` | `acquiring` | **рубли**, не процент: максимальная комиссия за эквайринг при текущей цене (описание в выгрузке свёрнуто; 1.5 и 1.8 в примерах — заглушки, у реальных товаров 19,8 при цене ~1300 ₽). Процент для расчётов — `acquiring / price × 100` (`engine.products.acquiring_pct`). До 20.10.2026 сервис считал это число процентом — исправлено, миграция 0030 |
 | `price_index` | `price_indexes.color_index` | числовые индексы — `ozon_index_data.price_index_value` и др. |
 
 ### Остатки (шаг 1.3)

@@ -111,7 +111,7 @@ async def setup_user(sessions, user_id=None, email="seller@example.com") -> uuid
             db.add(p)
             await db.flush()
             db.add(ProductPrice(product_id=p.id, snapshot_at=now, price=Decimal("540"), min_price=Decimal("400"),
-                                commission_pct=Decimal("38"), acquiring_pct=Decimal("1.5")))
+                                commission_pct=Decimal("38"), acquiring=Decimal("8.1")))
         db.add(ApiCredential(user_id=user_id, label="k", client_id="1234567", api_key_encrypted=encrypt(API_KEY),
                              is_active=True, expires_at=now + timedelta(days=60)))
         await db.commit()
