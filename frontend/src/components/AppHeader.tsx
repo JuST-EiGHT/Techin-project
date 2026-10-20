@@ -242,8 +242,9 @@ export function AppHeader({ onLogout, leaving }: { onLogout: () => void; leaving
         >
           {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>
-        <Link href="/dashboard" className="font-semibold">
+        <Link href="/dashboard" className="flex items-center gap-2 font-semibold" data-testid="logo">
           Ozon Analytics
+          <span className="text-3xl font-black leading-none sm:text-4xl">Петя</span>
         </Link>
         <nav className="hidden items-center gap-1 text-sm lg:flex" aria-label="Разделы">
           {NAV.filter((section) => !section.bellOnDesktop).map((section) =>
