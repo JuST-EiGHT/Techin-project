@@ -282,3 +282,20 @@ FBS-отправлений хранить `scanit` рядом со штрихк�
 - Рекламные расходы детально — это отдельный **Ozon Performance API**
   (свои ключи, OAuth client_credentials). В Seller API реклама видна только
   агрегатом в начислениях.
+
+## Понадобится для карты сервиса (фаза 10) — сверить в своём шаге
+
+Методы найдены в выгрузке `docs/ozon/seller_api_2026-10.txt` (22.10.2026) по названиям; поля, лимиты и права ключа
+сверяет шаг, который их использует (правило 10), и переносит сюда в разделы выше.
+
+| Для чего | Методы | Шаг |
+|---|---|---|
+| Категории товаров (названия) | `/v1/description-category/tree` | 10.3 |
+| Отчёт о реализации через API | `/v1/finance/realization`, `/v1/finance/realization/by-day`, `/v1/finance/realization/posting` | 10.12 |
+| Взаиморасчёты, движение денег, компенсации | `/v1/finance/mutual-settlement`, `/v1/finance/cash-flow-statement/list`, `/v1/finance/compensation`, `/v1/finance/decompensation`, `/v1/finance/document-b2b-sales` | 10.12, 10.23 |
+| Отчёты, которые Ozon формирует по запросу | `/v1/report/*/create`, `/v1/report/info`, `/v1/report/list` (товары, отправления, возвраты, остатки) | 10.12 |
+| Возвраты | `/v1/returns/list` | 10.8 |
+| Заявки на поставку FBO | `/v1/supply-order/list`, `/get`, `/items`, `/details`, `/status/counter`, `/cancel` | 10.18 |
+| Черновики поставок и таймслоты (изменение в Ozon — правило 6) | `/v1/draft/create`, `/v1/draft/create/info`, `/v1/draft/timeslot/info`, `/v1/draft/supply/create`, `/v1/draft/supply/create/status` | 10.18 |
+| Вывозы со складов (только списки) | `/v1/removal/from-stock/list`, `/v1/removal/from-supply/list` | 10.17 |
+| Кластеры | `/v1/cluster/list` | 10.17, 10.18 |
