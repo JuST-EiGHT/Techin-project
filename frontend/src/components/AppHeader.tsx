@@ -1,15 +1,15 @@
 'use client'
 
-// Шапка кабинета: разделы с выпадающими списками, статус синхронизации, уведомления (7.2), меню аккаунта.
+// Шапка кабинета: разделы с выпадающими списками, кнопка «Синхронизация» (10.2), уведомления (7.2), меню аккаунта.
 // Разделы и порядок — карта сервиса (шаг 10.1, docs/SITEMAP.md), пункты — lib/nav.ts. Разделов семь: полное меню в шапке —
-// с 1280 px (разделы 720 px + логотип + колокольчик и аккаунт), уже — кнопка меню (до 10.1 — с 1024 px).
+// с 1280 px (разделы 720 px + логотип + синхронизация, колокольчик и аккаунт), уже — кнопка меню (до 10.1 — с 1024 px).
 import { Bell, ChevronDown, Landmark, LogOut, Menu, Plug, Settings, UserRound, X } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { AlertBell } from '@/components/alerts'
-import { SyncStatus } from '@/components/SyncStatus'
+import { SyncButton } from '@/components/sync'
 import { useAuth } from '@/contexts/AuthContext'
 import { useDismiss } from '@/hooks/useDismiss'
 import { ACCOUNT_MENU, NAV, type NavSection, sectionActive } from '@/lib/nav'
@@ -286,10 +286,8 @@ export function AppHeader({ onLogout, leaving }: { onLogout: () => void; leaving
             ),
           )}
         </nav>
-        <div className="ml-auto hidden sm:block">
-          <SyncStatus />
-        </div>
-        <div className="ml-auto flex items-center gap-2 sm:ml-0">
+        <div className="ml-auto flex items-center gap-2">
+          <SyncButton />
           <AlertBell />
           <AccountMenu onLogout={onLogout} leaving={leaving} />
         </div>

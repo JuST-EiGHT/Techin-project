@@ -5,7 +5,7 @@ import axios from 'axios'
 import { useCallback, useEffect, useState } from 'react'
 
 import { Field, FormError, SubmitButton } from '@/components/AuthForm'
-import { notifyCredentialsChanged } from '@/components/SyncStatus'
+import { notifyCredentialsChanged } from '@/lib/sync'
 import { openStore, type Store, useStores } from '@/contexts/StoreContext'
 import { api, errorMessage } from '@/lib/api'
 

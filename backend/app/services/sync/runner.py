@@ -17,9 +17,14 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.integrations.bank.base import BankAPIError
+from app.integrations.bank.base import (
+    BankAPIError, BankAuthError, BankNetworkError, BankRateLimitError, BankServerError, BankTimeoutError,
+)
 from app.integrations.ozon.client import OzonClient
-from app.integrations.ozon.errors import OzonAPIError
+from app.integrations.ozon.errors import (
+    OzonAPIError, OzonAuthError, OzonNetworkError, OzonNotConfiguredError, OzonRateLimitError, OzonServerError,
+    OzonTimeoutError,
+)
 from app.integrations.ozon.factory import get_ozon_client
 from app.models.sync_run import ACTIVE_STATUSES, FAILED, QUEUED, RUNNING, SUCCESS, SyncRun
 from app.services.sync.products import sync_products
@@ -34,6 +39,34 @@ log = logging.getLogger(__name__)
 STALE_AFTER = timedelta(minutes=30)
 INTERNAL_ERROR = "Внутренняя ошибка синхронизации, попробуйте позже"
 OZON_TEXT_MAX = 500
+
+
+# Причина провала (шаг 10.2) — в run.stats["error_kind"]: по ней окно «Синхронизация» говорит простыми словами, что
+# случилось и что сделать (services/sync/overview.py). Текст ошибки — в run.error, как раньше.
+NO_KEY, KEY, KEY_ROLE = "no_key", "key", "key_role"
+RATE_LIMIT, OZON_DOWN, OZON_REJECTED = "rate_limit", "ozon_down", "ozon_rejected"
+BANK_TOKEN, BANK_DOWN, BANK_REJECTED = "bank_token", "bank_down", "bank_rejected"
+INTERNAL, INTERRUPTED, QUEUE = "internal", "interrupted", "queue"
+
+
+def error_kind(e: Exception) -> str:
+    if isinstance(e, OzonNotConfiguredError):
+        return NO_KEY
+    if isinstance(e, OzonAuthError):
+        return KEY_ROLE if e.kind in ("no_role", "forbidden") else KEY
+    if isinstance(e, OzonRateLimitError):
+        return RATE_LIMIT
+    if isinstance(e, (OzonServerError, OzonTimeoutError, OzonNetworkError)):
+        return OZON_DOWN
+    if isinstance(e, OzonAPIError):
+        return OZON_REJECTED
+    if isinstance(e, BankAuthError):
+        return BANK_TOKEN
+    if isinstance(e, (BankRateLimitError, BankServerError, BankTimeoutError, BankNetworkError)):
+        return BANK_DOWN
+    if isinstance(e, BankAPIError):  # отказ всех банков — одна общая ошибка (bank_connections.sync_user)
+        return BANK_TOKEN if "токен" in e.message.lower() else BANK_REJECTED
+    return INTERNAL
 
 
 def ozon_error_text(e: OzonAPIError) -> str:
@@ -135,7 +168,7 @@ async def active_run(db: AsyncSession, user_id: uuid.UUID, kind: str) -> SyncRun
         return None
     if datetime.now(timezone.utc) - _utc(run.started_at) > STALE_AFTER:
         run.status, run.error = FAILED, "Синхронизация прервалась, запустите её снова"
-        run.finished_at = datetime.now(timezone.utc)
+        run.finished_at, run.stats = datetime.now(timezone.utc), {"error_kind": INTERRUPTED}
         await db.commit()
         return None
     return run
@@ -150,8 +183,10 @@ async def start_run(db: AsyncSession, user_id: uuid.UUID, kind: str, status: str
     return run
 
 
-async def fail_run(db: AsyncSession, run: SyncRun, error: str) -> None:
+async def fail_run(db: AsyncSession, run: SyncRun, error: str, kind: str | None = None) -> None:
     run.status, run.error, run.finished_at = FAILED, error, datetime.now(timezone.utc)
+    if kind:
+        run.stats = {"error_kind": kind}
     await db.commit()
 
 
@@ -190,17 +225,17 @@ async def run_sync(
         except BankAPIError as e:
             await db.rollback()
             log.warning("Синхронизация %s у пользователя %s: %s (%s)", kind, user_id, e.message, e.bank_message)
-            await fail_run(db, run, e.message)
+            await fail_run(db, run, e.message, error_kind(e))
             return run
         except OzonAPIError as e:
             await db.rollback()
             log.warning("Синхронизация %s у пользователя %s: %s (%s)", kind, user_id, e.message, e.ozon_message)
-            await fail_run(db, run, ozon_error_text(e))
+            await fail_run(db, run, ozon_error_text(e), error_kind(e))
             return run
         except Exception:  # noqa: BLE001 — любая ошибка одного пользователя не должна ронять остальных
             await db.rollback()
             log.exception("Синхронизация %s у пользователя %s упала", kind, user_id)
-            await fail_run(db, run, INTERNAL_ERROR)
+            await fail_run(db, run, INTERNAL_ERROR, INTERNAL)
             return run
 
         run.status, run.stats, run.finished_at = SUCCESS, stats, datetime.now(timezone.utc)

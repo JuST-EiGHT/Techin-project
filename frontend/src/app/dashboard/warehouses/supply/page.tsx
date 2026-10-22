@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
 import { fmtDay } from '@/components/reports'
-import { timeAgo } from '@/components/SyncStatus'
+import { refreshSyncStatus, timeAgo } from '@/lib/sync'
 import { useAuth } from '@/contexts/AuthContext'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
@@ -123,6 +123,7 @@ export default function SupplyPage() {
     setError(null)
     try {
       await api.post('/sync/postings')
+      refreshSyncStatus() // кнопка «Синхронизация» в шапке сразу покажет загрузку
     } catch (err) {
       if ((err as { response?: { status?: number } }).response?.status !== 409) setError(errorMessage(err))
     } finally {

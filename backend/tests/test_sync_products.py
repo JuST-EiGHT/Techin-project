@@ -375,7 +375,8 @@ async def test_api_sync_without_key(client, tokens, enqueued):
     empty = {"last_run": None, "last_success_at": None}
     assert status == {"has_active_key": False, "products": empty, "stocks": empty, "finance": empty, "promotions": empty,
                       "balance": empty, "has_bank": False, "bank": empty,  # банк по API — шаг 3.12
-                      "postings": empty}  # отправления — шаг 5.2
+                      "postings": empty,  # отправления — шаг 5.2
+                      "state": "no_source", "oldest_kind": None, "oldest_success_at": None, "kinds": []}  # шаг 10.2
 
 
 async def test_api_manual_sync_flow(sessions, client, tokens, enqueued, ozon):

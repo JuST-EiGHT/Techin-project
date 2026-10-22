@@ -7,7 +7,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { FormError } from '@/components/AuthForm'
 import { ProductPanel } from '@/components/product-panel'
 import { Badge, fmtDay, pctText, rub } from '@/components/reports'
-import { timeAgo } from '@/components/SyncStatus'
+import { refreshSyncStatus, timeAgo } from '@/lib/sync'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
 import { todayMsk } from '@/lib/period'
@@ -161,6 +161,7 @@ function Products() {
     setStarting(true)
     try {
       await api.post('/sync/products')
+      refreshSyncStatus() // кнопка «Синхронизация» в шапке сразу покажет загрузку
     } catch (err) {
       if ((err as { response?: { status?: number } }).response?.status !== 409) setError(errorMessage(err))
     } finally {

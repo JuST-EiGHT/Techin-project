@@ -16,7 +16,7 @@ import {
   weekdayShort,
 } from '@/components/payouts'
 import { Warnings, fmtDay, rub } from '@/components/reports'
-import { timeAgo } from '@/components/SyncStatus'
+import { refreshSyncStatus, timeAgo } from '@/lib/sync'
 import { api, errorMessage } from '@/lib/api'
 import { addDays, todayMsk } from '@/lib/period'
 
@@ -132,6 +132,7 @@ function PayoutsView() {
     setError(null)
     try {
       await api.post('/sync/balance')
+      refreshSyncStatus() // кнопка «Синхронизация» в шапке сразу покажет загрузку
     } catch (err) {
       if ((err as { response?: { status?: number } }).response?.status !== 409) setError(errorMessage(err))
     } finally {

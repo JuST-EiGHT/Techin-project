@@ -8,7 +8,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
 import { fmtDay } from '@/components/reports'
-import { timeAgo } from '@/components/SyncStatus'
+import { refreshSyncStatus, timeAgo } from '@/lib/sync'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
 import {
@@ -137,6 +137,7 @@ function Warehouses() {
     setError(null)
     try {
       await api.post('/sync/stocks')
+      refreshSyncStatus() // кнопка «Синхронизация» в шапке сразу покажет загрузку
     } catch (err) {
       if ((err as { response?: { status?: number } }).response?.status !== 409) setError(errorMessage(err))
     } finally {

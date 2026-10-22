@@ -9,7 +9,7 @@ import { FormError } from '@/components/AuthForm'
 import { PromoActionModal } from '@/components/promo-action'
 import { PromoHistory } from '@/components/promo-history'
 import { Badge, pctText, rub } from '@/components/reports'
-import { timeAgo } from '@/components/SyncStatus'
+import { refreshSyncStatus, timeAgo } from '@/lib/sync'
 import { api, errorMessage } from '@/lib/api'
 import { MARGIN_TEXT, fmtDate, type AutoAddedResponse, type AutoAddedRow, type Promotion } from '@/lib/promotions'
 
@@ -97,6 +97,7 @@ function Promotions() {
     setError(null)
     try {
       await api.post('/sync/promotions')
+      refreshSyncStatus() // кнопка «Синхронизация» в шапке сразу покажет загрузку
     } catch (err) {
       if ((err as { response?: { status?: number } }).response?.status !== 409) setError(errorMessage(err))
     } finally {
