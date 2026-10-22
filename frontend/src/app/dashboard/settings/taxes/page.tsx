@@ -368,7 +368,7 @@ export default function TaxesPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Налоги и НДС</h1>
+        <h1 className="text-2xl font-semibold">Налоги и учёт</h1>
         <p className="text-sm text-muted">
           Кто вы и как платите налоги — по этому сервис считает налог и НДС в P&amp;L. Изменение — новая запись в истории: прошлые
           периоды считаются по прежним условиям.

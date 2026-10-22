@@ -100,7 +100,7 @@ export function UpcomingTaxes({ refresh }: { refresh: number }) {
         <h2 className="text-sm font-semibold">Ближайшие сроки</h2>
         <span className="text-xs text-faint">по вашему профилю; срок в выходной — на следующий рабочий день, сумма — оценка по продажам</span>
         {data.planning && (
-          <Link href="/dashboard/planning?tab=calendar" className="ml-auto text-xs text-accent hover:underline" data-testid="upcoming-all">
+          <Link href="/dashboard/planning/calendar" className="ml-auto text-xs text-accent hover:underline" data-testid="upcoming-all">
             Все платежи →
           </Link>
         )}

@@ -133,14 +133,14 @@ export function RecentPriceChanges() {
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line px-4 py-3">
         <h2 className="font-semibold">Последние изменения цен</h2>
         <span className="text-sm text-muted">за 30 дней: {data.counts.applied} применено</span>
-        <Link href="/dashboard/prices/history" className="ml-auto text-sm text-accent hover:underline">
+        <Link href="/dashboard/products/prices/history" className="ml-auto text-sm text-accent hover:underline">
           Вся история →
         </Link>
       </div>
       {data.items.length === 0 ? (
         <p className="px-4 py-3 text-sm text-muted" data-testid="recent-prices-none">
           За 30 дней цены через сервис не меняли. Изменить цену — в карточке товара или на странице{' '}
-          <Link href="/dashboard/prices/bulk" className="text-accent hover:underline">
+          <Link href="/dashboard/products/prices/bulk" className="text-accent hover:underline">
             «Цены списком»
           </Link>
           .

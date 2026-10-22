@@ -83,7 +83,7 @@ function TaxesSection() {
       .catch(() => setTitle(null))
   }, [])
   return (
-    <Section title="Налоги и НДС" hint="Кто вы, система налогообложения, ставка и НДС — по ним считается налог в P&L.">
+    <Section title="Налоги и учёт" hint="Кто вы, система налогообложения, ставка и НДС — по ним считается налог в P&L.">
       <div className="flex flex-wrap items-center gap-3 text-sm">
         <span className={title === null ? 'text-warn' : ''} data-testid="taxes-summary">
           {title === undefined ? 'Загрузка…' : (title ?? 'Не заданы — налог не считается')}
@@ -642,7 +642,7 @@ function PlanningSection() {
 export default function SettingsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <h1 className="text-2xl font-semibold">Основные настройки</h1>
+      <h1 className="text-2xl font-semibold">Настройки</h1>
       <ThemeSection />
       <TaxesSection />
       <SupplierSection />

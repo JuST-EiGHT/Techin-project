@@ -89,7 +89,7 @@ async def cash_flow(db: AsyncSession, user_id: uuid.UUID, date_from: date, date_
         opening = None  # по счёту без остатка есть движение — остатки по периодам были бы неверны
         warnings.append(
             f"Остаток не указан у счёта: {', '.join(blind)}, а движение по нему есть — остатки на начало и конец "
-            "периодов не считаем. Укажите остаток в «Счетах»."
+            "периодов не считаем. Укажите остаток в «Операциях» → «Счета и выписки»."
         )
     elif unknown and opening is not None:
         warnings.append(f"Остаток не указан: {', '.join(unknown)} — остатки без этих счетов.")

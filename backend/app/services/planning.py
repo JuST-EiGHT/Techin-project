@@ -603,10 +603,10 @@ async def delete_operation(db: AsyncSession, user_id: uuid.UUID, op_id: uuid.UUI
     row = await current_operation(db, user_id, op_id)
     if row.source == "ozon_payout":
         raise PlanningError("Выплату Ozon удалить нельзя — она приходит из данных Ozon. Если выплаты приходят на другой "
-                            "счёт, выберите его в «Счетах»")
+                            "счёт, выберите его в «Операциях» → «Счета и выписки»")
     if row.source == "bank":
         raise PlanningError("Операцию из выписки банка удалить нельзя. Если это дубль операции, внесённой вручную, — "
-                            "объедините их в «Счетах» → «Возможные дубли»")
+                            "объедините их в «Операциях» → «Счета и выписки» → «Возможные дубли»")
     legs = await _transfer_legs(db, user_id, row.transfer_id) if row.transfer_id else [row]
     for leg in legs:
         leg.deleted_at = _now()

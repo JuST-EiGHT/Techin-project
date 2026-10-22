@@ -1,5 +1,5 @@
 'use client'
-// «Планирование → Операции» (шаг 3.8): быстрый ввод, список с фильтрами, история исправлений, загрузка списком.
+// «Операции → Все операции» (шаг 3.8): быстрый ввод, список с фильтрами, история исправлений, загрузка списком.
 import { Download, History, Pencil, Trash2, Upload } from 'lucide-react'
 import { useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'

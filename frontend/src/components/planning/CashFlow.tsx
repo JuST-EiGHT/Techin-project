@@ -210,7 +210,7 @@ export function CashFlowTab() {
     <div className="space-y-4" data-testid="cashflow-tab">
       <p className="text-sm text-muted">
         ДДС — движение денег: что пришло на ваши счета и что ушло, по статьям. Это не P&amp;L: прибыль по начислениям Ozon — в{' '}
-        <Link href="/dashboard/finance" className="text-accent hover:underline">
+        <Link href="/dashboard/finance/pnl" className="text-accent hover:underline">
           «Финансах»
         </Link>
         . Выплата Ozon здесь — в день, когда пришли деньги, а в P&amp;L — в неделю продаж. Переводы между своими счетами — не приход и не расход.
@@ -263,8 +263,8 @@ export function CashFlowTab() {
             </>
           ) : (
             <p className="rounded-xl border border-line bg-card p-4 text-sm text-muted" data-testid="cf-empty">
-              За этот период операций нет. Добавьте их во вкладке{' '}
-              <Link href="/dashboard/planning?tab=operations" className="text-accent hover:underline">
+              За этот период операций нет. Добавьте их в разделе{' '}
+              <Link href="/dashboard/operations" className="text-accent hover:underline">
                 «Операции»
               </Link>{' '}
               — вручную или списком из Excel; выплаты Ozon появятся сами, если подключён ключ Ozon API.

@@ -318,7 +318,7 @@ async def test_template_round_trip_and_changes(client, tokens, sessions):
     assert body["counts"] == {"new": 1, "changed": 1, "unchanged": 1, "skipped": 1, "error": 3}
     errors = {r["line"]: r["message"] for r in body["rows"] if r["status"] == "error"}
     assert errors == {
-        5: "Счёта «Сейф» нет — добавьте его в «Счетах» или выберите из списка",
+        5: "Счёта «Сейф» нет — добавьте его в «Операциях» → «Счета и выписки» или выберите из списка",
         6: "Заполните что-то одно: «Приход» или «Расход»",
         7: "Дата в будущем — здесь только то, что уже было",
     }

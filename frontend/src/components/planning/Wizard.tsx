@@ -221,7 +221,7 @@ export function Wizard({ onDone }: { onDone: (state: PlanningState) => void }) {
             {accounts.map((a, i) => (
               <Choice key={i} active={ozon === i} onClick={() => setOzon(i)} title={a.name || 'Без названия'} text={`${kindLabel(a.kind)} — выплаты Ozon будут поступлениями на него`} testid={`w-ozon-${i}`} />
             ))}
-            <Choice active={ozon === null} onClick={() => setOzon(null)} title="Пока не указывать" text="Выплаты Ozon не попадут в операции — выбрать счёт можно потом в «Счетах»" testid="w-ozon-none" />
+            <Choice active={ozon === null} onClick={() => setOzon(null)} title="Пока не указывать" text="Выплаты Ozon не попадут в операции — выбрать счёт можно потом в «Операциях» → «Счета и выписки»" testid="w-ozon-none" />
           </div>
         </div>
       )}

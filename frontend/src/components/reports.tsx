@@ -323,7 +323,7 @@ export function MissingCostTable({ items }: { items: ReportSummary['missing_cost
         <h2 className="text-sm font-semibold text-warn">Не найдена себестоимость — прибыль завышена</h2>
         <span className="ml-auto flex flex-wrap items-center gap-4">
           <CostTemplateButton rows="missing">Скачать шаблон с этими товарами</CostTemplateButton>
-          <Link href="/dashboard/costs?missing=1" className="text-sm text-accent hover:underline">
+          <Link href="/dashboard/products/costs?missing=1" className="text-sm text-accent hover:underline">
             Указать себестоимость →
           </Link>
         </span>
@@ -394,7 +394,7 @@ export function ReportHeading({ report, link }: { report: ReportItem; link?: boo
   const title = `${TYPE_LABEL[report.report_type]} · ${periodLabel(report)}`
   return (
     <div>
-      <h2 className="text-lg font-semibold">{link ? <Link href={`/dashboard/reports/${report.id}`} className="hover:text-accent">{title}</Link> : title}</h2>
+      <h2 className="text-lg font-semibold">{link ? <Link href={`/dashboard/analytics/reports/${report.id}`} className="hover:text-accent">{title}</Link> : title}</h2>
       <p className="text-xs text-muted">
         {report.filename} · загружен {fmtDateTime(report.uploaded_at)}
       </p>

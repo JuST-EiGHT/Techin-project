@@ -58,7 +58,7 @@ function Dashboard() {
   }, [range.from, range.to])
 
   const shown = data && data.date_from === range.from && data.date_to === range.to ? data : null
-  const finance = `/dashboard/finance?period=${preset.value}`
+  const finance = `/dashboard/finance/pnl?period=${preset.value}`
   const setup = shown?.setup
   const nothing = setup && !setup.has_key && !setup.has_reports && !setup.has_balance
 
@@ -115,7 +115,7 @@ function Dashboard() {
                 <div className="min-w-0 flex-1">
                   <SourceNote source={shown.data_source} coverage={shown.coverage} />
                 </div>
-                <Link href="/dashboard/reports" className="text-xs text-accent hover:underline">
+                <Link href="/dashboard/analytics/reports" className="text-xs text-accent hover:underline">
                   Отчёты Ozon →
                 </Link>
               </div>
@@ -130,7 +130,7 @@ function Dashboard() {
                   series={shown.series}
                   against={preset.against}
                   // точка → товары за её день или неделю; «Подробнее →» → товары за весь период
-                  pointHref={(p) => `/dashboard/finance?period=custom&from=${p.date}&to=${p.date_to}&tab=products`}
+                  pointHref={(p) => `/dashboard/finance/pnl?period=custom&from=${p.date}&to=${p.date_to}&tab=products`}
                   moreHref={`${finance}&tab=products`}
                 />
               )}
@@ -138,8 +138,8 @@ function Dashboard() {
                 <WeekChart
                   weeks={shown.payouts.weeks}
                   today={today}
-                  weekHref={(w) => `/dashboard/payouts?week=${w}`}
-                  moreHref="/dashboard/payouts"
+                  weekHref={(w) => `/dashboard/finance/payouts?week=${w}`}
+                  moreHref="/dashboard/finance/payouts"
                 />
               ) : (
                 <section className="rounded-xl border border-line bg-card p-4 text-sm" data-testid="payouts-empty">
@@ -150,7 +150,7 @@ function Dashboard() {
                       : 'Баланс у Ozon и даты выплат приходят только из Ozon API — в отчётах XLSX их нет. Подключите ключ, чтобы видеть, когда и сколько придёт.'}
                   </p>
                   <Link
-                    href={shown.setup.has_key ? '/dashboard/payouts' : '/dashboard/settings/api-keys'}
+                    href={shown.setup.has_key ? '/dashboard/finance/payouts' : '/dashboard/settings/integrations'}
                     className="mt-2 inline-block text-accent hover:underline"
                   >
                     {shown.setup.has_key ? 'Открыть «Выплаты Ozon» →' : 'Подключить API-ключ →'}
@@ -210,11 +210,11 @@ function Figures({ data, finance, against, costLabel }: { data: OzonDashboard; f
         )}
         {profit.value !== null && profit.kind === 'before_tax' && <Hint>налог не задан — без налога</Hint>}
       </FigureLink>
-      <FigureLink href="/dashboard/payouts" label="На балансе у Ozon" value={rub(pay.balance)} testid="figure-balance">
+      <FigureLink href="/dashboard/finance/payouts" label="На балансе у Ozon" value={rub(pay.balance)} testid="figure-balance">
         <Hint>{pay.last_day ? `на конец ${fmtDay(pay.last_day)}` : data.setup.has_key ? 'баланс ещё не загружен' : 'нужен API-ключ Ozon'}</Hint>
       </FigureLink>
       <FigureLink
-        href="/dashboard/payouts"
+        href="/dashboard/finance/payouts"
         label="Следующая выплата"
         value={next?.amount ? rub(next.amount) : '—'}
         testid="figure-next"
@@ -310,14 +310,14 @@ function Connect() {
         оба: где есть отчёт, сервис берёт его, остальные дни — из API.
       </p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <Link href="/dashboard/settings/api-keys" className="rounded-lg border border-line p-4 hover:border-accent" data-testid="connect-key">
+        <Link href="/dashboard/settings/integrations" className="rounded-lg border border-line p-4 hover:border-accent" data-testid="connect-key">
           <div className="font-semibold">API-ключ Ozon →</div>
           <p className="mt-1 text-sm text-muted">
             Продажи, начисления, остатки, баланс и выплаты загружаются сами каждые несколько часов. Только так видны баланс у
             Ozon и даты выплат. Цифры по API могут немного расходиться с кабинетом.
           </p>
         </Link>
-        <Link href="/dashboard/reports/upload" className="rounded-lg border border-line p-4 hover:border-accent" data-testid="connect-reports">
+        <Link href="/dashboard/analytics/reports/upload" className="rounded-lg border border-line p-4 hover:border-accent" data-testid="connect-reports">
           <div className="font-semibold">Отчёты XLSX из кабинета →</div>
           <p className="mt-1 text-sm text-muted">
             Отчёт по начислениям за неделю или месяц — P&amp;L точно как в личном кабинете Ozon. Загружаете вручную, когда

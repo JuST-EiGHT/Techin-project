@@ -1,7 +1,7 @@
 'use client'
 
 // Переключатель магазинов (шаг 8.4b): полоса под шапкой — только когда магазинов больше одного. Один магазин —
-// полосы нет, добавить второй — «Магазины» в меню аккаунта.
+// полосы нет, добавить второй — «Интеграции» → «Ozon» в меню аккаунта.
 import { Check, ChevronDown, Store as StoreIcon } from 'lucide-react'
 import Link from 'next/link'
 import { useCallback, useRef, useState } from 'react'
@@ -68,7 +68,7 @@ export function StoreBar() {
             ))}
             <div className="mt-1 border-t border-line pt-1">
               <Link
-                href="/dashboard/settings/stores"
+                href="/dashboard/settings/integrations"
                 role="menuitem"
                 onClick={close}
                 className="block rounded-lg px-3 py-2 text-sm text-muted outline-none hover:bg-line/60 hover:text-fg focus:bg-line/60"

@@ -330,7 +330,7 @@ export function ParamsPanel({
             <div>
               <span className="text-warn">Налог не задан</span> — остаток и маржа не считаются.{' '}
               <Link href="/dashboard/settings/taxes" className="text-accent hover:underline">
-                Указать в «Налоги и НДС» →
+                Указать в «Налогах и учёте» →
               </Link>
             </div>
           )}

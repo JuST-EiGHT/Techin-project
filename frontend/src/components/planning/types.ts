@@ -229,7 +229,7 @@ export const PERIODS: { value: Period; label: string }[] = [
 export const WEEKDAYS = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье']
 
 /** Финансы за период — расчёт суммы налога или оплаты поставщику. */
-export const calcHref = (r: Range) => `/dashboard/finance?period=custom&from=${r.date_from}&to=${r.date_to}`
+export const calcHref = (r: Range) => `/dashboard/finance/pnl?period=custom&from=${r.date_from}&to=${r.date_to}`
 
 
 // ---------- обзор и ДДС (шаг 3.10) ----------
@@ -286,4 +286,4 @@ export type CashFlow = {
 
 /** Операции за период (и статью) — подробности точки графика или строки ДДС. */
 export const opsHref = (from: string, to: string, category?: string | null) =>
-  `/dashboard/planning?tab=operations&from=${from}&to=${to}${category ? `&category=${category}` : ''}`
+  `/dashboard/operations?from=${from}&to=${to}${category ? `&category=${category}` : ''}`

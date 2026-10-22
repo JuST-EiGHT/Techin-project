@@ -54,7 +54,7 @@ SPEC = TemplateSpec(
         Column("amount", "Сумма, руб.", kind="money", in_template=False, aliases=("сумма", "amount"),
                exclude=("приход", "расход"), hint="Вместо «Приход» и «Расход»: + приход, − расход."),
         Column("account", "Счёт", width=22, aliases=("счёт", "счет", "кошел", "касса", "account"),
-               hint="Как в разделе «Счета»: например, «Расчётный счёт» или «Наличные». Один счёт — можно не заполнять."),
+               hint="Как в разделе «Счета и выписки»: например, «Расчётный счёт» или «Наличные». Один счёт — можно не заполнять."),
         Column("category", "Статья", width=26, aliases=("статья", "категори", "category"),
                hint="Как в разделе «Статьи». Пусто — без статьи."),
         Column("counterparty", "Контрагент", width=24, aliases=("контрагент", "получатель", "плательщик"),
@@ -229,7 +229,7 @@ def parse_file(content: bytes, filename: str, directory: Directory, today: date)
         if row.account:
             acc = accounts.get(_norm(row.account))
             if acc is None:
-                errors.append(f"счёта «{row.account}» нет — добавьте его в «Счетах» или выберите из списка")
+                errors.append(f"счёта «{row.account}» нет — добавьте его в «Операциях» → «Счета и выписки» или выберите из списка")
             elif acc.archived_at is not None:
                 errors.append(f"счёт «{acc.name}» в архиве")
             else:

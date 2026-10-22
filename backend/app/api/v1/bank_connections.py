@@ -65,7 +65,7 @@ async def connect(data: ConnectIn, user: User = Depends(get_current_store), db: 
 async def sync_all(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """«Обновить»: новые операции и остатки всех подключённых банков."""
     if not await svc.list_connections(db, user.id):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Банк не подключён — подключите его в меню аккаунта → «Банки»")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Банк не подключён — подключите его в меню аккаунта → «Интеграции» → «Банки»")
     return await _run(db, user.id)
 
 
