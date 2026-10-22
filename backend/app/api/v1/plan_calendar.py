@@ -30,7 +30,7 @@ from app.services import plan_calendar as svc
 from app.services import plan_import
 from app.services import planning as planning_svc
 from app.services import user_settings as settings_svc
-from app.services.auth import get_current_user
+from app.services.stores import get_current_store
 from app.services.sync.finance import today_msk
 
 router = APIRouter(prefix="/planning", tags=["planning"])
@@ -67,7 +67,7 @@ async def _plans_out(db: AsyncSession, user: User, rows: list[PlannedPayment]) -
 
 
 @router.get("/plans", response_model=list[Plan])
-async def list_plans(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def list_plans(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Действующие плановые платежи — разовые и регулярные."""
     return await _plans_out(db, user, await pp.plans(db, user.id))
 
@@ -82,7 +82,7 @@ async def _category(db: AsyncSession, user: User, data: dict, kind: str) -> str 
 
 
 @router.post("/plans", response_model=PlanSaved, status_code=status.HTTP_201_CREATED)
-async def create_plan(data: PlanIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def create_plan(data: PlanIn, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Разовый или регулярный платёж (поступление). Статью можно вписать названием — как в операциях."""
     fields = data.model_dump()
     try:
@@ -97,7 +97,7 @@ async def create_plan(data: PlanIn, user: User = Depends(get_current_user), db: 
 
 @router.patch("/plans/{plan_id}", response_model=PlanSaved)
 async def patch_plan(
-    plan_id: uuid.UUID, data: PlanPatch, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    plan_id: uuid.UUID, data: PlanPatch, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
 ):
     """Изменение — новая версия плана, прежняя остаётся в истории. enabled: false — план не участвует в прогнозе."""
     changes = data.model_dump(exclude_unset=True)
@@ -114,7 +114,7 @@ async def patch_plan(
 
 
 @router.delete("/plans/{plan_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_plan(plan_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def delete_plan(plan_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Удалить план (в истории он остаётся). Оплаченные платежи — операции — не трогаем."""
     try:
         await pp.delete_plan(db, user.id, plan_id)
@@ -125,7 +125,7 @@ async def delete_plan(plan_id: uuid.UUID, user: User = Depends(get_current_user)
 
 
 @router.get("/plans/{plan_id}/history", response_model=list[PlanVersion])
-async def plan_history(plan_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def plan_history(plan_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     try:
         rows = await pp.history(db, user.id, plan_id)
     except planning_svc.PlanningError as exc:
@@ -150,7 +150,7 @@ async def plan_history(plan_id: uuid.UUID, user: User = Depends(get_current_user
 async def plans_template(
     fmt: Literal["xlsx", "csv"] = Query("xlsx", alias="format"),
     rows: Literal["all", "empty"] = Query("all", description="all — с вашими планами, empty — пустой"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Шаблон плановых платежей со своими счетами и статьями (списком в Excel): скачал → заполнил → загрузил."""
@@ -164,7 +164,7 @@ async def import_plans(
     request: Request,
     file: UploadFile = File(..., description="XLSX или CSV по шаблону"),
     dry_run: bool = Query(True, description="true — только предпросмотр, false — применить"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     if dry_run:
@@ -185,7 +185,7 @@ async def import_plans(
 @router.post("/plans/import/errors", response_class=Response, dependencies=[Depends(audit.read_only)])
 async def plans_import_errors(
     file: UploadFile = File(..., description="Тот же файл, что загружали в /plans/import"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Строки с ошибками — тем же шаблоном с колонкой «Ошибка»: исправить и загрузить снова."""
@@ -205,7 +205,7 @@ async def get_calendar(
     date_from: date | None = Query(None, description="По умолчанию — сегодня"),
     date_to: date | None = Query(None, description="По умолчанию — сегодня + горизонт из настроек"),
     horizon_days: int | None = Query(None, ge=7, le=180, description="Вместо date_to: 30, 60 или 90 дней"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """План и факт по дням: свои платежи, выплаты Ozon, оплата поставщику, налоги — у каждой строки источник;
@@ -225,7 +225,7 @@ async def get_calendar(
 
 
 @router.post("/calendar/override", status_code=status.HTTP_204_NO_CONTENT)
-async def override(data: OverrideIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def override(data: OverrideIn, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Перенести отдельный платёж, задать ему свою сумму, пропустить или вернуть как по плану. Прогноз
     пересчитывается сразу — запросите календарь заново."""
     changes = data.model_dump(exclude_unset=True, exclude={"key"})
@@ -239,7 +239,7 @@ async def override(data: OverrideIn, user: User = Depends(get_current_user), db:
 
 
 @router.post("/calendar/paid", response_model=PaidOut)
-async def paid(data: PaidIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def paid(data: PaidIn, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """«Оплачено»: связать платёж с уже внесённой операцией или создать операцию-факт. Факт не меняется, даже если
     план потом пересчитается: расхождение видно в календаре."""
     try:
@@ -252,7 +252,7 @@ async def paid(data: PaidIn, user: User = Depends(get_current_user), db: AsyncSe
 
 
 @router.post("/calendar/unpaid", status_code=status.HTTP_204_NO_CONTENT)
-async def unpaid(data: KeyIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def unpaid(data: KeyIn, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Снять отметку «оплачено». Созданная операция остаётся — её можно удалить в «Операциях»."""
     try:
         await svc.unmark_paid(db, user.id, data.key)

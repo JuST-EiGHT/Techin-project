@@ -14,7 +14,7 @@ from app.models.user import User
 from app.schemas.pricing import CalculateRequest, CalculateResponse, PricesPage, Suggestions
 from app.services import audit
 from app.services import pricing as svc
-from app.services.auth import get_current_user
+from app.services.stores import get_current_store
 from app.services.user_settings import get_settings
 
 router = APIRouter(prefix="/price", tags=["price"])
@@ -33,7 +33,7 @@ def _tax(ctx: svc.PricingContext) -> dict:
 
 
 @router.post("/calculate", response_model=CalculateResponse, dependencies=[Depends(audit.read_only)])
-async def calculate(data: CalculateRequest, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def calculate(data: CalculateRequest, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Минимальная и целевая цена товара, маржа при текущей цене и в акции. Переданные поля заменяют данные Ozon,
     справочника и настроек только для этого расчёта."""
     product = await db.get(Product, data.product_id)
@@ -60,7 +60,7 @@ async def price_table(
     order: Literal["asc", "desc"] = Query("asc"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Цена, минимальная и целевая, маржа и маржа в акции по каждому товару. Счётчики — без поиска и фильтров."""
@@ -83,7 +83,7 @@ async def price_table(
 
 @router.get("/suggestions", response_model=Suggestions)
 async def suggestions(
-    limit: int = Query(5, ge=1, le=50), user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    limit: int = Query(5, ge=1, le=50), user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
 ):
     """Самые убыточные (цена ниже минимальной) и недооценённые (ниже целевой) товары в продаже."""
     rows, _ = await svc.table(db, user.id)

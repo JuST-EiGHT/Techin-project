@@ -56,6 +56,7 @@ class ProductSyncStats:
     updated: int = 0  # изменилась карточка или цена
     unchanged: int = 0
     price_snapshots: int = 0  # сохранено новых снепшотов цены
+    gone: int = 0  # товара больше нет в кабинете — перенесён в архив (шаг 8.4b)
 
     def as_dict(self) -> dict[str, int]:
         return asdict(self)
@@ -194,6 +195,22 @@ async def latest_prices(db: AsyncSession, product_ids: list[uuid.UUID]) -> dict[
     return {p.product_id: p for p in res.scalars()}
 
 
+async def archive_gone(db: AsyncSession, user_id: uuid.UUID, listed: set[int]) -> int:
+    """Товары, которых нет в кабинете Ozon магазина ни в одном статусе (включая архив Ozon), — в архив: не удаляем
+    (цены, остатки, журнал — история), вернётся в кабинет — синхронизация снимет архив. Так уходят из списков и товары
+    другого кабинета, если раньше ключи двух магазинов были в одном (до шага 8.4b). Пустой список из Ozon — не повод
+    архивировать всё."""
+    if not listed:
+        return 0
+    rows = (await db.scalars(select(Product).where(
+        Product.user_id == user_id, Product.is_archived.is_(False), Product.ozon_product_id.not_in(listed),
+    ))).all()
+    for product in rows:
+        product.is_archived = True
+    await db.commit()
+    return len(rows)
+
+
 async def sync_products(db: AsyncSession, user_id: uuid.UUID, client: OzonClient) -> ProductSyncStats:
     stats = ProductSyncStats()
     listed = await fetch_product_ids(client)
@@ -244,5 +261,6 @@ async def sync_products(db: AsyncSession, user_id: uuid.UUID, client: OzonClient
 
         await db.commit()
 
+    stats.gone = await archive_gone(db, user_id, set(listed))
     log.info("Синхронизация товаров: пользователь %s → %s", user_id, stats.as_dict())
     return stats

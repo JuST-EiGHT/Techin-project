@@ -21,6 +21,7 @@ from app.integrations.bank import PROVIDERS, make_provider
 from app.integrations.bank.base import AccountStatement, BankAccountInfo, BankAPIError, BankAuthError, BankProvider
 from app.integrations.bank.statement_1c import AccountSection, Document, Statement
 from app.models.bank import BankConnection, BankTransaction
+from app.models.user import User
 from app.services import bank_import
 from app.services import planning as planning_svc
 from app.services.encryption import DecryptionError, decrypt, encrypt
@@ -214,5 +215,11 @@ async def sync_user(db: AsyncSession, user_id: uuid.UUID, connection_id: str | N
 
 
 async def users_with_connections(db: AsyncSession) -> list[uuid.UUID]:
-    res = await db.execute(select(BankConnection.user_id).where(BankConnection.status != "auth").distinct())
+    """Работающие магазины с подключённым банком (отключённый магазин и закрытый аккаунт не обновляются)."""
+    from app.services.stores import working
+
+    res = await db.execute(
+        select(BankConnection.user_id).join(User, User.id == BankConnection.user_id)
+        .where(BankConnection.status != "auth", working()).distinct()
+    )
     return list(res.scalars())

@@ -1,9 +1,12 @@
 'use client'
 
+import axios from 'axios'
+import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 
 import { Field, FormError, SubmitButton } from '@/components/AuthForm'
 import { notifyCredentialsChanged } from '@/components/SyncStatus'
+import { openStore, type Store, useStores } from '@/contexts/StoreContext'
 import { api, errorMessage } from '@/lib/api'
 
 type Credential = {
@@ -140,13 +143,35 @@ function AddForm({ onAdded }: { onAdded: (c: Credential) => void }) {
   const [form, setForm] = useState(EMPTY_FORM)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [otherCabinet, setOtherCabinet] = useState(false) // ключ от другого кабинета Ozon — предложить отдельный магазин
 
   const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [key]: e.target.value }))
 
+  const expiresAt = () => (form.expires_at ? new Date(`${form.expires_at}T23:59:59`).toISOString() : null)
+
+  async function addAsStore() {
+    setBusy(true)
+    setError(null)
+    try {
+      const { data } = await api.post<Store>('/stores', {
+        name: form.label.trim() || null,
+        client_id: form.client_id.trim(),
+        api_key: form.api_key.trim(),
+        expires_at: expiresAt(),
+      })
+      setForm(EMPTY_FORM)
+      openStore(data.id, '/dashboard/settings/stores')
+    } catch (err) {
+      setError(errorMessage(err))
+      setBusy(false)
+    }
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
+    setOtherCabinet(false)
     if (!form.client_id.trim() || !form.api_key.trim()) {
       setError('Укажите Client-Id и Api-Key')
       return
@@ -157,14 +182,14 @@ function AddForm({ onAdded }: { onAdded: (c: Credential) => void }) {
         label: form.label.trim() || null,
         client_id: form.client_id.trim(),
         api_key: form.api_key.trim(),
-        // дата из поля — конец дня по местному времени
-        expires_at: form.expires_at ? new Date(`${form.expires_at}T23:59:59`).toISOString() : null,
+        expires_at: expiresAt(), // дата из поля — конец дня по местному времени
       })
       setForm(EMPTY_FORM) // ключ не держим в памяти страницы дольше нужного
       onAdded(data)
       notifyCredentialsChanged()
     } catch (err) {
       setError(errorMessage(err))
+      setOtherCabinet(axios.isAxiosError(err) && err.response?.status === 409)
     } finally {
       setBusy(false)
     }
@@ -178,6 +203,18 @@ function AddForm({ onAdded }: { onAdded: (c: Credential) => void }) {
         ключ проверяется запросом к Ozon и хранится только в зашифрованном виде.
       </p>
       <FormError message={error} />
+      {otherCabinet && (
+        <div className="-mt-2 mb-4" data-testid="add-as-store">
+          <button
+            type="button"
+            onClick={addAsStore}
+            disabled={busy}
+            className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+          >
+            {busy ? 'Добавляю…' : 'Добавить отдельным магазином'}
+          </button>
+        </div>
+      )}
       <div className="grid gap-x-4 sm:grid-cols-2">
         <Field label="Название" id="label" placeholder="Магазин Ozon" value={form.label} onChange={set('label')} />
         <Field label="Client-Id" id="client_id" inputMode="numeric" autoComplete="off" required value={form.client_id} onChange={set('client_id')} />
@@ -198,6 +235,7 @@ function AddForm({ onAdded }: { onAdded: (c: Credential) => void }) {
 }
 
 export default function ApiKeysPage() {
+  const { current, active } = useStores()
   const [items, setItems] = useState<Credential[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -220,7 +258,15 @@ export default function ApiKeysPage() {
 
   return (
     <div className="max-w-4xl space-y-6">
-      <h1 className="text-2xl font-semibold">API-ключи Ozon</h1>
+      <div>
+        <h1 className="text-2xl font-semibold">API-ключи Ozon</h1>
+        <p className="mt-1 text-sm text-muted">
+          {active.length > 1 && current ? <>Ключи магазина «{current.name}». </> : null}
+          Один магазин — один кабинет Ozon: ключи для замены (срок ключа — 3 месяца) добавляйте сюда, а ключ другого
+          кабинета — <Link href="/dashboard/settings/stores" className="text-accent hover:underline">отдельным магазином</Link>,
+          чтобы товары и деньги разных магазинов не смешались.
+        </p>
+      </div>
 
       <section className="bg-card border border-line rounded-xl p-6">
         <h2 className="text-lg font-semibold mb-2">Подключённые ключи</h2>

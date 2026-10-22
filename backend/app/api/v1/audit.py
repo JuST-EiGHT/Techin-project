@@ -14,7 +14,7 @@ from app.models.product import Product
 from app.models.user import User
 from app.schemas.audit import AuditPage
 from app.services import audit as svc
-from app.services.auth import get_current_user
+from app.services.stores import get_current_store
 from app.services.promotion_history import MAX_DAYS
 from app.services.sync.finance import today_msk
 
@@ -37,7 +37,7 @@ async def price_log(
     date_to: date | None = Query(None, description="По умолчанию — сегодня"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Действия с ценами, новые первыми: что меняли, данные до и после, запрос и ответ Ozon, итог, IP и браузер."""

@@ -21,7 +21,7 @@ from app.models.product import Product
 from app.models.product_cost import BEGINNING, ProductCost
 from app.models.report import Report
 from app.models.user import User
-from app.services.auth import get_current_user
+from app.services.stores import get_current_store
 from app.services.sync.finance import today_msk
 
 
@@ -79,7 +79,7 @@ async def load_cost_history(db: AsyncSession, user_id: uuid.UUID) -> CostHistory
 
 
 async def get_cost_provider(
-    user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
 ) -> CostHistory:
     """Зависимость FastAPI: себестоимость пользователя (с историей) для разбора отчётов."""
     return await load_cost_history(db, user.id)

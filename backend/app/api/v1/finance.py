@@ -19,7 +19,7 @@ from app.schemas.finance import (
     Period,
 )
 from app.schemas.sync import SyncRunResponse
-from app.services.auth import get_current_user
+from app.services.stores import get_current_store
 from app.services.finance import Totals, daily_totals, list_accruals
 from app.services.sync import finance as sync_finance
 from app.services.sync.finance import MAX_PERIOD_DAYS, OZON_MIN_DATE, get_missing_periods
@@ -53,7 +53,7 @@ async def accruals(
     posting_number: str | None = Query(None, max_length=64),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     date_from, date_to = _period(date_from, date_to, MAX_READ_DAYS)
@@ -78,7 +78,7 @@ async def accruals(
 async def accruals_by_day(
     date_from: date | None = None,
     date_to: date | None = None,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     date_from, date_to = _period(date_from, date_to, MAX_READ_DAYS)
@@ -94,7 +94,7 @@ async def accruals_by_day(
 @router.post("/sync", response_model=SyncRunResponse, status_code=status.HTTP_202_ACCEPTED)
 async def finance_sync(
     data: FinanceSyncRequest = Body(default_factory=FinanceSyncRequest),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Без дат — вчера, сегодня и незагруженные дни за 90 дней; с датами — указанный период заново."""

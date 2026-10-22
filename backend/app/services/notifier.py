@@ -6,6 +6,10 @@
 отправкой ещё раз: аномалия не закрылась и не отмечена «Ок», категория не выключена — иначе не шлём (outdated). Ошибки
 Telegram: бот заблокирован — failed и отметка в настройках; лимит Telegram — повтор через указанное время; сеть — повтор
 через 5 минут, после 5 попыток — failed. Одна аномалия — одно сообщение (уникальный индекс журнала).
+
+Магазины (шаг 8.4b): аномалия и запись журнала — магазина (user_id магазина), а чат и настройки — аккаунта человека.
+Ожидающие всех магазинов аккаунта уходят одним сообщением; если магазинов несколько — с названием магазина и ссылкой,
+которая откроет сайт в нём.
 """
 import hashlib
 import logging
@@ -27,6 +31,7 @@ from app.models.anomaly import Anomaly
 from app.models.notification import ANOMALY, FAILED, OUTDATED, PENDING, SENT, TEST, NotificationLog, NotificationSettings
 from app.models.product import Product
 from app.schemas.sync import utc
+from app.services import stores
 from app.services.sync.finance import today_msk
 
 log = logging.getLogger(__name__)
@@ -149,17 +154,18 @@ async def unlink(db: AsyncSession, user_id: uuid.UUID) -> None:
 
 async def _drop_pending(db: AsyncSession, user_id: uuid.UUID, reason: str) -> None:
     for r in (await db.execute(select(NotificationLog).where(
-        NotificationLog.user_id == user_id, NotificationLog.status == PENDING,
+        NotificationLog.user_id.in_(await stores.store_ids(db, user_id)), NotificationLog.status == PENDING,
     ))).scalars():
         r.status, r.error = FAILED, reason
 
 
 # ── очередь ──
 async def queue(db: AsyncSession, user_id: uuid.UUID, anomaly_ids: list, now: datetime | None = None) -> int:
-    """Новые аномалии → ожидающие отправки (только подключённым и только включённые категории). Коммит — здесь."""
+    """Новые аномалии магазина → ожидающие отправки (только подключённым — чат аккаунта владельца — и только включённые
+    категории). Коммит — здесь."""
     if not anomaly_ids or not telegram.configured():
         return 0
-    s = await db.get(NotificationSettings, user_id)
+    s = await db.get(NotificationSettings, await stores.account_id(db, user_id))
     if s is None or s.chat_id is None:
         return 0
     now = now or _now()
@@ -182,7 +188,9 @@ async def queue(db: AsyncSession, user_id: uuid.UUID, anomaly_ids: list, now: da
     return added
 
 
-async def _items(db: AsyncSession, rows: list[NotificationLog]) -> dict[uuid.UUID, tuple[Anomaly, engine.Item]]:
+async def _items(db: AsyncSession, rows: list[NotificationLog], store_names: dict[uuid.UUID, str] | None = None,
+                 ) -> dict[uuid.UUID, tuple[Anomaly, engine.Item]]:
+    """Тексты аномалий; store_names — подписать магазин (у аккаунта их несколько)."""
     anomalies = {a.id: a for a in (await db.execute(select(Anomaly).where(
         Anomaly.id.in_([r.anomaly_id for r in rows if r.anomaly_id])))).scalars()}
     products = {p.id: p for p in (await db.execute(select(Product).where(
@@ -194,7 +202,8 @@ async def _items(db: AsyncSession, rows: list[NotificationLog]) -> dict[uuid.UUI
         name = (product.name or product.offer_id) if product else None
         text = describe(a.type, a.severity, a.metric_before, a.metric_after, a.threshold, a.details, a.product_id, name, today)
         label = f"{product.offer_id} · {product.name}" if product and product.name else (product.offer_id if product else None)
-        out[a.id] = (a, engine.Item(a.severity, text, label))
+        store = (store_names or {}).get(a.user_id)
+        out[a.id] = (a, engine.Item(a.severity, text, label, store, str(a.user_id) if store else None))
     return out
 
 
@@ -214,10 +223,11 @@ def _fail_or_retry(rows: list[NotificationLog], err: telegram.SendError, now: da
 
 async def _deliver(db: AsyncSession, tg: telegram.TelegramSender, s: NotificationSettings, rows: list[NotificationLog],
                    now: datetime) -> dict:
-    """Ожидающие одного пользователя → одно сообщение (или ничего, если всё устарело)."""
+    """Ожидающие одного аккаунта (всех его магазинов) → одно сообщение (или ничего, если всё устарело)."""
     stats = {"sent": 0, "outdated": 0, "failed": 0}
     p = prefs(s)
-    found = await _items(db, rows)
+    names = await stores.names(db, s.user_id)
+    found = await _items(db, rows, names if len(names) > 1 else None)
     ready = []
     for r in rows:
         a, item = found.get(r.anomaly_id, (None, None))
@@ -252,17 +262,20 @@ async def send_due(
     db: AsyncSession, user_id: uuid.UUID | None = None, now: datetime | None = None,
     sender: SenderFactory = telegram.TelegramSender,
 ) -> dict:
-    """Всё, что пора отправить (одному пользователю или всем): по одному сообщению на пользователя. Коммит — здесь."""
+    """Всё, что пора отправить (одному аккаунту — по любому его магазину — или всем): по одному сообщению на аккаунт.
+    Коммит — здесь."""
     stats = {"sent": 0, "outdated": 0, "failed": 0, "users": 0}
     if not telegram.configured():
         return stats
     now = now or _now()
     q = select(NotificationLog).where(NotificationLog.status == PENDING, NotificationLog.send_after <= now)
     if user_id is not None:
-        q = q.where(NotificationLog.user_id == user_id)
+        q = q.where(NotificationLog.user_id.in_(await stores.store_ids(db, await stores.account_id(db, user_id))))
+    rows_ = list((await db.execute(q.order_by(NotificationLog.created_at))).scalars())
+    accounts = await stores.accounts_for(db, {r.user_id for r in rows_})
     by_user: dict[uuid.UUID, list[NotificationLog]] = defaultdict(list)
-    for r in (await db.execute(q.order_by(NotificationLog.created_at))).scalars():
-        by_user[r.user_id].append(r)
+    for r in rows_:
+        by_user[accounts.get(r.user_id, r.user_id)].append(r)
     if not by_user:
         return stats
     try:
@@ -327,13 +340,14 @@ async def send_test(db: AsyncSession, user_id: uuid.UUID, sender: SenderFactory 
 
 
 async def last_sent(db: AsyncSession, user_id: uuid.UUID) -> datetime | None:
+    """Последнее отправленное аккаунту — по всем его магазинам."""
     at = await db.scalar(select(NotificationLog.sent_at).where(
-        NotificationLog.user_id == user_id, NotificationLog.status == SENT,
+        NotificationLog.user_id.in_(await stores.store_ids(db, user_id)), NotificationLog.status == SENT,
     ).order_by(NotificationLog.sent_at.desc()).limit(1))
     return utc(at)
 
 
 async def pending_count(db: AsyncSession, user_id: uuid.UUID) -> int:
     return await db.scalar(select(func.count()).select_from(NotificationLog).where(
-        NotificationLog.user_id == user_id, NotificationLog.status == PENDING,
+        NotificationLog.user_id.in_(await stores.store_ids(db, user_id)), NotificationLog.status == PENDING,
     ))

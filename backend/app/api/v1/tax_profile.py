@@ -28,7 +28,7 @@ from app.schemas.tax import (
 )
 from app.services import audit, plan_calendar
 from app.services import tax_profile as svc
-from app.services.auth import get_current_user
+from app.services.stores import get_current_store
 from app.services.pnl_stale import affected_period, invalidate
 from app.services.sync.finance import today_msk
 from app.services.templates.values import VAT_RATES
@@ -75,14 +75,14 @@ def _data(body: TaxProfileIn) -> svc.ProfileData:
 
 
 @router.get("", response_model=TaxProfileState)
-async def get_tax_profile(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def get_tax_profile(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Действующий профиль и история. current=null — налог «не задан»."""
     return await _state(db, user)
 
 
 @router.put("", response_model=TaxProfileState)
 async def save_tax_profile(
-    body: TaxProfileIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    body: TaxProfileIn, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
 ):
     """Новый профиль — новая запись в истории; прошлые периоды считаются по прежнему профилю. Будущие налоговые
     платежи календаря пересчитываются сами; прошлые (профиль задним числом) — как ответил пользователь
@@ -102,14 +102,14 @@ async def save_tax_profile(
 
 
 @router.get("/upcoming", response_model=UpcomingTaxes)
-async def upcoming(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def upcoming(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """«Ближайшие сроки»: 2–3 следующих налоговых платежа — что, до какой даты, примерная сумма и расчёт.
     Профиль не задан — has_profile=false, платежей нет."""
     return await plan_calendar.upcoming_taxes(db, user.id)
 
 
 @router.post("/past-payments", response_model=list[PastChange])
-async def past_payments(body: TaxProfileIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def past_payments(body: TaxProfileIn, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Какие прошлые неоплаченные налоговые платежи изменятся, если сохранить такой профиль (с даты effective_from).
     Пусто — спрашивать «пересчитать прошлые платежи?» незачем. Ничего не сохраняет."""
     profiles = await svc.load_profiles(db, user.id)
@@ -128,7 +128,7 @@ async def past_payments(body: TaxProfileIn, user: User = Depends(get_current_use
 @router.get("/options", response_model=TaxOptions)
 async def tax_options(
     on: date | None = Query(None, description="На какую дату ставки; по умолчанию — сегодня"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
 ):
     day = on or today_msk()
     vat = engine.vat_rules(day)
@@ -211,7 +211,7 @@ def _engine_profile(data: svc.ProfileData) -> engine.Profile:
 
 
 @router.post("/preview", response_model=TaxPreview, dependencies=[Depends(audit.read_only)])
-async def preview_tax(body: TaxProfileIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def preview_tax(body: TaxProfileIn, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Как посчитается налог при таком профиле: словами и на примерах. Ничего не сохраняет."""
     day = body.effective_from or today_msk()
     try:

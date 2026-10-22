@@ -1,7 +1,7 @@
 // Только для серверного кода (route handlers): обращение к FastAPI и работа с cookies токенов.
 import { NextResponse, type NextRequest } from 'next/server'
 
-import { ACCESS_COOKIE, REFRESH_COOKIE } from '@/lib/session'
+import { ACCESS_COOKIE, REFRESH_COOKIE, STORE_COOKIE } from '@/lib/session'
 
 // Сервер Next ходит к бэкенду напрямую. В Docker это http://api:8000 (API_URL),
 // при локальном запуске — NEXT_PUBLIC_API_URL / localhost.
@@ -78,4 +78,10 @@ export function setTokenCookies(res: NextResponse, tokens: Tokens): void {
 export function clearTokenCookies(res: NextResponse): void {
   res.cookies.set(ACCESS_COOKIE, '', { ...cookieBase, maxAge: 0 })
   res.cookies.set(REFRESH_COOKIE, '', { ...cookieBase, maxAge: 0 })
+  clearStoreCookie(res)
+}
+
+/** Выбор магазина — до выхода: следующий вход (может быть, другого человека) начинается с первого магазина. */
+export function clearStoreCookie(res: NextResponse): void {
+  res.cookies.set(STORE_COOKIE, '', { path: '/', maxAge: 0 })
 }

@@ -4,7 +4,9 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 
 import { AppHeader } from '@/components/AppHeader'
+import { StoreBar } from '@/components/StoreSwitcher'
 import { useAuth } from '@/contexts/AuthContext'
+import { StoreProvider } from '@/contexts/StoreContext'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, loading, logout } = useAuth()
@@ -28,9 +30,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="min-h-screen">
-      <AppHeader onLogout={onLogout} leaving={leaving} />
-      <div className="p-4 md:p-6">{children}</div>
-    </div>
+    <StoreProvider>
+      <div className="min-h-screen">
+        <AppHeader onLogout={onLogout} leaving={leaving} />
+        <StoreBar />
+        <div className="p-4 md:p-6">{children}</div>
+      </div>
+    </StoreProvider>
   )
 }

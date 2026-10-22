@@ -20,6 +20,7 @@ from app.db.session import get_db
 from app.models.audit import FAILED, HTTP_ENTITY, OK, REJECTED, AuditLog
 from app.services.audit import REQUEST_ID, SKIP, client_info
 from app.services.security import ACCESS, InvalidTokenError, decode_token
+from app.services.stores import AUDIT_USER
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +29,10 @@ API_PREFIX = "/api/"
 
 
 def _user_id(scope: Scope) -> uuid.UUID | None:
+    """Чей запрос: магазин, с которым работал эндпоинт (его ставит services/stores.get_current_store), иначе — аккаунт
+    из токена."""
+    if (store := scope.get("state", {}).get(AUDIT_USER)) is not None:
+        return store
     header = next((v for k, v in scope.get("headers", []) if k == b"authorization"), b"").decode("latin-1")
     scheme, _, token = header.partition(" ")
     if scheme.lower() != "bearer" or not token.strip():
