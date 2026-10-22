@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.engine import notifications as engine
 from app.models.user import User
-from app.services import anomalies, notifier
+from app.services import anomalies, notifier, stores
 
 MAX_TRIES, TRIES_WINDOW = 5, 600  # неверных кодов на чат за 10 минут
 
@@ -111,11 +111,13 @@ async def cmd_status(db: AsyncSession, chat_id: int) -> str:
     lines = []
     for s in linked:
         user = await db.get(User, s.user_id)
-        c = await anomalies.counts(db, s.user_id)
-        lines.append(
-            f"<b>{html.escape(mask_email(user.email) if user else 'аккаунт')}</b>: {html.escape(_prefs_text(notifier.prefs(s)))}.\n"
-            f"Активных уведомлений: {c['active']}, без «Ок» — {c['unread']} (красных {c['red']})."
-        )
+        names = await stores.names(db, s.user_id)  # у аккаунта несколько магазинов (шаг 8.4b) — по каждому
+        text = f"<b>{html.escape(mask_email(user.email) if user else 'аккаунт')}</b>: {html.escape(_prefs_text(notifier.prefs(s)))}."
+        for store_id, name in names.items() or {s.user_id: ""}.items():
+            c = await anomalies.counts(db, store_id)
+            prefix = f"{html.escape(name)} — а" if len(names) > 1 else "А"
+            text += f"\n{prefix}ктивных уведомлений: {c['active']}, без «Ок» — {c['unread']} (красных {c['red']})."
+        lines.append(text)
     lines.append(f'<a href="{_site("/dashboard/alerts")}">Все уведомления →</a>')
     return "\n\n".join(lines)
 

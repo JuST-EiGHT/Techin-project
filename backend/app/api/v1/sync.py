@@ -13,7 +13,7 @@ from app.models.sync_run import SUCCESS, SyncRun
 from app.models.user import User
 from app.schemas.sync import KindStatus, SyncRunResponse, SyncStatusResponse, utc
 from app.services import bank_connections
-from app.services.auth import get_current_user
+from app.services.stores import get_current_store
 from app.services.sync.runner import SyncAlreadyRunning, active_run, fail_run, latest_run, start_run
 
 log = logging.getLogger(__name__)
@@ -58,28 +58,28 @@ async def _sync_now(kind: str, user: User, db: AsyncSession, params: dict | None
 
 
 @router.post("/products", response_model=SyncRunResponse, status_code=status.HTTP_202_ACCEPTED)
-async def sync_products_now(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def sync_products_now(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     return await _sync_now("products", user, db)
 
 
 @router.post("/stocks", response_model=SyncRunResponse, status_code=status.HTTP_202_ACCEPTED)
-async def sync_stocks_now(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def sync_stocks_now(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     return await _sync_now("stocks", user, db)
 
 
 @router.post("/balance", response_model=SyncRunResponse, status_code=status.HTTP_202_ACCEPTED)
-async def sync_balance_now(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def sync_balance_now(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Баланс у Ozon и выплаты: вчера, сегодня и незагруженные дни за 90 дней."""
     return await _sync_now("balance", user, db)
 
 
 @router.post("/promotions", response_model=SyncRunResponse, status_code=status.HTTP_202_ACCEPTED)
-async def sync_promotions_now(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def sync_promotions_now(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     return await _sync_now("promotions", user, db)
 
 
 @router.post("/postings", response_model=SyncRunResponse, status_code=status.HTTP_202_ACCEPTED)
-async def sync_postings_now(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def sync_postings_now(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Отправления FBO и FBS — продажи по кластерам и складам для планирования поставок (шаг 5.2)."""
     return await _sync_now("postings", user, db)
 
@@ -95,7 +95,7 @@ async def _kind_status(db: AsyncSession, user_id: uuid.UUID, kind: str) -> KindS
 
 
 @router.get("/status", response_model=SyncStatusResponse)
-async def sync_status(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def sync_status(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     return SyncStatusResponse(
         has_active_key=await crud_credential.has_active(db, user.id),
         products=await _kind_status(db, user.id, "products"),

@@ -23,7 +23,7 @@ from app.services import audit
 from app.services import bank as svc
 from app.services import bank_import
 from app.services import planning as planning_svc
-from app.services.auth import get_current_user
+from app.services.stores import get_current_store
 from app.services.sync.finance import today_msk
 
 router = APIRouter(prefix="/bank", tags=["bank"])
@@ -69,7 +69,7 @@ async def upload_statement(
     file: UploadFile = File(..., description="Выписка в формате 1С (1CClientBankExchange, обычно .txt)"),
     dry_run: bool = Query(True, description="true — только предпросмотр, false — загрузить"),
     account_id: uuid.UUID | None = Query(None, description="К какому счёту без номера привязать выписку; пусто — по номеру или новый"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Предпросмотр: счёт, период, сколько новых операций, уже загруженных, поступлений от Ozon и похожих на ручные.
@@ -93,7 +93,7 @@ async def upload_statement(
 
 
 @router.get("/accounts", response_model=list[BankAccount])
-async def bank_accounts(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def bank_accounts(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Счета с реквизитами и остатком по последней выписке рядом с остатком по операциям сервиса."""
     return await svc.accounts(db, user.id)
 
@@ -105,7 +105,7 @@ async def bank_transactions(
     date_to: date | None = Query(None, description="По умолчанию — сегодня"),
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     date_to = date_to or today_msk()
@@ -116,7 +116,7 @@ async def bank_transactions(
 
 
 @router.get("/statements", response_model=list[StatementInfo])
-async def bank_statements(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def bank_statements(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Загруженные выписки — файлы хранятся (правило 12)."""
     return await svc.statements(db, user.id)
 
@@ -133,13 +133,13 @@ async def _brief(db: AsyncSession, user: User, ops) -> list[MergeSuggestion]:
 
 
 @router.get("/matches", response_model=list[MergeSuggestion])
-async def matches(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def matches(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Возможные дубли: операция из выписки и похожая ручная (сумма, дата ± 3 дня, контрагент). Сами не объединяем."""
     return await _brief(db, user, await bank_import.merge_suggestions(db, user.id))
 
 
 @router.post("/matches/merge", status_code=status.HTTP_204_NO_CONTENT)
-async def merge(data: MergeIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def merge(data: MergeIn, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Объединить: ручная операция скрывается (остаётся в истории), её статья и описание — у операции банка."""
     try:
         await bank_import.merge(db, user.id, data.bank_op_id, data.manual_op_id)
@@ -151,7 +151,7 @@ async def merge(data: MergeIn, user: User = Depends(get_current_user), db: Async
 
 
 @router.post("/matches/dismiss", status_code=status.HTTP_204_NO_CONTENT)
-async def dismiss(data: MergeIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def dismiss(data: MergeIn, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """«Это разные операции» — больше не предлагать."""
     try:
         await bank_import.dismiss(db, user.id, data.bank_op_id, data.manual_op_id)
@@ -165,7 +165,7 @@ async def dismiss(data: MergeIn, user: User = Depends(get_current_user), db: Asy
 async def ozon_check(
     date_from: date | None = Query(None, description="По умолчанию — 60 дней назад"),
     date_to: date | None = Query(None, description="По умолчанию — сегодня"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Сверка: выплата по данным Ozon ↔ поступление на счёт по выписке — суммы и даты, расхождения."""

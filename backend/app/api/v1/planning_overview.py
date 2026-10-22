@@ -10,7 +10,7 @@ from app.models.user import User
 from app.schemas.plan_calendar import CashFlowOut, OverviewOut
 from app.services import planning as planning_svc
 from app.services import planning_overview as svc
-from app.services.auth import get_current_user
+from app.services.stores import get_current_store
 from app.services.sync.finance import today_msk
 
 router = APIRouter(prefix="/planning", tags=["planning"])
@@ -20,7 +20,7 @@ MAX_CASH_FLOW_DAYS = 731
 @router.get("/overview", response_model=OverviewOut)
 async def overview(
     horizon_days: int | None = Query(None, ge=7, le=180, description="4 / 8 недель (28 / 56) или 30 / 60 / 90 дней"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Деньги сейчас, ближайшая выплата Ozon, кассовый разрыв или «денег хватит до …», ожидается за горизонт; ряды по
@@ -36,7 +36,7 @@ async def cash_flow(
     date_from: date | None = Query(None, description="По умолчанию — начало месяца два месяца назад"),
     date_to: date | None = Query(None, description="По умолчанию — сегодня"),
     granularity: Literal["week", "month"] = "month",
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """ДДС — по деньгам: остаток на начало, поступления и платежи по статьям и периодам, остаток на конец. Переводы

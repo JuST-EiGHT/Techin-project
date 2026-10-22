@@ -36,7 +36,7 @@ from app.schemas.planning import (
 )
 from app.services import audit, operation_import
 from app.services import planning as svc
-from app.services.auth import get_current_user
+from app.services.stores import get_current_store
 from app.services.sync.finance import today_msk
 from app.services.templates import MEDIA_TYPES
 
@@ -54,12 +54,12 @@ def _fail(exc: svc.PlanningError) -> HTTPException:
 
 
 @router.get("/settings", response_model=PlanningState)
-async def get_state(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def get_state(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     return await svc.state(db, user.id)
 
 
 @router.put("/settings", response_model=PlanningState)
-async def put_settings(data: PlanningSettingsIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def put_settings(data: PlanningSettingsIn, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Включить или выключить раздел (данные остаются), куда приходят выплаты Ozon, порог остатка, горизонт."""
     try:
         await svc.update_settings(db, user.id, data.model_dump(exclude_unset=True))
@@ -69,14 +69,14 @@ async def put_settings(data: PlanningSettingsIn, user: User = Depends(get_curren
 
 
 @router.get("/setup", response_model=SetupOptions)
-async def setup_options(user: User = Depends(get_current_user)):
+async def setup_options(user: User = Depends(get_current_store)):
     """Статьи шаблона с пояснением «зачем» и какие группы предложить по ответу «Откуда товар»."""
     groups = svc._template()["groups_by_supplier"]
     return SetupOptions(categories=svc.template_categories(), groups_by_supplier=groups)
 
 
 @router.post("/setup", response_model=PlanningState)
-async def post_setup(data: SetupIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def post_setup(data: SetupIn, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Мастер первого входа: любой вопрос можно пропустить — тогда ничего не предлагаем и считаем как есть."""
     if (await svc.state(db, user.id))["setup_done"]:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Раздел уже настроен — счета и статьи меняются на его страницах")
@@ -100,7 +100,7 @@ async def post_setup(data: SetupIn, user: User = Depends(get_current_user), db: 
 
 
 @router.get("/accounts", response_model=list[Account])
-async def list_accounts(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def list_accounts(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Счета с остатком на сегодня: начальный остаток + операции с его даты. Нет остатка — null, а не 0."""
     await svc.sync_ozon_operations(db, user.id)
     return await svc.accounts(db, user.id)
@@ -111,7 +111,7 @@ async def _account_out(db: AsyncSession, user: User, account_id: uuid.UUID) -> d
 
 
 @router.post("/accounts", response_model=Account, status_code=status.HTTP_201_CREATED)
-async def create_account(data: AccountIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def create_account(data: AccountIn, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     try:
         acc = await svc.create_account(db, user.id, data.name, data.kind, data.balance, data.as_of)
     except svc.PlanningError as exc:
@@ -122,7 +122,7 @@ async def create_account(data: AccountIn, user: User = Depends(get_current_user)
 
 @router.patch("/accounts/{account_id}", response_model=Account)
 async def patch_account(
-    account_id: uuid.UUID, data: AccountPatch, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    account_id: uuid.UUID, data: AccountPatch, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
 ):
     """Название и тип; новый начальный остаток — новая запись (прежний в истории); archived — в архив и обратно."""
     try:
@@ -138,12 +138,12 @@ async def patch_account(
 
 
 @router.get("/categories", response_model=list[Category])
-async def list_categories(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def list_categories(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     return await svc.categories(db, user.id)
 
 
 @router.post("/categories", response_model=Category, status_code=status.HTTP_201_CREATED)
-async def create_category(data: CategoryIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def create_category(data: CategoryIn, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     try:
         cat = await svc.create_category(db, user.id, data.name, data.kind)
     except svc.PlanningError as exc:
@@ -153,7 +153,7 @@ async def create_category(data: CategoryIn, user: User = Depends(get_current_use
 
 
 @router.post("/categories/from-template", response_model=list[Category])
-async def add_from_template(data: TemplateCodes, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def add_from_template(data: TemplateCodes, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Добавить статьи из шаблона (по кодам) — тех, которых ещё нет; статья из архива возвращается."""
     known = {c["code"] for c in svc.template_categories()}
     if unknown := [c for c in data.codes if c not in known]:
@@ -165,7 +165,7 @@ async def add_from_template(data: TemplateCodes, user: User = Depends(get_curren
 
 @router.patch("/categories/{category_id}", response_model=Category)
 async def patch_category(
-    category_id: uuid.UUID, data: CategoryPatch, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    category_id: uuid.UUID, data: CategoryPatch, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
 ):
     try:
         cat = await svc.update_category(db, user.id, category_id, data.name, data.archived)
@@ -188,7 +188,7 @@ async def list_operations(
     uncategorized: bool = Query(False, description="Только без статьи (переводы не в счёт)"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Операции периода, новые сверху; перевод — одной строкой. Выплаты Ozon — уже здесь, вводить их не нужно."""
@@ -204,7 +204,7 @@ async def list_operations(
 
 
 @router.post("/operations", response_model=OperationSaved, status_code=status.HTTP_201_CREATED)
-async def create_operation(data: OperationIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def create_operation(data: OperationIn, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Приход, расход или перевод между своими счетами (две операции: со счёта и на счёт). Статью можно вписать
     названием (category_name): такая уже есть — берём её, нет — сохраняем новую в список статей."""
     note = None
@@ -239,7 +239,7 @@ async def _saved(db: AsyncSession, user: User, op, changed: bool, note: str | No
 
 @router.patch("/operations/{op_id}", response_model=OperationSaved)
 async def patch_operation(
-    op_id: uuid.UUID, data: OperationPatch, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    op_id: uuid.UUID, data: OperationPatch, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
 ):
     """Исправление — новая версия операции, прежняя остаётся в истории (правило 12)."""
     changes = data.model_dump(exclude_unset=True)
@@ -271,7 +271,7 @@ async def patch_operation(
 
 
 @router.delete("/operations/{op_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_operation(op_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def delete_operation(op_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Скрыть операцию (у перевода — обе части); в истории она остаётся."""
     try:
         await svc.delete_operation(db, user.id, op_id)
@@ -282,7 +282,7 @@ async def delete_operation(op_id: uuid.UUID, user: User = Depends(get_current_us
 
 
 @router.get("/operations/{op_id}/history", response_model=list[OperationVersion])
-async def operation_history(op_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def operation_history(op_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     try:
         rows = await svc.history(db, user.id, op_id)
     except svc.PlanningError as exc:
@@ -316,7 +316,7 @@ async def operations_template(
     rows: Literal["all", "empty"] = Query("all", description="all — с операциями периода, empty — пустой"),
     date_from: date | None = None,
     date_to: date | None = None,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Шаблон операций со своими счетами и статьями (списком в Excel) и операциями периода: скачал → заполнил →
@@ -341,7 +341,7 @@ async def import_operations(
     request: Request,
     file: UploadFile = File(..., description="XLSX или CSV по шаблону: дата, приход / расход, счёт, статья"),
     dry_run: bool = Query(True, description="true — только предпросмотр, false — применить"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     if dry_run:
@@ -364,7 +364,7 @@ async def import_operations(
 @router.post("/operations/import/errors", response_class=Response, dependencies=[Depends(audit.read_only)])
 async def import_errors_file(
     file: UploadFile = File(..., description="Тот же файл, что загружали в /operations/import"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Строки с ошибками — тем же шаблоном с колонкой «Ошибка»: исправить и загрузить снова."""

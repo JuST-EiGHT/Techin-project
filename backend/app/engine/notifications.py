@@ -83,21 +83,28 @@ class Item:
     severity: str
     text: Text
     product: str | None = None  # «артикул · название»
+    store: str | None = None  # название магазина — у аккаунта с несколькими магазинами (шаг 8.4b)
+    store_id: str | None = None  # ссылка откроет сайт в этом магазине (?store=…)
 
 
-def _url(site: str, link: str | None) -> str:
-    return f"{site.rstrip('/')}{link or '/dashboard/alerts'}"
+def _url(site: str, link: str | None, store_id: str | None = None) -> str:
+    url = f"{site.rstrip('/')}{link or '/dashboard/alerts'}"
+    if store_id:
+        url += f"{'&' if '?' in url else '?'}store={store_id}"
+    return url
 
 
 def render_one(item: Item, site: str) -> str:
     """Одна аномалия: важность, заголовок, товар, пояснение, ссылка на сайт. HTML-разметка Telegram."""
     e = html.escape
     lines = [f"{SEVERITY_MARK.get(item.severity, '🔔')} <b>{e(item.text.title)}</b>"]
+    if item.store:
+        lines.append(f"Магазин: {e(item.store)}")
     if item.product:
         lines.append(e(item.product))
     if item.text.message:
         lines += ["", e(item.text.message)]
-    lines += ["", f'<a href="{e(_url(site, item.text.link))}">Открыть в Ozon Analytics →</a>']
+    lines += ["", f'<a href="{e(_url(site, item.text.link, item.store_id))}">Открыть в Ozon Analytics →</a>']
     return "\n".join(lines)
 
 
@@ -108,7 +115,9 @@ def render_digest(items: list[Item], site: str) -> str:
     lines = [f"🔔 <b>Новые уведомления: {len(items)}</b>", ""]
     for it in ordered[:MAX_DIGEST]:
         product = f" — {e(it.product)}" if it.product else ""
-        lines.append(f'{SEVERITY_MARK.get(it.severity, "•")} <a href="{e(_url(site, it.text.link))}">{e(it.text.title)}</a>{product}')
+        store = f"{e(it.store)}: " if it.store else ""
+        url = e(_url(site, it.text.link, it.store_id))
+        lines.append(f'{SEVERITY_MARK.get(it.severity, "•")} {store}<a href="{url}">{e(it.text.title)}</a>{product}')
     if len(items) > MAX_DIGEST:
         lines += ["", f"и ещё {len(items) - MAX_DIGEST} — на сайте"]
     lines += ["", f'<a href="{e(_url(site, "/dashboard/alerts"))}">Все уведомления →</a>']

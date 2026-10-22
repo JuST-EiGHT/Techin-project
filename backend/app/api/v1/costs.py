@@ -23,7 +23,7 @@ from app.schemas.costs import (
 )
 from app.services import audit
 from app.services import costs as svc
-from app.services.auth import get_current_user
+from app.services.stores import get_current_store
 from app.services.cost_import import TEMPLATE_NAMES, CostImportError, cost_template, error_file, import_costs
 from app.services.pnl_stale import affected_period, invalidate
 from app.services.report_costs import recost_reports
@@ -60,7 +60,7 @@ def _row(info: svc.ArticleInfo, history: svc.CostHistory) -> CostRow:
 async def list_costs(
     search: str | None = Query(None, max_length=100, description="Часть артикула или названия"),
     missing: bool = Query(False, description="Только артикулы без себестоимости"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     history = await svc.load_cost_history(db, user.id)
@@ -86,7 +86,7 @@ async def download_template(
     rows: Literal["all", "missing", "empty"] = Query(
         "all", description="all — все товары с текущими ценами, missing — без себестоимости, empty — пустой"
     ),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Шаблон себестоимости с товарами пользователя: скачал → заполнил → загрузил в /import."""
@@ -96,7 +96,7 @@ async def download_template(
 
 @router.put("/{offer_id:path}", response_model=CostSaved)
 async def set_cost(
-    offer_id: str, data: CostUpdate, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    offer_id: str, data: CostUpdate, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
 ):
     """Новая цена — новая запись в истории; прошлые записи не меняются."""
     offer_id = offer_id.strip()
@@ -119,7 +119,7 @@ async def set_cost(
 
 
 @router.get("/{offer_id:path}/history", response_model=list[CostRecord])
-async def cost_history(offer_id: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def cost_history(offer_id: str, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     history = await svc.load_cost_history(db, user.id)
     records = history.history(offer_id)
     if not records:
@@ -154,7 +154,7 @@ async def import_file(
         ..., description="CSV или XLSX: артикул, себестоимость без НДС, коэффициент НДС, комментарий"
     ),
     dry_run: bool = Query(True, description="true — только предпросмотр, false — применить"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     if dry_run:
@@ -175,7 +175,7 @@ async def import_file(
 @router.post("/import/errors", response_class=Response, dependencies=[Depends(audit.read_only)])
 async def import_errors_file(
     file: UploadFile = File(..., description="Тот же файл, что загружали в /import"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Строки с ошибками — тем же шаблоном с колонкой «Ошибка»: исправить и загрузить снова."""

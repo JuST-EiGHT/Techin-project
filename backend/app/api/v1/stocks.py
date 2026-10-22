@@ -23,7 +23,7 @@ from app.schemas.stock import (
 from app.schemas.sync import utc
 from app.services import stocks as svc
 from app.services import withdrawal
-from app.services.auth import get_current_user
+from app.services.stores import get_current_store
 from app.services.sync.finance import today_msk
 
 warehouses_router = APIRouter(prefix="/warehouses", tags=["stocks"])
@@ -34,7 +34,7 @@ _EMPTY_HELP = "Показывать нулевые остатки (товар у
 
 
 @warehouses_router.get("", response_model=list[WarehouseResponse])
-async def list_warehouses(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def list_warehouses(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     res = await db.execute(
         select(Warehouse).where(Warehouse.user_id == user.id).order_by(Warehouse.is_active.desc(), Warehouse.type, Warehouse.name)
     )
@@ -55,7 +55,7 @@ async def list_warehouses(user: User = Depends(get_current_user), db: AsyncSessi
 
 
 @warehouses_router.get("/summary", response_model=WarehousesSummary)
-async def warehouses_summary(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def warehouses_summary(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """По каждому складу: тип, кластер, товаров с остатком, штук, в пути, товары по статусу остатка, 5 товаров с самым
     большим остатком. Общие итоги по товарам и «Требуют внимания»: заканчиваются (критично и мало) и лежат без
     движения (избыток). Статус — по товару в целом и порогам пользователя."""
@@ -88,7 +88,7 @@ class _ParamsQuery:
 
 @warehouses_router.get("/withdrawal", response_model=WithdrawalReport)
 async def withdrawal_report(
-    q: _ParamsQuery = Depends(), user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    q: _ParamsQuery = Depends(), user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
 ):
     """Кандидаты на вывоз со складов Ozon (BUSINESS_LOGIC §6): товар, кластер, склад, сколько вывезти. Параметры — из
     запроса, не переданные — сохранённые у пользователя."""
@@ -97,7 +97,7 @@ async def withdrawal_report(
 
 @warehouses_router.get("/withdrawal/export", response_class=Response)
 async def withdrawal_export(
-    q: _ParamsQuery = Depends(), user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    q: _ParamsQuery = Depends(), user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
 ):
     """Тот же отчёт в Excel для логиста: артикул, кластер, склад, сколько вывезти; на втором листе — параметры."""
     data = await withdrawal.report(db, user.id, await q.params(db, user))
@@ -108,13 +108,13 @@ async def withdrawal_export(
 
 
 @warehouses_router.get("/withdrawal/params", response_model=WithdrawalParams)
-async def get_withdrawal_params(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def get_withdrawal_params(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     return withdrawal.params_out(await withdrawal.load_params(db, user.id))
 
 
 @warehouses_router.put("/withdrawal/params", response_model=WithdrawalParams)
 async def put_withdrawal_params(
-    data: WithdrawalParams, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    data: WithdrawalParams, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
 ):
     """Сохранить параметры отчёта у пользователя: отчёт и выгрузка без параметров в запросе возьмут их."""
     params = Params(
@@ -129,7 +129,7 @@ async def warehouse_products(
     warehouse_id: uuid.UUID,
     status_: StatusFilter | None = Query(None, alias="status"),
     include_empty: bool = Query(False, description=_EMPTY_HELP),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Товары склада: остаток здесь, продажи и дни запаса товара в целом, статус, последняя продажа."""
@@ -146,7 +146,7 @@ async def list_stocks(
     product_id: uuid.UUID | None = None,
     status: StatusFilter | None = None,
     include_empty: bool = Query(False, description=_EMPTY_HELP),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     rows = await svc.stock_rows(
@@ -160,7 +160,7 @@ async def export_stocks(
     warehouse_id: uuid.UUID | None = None,
     status: StatusFilter | None = None,
     include_empty: bool = Query(False, description=_EMPTY_HELP),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Те же строки, что в таблице остатков (склад, статус), — CSV для Excel."""
@@ -174,7 +174,7 @@ async def export_stocks(
 @stocks_router.get("/running-out", response_model=RunningOut)
 async def stocks_running_out(
     limit: int = Query(5, ge=1, le=50),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Заканчиваются (виджет главной): товары со статусом «Критично» и «Мало», меньше всего дней запаса первыми."""

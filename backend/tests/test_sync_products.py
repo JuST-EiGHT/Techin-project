@@ -119,7 +119,7 @@ async def snapshots(sessions, product_id) -> list[ProductPrice]:
 async def test_first_sync_creates_products_and_prices(sessions, ozon):
     user_id = await make_user(sessions)
     stats = await sync(sessions, user_id)
-    assert stats.as_dict() == {"created": 4, "updated": 0, "unchanged": 0, "price_snapshots": 3}
+    assert stats.as_dict() == {"created": 4, "updated": 0, "unchanged": 0, "price_snapshots": 3, "gone": 0}
 
     # пагинация: ALL — две страницы по last_id, затем ARCHIVED
     assert [(c["filter"]["visibility"], c["last_id"]) for c in ozon.calls["list"]] == [
@@ -154,7 +154,7 @@ async def test_resync_without_changes(sessions, ozon):
     user_id = await make_user(sessions)
     await sync(sessions, user_id)
     stats = await sync(sessions, user_id)
-    assert stats.as_dict() == {"created": 0, "updated": 0, "unchanged": 4, "price_snapshots": 0}
+    assert stats.as_dict() == {"created": 0, "updated": 0, "unchanged": 4, "price_snapshots": 0, "gone": 0}
     async with sessions() as db:
         assert await db.scalar(select(func.count()).select_from(ProductPrice)) == 3
 
@@ -167,12 +167,37 @@ async def test_changes_counted_and_snapshot_only_on_price_change(sessions, ozon)
     ozon.item("info", 1002)["name"] = "Подшипник ACB305523 NACHI (новое название)"  # карточка изменилась
     ozon.item("prices", 1003)["price"]["price"] = "499.0"  # то же число в другом виде — не изменение
     stats = await sync(sessions, user_id)
-    assert stats.as_dict() == {"created": 0, "updated": 2, "unchanged": 2, "price_snapshots": 1}
+    assert stats.as_dict() == {"created": 0, "updated": 2, "unchanged": 2, "price_snapshots": 1, "gone": 0}
 
     ps = await products(sessions, user_id)
     assert [s.price for s in await snapshots(sessions, ps[1001].id)] == [Decimal("540.00"), Decimal("560.00")]
     assert len(await snapshots(sessions, ps[1002].id)) == 1
     assert ps[1002].name.endswith("(новое название)")
+
+
+async def test_products_missing_from_cabinet_go_to_archive(sessions, ozon):
+    """Товара нет в кабинете ни в одном статусе (например, он из другого кабинета — ключи раньше были в одном магазине)
+    → в архив, не удаляется; вернулся в кабинет — снова не в архиве. Пустой ответ Ozon — не повод архивировать всё."""
+    user_id = await make_user(sessions)
+    async with sessions() as db:
+        db.add(Product(user_id=user_id, ozon_product_id=777, offer_id="OTHER-CABINET", synced_at=datetime.now(timezone.utc)))
+        await db.commit()
+    stats = await sync(sessions, user_id)
+    assert stats.gone == 1
+    ps = await products(sessions, user_id)
+    assert ps[777].is_archived and not ps[1001].is_archived and len(ps) == 5
+
+    last = ozon.pages[("ALL", "WzEwMDJd")]["result"]["items"]
+    gone = last.pop(0)  # пропал из кабинета
+    assert (await sync(sessions, user_id)).gone == 1
+    assert (await products(sessions, user_id))[gone["product_id"]].is_archived
+    last.insert(0, gone)
+    await sync(sessions, user_id)
+    assert not (await products(sessions, user_id))[gone["product_id"]].is_archived
+
+    ozon.pages = {}
+    assert (await sync(sessions, user_id)).gone == 0
+    assert not (await products(sessions, user_id))[1001].is_archived
 
 
 async def test_batches(sessions, ozon, monkeypatch):

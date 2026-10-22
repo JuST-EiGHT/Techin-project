@@ -27,7 +27,7 @@ from app.schemas.report import (
 from app.services import audit
 from app.services import reports as svc
 from app.services import bank as bank_svc
-from app.services.auth import get_current_user
+from app.services.stores import get_current_store
 from app.services.costs import get_cost_provider
 from app.services.report_pnl import PnLContext, load_context, report_pnl, to_out
 
@@ -118,7 +118,7 @@ async def _owned(db: AsyncSession, user: User, report_id: uuid.UUID, deleted: bo
 @router.post("/parse", response_model=ParsedReport, dependencies=[Depends(audit.read_only)])
 async def parse_report_file(
     file: UploadFile = File(..., description=FILE_DESCRIPTION),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
     costs: CostProvider = Depends(get_cost_provider),
 ):
@@ -137,7 +137,7 @@ async def upload_report(
     on_conflict: Literal["ask", "replace", "keep"] = Query(
         "ask", description="Отчёт за этот период уже есть: ask — вернуть 409, replace — заменить, keep — оставить оба"
     ),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
     costs: CostProvider = Depends(get_cost_provider),
 ):
@@ -173,7 +173,7 @@ async def list_reports(
     ),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     reports, total = await svc.list_reports(db, user.id, report_type, limit, offset)
@@ -182,7 +182,7 @@ async def list_reports(
 
 
 @router.get("/{report_id}", response_model=ReportDetail)
-async def get_report(report_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def get_report(report_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     return await _detail(db, await _owned(db, user, report_id))
 
 
@@ -190,7 +190,7 @@ async def get_report(report_id: uuid.UUID, user: User = Depends(get_current_user
 async def update_report(
     report_id: uuid.UUID,
     data: ReportUpdate,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Ручные правки: сколько реально пришло, коэффициент НДС поставщика, свой процент налога.
@@ -210,7 +210,7 @@ async def update_report(
 
 @router.delete("/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_report(
-    report_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    report_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
 ):
     """Скрыть отчёт: из списков и расчётов пропадает, файл остаётся — можно восстановить."""
     await svc.hide_report(db, await _owned(db, user, report_id))
@@ -220,7 +220,7 @@ async def delete_report(
 @router.post("/{report_id}/restore", response_model=ReportDetail)
 async def restore_report(
     report_id: uuid.UUID,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
     costs: CostProvider = Depends(get_cost_provider),
 ):
@@ -235,7 +235,7 @@ async def restore_report(
 @router.post("/{report_id}/reparse", response_model=ReportDetail)
 async def reparse_report(
     report_id: uuid.UUID,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
     costs: CostProvider = Depends(get_cost_provider),
 ):

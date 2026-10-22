@@ -15,7 +15,7 @@ from app.schemas.pnl import PeriodPnL, PnLByDay, PnLPeriods, ProductsPage, Sourc
 from app.services import pnl_service as svc
 from app.services import product_pnl
 from app.services import reports as reports_svc
-from app.services.auth import get_current_user
+from app.services.stores import get_current_store
 from app.services.user_settings import get_settings
 from app.services.sync.finance import today_msk
 
@@ -51,7 +51,7 @@ def _request(
 
 @router.get("", response_model=PeriodPnL)
 async def get_pnl(
-    req: svc.PnLRequest = Depends(_request), user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    req: svc.PnLRequest = Depends(_request), user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
 ):
     """P&L за период: сколько пришло от Ozon, себестоимость с НДС, налог, остаток, маржа.
     Какой источник за сколько дней использован и каких дней нет — в coverage и warnings."""
@@ -86,7 +86,7 @@ async def get_pnl_by_product(
     order: Literal["asc", "desc"] = Query("desc"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Прибыль по товарам: продано, выручка, комиссия, логистика, прочее, себестоимость, прибыль до налога, маржа.
@@ -103,7 +103,7 @@ async def export_pnl_by_product(
     search: str | None = Query(None, max_length=100),
     sort: SortField = Query("revenue"),
     order: Literal["asc", "desc"] = Query("desc"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Таблица «По товарам» в CSV для Excel — все строки по тому же поиску и сортировке."""
@@ -123,7 +123,7 @@ async def export_pnl_by_product(
 async def get_pnl_by_day(
     req: svc.PnLRequest = Depends(_request),
     report_id: uuid.UUID | None = Query(None, description="Дни одного отчёта по начислениям — вместо периода"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """По дням: выручка, начисления, себестоимость с НДС, прибыль до налога. Нет данных за день — null."""
@@ -135,6 +135,6 @@ async def get_pnl_by_day(
 
 
 @router.get("/periods", response_model=PnLPeriods)
-async def get_pnl_periods(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def get_pnl_periods(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """За какие периоды есть данные: отчёты XLSX, дни из Ozon API, покрытие по месяцам и сохранённые итоги."""
     return await svc.get_periods(db, user.id)

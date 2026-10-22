@@ -11,7 +11,7 @@ from app.engine.products import FILTERS, SORTS
 from app.models.user import User
 from app.schemas.products import ProductDetail, ProductsPage
 from app.services import products as svc
-from app.services.auth import get_current_user
+from app.services.stores import get_current_store
 from app.services.stocks import SALES_WINDOW_DAYS
 from app.services.sync.finance import today_msk
 
@@ -52,7 +52,7 @@ async def list_products(
     order: Order = Query("asc"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     rows, counts, ctx = await _selected(db, user, search, filters, archived, sort, order)
@@ -70,7 +70,7 @@ async def export_products(
     archived: bool = Query(False),
     sort: Sort = Query("offer_id"),
     order: Order = Query("asc"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Те же товары, что на странице (поиск, фильтры, сортировка), — все строки, все колонки."""
@@ -82,7 +82,7 @@ async def export_products(
 async def product_detail(
     product_id: uuid.UUID,
     days: int = Query(30, ge=7, le=365, description="За сколько дней история цены"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     data = await svc.detail(db, user.id, product_id, days)

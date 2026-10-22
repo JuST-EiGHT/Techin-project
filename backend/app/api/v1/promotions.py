@@ -36,7 +36,7 @@ from app.services import promotion_actions as actions
 from app.services.promotion_history import MAX_DAYS
 from app.services.promotion_history import history as participation_history
 from app.services.sync.finance import MSK, today_msk
-from app.services.auth import get_current_user
+from app.services.stores import get_current_store
 from app.services.stocks import latest_stocks
 from app.services.user_settings import load_low_margin
 
@@ -150,7 +150,7 @@ async def _rows_by_promotion(db: AsyncSession, promo_ids: list[uuid.UUID]) -> di
 @router.get("", response_model=list[PromotionResponse])
 async def list_promotions(
     include_finished: bool = Query(False, description="Показывать закончившиеся акции"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     q = select(Promotion).where(Promotion.user_id == user.id)
@@ -163,7 +163,7 @@ async def list_promotions(
 
 
 @router.get("/auto-added", response_model=AutoAddedResponse)
-async def auto_added(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def auto_added(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Товары, которые участвуют в текущих акциях без действия пользователя."""
     res = await db.execute(
         select(PromotionProduct, Product, Promotion)
@@ -195,7 +195,7 @@ async def promotion_history(
     product_id: uuid.UUID | None = Query(None, description="Товар; без него — все товары"),
     date_from: date | None = Query(None, description="По умолчанию — 90 дней назад"),
     date_to: date | None = Query(None, description="По умолчанию — сегодня"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """В каких акциях был товар: когда вошёл и вышел, по какой цене (со всеми изменениями), добавлен ли
@@ -215,7 +215,7 @@ async def promotion_history(
 
 
 @router.get("/{promotion_id}", response_model=PromotionResponse)
-async def get_promotion(promotion_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def get_promotion(promotion_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     promo = await db.get(Promotion, promotion_id)
     if promo is None or promo.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, _NOT_FOUND)
@@ -227,7 +227,7 @@ async def get_promotion(promotion_id: uuid.UUID, user: User = Depends(get_curren
 async def promotion_products(
     promotion_id: uuid.UUID,
     participating: bool | None = Query(None, description="true — участвуют, false — кандидаты, без параметра — все"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     promo = await db.get(Promotion, promotion_id)
@@ -261,7 +261,7 @@ async def join_promotion(
     product_id: uuid.UUID,
     data: JoinRequest,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Добавить товар в акцию (или изменить его цену и количество в ней). Без confirm — предпросмотр: проверки, маржа,
@@ -283,7 +283,7 @@ async def leave_promotion(
     product_id: uuid.UUID,
     data: LeaveRequest,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Убрать товар из акции. Без confirm — предпросмотр; с confirm=true — запрос в Ozon и запись в журнал."""

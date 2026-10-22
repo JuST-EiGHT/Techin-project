@@ -14,7 +14,7 @@ from app.models.user import User
 from app.schemas.bank import BankConnectionOut, ConnectIn, ConnectResult, VerifyResult
 from app.schemas.sync import SyncRunResponse, utc
 from app.services import bank_connections as svc
-from app.services.auth import get_current_user
+from app.services.stores import get_current_store
 from app.services.sync.runner import SyncAlreadyRunning
 
 router = APIRouter(prefix="/bank/connections", tags=["bank"])
@@ -35,12 +35,12 @@ async def _queue(db: AsyncSession, user_id: uuid.UUID, connection_id: uuid.UUID 
 
 
 @router.get("", response_model=list[BankConnectionOut])
-async def list_connections(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def list_connections(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     return [out(c) for c in await svc.list_connections(db, user.id)]
 
 
 @router.post("", response_model=ConnectResult, status_code=status.HTTP_201_CREATED)
-async def connect(data: ConnectIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def connect(data: ConnectIn, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Проверить токен в банке и сохранить; сразу ставим загрузку истории операций."""
     try:
         conn, replaced = await svc.connect(db, user.id, data.provider, data.token.get_secret_value())
@@ -62,7 +62,7 @@ async def connect(data: ConnectIn, user: User = Depends(get_current_user), db: A
 
 
 @router.post("/sync", response_model=SyncRunResponse, status_code=status.HTTP_202_ACCEPTED)
-async def sync_all(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def sync_all(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """«Обновить»: новые операции и остатки всех подключённых банков."""
     if not await svc.list_connections(db, user.id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Банк не подключён — подключите его в меню аккаунта → «Банки»")
@@ -80,7 +80,7 @@ async def _run(db: AsyncSession, user_id: uuid.UUID, connection_id: uuid.UUID | 
 
 
 @router.post("/{conn_id}/sync", response_model=SyncRunResponse, status_code=status.HTTP_202_ACCEPTED)
-async def sync_one(conn_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def sync_one(conn_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     try:
         await svc.get(db, user.id, conn_id)
     except svc.NotFound as exc:
@@ -89,7 +89,7 @@ async def sync_one(conn_id: uuid.UUID, user: User = Depends(get_current_user), d
 
 
 @router.post("/{conn_id}/verify", response_model=VerifyResult)
-async def verify(conn_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def verify(conn_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Проверить доступ сейчас: токен не принят — подключение «нужен новый токен»."""
     try:
         ok, message, conn = await svc.verify(db, user.id, conn_id)
@@ -102,7 +102,7 @@ async def verify(conn_id: uuid.UUID, user: User = Depends(get_current_user), db:
 
 
 @router.delete("/{conn_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def disconnect(conn_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def disconnect(conn_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Отключить: токен удаляется, загруженные операции и счета остаются."""
     try:
         await svc.disconnect(db, user.id, conn_id)

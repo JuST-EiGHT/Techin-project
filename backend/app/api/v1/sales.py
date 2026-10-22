@@ -11,7 +11,7 @@ from app.models.product import Product
 from app.models.user import User
 from app.schemas.sales import SalesDaily, SalesRebuild
 from app.services import sales as svc
-from app.services.auth import get_current_user
+from app.services.stores import get_current_store
 from app.services.sync.finance import today_msk
 
 router = APIRouter(prefix="/sales", tags=["sales"])
@@ -24,7 +24,7 @@ async def sales_daily(
     offer_id: str | None = Query(None, max_length=100, description="Артикул — если товара нет в каталоге"),
     date_from: date | None = Query(None, description="По умолчанию — 30 дней до даты окончания"),
     date_to: date | None = Query(None, description="По умолчанию — сегодня (МСК)"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Продано, возвращено и выручка по дням — товара или всех товаров. Дни без данных — null, а не 0."""
@@ -43,7 +43,7 @@ async def sales_daily(
 
 
 @router.post("/rebuild", response_model=SalesRebuild)
-async def rebuild_sales(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def rebuild_sales(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Пересобрать продажи за всю историю начислений. Обычно не нужно: продажи пересобираются сами после
     синхронизации финансов и действий с отчётами."""
     return asdict(await svc.rebuild_all(db, user.id))

@@ -8,7 +8,7 @@ from app.engine.supply_planner import Params
 from app.models.user import User
 from app.schemas.supply import SupplyReport
 from app.services import supply as svc
-from app.services.auth import get_current_user
+from app.services.stores import get_current_store
 from app.services.sync.finance import today_msk
 
 router = APIRouter(prefix="/supply", tags=["supply"])
@@ -31,7 +31,7 @@ class _ParamsQuery:
 
 @router.get("/recommendations", response_model=SupplyReport)
 async def recommendations(
-    q: _ParamsQuery = Depends(), user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    q: _ParamsQuery = Depends(), user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
 ):
     """Рекомендации по паре товар × кластер Ozon (поставка) и товар × свой склад (закупка): продажи за 30 и 7 дней,
     на сколько дней хватит, сколько везти, срочность. Только товары с заказами за 30 дней (BUSINESS_LOGIC §5)."""
@@ -39,7 +39,7 @@ async def recommendations(
 
 
 @router.get("/export", response_class=Response)
-async def export(q: _ParamsQuery = Depends(), user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def export(q: _ParamsQuery = Depends(), user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Те же рекомендации в Excel для логиста: по кластеру и складу, срочные первыми; на втором листе — параметры."""
     data = await svc.report(db, user.id, await q.params(db, user))
     return attachment(

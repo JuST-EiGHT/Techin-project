@@ -11,6 +11,7 @@
   users                                       пользователи
   deactivate EMAIL / activate EMAIL           закрыть / вернуть доступ (данные остаются)
   unblock EMAIL                               снять блокировку входа после неудачных попыток
+  resync EMAIL                                загрузить заново из Ozon данные всех магазинов аккаунта (90 дней)
 
 Действия с пользователем пишутся в audit_log (action admin.*): журнал не меняется и не удаляется.
 """
@@ -20,9 +21,10 @@ import getpass
 import secrets
 import sys
 from collections.abc import Callable
+from datetime import timedelta
 
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
@@ -172,12 +174,16 @@ async def revoke_invite(db: AsyncSession, args, out, _ask) -> None:
 
 
 async def users(db: AsyncSession, _args, out, _ask) -> None:
-    rows = (await db.scalars(select(User).order_by(User.created_at))).all()
+    rows = (await db.scalars(select(User).where(User.owner_id.is_(None)).order_by(User.created_at))).all()
+    extra = dict((await db.execute(  # дополнительные магазины (шаг 8.4b) — строки без входа, в список людей не входят
+        select(User.owner_id, func.count()).where(User.owner_id.is_not(None)).group_by(User.owner_id)
+    )).all())
     out(f"Режим регистрации: {MODE_TITLES[settings.registration_mode]}")
     out(f"Пользователей: {len(rows)}")
     for u in rows:
         state = "активен" if u.is_active else "доступ закрыт"
-        out(f"{u.email:<40} {u.full_name or '—':<25} с {u.created_at:%d.%m.%Y}  {state}")
+        shops = f"  магазинов: {1 + extra[u.id]}" if extra.get(u.id) else ""
+        out(f"{u.email:<40} {u.full_name or '—':<25} с {u.created_at:%d.%m.%Y}  {state}{shops}")
 
 
 async def _set_active(db: AsyncSession, args, out, active: bool) -> None:
@@ -207,9 +213,44 @@ async def unblock(db: AsyncSession, args, out, _ask) -> None:
     out(f"Блокировка входа для {user.email} снята.")
 
 
+RESYNC_KINDS = ("products", "stocks", "promotions", "postings", "finance", "balance")
+
+
+async def resync(db: AsyncSession, args, out, _ask) -> None:
+    """Каждому работающему магазину аккаунта с ключом — загрузка из Ozon заново: товары (которых нет в кабинете —
+    в архив), остатки, акции, отправления; начисления и баланс у Ozon — за 90 дней с заменой строк API (копии данных
+    Ozon; отчёты XLSX, себестоимость, планирование не затрагиваются). Нужна после разделения ключей по магазинам (8.4b),
+    когда данные двух кабинетов уже смешались."""
+    from app.api.v1.sync import QueueUnavailable, queue_sync
+    from app.crud.credential import has_active
+    from app.services import stores
+    from app.services.sync.finance import BACKFILL_DAYS, today_msk
+    from app.services.sync.runner import SyncAlreadyRunning
+
+    user = await _user(db, args.email)
+    names = await stores.names(db, user.id)
+    today = today_msk()
+    period = {"date_from": (today - timedelta(days=BACKFILL_DAYS - 1)).isoformat(), "date_to": today.isoformat()}
+    for store in await stores.stores_of(db, user, active_only=True):
+        if not await has_active(db, store.id):
+            out(f"«{names[store.id]}»: нет действующего ключа Ozon — пропущен.")
+            continue
+        done = []
+        for kind in RESYNC_KINDS:
+            try:
+                await queue_sync(db, store.id, kind, period if kind in ("finance", "balance") else None)
+                done.append(kind)
+            except SyncAlreadyRunning:
+                out(f"«{names[store.id]}»: {kind} уже загружается — повторите команду позже.")
+            except QueueUnavailable as e:
+                raise AdminError(f"Очередь задач недоступна: {e}") from e
+        out(f"«{names[store.id]}»: в очереди — {', '.join(done) or 'ничего'}.")
+
+
 COMMANDS = {
     "create-user": create_user, "reset-password": reset_password, "invite": invite, "invites": invites,
     "revoke-invite": revoke_invite, "users": users, "deactivate": deactivate, "activate": activate, "unblock": unblock,
+    "resync": resync,
 }
 
 
@@ -235,7 +276,8 @@ def parser() -> argparse.ArgumentParser:
     c.add_argument("target", help="id из списка invites (первые 8 знаков) или код")
     sub.add_parser("users", help="список пользователей")
     for name, text in (("deactivate", "закрыть доступ"), ("activate", "вернуть доступ"),
-                       ("unblock", "снять блокировку входа")):
+                       ("unblock", "снять блокировку входа"),
+                       ("resync", "загрузить данные всех магазинов аккаунта из Ozon заново (90 дней)")):
         sub.add_parser(name, help=text).add_argument("email")
     for c in sub.choices.values():
         c._positionals.title, c._optionals.title = "аргументы", "параметры"

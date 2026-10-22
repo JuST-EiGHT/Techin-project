@@ -61,7 +61,7 @@ async def get_current_user(
     db: AsyncSession = Depends(get_db),
 ) -> User:
     user = await crud_user.get_user_by_id(db, uuid.UUID(payload["sub"]))
-    if user is None:
+    if user is None or user.owner_id is not None:  # магазин (шаг 8.4b) — не аккаунт, войти им нельзя
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Пользователь не найден", headers=_UNAUTHORIZED)
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Аккаунт деактивирован")

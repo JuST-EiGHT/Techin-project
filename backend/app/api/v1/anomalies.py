@@ -21,7 +21,7 @@ from app.schemas.anomaly import (
 )
 from app.schemas.sync import utc
 from app.services import anomalies as svc
-from app.services.auth import get_current_user
+from app.services.stores import get_current_store
 from app.services.sync.runner import latest_run
 
 router = APIRouter(prefix="/anomalies", tags=["anomalies"])
@@ -40,7 +40,7 @@ async def list_anomalies(
         None, description="severity — красные первыми (по умолчанию у активных), new — новые первыми, resolved — по закрытию"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Аномалии: активные — красные первыми, внутри — новые первыми; закрытые — по времени закрытия. Записи не
@@ -56,13 +56,13 @@ async def list_anomalies(
 
 
 @router.get("/count", response_model=AnomalyCounts)
-async def count(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def count(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Сколько активных аномалий без «Ок» (красных и жёлтых) — для колокольчика в шапке."""
     return await svc.counts(db, user.id)
 
 
 @router.post("/acknowledge-all", response_model=AcknowledgedAll)
-async def acknowledge_all(data: AcknowledgeAll, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def acknowledge_all(data: AcknowledgeAll, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """«Отметить все прочитанными»: «Ок» у всех активных без «Ок» — по фильтрам страницы (без фильтров — у всех)."""
     if data.type is not None and data.type not in TYPES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Тип аномалии: недопустимое значение")
@@ -72,7 +72,7 @@ async def acknowledge_all(data: AcknowledgeAll, user: User = Depends(get_current
 
 
 @router.post("/{anomaly_id}/acknowledge", response_model=AnomalyItem)
-async def acknowledge(anomaly_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def acknowledge(anomaly_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """«Ок»: видел. Аномалия остаётся активной, пока метрика не вернётся в норму, но в счётчик больше не входит."""
     try:
         return await svc.acknowledge(db, user.id, anomaly_id)

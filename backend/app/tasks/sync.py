@@ -18,6 +18,7 @@ from sqlalchemy.pool import NullPool
 from app.core.config import settings
 from app.models.api_credential import ApiCredential
 from app.models.user import User
+from app.services.stores import working
 from app.services.sync.runner import run_sync
 from app.tasks.celery_app import celery_app
 
@@ -37,11 +38,12 @@ async def task_sessions() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
 
 
 async def users_with_active_keys(db: AsyncSession) -> list[uuid.UUID]:
+    """Магазины (шаг 8.4b) с действующим ключом: у каждого магазина — своя задача и свой ключ."""
     res = await db.execute(
         select(ApiCredential.user_id)
         .join(User, User.id == ApiCredential.user_id)
         .where(
-            User.is_active.is_(True),
+            working(),
             ApiCredential.is_active.is_(True),
             ApiCredential.expires_at > datetime.now(timezone.utc),
         )
@@ -184,7 +186,7 @@ async def users_for_anomalies(db: AsyncSession) -> list[uuid.UUID]:
 
     planning = await db.execute(
         select(PlanningSettings.user_id).join(User, User.id == PlanningSettings.user_id)
-        .where(User.is_active.is_(True), PlanningSettings.enabled.is_(True))
+        .where(working(), PlanningSettings.enabled.is_(True))
     )
     return sorted(set(await users_with_active_keys(db)) | set(planning.scalars()), key=str)
 

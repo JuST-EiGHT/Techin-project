@@ -8,7 +8,7 @@ from app.db.session import get_db
 from app.models.user import User
 from app.schemas.dashboard import OzonDashboard
 from app.services import dashboard as svc
-from app.services.auth import get_current_user
+from app.services.stores import get_current_store
 from app.services.pnl_service import PnLRequest, PnLRequestError
 from app.services.sync.finance import today_msk
 
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 async def get_ozon_dashboard(
     date_from: date | None = Query(None, description="По умолчанию — начало месяца даты окончания"),
     date_to: date | None = Query(None, description="По умолчанию — сегодня (МСК)"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Продано, к получению от Ozon, прибыль и маржа (с прошлым таким же периодом), на балансе у Ozon, следующая

@@ -8,7 +8,7 @@ from app.db.session import get_db
 from app.models.user import User
 from app.schemas.ozon_payouts import BalanceDay, PayoutSettingsIn, PayoutSettingsRow, PayoutSettingsState, PayoutsOut
 from app.services import ozon_payouts as svc
-from app.services.auth import get_current_user
+from app.services.stores import get_current_store
 from app.services.sync.finance import today_msk
 
 router = APIRouter(prefix="/ozon", tags=["ozon"])
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/ozon", tags=["ozon"])
 @router.get("/payouts", response_model=PayoutsOut)
 async def get_payouts(
     horizon_weeks: int = Query(8, ge=1, le=12, description="На сколько недель вперёд прогноз"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """История выплат за 12 недель, график (свой, по выплатам или стандартный), прогноз и следующая выплата."""
@@ -28,7 +28,7 @@ async def get_payouts(
 async def get_balance(
     date_from: date | None = None,
     date_to: date | None = None,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Баланс у Ozon по дням: на начало, начислено, выплачено, на конец. Незагруженный день — null, а не 0."""
@@ -59,13 +59,13 @@ async def _state(db: AsyncSession, user: User, created: bool | None = None) -> P
 
 
 @router.get("/payout-settings", response_model=PayoutSettingsState)
-async def get_payout_settings(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def get_payout_settings(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     return await _state(db, user)
 
 
 @router.put("/payout-settings", response_model=PayoutSettingsState)
 async def save_payout_settings(
-    body: PayoutSettingsIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    body: PayoutSettingsIn, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
 ):
     """Новый график — новая запись с сегодняшнего дня; прежние остаются в истории."""
     try:

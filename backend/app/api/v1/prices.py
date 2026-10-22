@@ -30,7 +30,7 @@ from app.services import audit, pricing
 from app.services import price_bulk as bulk
 from app.services import price_history as history_svc
 from app.services import price_updater as svc
-from app.services.auth import get_current_user
+from app.services.stores import get_current_store
 from app.services.promotion_history import MAX_DAYS
 from app.services.sync.finance import today_msk
 from app.services.templates import MEDIA_TYPES
@@ -43,7 +43,7 @@ router = APIRouter(prefix="/prices", tags=["prices"])
 
 @router.post("/preview", response_model=PricePreview, dependencies=[Depends(audit.read_only)])
 async def preview(
-    data: PricePreviewRequest, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    data: PricePreviewRequest, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
 ):
     """Было → станет, маржа, проверки безопасности. В Ozon ничего не меняется; предпросмотр живёт 15 минут."""
     product = await db.get(Product, data.product_id)
@@ -59,7 +59,7 @@ async def preview(
 async def apply(
     data: PriceApplyRequest,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Применить предпросмотр: проверки заново, запрос в Ozon, журнал. Без предпросмотра — нельзя."""
@@ -71,7 +71,7 @@ async def apply(
 
 @router.post("/rollback/{change_id}", response_model=PricePreview, dependencies=[Depends(audit.read_only)])
 async def rollback_preview(
-    change_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    change_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
 ):
     """Предпросмотр отката (шаг 6.4): вернуть цену, которая была до изменения. Применить — POST /prices/apply с
     preview_id. Откат — только изменения не старше 7 дней, откат отката запрещён (BUSINESS_LOGIC §8)."""
@@ -95,7 +95,7 @@ async def price_history(
     date_to: date | None = Query(None, description="По умолчанию — сегодня"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """История изменений цен через сервис — применённые и нет, новые первыми; можно ли откатить."""
@@ -122,7 +122,7 @@ def _fail(exc: svc.PriceUpdateError) -> HTTPException:
 
 @router.post("/bulk/preview", response_model=BulkPreview, dependencies=[Depends(audit.read_only)])
 async def bulk_preview(
-    data: BulkPreviewRequest, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    data: BulkPreviewRequest, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
 ):
     """Массовый предпросмотр: по стратегии для выбранных товаров или по списку цен. Группы «применится», «с
     предупреждением», «заблокировано»; в Ozon ничего не меняется, предпросмотр живёт 15 минут."""
@@ -140,7 +140,7 @@ async def bulk_preview(
 async def bulk_template(
     fmt: Literal["xlsx", "csv"] = Query("xlsx", alias="format", description="xlsx или csv"),
     filters: str | None = Query(None, description="Как в таблице цен: below_min, below_target, no_data, promo_loss"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Шаблон с товарами в продаже и текущими ценами: поправить колонку «Новая цена» и загрузить."""
@@ -165,7 +165,7 @@ async def _read_upload(file: UploadFile) -> bytes:
 async def bulk_upload(
     file: UploadFile = File(..., description="Шаблон цен (XLSX или CSV) с колонкой «Новая цена»"),
     reason: str | None = Form(None, max_length=500),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Файл → тот же массовый предпросмотр и проверки. Файл без правок — 0 изменений; ошибки строк — в file.errors."""
@@ -179,7 +179,7 @@ async def bulk_upload(
 @router.post("/bulk/upload/errors", response_class=Response, dependencies=[Depends(audit.read_only)])
 async def bulk_upload_errors(
     file: UploadFile = File(..., description="Тот же файл, что загружали в /bulk/upload"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Строки с ошибками и не прошедшие проверки — тем же шаблоном с колонкой «Ошибка»."""
@@ -193,7 +193,7 @@ async def bulk_upload_errors(
 
 @router.post("/bulk/apply", response_model=BulkStatus)
 async def bulk_apply(
-    data: BulkApplyRequest, request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    data: BulkApplyRequest, request: Request, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
 ):
     """Применить массовый предпросмотр: больше 10 товаров — confirmed, больше 50 — confirm_word «ПОДТВЕРЖДАЮ». В Ozon —
     по 100 товаров с паузой 2 с; ход виден в GET /prices/bulk/{batch_id}."""
@@ -205,7 +205,7 @@ async def bulk_apply(
 
 
 @router.get("/bulk/{batch_id}", response_model=BulkStatus)
-async def bulk_status(batch_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def bulk_status(batch_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Ход и итог массового изменения: по каждому товару и по каждому запросу в Ozon."""
     try:
         return await bulk.status(db, user.id, batch_id)
