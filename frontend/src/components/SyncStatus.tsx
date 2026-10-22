@@ -1,5 +1,7 @@
 'use client'
-
+// Статус синхронизации в шапке (шаг 1.2). С шага 10.1 разделов в шапке больше: до 1536 px — компактно (кнопка-иконка,
+// время и ошибка — в подсказке), шире — с текстом. Новая кнопка «Синхронизация» со статусом каждой загрузки — шаг 10.2.
+import { RefreshCw } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
@@ -106,31 +108,36 @@ export function SyncStatus() {
 
   if (!status.has_active_key) {
     return (
-      <Link href="/dashboard/settings/api-keys" className="text-sm text-warn hover:underline">
-        Подключите API-ключ Ozon
+      <Link href="/dashboard/settings/integrations" className="whitespace-nowrap text-sm text-warn hover:underline" data-testid="sync-no-key">
+        <span className="2xl:hidden">Нужен ключ Ozon</span>
+        <span className="hidden 2xl:inline">Подключите API-ключ Ozon</span>
       </Link>
     )
   }
 
   const lastSuccess = status.products.last_success_at
   const busy = active || starting
+  const state = busy ? 'Обновляется…' : lastSuccess ? `Обновлено ${timeAgo(lastSuccess)}` : 'Данные ещё не загружались'
 
   return (
     <div className="flex items-center gap-3 text-sm" data-testid="sync-status">
       {error && (
-        <span className="max-w-xs truncate text-bad" title={error}>
+        <span className="hidden max-w-xs truncate text-bad 2xl:inline" title={error}>
           Ошибка: {error}
         </span>
       )}
-      <span className="text-muted">
-        {busy ? 'Обновляется…' : lastSuccess ? `Обновлено ${timeAgo(lastSuccess)}` : 'Данные ещё не загружались'}
-      </span>
+      <span className="hidden text-muted 2xl:inline">{state}</span>
       <button
         onClick={syncNow}
         disabled={busy}
-        className="rounded-lg border border-line px-3 py-1.5 hover:border-accent hover:text-accent disabled:opacity-60"
+        title={`${state}${error ? `. Ошибка: ${error}` : ''}. Обновить данные из Ozon сейчас`}
+        aria-label="Обновить сейчас"
+        className={`flex items-center gap-1.5 rounded-lg border px-2 py-1.5 hover:border-accent hover:text-accent disabled:opacity-60 2xl:px-3 ${
+          error ? 'border-bad text-bad 2xl:border-line 2xl:text-fg' : 'border-line'
+        }`}
       >
-        Обновить сейчас
+        <RefreshCw className={`h-4 w-4 2xl:hidden ${busy ? 'animate-spin' : ''}`} aria-hidden />
+        <span className="hidden 2xl:inline">Обновить сейчас</span>
       </button>
     </div>
   )

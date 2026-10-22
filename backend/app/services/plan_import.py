@@ -68,7 +68,7 @@ SPEC = TemplateSpec(
         Column("end", "Окончание", kind="date", width=14, aliases=("окончан", "конец"),
                hint="Необязательно: до какой даты повторять. Пусто — без конца."),
         Column("account", "Счёт", width=22, aliases=("счёт", "счет", "кошел"),
-               hint="Необязательно: с какого счёта платите или куда придёт — как в «Счетах»."),
+               hint="Необязательно: с какого счёта платите или куда придёт — как в «Счетах и выписках»."),
         Column("category", "Статья", width=26, aliases=("статья", "категори"),
                hint="Как в разделе «Статьи». Пусто — без статьи."),
         Column("counterparty", "Контрагент", width=24, aliases=("контрагент", "получатель", "плательщик"),
@@ -237,7 +237,7 @@ def parse_file(content: bytes, filename: str, directory: Directory) -> tuple[lis
         if row.account:
             acc = accounts.get(_norm(row.account))
             if acc is None:
-                errors.append(f"счёта «{row.account}» нет — добавьте его в «Счетах» или выберите из списка")
+                errors.append(f"счёта «{row.account}» нет — добавьте его в «Операциях» → «Счета и выписки» или выберите из списка")
             elif acc.archived_at is not None:
                 errors.append(f"счёт «{acc.name}» в архиве")
             else:

@@ -1,12 +1,29 @@
-// Меню кабинета — один конфиг на шапку, мобильное меню и меню аккаунта (шаг 0.5).
-// Страница попадает сюда, только когда она сделана: новый шаг добавляет свой пункт.
-// Ещё появятся: меню аккаунта — тариф (8.1).
+// Меню кабинета — один конфиг на шапку, мобильное меню, меню аккаунта и вкладки разделов (шаги 0.5, 10.1).
+// Порядок и адреса — по карте сервиса docs/SITEMAP.md. Страница попадает сюда, только когда она сделана: новый шаг
+// добавляет свой пункт (обзоры аналитики и финансов, бюджеты — шаги фазы 10; «Автоматизация» — 9.1; тариф — 8.1).
+// Модуль без импортов: pytest (backend/tests/test_sitemap.py) проверяет, что каждый пункт — существующая страница.
 
-export type NavItem = { href: string; label: string; description?: string }
+export type NavItem = {
+  href: string
+  label: string
+  description?: string
+  /** Подстраницы пункта — мелкими ссылками под ним (у «Цен» — «Списком» и «История»). */
+  children?: NavItem[]
+}
 export type NavSection = { label: string; href?: string; items?: NavItem[]; bellOnDesktop?: boolean }
 
 export const NAV: NavSection[] = [
   { label: 'Главная', href: '/dashboard' },
+  {
+    label: 'Аналитика',
+    items: [
+      {
+        href: '/dashboard/analytics/reports',
+        label: 'Отчёты Ozon и загрузка',
+        description: 'Недельные и месячные отчёты Ozon: загрузить XLSX, история, P&L по отчёту',
+      },
+    ],
+  },
   {
     label: 'Товары',
     items: [
@@ -16,55 +33,20 @@ export const NAV: NavSection[] = [
         description: 'Цена, комиссия, себестоимость, маржа, остаток и акции каждого товара',
       },
       {
-        href: '/dashboard/prices',
+        href: '/dashboard/products/prices',
         label: 'Цены',
         description: 'Минимальная и целевая цена, маржа сейчас и в акции, что поднять',
+        children: [
+          { href: '/dashboard/products/prices/bulk', label: 'Цены списком', description: 'По стратегии или из Excel' },
+          { href: '/dashboard/products/prices/history', label: 'История цен', description: 'Что меняли и откат за 7 дней' },
+        ],
       },
+      { href: '/dashboard/products/costs', label: 'Себестоимость', description: 'Цены закупки по артикулам с историей, шаблон Excel' },
       {
-        href: '/dashboard/prices/bulk',
-        label: 'Цены списком',
-        description: 'Поменять цены многих товаров в Ozon: по стратегии или из Excel',
+        href: '/dashboard/products/promotions',
+        label: 'Акции',
+        description: 'Маржа в акции, вход и выход, добавленные Ozon сами, история участия',
       },
-      {
-        href: '/dashboard/prices/history',
-        label: 'История цен',
-        description: 'Что меняли, когда и чем закончилось; откат за 7 дней',
-      },
-    ],
-  },
-  {
-    label: 'Финансы',
-    items: [
-      { href: '/dashboard/finance', label: 'P&L — прибыль', description: 'Выручка, расходы Ozon, налог и остаток за период' },
-      { href: '/dashboard/finance?tab=products', label: 'Прибыль по товарам', description: 'Маржа каждого товара, комиссия, логистика' },
-      { href: '/dashboard/payouts', label: 'Выплаты Ozon', description: 'Когда и сколько придёт, баланс у Ozon, график выплат' },
-      { href: '/dashboard/reports', label: 'Отчёты Ozon', description: 'Недельные и месячные отчёты, история' },
-      { href: '/dashboard/reports/upload', label: 'Загрузить отчёт', description: 'XLSX из личного кабинета Ozon' },
-      { href: '/dashboard/costs', label: 'Себестоимость', description: 'Цены закупки по артикулам с историей' },
-    ],
-  },
-  {
-    // необязательный раздел (шаг 3.8): пока не включён, пункты ведут на страницу-приглашение
-    label: 'Планирование',
-    items: [
-      { href: '/dashboard/planning', label: 'Обзор', description: 'Деньги сейчас, прогноз остатка, кассовые разрывы' },
-      { href: '/dashboard/planning?tab=operations', label: 'Операции', description: 'Что пришло и что ушло: свои расходы, доходы, выплаты Ozon' },
-      { href: '/dashboard/planning?tab=calendar', label: 'Календарь', description: 'Плановые платежи, налоги и прогноз остатка — хватит ли денег' },
-      { href: '/dashboard/planning?tab=cashflow', label: 'ДДС', description: 'Движение денег по статьям за месяц или неделю' },
-      { href: '/dashboard/planning?tab=accounts', label: 'Счета', description: 'Счета, карты и наличные — сколько денег сейчас' },
-      { href: '/dashboard/planning?tab=categories', label: 'Статьи', description: 'Статьи доходов и расходов' },
-    ],
-  },
-  {
-    label: 'Акции',
-    items: [
-      { href: '/dashboard/promotions', label: 'Все акции', description: 'Маржа в акции, вход и выход, «срочно» перед заморозкой' },
-      {
-        href: '/dashboard/promotions?tab=auto',
-        label: 'Добавленные автоматически',
-        description: 'Товары, которые Ozon добавил в акции без вас',
-      },
-      { href: '/dashboard/promotions?tab=history', label: 'История участия', description: 'В каких акциях был товар, когда и по какой цене' },
     ],
   },
   {
@@ -72,19 +54,47 @@ export const NAV: NavSection[] = [
     items: [
       {
         href: '/dashboard/warehouses',
-        label: 'Остатки по складам',
+        label: 'Остатки',
         description: 'Что заканчивается и что лежит: склады FBO по кластерам, FBS и rFBS',
       },
       {
-        href: '/dashboard/supply',
+        href: '/dashboard/warehouses/supply',
         label: 'Поставки',
         description: 'Что, в какой кластер и сколько везти — срочные первыми, Excel для логиста',
       },
       {
         href: '/dashboard/warehouses/withdrawal',
-        label: 'Кандидаты на вывоз',
+        label: 'На вывоз',
         description: 'Что, откуда и сколько забрать со складов Ozon — Excel для логиста',
       },
+    ],
+  },
+  {
+    // «Операции» и «Планирование» — необязательные (шаг 3.8): пока не включены, страницы показывают приглашение.
+    // Пункты этих разделов — и вкладки на их страницах (components/planning/Shell.tsx)
+    label: 'Операции',
+    items: [
+      { href: '/dashboard/operations', label: 'Все операции', description: 'Что пришло и что ушло: свои расходы, доходы, выплаты Ozon' },
+      { href: '/dashboard/operations/categories', label: 'Статьи', description: 'Статьи доходов и расходов' },
+      { href: '/dashboard/operations/rules', label: 'Правила разнесения', description: 'Операции из банка сами получают статью' },
+      { href: '/dashboard/operations/accounts', label: 'Счета и выписки', description: 'Счета, карты и наличные, остатки, выписки банков' },
+    ],
+  },
+  {
+    label: 'Финансы',
+    items: [
+      { href: '/dashboard/finance/pnl', label: 'P&L — прибыль', description: 'Выручка, расходы Ozon, налог и остаток за период' },
+      { href: '/dashboard/finance/pnl?tab=products', label: 'Прибыль по товарам', description: 'Маржа каждого товара, комиссия, логистика' },
+      { href: '/dashboard/finance/payouts', label: 'Выплаты Ozon', description: 'Когда и сколько придёт, баланс у Ozon, график выплат' },
+      { href: '/dashboard/finance/documents', label: 'Отчёты и документы', description: 'Отчёты Ozon о начислениях и реализации, загрузка' },
+    ],
+  },
+  {
+    label: 'Планирование',
+    items: [
+      { href: '/dashboard/planning', label: 'Обзор', description: 'Деньги сейчас, прогноз остатка, кассовые разрывы' },
+      { href: '/dashboard/planning/calendar', label: 'Календарь', description: 'Плановые платежи, налоги и прогноз остатка — хватит ли денег' },
+      { href: '/dashboard/planning/cashflow', label: 'ДДС', description: 'Движение денег по статьям за месяц или неделю' },
     ],
   },
   // шаг 7.2: в шапке — колокольчик со счётчиком, поэтому на широком экране пункт текстом не дублируется (bellOnDesktop)
@@ -92,13 +102,11 @@ export const NAV: NavSection[] = [
 ]
 
 export const ACCOUNT_MENU: NavItem[] = [
-  { href: '/dashboard/settings/account', label: 'Аккаунт' },
-  { href: '/dashboard/settings/stores', label: 'Магазины' },
-  { href: '/dashboard/settings/api-keys', label: 'API-ключи Ozon' },
-  { href: '/dashboard/settings/banks', label: 'Банки' },
-  { href: '/dashboard/settings/taxes', label: 'Налоги и НДС' },
-  { href: '/dashboard/settings', label: 'Основные настройки' },
+  { href: '/dashboard/settings/account', label: 'Профиль и безопасность' },
+  { href: '/dashboard/settings/integrations', label: 'Интеграции' },
+  { href: '/dashboard/settings/taxes', label: 'Налоги и учёт' },
   { href: '/dashboard/settings/notifications', label: 'Уведомления' },
+  { href: '/dashboard/settings', label: 'Настройки' },
 ]
 
 const path = (href: string) => href.split('?')[0]

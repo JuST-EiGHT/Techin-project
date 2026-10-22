@@ -1,7 +1,8 @@
 """Тексты аномалий (шаг 7.1): заголовок, пояснение «что случилось и что сделать», единица метрики и куда перейти.
 
 Собираются при чтении из того, что записал детектор (тип, метрика до / после, порог, details), — одинаково для страницы
-уведомлений (7.2) и Telegram (7.3). Чистый модуль.
+уведомлений (7.2) и Telegram (7.3). Чистый модуль. Ссылки — адреса карты сервиса (шаг 10.1, docs/SITEMAP.md): старые
+переадресуются, но новые сообщения сразу ведут на новое место.
 """
 from dataclasses import dataclass
 from datetime import date
@@ -86,7 +87,7 @@ def describe(
                    "Посмотрите, у каких товаров упали продажи, — «Прибыль по товарам».")
         else:
             tip = "Проверьте цену: не слишком ли низкая, не попал ли товар в акцию."
-        return Text(title, f"{base} {tip}", product_link or "/dashboard/finance?tab=products")
+        return Text(title, f"{base} {tip}", product_link or "/dashboard/finance/pnl?tab=products")
 
     if type_ == det.PRICE_CHANGE:
         up = after is not None and before is not None and after > before
@@ -94,7 +95,7 @@ def describe(
         who = ("Цену меняли через сервис — подробности в «Истории цен»." if d.get("via_service") else
                "Через сервис цену не меняли: её изменили в кабинете Ozon или это сделал сам Ozon.")
         return Text(title, f"Цена {what} за 7 дней: было {rub(before)}, стало {rub(after)}. {who}",
-                    f"/dashboard/prices/history?product={product_id}" if d.get("via_service") and product_id else product_link)
+                    f"/dashboard/products/prices/history?product={product_id}" if d.get("via_service") and product_id else product_link)
 
     if type_ == det.COMMISSION_CHANGE:
         up = after is not None and before is not None and after > before
@@ -108,7 +109,7 @@ def describe(
         title = f"Маржа {num(after)} % — {'каждая продажа в минус' if loss else f'ниже порога {num(threshold)} %'}"
         price = f" {rub(d['price'])}" if d.get("price") else ""
         return Text(title, f"При текущей цене{price} у {what} остаётся меньше, чем вы считаете нормой. Минимальная и "
-                           "целевая цена — в разделе «Цены», порог — в «Основных настройках».", product_link)
+                           "целевая цена — в разделе «Цены», порог — в «Настройках».", product_link)
 
     if type_ == det.LOW_STOCK:
         if after is not None and after <= 0:
@@ -122,7 +123,7 @@ def describe(
 
     if type_ in (det.PROMO_AUTO_ADDED, det.PROMO_LOSS):
         promo = d.get("promotion") or "акция"
-        link = f"/dashboard/promotions/{d['promotion_id']}" if d.get("promotion_id") else "/dashboard/promotions"
+        link = f"/dashboard/products/promotions/{d['promotion_id']}" if d.get("promotion_id") else "/dashboard/products/promotions"
         price = f" по цене {rub(d['action_price'])}" if d.get("action_price") else ""
         margin = f"маржа {num(after)} %" if after is not None else "маржу посчитать нечем"
         subject = f"Товар «{product_name}»" if product_name else "Товар"
@@ -138,25 +139,25 @@ def describe(
         amount = f" (около {rub(before)})" if before is not None else ""
         return Text(f"Выплата Ozon {_day(d.get('day'))} не пришла",
                     f"По графику выплата ожидалась {_day(d.get('day'), True)}{amount}, но в данных Ozon её нет. Проверьте "
-                    "баланс в кабинете Ozon («Финансы → Баланс»).", "/dashboard/payouts")
+                    "баланс в кабинете Ozon («Финансы → Баланс»).", "/dashboard/finance/payouts")
 
     if type_ == det.PAYOUT_DIFF:
         more = after is not None and before is not None and after > before
         week = f" (начисления недели продаж с {_day(d.get('week_from'))})" if d.get("week_from") else ""
         return Text(f"Выплата {_day(d.get('day'))} {'больше' if more else 'меньше'} прогноза на {_pct(d.get('change_pct', 0))}",
                     f"Пришло {rub(after)}, по графику ожидали {rub(before)}{week}. Посмотрите начисления за ту неделю: "
-                    "возвраты, удержания, хранение.", "/dashboard/payouts")
+                    "возвраты, удержания, хранение.", "/dashboard/finance/payouts")
 
     if type_ == det.BANK_MISSING:
         return Text(f"Выплата Ozon {_day(d.get('day'))} не дошла до счёта",
                     f"Ozon выплатил {rub(before)}, а в выписке банка поступления нет, хотя выписка за эти дни загружена. "
-                    "Проверьте реквизиты для выплат в кабинете Ozon и выписку.", "/dashboard/planning?tab=accounts")
+                    "Проверьте реквизиты для выплат в кабинете Ozon и выписку.", "/dashboard/operations/accounts")
 
     if type_ == det.BANK_DIFF:
         diff = (Decimal(after) - Decimal(before)) if after is not None and before is not None else None
         return Text(f"Выплата Ozon {_day(d.get('day'))}: на счёт пришло {rub(after)}",
                     f"Ozon выплатил {rub(before)}, в банке {_day(d.get('bank_day'))} — {rub(after)} (разница {rub(diff)}).",
-                    "/dashboard/planning?tab=accounts")
+                    "/dashboard/operations/accounts")
 
     if type_ == det.CASH_GAP:
         if severity == det.RED:
@@ -166,12 +167,12 @@ def describe(
             title = f"Остаток ниже порога с {_day(d.get('first_day'))}"
             text = f"По прогнозу остаток опустится ниже вашего порога {rub(threshold)} {_day(d.get('first_day'), True)}"
         return Text(title, f"{text}; минимум — {rub(after)} {_day(d.get('min_day'))}. Перенесите платежи или "
-                           "запланируйте поступления — «Календарь».", "/dashboard/planning?tab=calendar")
+                           "запланируйте поступления — «Календарь».", "/dashboard/planning/calendar")
 
     if type_ == det.UNCATEGORIZED:
         frm = d.get("oldest_day")
         to = (today or date.today()).isoformat()
-        link = f"/dashboard/planning?tab=operations&category=none&from={frm}&to={to}" if frm else "/dashboard/planning?tab=operations"
+        link = f"/dashboard/operations?category=none&from={frm}&to={to}" if frm else "/dashboard/operations"
         return Text(f"Операций без статьи: {num(after, 0)}",
                     f"Они без статьи дольше {num(threshold, 0)} дн. — ДДС по статьям и прогноз неточны. Разметьте их или "
                     "задайте правило разнесения.", link)

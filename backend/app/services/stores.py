@@ -179,7 +179,7 @@ async def new_store_name(db: AsyncSession, account: User, name: str | None, clie
     if (other := await store_with_client(db, account, client_id)) is not None:
         raise StoreError(
             f"Этот кабинет Ozon уже подключён в магазине «{(await names(db, account.id))[other.id]}»"
-            + (" (он отключён — верните его на странице «Магазины»)" if not other.is_active else ""),
+            + (" (он отключён — верните его в «Интеграциях» → «Ozon»)" if not other.is_active else ""),
             status.HTTP_409_CONFLICT,
         )
     name = _clean_name(name) or (label if label and label != DEFAULT_LABEL else None) or f"Магазин {len(stores) + 1}"

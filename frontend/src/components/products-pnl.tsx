@@ -404,7 +404,7 @@ export function ProductsView({ query, showSource, pnlHref }: { query: Record<str
           </section>
           <p className="text-xs text-faint">
             Прибыль по товару — до налога: всё, что Ozon начислил по товару, минус {costTitle.charAt(0).toLowerCase() + costTitle.slice(1)} проданного. Налог и НДС
-            считаются на весь период — вкладка «P&amp;L». Маржа: красным — в минус, жёлтым — ниже {String(low).replace('.', ',')} % (порог — в «Основных настройках»), зелёным — выше.
+            считаются на весь период — вкладка «P&amp;L». Маржа: красным — в минус, жёлтым — ниже {String(low).replace('.', ',')} % (порог — в «Настройках»), зелёным — выше.
           </p>
           <MoneyWent data={data} costTitle={costTitle} pnlHref={pnlHref} />
           <Warnings items={data.warnings} />
@@ -582,7 +582,7 @@ function ProductCard({
         {!un && row.cost_missing && (
           <p className="mt-3 rounded-lg bg-warn/10 px-3 py-2 text-sm">
             Себестоимость не указана — прибыль не считаем, чтобы не показать завышенную.{' '}
-            <Link href="/dashboard/costs?missing=1" className="text-accent hover:underline">
+            <Link href="/dashboard/products/costs?missing=1" className="text-accent hover:underline">
               Указать себестоимость →
             </Link>
           </p>

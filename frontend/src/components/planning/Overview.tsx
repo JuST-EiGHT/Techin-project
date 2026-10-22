@@ -134,7 +134,7 @@ function ChartTip({ active, payload, drill, today }: { active?: boolean; payload
 
 function OverviewChart({ data }: { data: Overview }) {
   const colors = useTokenColors()
-  const drill = useDrill<Row>((r) => (r.kind === 'fact' ? opsHref(r.day, r.day) : `/dashboard/planning?tab=calendar&day=${r.day}`))
+  const drill = useDrill<Row>((r) => (r.kind === 'fact' ? opsHref(r.day, r.day) : `/dashboard/planning/calendar?day=${r.day}`))
   if (!colors) return null
   const today = data.today
   const rows: Row[] = data.series.map((s) => {
@@ -178,7 +178,7 @@ function OverviewChart({ data }: { data: Overview }) {
           <span className="inline-block h-2.5 w-2.5 rounded-sm bg-bad" /> платежи
         </span>
         <span>слева — факт, справа — план (бледнее)</span>
-        <MoreLink href="/dashboard/planning?tab=calendar" />
+        <MoreLink href="/dashboard/planning/calendar" />
       </div>
       <div className={`h-64 ${drill.boxProps.className}`} onPointerDown={drill.boxProps.onPointerDown}>
         <ResponsiveContainer width="100%" height="100%">
@@ -241,7 +241,7 @@ function Upcoming({ data, accounts, onChanged }: { data: Overview; accounts: Acc
       <div className="flex flex-wrap items-baseline gap-x-3 border-b border-line px-4 py-2">
         <h2 className="text-sm font-semibold">Ближайшие 14 дней</h2>
         <span className="text-xs text-faint">платежи и поступления по плану; оплатили — отметьте, остаток пересчитается</span>
-        <Link href="/dashboard/planning?tab=calendar" className="ml-auto text-xs text-accent hover:underline">
+        <Link href="/dashboard/planning/calendar" className="ml-auto text-xs text-accent hover:underline">
           Календарь →
         </Link>
       </div>
@@ -305,7 +305,7 @@ function EmptyHints({ data }: { data: Overview }) {
     hints.push(
       <li key="balance">
         Укажите, сколько денег на счёте сейчас — без этого прогноз остатка не построить.{' '}
-        <Link href="/dashboard/planning?tab=accounts" className="text-accent hover:underline">
+        <Link href="/dashboard/operations/accounts" className="text-accent hover:underline">
           Счета →
         </Link>
       </li>,
@@ -314,7 +314,7 @@ function EmptyHints({ data }: { data: Overview }) {
     hints.push(
       <li key="ozon">
         Выплат Ozon в прогнозе нет: подключите ключ Ozon API — даты и суммы выплат появятся сами, вводить их не нужно.{' '}
-        <Link href="/dashboard/settings/api-keys" className="text-accent hover:underline">
+        <Link href="/dashboard/settings/integrations" className="text-accent hover:underline">
           Подключить →
         </Link>
       </li>,
@@ -335,7 +335,7 @@ function EmptyHints({ data }: { data: Overview }) {
               <li key={s.code} className="rounded-lg border border-line p-3 text-sm">
                 <div className="flex items-baseline gap-2">
                   <span className="font-medium">{s.name}</span>
-                  <Link href={`/dashboard/planning?tab=calendar&plan=${encodeURIComponent(s.name)}`} className="ml-auto whitespace-nowrap text-xs text-accent hover:underline" data-testid="ov-suggest">
+                  <Link href={`/dashboard/planning/calendar?plan=${encodeURIComponent(s.name)}`} className="ml-auto whitespace-nowrap text-xs text-accent hover:underline" data-testid="ov-suggest">
                     Запланировать →
                   </Link>
                 </div>

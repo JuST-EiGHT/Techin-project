@@ -79,7 +79,7 @@ export function mondayOf(iso: string): string {
 }
 
 /** Товары за неделю продаж, за которую выплата: «Финансы → По товарам». */
-export const salesHref = (from: string, to: string) => `/dashboard/finance?period=custom&from=${from}&to=${to}&tab=products`
+export const salesHref = (from: string, to: string) => `/dashboard/finance/pnl?period=custom&from=${from}&to=${to}&tab=products`
 
 /** «за продажи 28.09–04.10» — ссылкой на товары этой недели. */
 function SalesWeek({ from, to, testid }: { from: string | null; to: string | null; testid?: string }) {

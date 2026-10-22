@@ -104,7 +104,7 @@ export function PromoHistory({ productId, onClearProduct }: { productId: string 
                         {i.product.name && <div className="truncate text-xs text-muted">{i.product.name}</div>}
                       </td>
                       <td className="max-w-[14rem] px-3 py-2">
-                        <Link href={`/dashboard/promotions/${i.promotion.id}`} className="block truncate hover:text-accent">
+                        <Link href={`/dashboard/products/promotions/${i.promotion.id}`} className="block truncate hover:text-accent">
                           {i.promotion.title}
                         </Link>
                         <div className="text-xs text-faint">

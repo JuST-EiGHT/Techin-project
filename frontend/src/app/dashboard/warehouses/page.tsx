@@ -1,7 +1,7 @@
 'use client'
 // Склады (шаги 1.3, 5.1): итоги по статусам остатка, «Требуют внимания», карточки складов со счётчиками и топ-5,
 // таблица по складу с фильтром статуса и CSV. Склад и статус — в адресе (?warehouse=&status=): на них ссылаются главная
-// и карточки. Статус — по товару в целом (весь остаток / продажи в день) и порогам из «Основных настроек».
+// и карточки. Статус — по товару в целом (весь остаток / продажи в день) и порогам из «Настроек».
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
@@ -189,7 +189,7 @@ function Warehouses() {
       {sync && !sync.has_active_key && (
         <p className="text-sm text-warn">
           Остатки приходят только из Ozon API —{' '}
-          <Link href="/dashboard/settings/api-keys" className="underline">
+          <Link href="/dashboard/settings/integrations" className="underline">
             подключите API-ключ Ozon
           </Link>
           .

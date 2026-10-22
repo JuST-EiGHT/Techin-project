@@ -140,7 +140,7 @@ export function PriceCalcBlock({ productId, refreshKey }: { productId: string; r
     <section data-testid="panel-price-calc">
       <div className="mb-2 flex items-baseline gap-3">
         <h3 className="text-xs uppercase tracking-wider text-muted">Расчёт цены</h3>
-        <Link href="/dashboard/prices" className="ml-auto text-xs text-accent hover:underline">
+        <Link href="/dashboard/products/prices" className="ml-auto text-xs text-accent hover:underline">
           Все цены →
         </Link>
       </div>
@@ -314,7 +314,7 @@ function BreakdownTable({ b, data }: { b: Breakdown; data: CalculateResponse }) 
   )
 }
 
-/** Реклама и целевая маржа — настройки калькулятора цены («Основные настройки» и страница цен). */
+/** Реклама и целевая маржа — настройки калькулятора цены («Настройки» и страница цен). */
 export function PriceSettingsForm({ onSaved }: { onSaved?: () => void }) {
   const { user } = useAuth()
   const settings = useSettings()

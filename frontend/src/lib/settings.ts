@@ -1,4 +1,4 @@
-// Основные настройки аккаунта для страниц: загружаются один раз на пользователя, обновляются при сохранении.
+// Настройки (меню аккаунта) для страниц: загружаются один раз на пользователя, обновляются при сохранении.
 import { useEffect, useRef, useState } from 'react'
 
 import { useAuth } from '@/contexts/AuthContext'
@@ -92,7 +92,7 @@ export function useCostLabel(): string {
   return useSettings()?.cost_label ?? DEFAULT_COST_LABEL
 }
 
-/** Порог «низкой маржи» пользователя, % («Основные настройки → Аномалии и порог маржи»): ниже — жёлтым, ниже нуля — красным. */
+/** Порог «низкой маржи» пользователя, % («Настройки → Аномалии и порог маржи»): ниже — жёлтым, ниже нуля — красным. */
 export function useLowMargin(): number {
   const value = useSettings()?.low_margin_pct
   return value === undefined ? DEFAULT_LOW_MARGIN : Number(value)

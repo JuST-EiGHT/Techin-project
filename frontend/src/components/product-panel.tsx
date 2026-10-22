@@ -172,7 +172,7 @@ function PriceBlock({ data, onChange }: { data: ProductDetail; onChange: () => v
       testid="panel-price"
       more={
         <span className="flex flex-wrap justify-end gap-x-3">
-          <Link href={`/dashboard/prices/history?product=${item.id}`} className="text-accent hover:underline">
+          <Link href={`/dashboard/products/prices/history?product=${item.id}`} className="text-accent hover:underline">
             История изменений →
           </Link>
           {!item.is_archived && (
@@ -360,7 +360,7 @@ function PromoBlock({ data }: { data: ProductDetail }) {
       title="Акции"
       testid="panel-promos"
       more={
-        <Link href={`/dashboard/promotions?tab=history&product=${data.item.id}`} className="text-accent hover:underline">
+        <Link href={`/dashboard/products/promotions?tab=history&product=${data.item.id}`} className="text-accent hover:underline">
           История участия →
         </Link>
       }
@@ -441,7 +441,7 @@ function CostBlock({ data, onSaved }: { data: ProductDetail; onSaved: () => void
       title="Себестоимость"
       testid="panel-cost"
       more={
-        <Link href="/dashboard/costs" className="text-accent hover:underline">
+        <Link href="/dashboard/products/costs" className="text-accent hover:underline">
           Все и история →
         </Link>
       }

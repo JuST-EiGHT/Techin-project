@@ -1,10 +1,10 @@
 'use client'
-// «Планирование → Счета» и «Статьи» (шаг 3.8).
+// «Операции → Счета и выписки» и «Статьи» (шаг 3.8; до 10.1 — вкладки «Планирования»).
+import Link from 'next/link'
 import { useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
 import { BankSection } from '@/components/planning/Bank'
-import { RulesSection } from '@/components/planning/Rules'
 import {
   ACCOUNT_KINDS,
   type Account,
@@ -216,7 +216,14 @@ export function CategoriesTab({ categories, templates, onChanged }: { categories
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted">По статьям видно, на что уходят деньги. Удалённая статья уходит в архив: операции с ней остаются.</p>
+      <p className="text-sm text-muted">
+        По статьям видно, на что уходят деньги. Удалённая статья уходит в архив: операции с ней остаются. Чтобы операции из банка сами
+        получали статью —{' '}
+        <Link href="/dashboard/operations/rules" className="text-accent hover:underline">
+          правила разнесения
+        </Link>
+        .
+      </p>
       <FormError message={error} />
       {(['income', 'expense', 'transfer'] as const).map((k) => {
         const items = categories.filter((c) => c.kind === k && !c.archived)
@@ -297,7 +304,6 @@ export function CategoriesTab({ categories, templates, onChanged }: { categories
           </ul>
         </details>
       )}
-      <RulesSection categories={categories} onChanged={onChanged} />
     </div>
   )
 }

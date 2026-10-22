@@ -162,10 +162,10 @@ async def ozon_items(ctx: Ctx, lo: date, hi: date) -> tuple[list[cal.Item], list
             amount=Decimal(f["amount"]) if f["amount"] is not None else None, kind="income", estimate=estimate,
             counterparty="Ozon",
             meta={"note": "По начислениям следующих дней — оценка" if estimate else "По начислениям и графику выплат",
-                  "link": "/dashboard/payouts"},
+                  "link": "/dashboard/finance/payouts"},
         ))
     notes = [] if ctx.settings is None or ctx.settings.ozon_account_id else [
-        "Выплаты Ozon не привязаны к счёту — выберите счёт в «Счетах», чтобы пришедшие выплаты попадали в остаток."
+        "Выплаты Ozon не привязаны к счёту — выберите счёт в «Операциях» → «Счета и выписки», чтобы пришедшие выплаты попадали в остаток."
     ]
     return items, notes
 

@@ -276,7 +276,7 @@ function Empty({ status, filtered, checked }: { status: AlertStatus; filtered: b
           : 'Сервис проверяет данные раз в час — когда подключён ключ Ozon или включено «Планирование». Первая проверка пройдёт в течение часа.'}
       </p>
       {!checked && (
-        <Link href="/dashboard/settings/api-keys" className="mt-2 inline-block text-accent hover:underline">
+        <Link href="/dashboard/settings/integrations" className="mt-2 inline-block text-accent hover:underline">
           Подключить ключ Ozon →
         </Link>
       )}

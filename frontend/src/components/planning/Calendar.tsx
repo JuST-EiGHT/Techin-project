@@ -1007,7 +1007,7 @@ export function CalendarTab({ accounts, categories, state, onChanged }: { accoun
               ))}
             </ul>
           )}
-          <ForecastChart data={data} onDay={(day) => `/dashboard/planning?tab=calendar&day=${day}`} />
+          <ForecastChart data={data} onDay={(day) => `/dashboard/planning/calendar?day=${day}`} />
           {notice && (
             <p className="text-sm text-ok" data-testid="cal-notice">
               {notice}

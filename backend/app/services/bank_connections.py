@@ -71,7 +71,7 @@ async def get(db: AsyncSession, user_id: uuid.UUID, conn_id: uuid.UUID) -> BankC
 async def connect(db: AsyncSession, user_id: uuid.UUID, provider: str, token: str) -> tuple[BankConnection, bool]:
     """Проверить токен и сохранить. (подключение, заменён ли токен прежнего подключения). BankAPIError — банк не принял."""
     if provider not in PROVIDERS:
-        raise BankConnectionError("Этот банк пока не подключается по API — загрузите выписку файлом в «Планировании» → «Счета»")
+        raise BankConnectionError("Этот банк пока не подключается по API — загрузите выписку файлом в «Операциях» → «Счета и выписки»")
     token = (token or "").strip()
     if not token:
         raise BankConnectionError("Вставьте токен из интернет-банка")

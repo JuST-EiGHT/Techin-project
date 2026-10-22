@@ -1,5 +1,5 @@
 'use client'
-// «Планирование → Счета → Выписка из банка» (шаг 3.11): выписка файлом в формате 1С — любой банк. Необязательно:
+// «Операции → Счета и выписки → Выписка из банка» (шаг 3.11): выписка файлом в формате 1С — любой банк. Необязательно:
 // «Планирование» работает и без банка. Предпросмотр → загрузить; дублей при повторной загрузке нет; поступления от Ozon
 // подтверждают выплаты Ozon (одна операция); похожие ручные операции — объединить или «это разные»; сверка выплат Ozon.
 import { Upload } from 'lucide-react'
@@ -345,8 +345,8 @@ export function BankSection({ onChanged }: { onChanged: () => void }) {
     <div className="space-y-4">
       <p className="text-sm text-muted" data-testid="bank-api-link">
         Т-Банк или Точка? Подключите банк по API — операции будут приходить сами раз в час:{' '}
-        <Link href="/dashboard/settings/banks" className="text-accent hover:underline">
-          меню аккаунта → «Банки»
+        <Link href="/dashboard/settings/integrations?tab=banks" className="text-accent hover:underline">
+          меню аккаунта → «Интеграции» → «Банки»
         </Link>
         . Остальные банки — выпиской файлом ниже.
       </p>

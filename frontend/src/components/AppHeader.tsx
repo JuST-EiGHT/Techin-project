@@ -1,7 +1,9 @@
 'use client'
 
 // Шапка кабинета: разделы с выпадающими списками, статус синхронизации, уведомления (7.2), меню аккаунта.
-import { Bell, ChevronDown, KeyRound, LogOut, Menu, Settings, Store, UserRound, X } from 'lucide-react'
+// Разделы и порядок — карта сервиса (шаг 10.1, docs/SITEMAP.md), пункты — lib/nav.ts. Разделов семь: полное меню в шапке —
+// с 1280 px (разделы 720 px + логотип + колокольчик и аккаунт), уже — кнопка меню (до 10.1 — с 1024 px).
+import { Bell, ChevronDown, Landmark, LogOut, Menu, Plug, Settings, UserRound, X } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -16,10 +18,10 @@ const CLOSE_DELAY_MS = 150 // курсор ушёл с меню — закрыт
 
 const ACCOUNT_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   '/dashboard/settings/account': UserRound,
-  '/dashboard/settings/stores': Store,
-  '/dashboard/settings/api-keys': KeyRound,
-  '/dashboard/settings': Settings,
+  '/dashboard/settings/integrations': Plug,
+  '/dashboard/settings/taxes': Landmark,
   '/dashboard/settings/notifications': Bell,
+  '/dashboard/settings': Settings,
 }
 
 /** Стрелки вверх/вниз по пунктам меню, Esc — закрыть и вернуть фокус на кнопку. */
@@ -90,18 +92,33 @@ function SectionMenu({ section, pathname }: { section: NavSection; pathname: str
             className="w-72 rounded-xl border border-line bg-card p-1 shadow-xl shadow-black/20"
           >
             {section.items?.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                role="menuitem"
-                onClick={close}
-                className={`block rounded-lg px-3 py-2 outline-none hover:bg-line/60 focus:bg-line/60 ${
-                  pathname === item.href ? 'text-accent' : ''
-                }`}
-              >
-                <div className="text-sm">{item.label}</div>
-                {item.description && <div className="text-xs text-faint">{item.description}</div>}
-              </Link>
+              <div key={item.href}>
+                <Link
+                  href={item.href}
+                  role="menuitem"
+                  onClick={close}
+                  className={`block rounded-lg px-3 py-2 outline-none hover:bg-line/60 focus:bg-line/60 ${
+                    pathname === item.href ? 'text-accent' : ''
+                  }`}
+                >
+                  <div className="text-sm">{item.label}</div>
+                  {item.description && <div className="text-xs text-faint">{item.description}</div>}
+                </Link>
+                {item.children?.map((child) => (
+                  <Link
+                    key={child.href}
+                    href={child.href}
+                    role="menuitem"
+                    onClick={close}
+                    title={child.description}
+                    className={`ml-3 block rounded-lg border-l border-line px-3 py-1 text-xs outline-none hover:bg-line/60 focus:bg-line/60 ${
+                      pathname === child.href ? 'text-accent' : 'text-muted'
+                    }`}
+                  >
+                    {child.label}
+                  </Link>
+                ))}
+              </div>
             ))}
           </div>
         </div>
@@ -205,7 +222,7 @@ function AccountMenu({ onLogout, leaving }: { onLogout: () => void; leaving: boo
 
 function MobileNav({ pathname, onClose }: { pathname: string; onClose: () => void }) {
   return (
-    <nav className="border-b border-line bg-card px-4 py-3 lg:hidden" data-testid="mobile-nav">
+    <nav className="border-b border-line bg-card px-4 py-3 xl:hidden" data-testid="mobile-nav">
       {NAV.map((section) =>
         section.href ? (
           <Link key={section.label} href={section.href} onClick={onClose} className={`block py-2 font-medium ${sectionActive(section, pathname) ? 'text-accent' : ''}`}>
@@ -215,9 +232,16 @@ function MobileNav({ pathname, onClose }: { pathname: string; onClose: () => voi
           <div key={section.label} className="py-2">
             <div className={`text-xs uppercase tracking-wide ${sectionActive(section, pathname) ? 'text-accent' : 'text-faint'}`}>{section.label}</div>
             {section.items?.map((item) => (
-              <Link key={item.href} href={item.href} onClick={onClose} className="block py-1.5 pl-3 text-sm">
-                {item.label}
-              </Link>
+              <div key={item.href}>
+                <Link href={item.href} onClick={onClose} className="block py-1.5 pl-3 text-sm">
+                  {item.label}
+                </Link>
+                {item.children?.map((child) => (
+                  <Link key={child.href} href={child.href} onClick={onClose} className="block py-1 pl-6 text-xs text-muted">
+                    {child.label}
+                  </Link>
+                ))}
+              </div>
             ))}
           </div>
         ),
@@ -236,7 +260,7 @@ export function AppHeader({ onLogout, leaving }: { onLogout: () => void; leaving
       <header className="flex items-center gap-4 border-b border-line px-4 py-3 md:px-6">
         <button
           type="button"
-          className="rounded-lg p-1.5 text-muted hover:text-fg lg:hidden"
+          className="rounded-lg p-1.5 text-muted hover:text-fg xl:hidden"
           aria-label={mobileOpen ? 'Закрыть меню' : 'Открыть меню'}
           aria-expanded={mobileOpen}
           onClick={() => setMobileOpen((o) => !o)}
@@ -247,7 +271,7 @@ export function AppHeader({ onLogout, leaving }: { onLogout: () => void; leaving
           Ozon Analytics
           <span className="text-3xl font-black leading-none sm:text-4xl">Петя</span>
         </Link>
-        <nav className="hidden items-center gap-1 text-sm lg:flex" aria-label="Разделы">
+        <nav className="hidden items-center gap-1 text-sm xl:flex" aria-label="Разделы">
           {NAV.filter((section) => !section.bellOnDesktop).map((section) =>
             section.href ? (
               <Link

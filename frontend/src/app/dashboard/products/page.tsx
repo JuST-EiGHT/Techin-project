@@ -612,7 +612,7 @@ function EmptyCatalog({ hasKey }: { hasKey: boolean | null }) {
       {hasKey === false ? (
         <p className="mt-2 text-sm text-muted">
           Товары, цены, комиссии и остатки загружаются из Ozon по API-ключу — раз в час, сами.{' '}
-          <Link href="/dashboard/settings/api-keys" className="text-accent hover:underline">
+          <Link href="/dashboard/settings/integrations" className="text-accent hover:underline">
             Подключить ключ →
           </Link>
         </p>
@@ -621,7 +621,7 @@ function EmptyCatalog({ hasKey }: { hasKey: boolean | null }) {
       )}
       <p className="mt-2 text-sm text-muted">
         Себестоимость можно указать заранее —{' '}
-        <Link href="/dashboard/costs" className="text-accent hover:underline">
+        <Link href="/dashboard/products/costs" className="text-accent hover:underline">
           в справочнике себестоимости
         </Link>
         .

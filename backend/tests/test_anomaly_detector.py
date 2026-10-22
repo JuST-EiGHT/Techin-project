@@ -330,15 +330,15 @@ def test_texts():
     assert t.title == "Цена выросла на 15 %: 1 000 ₽ → 1 150 ₽"
     assert "кабинете Ozon" in t.message and t.link == f"/dashboard/products?product={P1}"
     t = describe(det.PRICE_CHANGE, RED, Decimal(1000), Decimal(600), Decimal(30), {"change_pct": -40.0, "via_service": True}, P1)
-    assert t.title.startswith("Цена снизилась на 40 %") and t.link == f"/dashboard/prices/history?product={P1}"
+    assert t.title.startswith("Цена снизилась на 40 %") and t.link == f"/dashboard/products/prices/history?product={P1}"
     t = describe(det.LOW_MARGIN, RED, None, Decimal("-2.5"), Decimal(10), {"price": "990"}, P1, "6001")
     assert t.title == "Маржа −2,5 % — каждая продажа в минус"
     t = describe(det.PAYOUT_MISSED, RED, Decimal("15000.5"), None, None, {"day": "2026-10-07"})
     assert t.title == "Выплата Ozon 07.10 не пришла" and "около 15 000,50 ₽" in t.message
     t = describe(det.CASH_GAP, RED, None, Decimal(-2000), Decimal(0), {"first_day": "2026-10-17", "min_day": "2026-10-17"})
-    assert t.title == "Кассовый разрыв 17.10" and t.link == "/dashboard/planning?tab=calendar"
+    assert t.title == "Кассовый разрыв 17.10" and t.link == "/dashboard/planning/calendar"
     t = describe(det.UNCATEGORIZED, YELLOW, None, Decimal(2), Decimal(7), {"oldest_day": "2026-09-01"}, today=TODAY)
     assert t.title == "Операций без статьи: 2"
-    assert t.link == "/dashboard/planning?tab=operations&category=none&from=2026-09-01&to=2026-10-15"
+    assert t.link == "/dashboard/operations?category=none&from=2026-09-01&to=2026-10-15"
     t = describe(det.LOW_STOCK, RED, None, Decimal(0), Decimal(7), {"available": 0, "avg_daily": "1.5"}, P1)
     assert t.title == "Товар закончился"
