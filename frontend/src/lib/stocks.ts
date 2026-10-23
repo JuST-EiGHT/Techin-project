@@ -126,4 +126,4 @@ export function warehouseLabel(w: { name: string; type: string; cluster_name: st
 }
 
 /** Карточка товара (шаг 4.1) — боковая панель на странице товаров. */
-export const productHref = (id: string) => `/dashboard/products?product=${id}`
+export const productHref = (id: string) => `/dashboard/products/${id}`

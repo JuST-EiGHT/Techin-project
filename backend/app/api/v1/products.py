@@ -1,5 +1,6 @@
 """Товары (шаг 4.1): таблица с ценой, комиссией, себестоимостью, остатком, маржой и акциями; CSV; карточка.
-«Все товары» (10.13): продажи, выручка, прибыль за период, индикаторы проблем, выбор всех по фильтру, выгрузка выбранных."""
+«Все товары» (10.13): продажи, выручка, прибыль за период, индикаторы проблем, выбор всех по фильтру, выгрузка выбранных.
+«Статистика товара» (10.14): всё о товаре одним ответом — GET /products/{id}/stats."""
 import uuid
 from datetime import date
 from typing import Literal
@@ -11,8 +12,8 @@ from app.core.files import attachment
 from app.db.session import get_db
 from app.engine.products import FILTERS, SORTS, sort_rows
 from app.models.user import User
-from app.schemas.products import ProductDetail, ProductIds, ProductsPage, SelectedRequest
-from app.services import audit
+from app.schemas.products import ProductDetail, ProductIds, ProductsPage, ProductStats, SelectedRequest
+from app.services import audit, product_page
 from app.services import products as svc
 from app.services.stores import get_current_store
 from app.services.stocks import SALES_WINDOW_DAYS
@@ -130,6 +131,22 @@ async def product_detail(
     db: AsyncSession = Depends(get_db),
 ):
     data = await svc.detail(db, user.id, product_id, days)
+    if data is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Товар не найден")
+    return data
+
+
+@router.get("/{product_id}/stats", response_model=ProductStats)
+async def product_stats(
+    product_id: uuid.UUID,
+    date_from: date | None = Query(None, description="Период продаж и прибыли; по умолчанию — 30 дней по сегодня"),
+    date_to: date | None = Query(None),
+    user: User = Depends(get_current_store),
+    db: AsyncSession = Depends(get_db),
+):
+    """«Статистика товара»: карточка, продажи и юнит-экономика за период, цены и скидки с маржой, остатки по кластерам
+    с поставками и риском дефицита, история себестоимости, цен и акций. Товар другого магазина — 404."""
+    data = await product_page.stats(db, user.id, product_id, *_period(date_from, date_to))
     if data is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Товар не найден")
     return data

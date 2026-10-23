@@ -190,7 +190,7 @@ function Row({ r, wholeStock, frozen, onAction }: { r: PromoProductRow; wholeSto
   return (
     <tr className="border-b border-line last:border-b-0" data-testid="promo-product">
       <td className="max-w-[16rem] px-3 py-2">
-        <Link href={`/dashboard/products?product=${r.product.id}`} className="block truncate font-medium hover:text-accent">
+        <Link href={`/dashboard/products/${r.product.id}`} className="block truncate font-medium hover:text-accent">
           {r.product.offer_id}
         </Link>
         <div className="flex items-center gap-1.5 text-xs text-muted">

@@ -363,7 +363,7 @@ export function AbcTable({ data, filter, pick, onPick }: { data: AbcData; filter
                 <td className="px-3 py-2 tabular-nums text-faint">{i.rank ?? ''}</td>
                 <td className="max-w-[16rem] px-3 py-2">
                   {i.product.id ? (
-                    <Link href={`/dashboard/products?product=${i.product.id}`} className="block truncate font-medium hover:text-accent" data-testid="abc-product">
+                    <Link href={`/dashboard/products/${i.product.id}`} className="block truncate font-medium hover:text-accent" data-testid="abc-product">
                       {i.product.offer_id}
                     </Link>
                   ) : (

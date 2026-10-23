@@ -101,7 +101,7 @@ def promo_raw(day: date, kind: str, product: ProductRef, promo_id: uuid.UUID, ti
 
 def stock_raw(day: date, kind: str, product: ProductRef) -> Raw:
     text = "остаток на всех складах — 0" if kind == STOCKOUT else "остаток снова больше нуля — пришла поставка"
-    return Raw(day, kind, product, text, f"/dashboard/products?product={product.id}")
+    return Raw(day, kind, product, text, f"/dashboard/products/{product.id}")
 
 
 # ── по дням ──

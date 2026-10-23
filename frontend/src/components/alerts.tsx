@@ -223,7 +223,7 @@ export function AlertCard({ anomaly: a, onChange }: { anomaly: Anomaly; onChange
       </div>
       <h3 className={`mt-1 ${a.is_acknowledged ? 'font-medium' : 'font-semibold'}`}>{a.title}</h3>
       {a.product && (
-        <Link href={`/dashboard/products?product=${a.product.id}`} className="mt-0.5 block truncate text-sm text-accent hover:underline" data-testid="alert-product">
+        <Link href={`/dashboard/products/${a.product.id}`} className="mt-0.5 block truncate text-sm text-accent hover:underline" data-testid="alert-product">
           {a.product.offer_id}
           {a.product.name ? ` · ${a.product.name}` : ''}
         </Link>

@@ -30,6 +30,8 @@ export const METRIC_LINKS: Partial<Record<MetricKey, (from: string, to: string) 
 }
 
 const short = (iso: string) => fmtDay(iso).slice(0, 5)
+/** Ссылка показателя с доп. фильтром («Статистика товара» 10.14 — product=…). */
+const withQuery = (href: string | null, query?: string) => (href && query ? `${href}&${query}` : href)
 
 /** Карточка показателя: ссылка на подробности или просто цифра, если подробной страницы пока нет. */
 export function Card({ href, label, value, testid, tone, children }: {
@@ -52,17 +54,19 @@ export function Card({ href, label, value, testid, tone, children }: {
 
 /** Выручка, прибыль, маржинальность, заказы: значение, ▲ / ▼ к прошлому периоду, «было …», переход в подробности. */
 /** Четыре главные цифры: выручка, прибыль, маржинальность и заказы (главная) или продажи в штуках («Обзор бизнеса»). */
-export function KeyFigures({ data, taxSet, costLabel, fourth = 'orders' }: {
+export function KeyFigures({ data, taxSet, costLabel, fourth = 'orders', query }: {
   data: Metrics
   taxSet: boolean
   costLabel: string
   fourth?: 'orders' | 'sold_qty'
+  /** Добавить к ссылкам показателей (например, product=… — подробности по одному товару). */
+  query?: string
 }) {
   const t = data.totals
   const prev = data.previous?.totals ?? null
   const ch = data.changes
   const against = data.previous ? `к ${short(data.previous.date_from)}–${short(data.previous.date_to)}` : ''
-  const link = (k: MetricKey) => METRIC_LINKS[k]?.(data.date_from, data.date_to) ?? null
+  const link = (k: MetricKey) => withQuery(METRIC_LINKS[k]?.(data.date_from, data.date_to) ?? null, query)
   const was = (k: MetricKey) =>
     prev === null ? null : prev[k] === null ? 'в прошлом периоде нет данных' : `было ${formatMetric(prev[k], METRICS[k].format)}`
   const profit = t.profit === null ? null : Number(t.profit)
@@ -129,9 +133,10 @@ const CHART_METRICS: { key: MetricKey; label: string }[] = [
 ]
 
 /** Один график с переключением показателя; точка и «Подробнее →» ведут туда же, куда карточка показателя. */
-export function DynamicsChart({ data }: { data: Metrics }) {
+export function DynamicsChart({ data, query }: { data: Metrics; query?: string }) {
   const [metric, setMetric] = useState<MetricKey>('revenue')
-  const link = METRIC_LINKS[metric]
+  const base = METRIC_LINKS[metric]
+  const link = base ? (from: string, to: string) => withQuery(base(from, to), query) as string : undefined
   return (
     <div className="space-y-2" data-testid="dynamics">
       <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Показатель на графике">

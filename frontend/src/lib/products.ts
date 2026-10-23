@@ -1,5 +1,9 @@
 // Страница товаров (шаг 4.1): типы ответа /products и подписи — общие для таблицы и боковой панели. «Все товары» (10.13):
-// продажи, выручка и прибыль за период, индикаторы проблем, выбор товаров для групповых действий.
+// продажи, выручка и прибыль за период, индикаторы проблем, выбор товаров для групповых действий. «Статистика товара»
+// (10.14): ответ /products/{id}/stats.
+import type { ProductRow } from '@/components/products-pnl'
+import type { PriceHistoryItem } from '@/lib/pricing'
+import type { HistoryItem } from '@/lib/promotions'
 
 export type StockStatus = 'critical' | 'low' | 'normal' | 'excess'
 export type PriceIndex = 'super' | 'green' | 'yellow' | 'red'
@@ -184,4 +188,55 @@ export function takeSelection(): string[] | null {
   } catch {
     return null
   }
+}
+
+// ── «Статистика товара» (10.14) ──
+export type PriceLevelKind = 'old' | 'price' | 'marketing' | 'promo' | 'candidate'
+export type PriceLevel = {
+  kind: PriceLevelKind
+  title: string
+  price: string
+  discount_pct: string | null
+  margin: string | null
+  unit_profit: string | null
+  profit_change: string | null
+  promotion_id: string | null
+  date_to: string | null
+  added_automatically: boolean
+}
+export type ClusterStock = {
+  name: string
+  type: string
+  present: number
+  in_transit: number | null
+  reserved: number | null
+  warehouses: string[]
+  supply: {
+    kind: 'supply' | 'purchase'
+    urgency: 'critical' | 'urgent' | 'planned'
+    avg_daily: string
+    rate: string
+    days_left: string | null
+    to_order: number
+    target_stock: number
+    arrives_late: boolean
+    sold_30: number
+  } | null
+}
+export type RiskLevel = 'critical' | 'low' | 'ok' | 'excess' | 'unknown'
+export type CostRecord = { cost_price: string; vat_multiplier: string | null; effective_from: string; note: string | null; source: string; created_at: string }
+export type ProductStats = {
+  detail: ProductDetail
+  period: ProductsPage['period']
+  pnl: ProductRow | null
+  cost_basis: 'with_vat' | 'without_vat'
+  prices: { levels: PriceLevel[]; missing: string[]; note: string }
+  clusters: ClusterStock[]
+  supply_known: boolean
+  risk: { level: RiskLevel; text: string }
+  cost_history: CostRecord[]
+  price_changes: PriceHistoryItem[]
+  price_changes_total: number
+  promotions: HistoryItem[]
+  promotions_total: number
 }

@@ -1,5 +1,6 @@
 'use client'
 // Боковая панель товара (шаг 4.1): детали, цена за 30 дней, расчёт цены (4.2), остатки, акции, правка себестоимости.
+// Сейчас — на странице «Цены»; блоки (цена за 30 дней, себестоимость) использует и «Статистика товара» (10.14).
 import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -126,7 +127,7 @@ export function ProductPanel({ productId, onClose, onChanged }: { productId: str
   )
 }
 
-function Section({ title, children, more, testid }: { title: string; children: React.ReactNode; more?: React.ReactNode; testid?: string }) {
+export function Section({ title, children, more, testid }: { title: string; children: React.ReactNode; more?: React.ReactNode; testid?: string }) {
   return (
     <section data-testid={testid}>
       <div className="mb-2 flex items-baseline gap-3">
@@ -138,7 +139,7 @@ function Section({ title, children, more, testid }: { title: string; children: R
   )
 }
 
-function Row({ label, children, strong, tone = '', testid }: { label: React.ReactNode; children: React.ReactNode; strong?: boolean; tone?: string; testid?: string }) {
+export function Row({ label, children, strong, tone = '', testid }: { label: React.ReactNode; children: React.ReactNode; strong?: boolean; tone?: string; testid?: string }) {
   return (
     <div className={`flex items-baseline justify-between gap-4 border-b border-line py-1.5 text-sm last:border-b-0 ${strong ? 'font-semibold' : ''}`} data-testid={testid}>
       <span className={strong ? '' : 'text-muted'}>{label}</span>
@@ -147,7 +148,7 @@ function Row({ label, children, strong, tone = '', testid }: { label: React.Reac
   )
 }
 
-function IdLine({ data }: { data: ProductDetail }) {
+export function IdLine({ data }: { data: ProductDetail }) {
   const { item } = data
   return (
     <p className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
@@ -229,7 +230,7 @@ function PriceTip({ active, payload, drill }: { active?: boolean; payload?: { pa
 }
 
 /** Цена на конец каждого дня за 30 дней. Своего раздела у графика нет — только подсказка (правило 16). */
-function PriceChart({ data }: { data: ProductDetail }) {
+export function PriceChart({ data }: { data: ProductDetail }) {
   const colors = useTokenColors()
   const drill = useDrill<PricePoint>()
   const rows: PricePoint[] = data.price_days.map((d) => ({
@@ -397,7 +398,7 @@ function PromoBlock({ data }: { data: ProductDetail }) {
   )
 }
 
-function CostBlock({ data, onSaved }: { data: ProductDetail; onSaved: () => void }) {
+export function CostBlock({ data, onSaved }: { data: ProductDetail; onSaved: () => void }) {
   const { item, cost } = data
   const [editing, setEditing] = useState(cost === null)
   const [price, setPrice] = useState(cost ? String(Number(cost.cost_price)) : '')

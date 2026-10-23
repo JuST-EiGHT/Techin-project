@@ -57,7 +57,7 @@ function ProductCell({ p }: { p: Ref }) {
     </>
   )
   return p.id ? (
-    <Link href={`/dashboard/products?product=${p.id}`} className="min-w-0 flex-1 hover:text-accent" data-testid="leader-product">
+    <Link href={`/dashboard/products/${p.id}`} className="min-w-0 flex-1 hover:text-accent" data-testid="leader-product">
       {body}
     </Link>
   ) : (

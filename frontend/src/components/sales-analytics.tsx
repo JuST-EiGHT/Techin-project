@@ -348,7 +348,7 @@ export function SalesTable({ table, filter }: { table: SalesTableData; filter: A
               <tr key={r.product.offer_id} data-testid="sales-row">
                 <td className="max-w-[16rem] px-3 py-2">
                   {r.product.id ? (
-                    <Link href={`/dashboard/products?product=${r.product.id}`} className="block truncate font-medium hover:text-accent">
+                    <Link href={`/dashboard/products/${r.product.id}`} className="block truncate font-medium hover:text-accent">
                       {r.product.offer_id}
                     </Link>
                   ) : (

@@ -314,7 +314,13 @@ async def detail(db: AsyncSession, user_id: uuid.UUID, product_id: uuid.UUID, da
     product = await db.get(Product, product_id)
     if product is None or product.user_id != user_id:
         return None
-    ctx = await load_context(db, user_id, [product], one=product)
+    return (await detail_parts(db, user_id, product, days))[0]
+
+
+async def detail_parts(db: AsyncSession, user_id: uuid.UUID, product: Product, days: int,
+                       period: tuple[date, date] | None = None) -> tuple[dict, Context]:
+    """Карточка товара (панель 4.1, «Статистика товара» 10.14) и контекст расчёта — чтобы не загружать его дважды."""
+    ctx = await load_context(db, user_id, [product], one=product, period=period)
     row = build_row(ctx, product)
     record = ctx.pricing.history.record_at(product.offer_id, ctx.today)
     cost = None
@@ -338,4 +344,4 @@ async def detail(db: AsyncSession, user_id: uuid.UUID, product_id: uuid.UUID, da
         "item": row, "barcode": product.barcode, "category_id": product.category_id, "vat": product.vat,
         "cost": cost, "supplier_vat": ctx.pricing.default_vat, "stocks": stocks,
         "price_days": price_days, "price_changes": changes, "first_price_at": first,
-    }
+    }, ctx

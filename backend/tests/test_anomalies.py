@@ -345,7 +345,7 @@ async def test_api_list_count_acknowledge(client, tokens, sessions):
     item = next(i for i in body["items"] if i["type"] == "low_stock")
     assert item["title"] == "Товар закончился" and item["type_title"] == "Заканчивается остаток"
     assert item["product"]["offer_id"] == "ACB305523" and item["unit"] == "дн." and item["group"] == "stock"
-    assert item["link"] == f"/dashboard/products?product={p['B']}"
+    assert item["link"] == f"/dashboard/products/{p['B']}"
 
     assert (await get(severity="yellow")).json()["total"] == 1
     assert (await get(group="promo")).json()["total"] == 2

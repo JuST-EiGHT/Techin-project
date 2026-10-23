@@ -162,12 +162,12 @@ def promo_out(key: str, at: datetime, product: ProductRef, promo_id: str, title:
 # ── остатки ──
 def stockout(key: str, at: datetime, product: ProductRef) -> Event:
     return Event(key, at, STOCK, f"{product.offer_id} закончился на складах", "остаток на всех складах — 0", BAD, product,
-                 f"/dashboard/products?product={product.id}", "Товар")
+                 f"/dashboard/products/{product.id}", "Товар")
 
 
 def restock(key: str, at: datetime, product: ProductRef, present: int) -> Event:
     return Event(key, at, STOCK, f"{product.offer_id} снова в наличии",
-                 f"пришла поставка: на складах {present} шт.", OK, product, f"/dashboard/products?product={product.id}",
+                 f"пришла поставка: на складах {present} шт.", OK, product, f"/dashboard/products/{product.id}",
                  "Товар")
 
 

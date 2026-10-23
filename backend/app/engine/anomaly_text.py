@@ -93,7 +93,7 @@ def describe(
 ) -> Text:
     d = details or {}
     what = f"«{product_name}»" if product_name else "товара"
-    product_link = f"/dashboard/products?product={product_id}" if product_id else None
+    product_link = f"/dashboard/products/{product_id}" if product_id else None
 
     if type_ in (det.SALES_DROP, det.SALES_GROWTH):
         shop = product_id is None

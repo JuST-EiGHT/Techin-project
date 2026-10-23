@@ -43,7 +43,7 @@ def test_events_by_day_one_or_many():
            ev.stock_raw(D1, ev.STOCKOUT, b), ev.promo_raw(D2, ev.PROMO_IN, a, uuid.uuid4(), "Распродажа", True)]
     events = ev.by_day(raw)
     assert [(e.day, e.kind, e.count) for e in events] == [(D1, "stockout", 1), (D2, "price", 2), (D2, "promo_in", 1)]
-    assert events[0].title == "B-2 закончился на складах" and events[0].link == f"/dashboard/products?product={b.id}"
+    assert events[0].title == "B-2 закончился на складах" and events[0].link == f"/dashboard/products/{b.id}"
     assert events[1].title == "Цена изменилась у 2 товаров" and events[1].link == "/dashboard/products/prices/history"
     assert [i.text for i in events[1].items] == ["↑ 100 ₽ → 120 ₽, через сервис", "↓ 50 ₽ → 45 ₽"]
     assert events[2].title == "A-1 вошёл в акцию «Распродажа» — Ozon добавил сам"

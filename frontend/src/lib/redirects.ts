@@ -7,6 +7,8 @@ export type Redirect = {
   from: string
   /** Только с этим ?tab= (вкладки «Планирования»); параметр tab в новый адрес не переносится. */
   tab?: string
+  /** Только с этим параметром: его значение становится частью пути (/from?product=X → /to/X), сам параметр не переносится. */
+  param?: string
   to: string
   /** Подстраницы тоже: /from/x → /to/x. */
   prefix?: boolean
@@ -23,6 +25,8 @@ export const REDIRECTS: Redirect[] = [
   { from: '/dashboard/prices', to: '/dashboard/products/prices', prefix: true },
   { from: '/dashboard/promotions', to: '/dashboard/products/promotions', prefix: true },
   { from: '/dashboard/supply', to: '/dashboard/warehouses/supply' },
+  // панель товара на «Всех товарах» (4.1) стала страницей «Статистика товара» (10.14) — ссылки уведомлений и Telegram
+  { from: '/dashboard/products', param: 'product', to: '/dashboard/products' },
   // вкладки «Планирования» стали страницами: операции, статьи и счета — раздел «Операции», календарь и ДДС — свои страницы
   { from: '/dashboard/planning', tab: 'overview', to: '/dashboard/planning' },
   { from: '/dashboard/planning', tab: 'operations', to: '/dashboard/operations' },
@@ -44,13 +48,16 @@ export function resolveRedirect(pathname: string, search: string): { to: string;
     const sub = r.prefix && pathname.startsWith(`${r.from}/`)
     if (!exact && !sub) continue
     if (r.tab !== undefined && params.get('tab') !== r.tab) continue
+    const segment = r.param !== undefined ? params.get(r.param) : null
+    if (r.param !== undefined && !segment) continue
     const [path, query] = r.to.split('?')
     const out = new URLSearchParams(query)
     params.forEach((value, key) => {
       if (r.tab !== undefined && key === 'tab') return
+      if (r.param !== undefined && key === r.param) return
       if (!out.has(key)) out.append(key, value)
     })
-    const rest = sub ? pathname.slice(r.from.length) : ''
+    const rest = segment ? `/${encodeURIComponent(segment)}` : sub ? pathname.slice(r.from.length) : ''
     const q = out.toString()
     return { to: `${path}${rest}${q ? `?${q}` : ''}`, permanent: !r.temporary }
   }

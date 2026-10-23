@@ -153,7 +153,7 @@ export function FeedList({ items, next, loading, error, onMore }: { items: FeedE
                   <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs">
                     <span className="text-faint">{e.kind_title}</span>
                     {e.product?.id && (
-                      <Link href={`/dashboard/products?product=${e.product.id}`} className="text-muted hover:text-accent" data-testid="feed-product">
+                      <Link href={`/dashboard/products/${e.product.id}`} className="text-muted hover:text-accent" data-testid="feed-product">
                         {e.product.offer_id}
                         {e.product.name ? ` · ${e.product.name}` : ''}
                       </Link>

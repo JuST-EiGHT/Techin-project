@@ -56,6 +56,9 @@ OLD_TO_NEW = {
     f"/dashboard/promotions?tab=history&product={ID}": (f"/dashboard/products/promotions?tab=history&product={ID}", True),
     "/dashboard/promotions/1234567": ("/dashboard/products/promotions/1234567", True),
     "/dashboard/supply": ("/dashboard/warehouses/supply", True),
+    # панель товара (4.1) → страница «Статистика товара» (10.14); фильтры списка не переносятся в путь
+    f"/dashboard/products?product={ID}": (f"/dashboard/products/{ID}", True),
+    f"/dashboard/products?filter=no_cost&product={ID}&store={ID}": (f"/dashboard/products/{ID}?filter=no_cost&store={ID}", True),
     # вкладки «Планирования» — страницы: tab вкладки в новый адрес не переносится, фильтры — переносятся
     "/dashboard/planning?tab=overview": ("/dashboard/planning", True),
     "/dashboard/planning?tab=operations": ("/dashboard/operations", True),
@@ -82,7 +85,7 @@ OLD_TO_NEW = {
 
 # эти адреса — на своём месте: переадресации нет
 STAYS = [
-    "/dashboard", "/dashboard?period=week", "/dashboard/planning", "/dashboard/products", f"/dashboard/products?product={ID}",
+    "/dashboard", "/dashboard?period=week", "/dashboard/planning", "/dashboard/products", "/dashboard/products?filter=no_cost", f"/dashboard/products/{ID}",
     "/dashboard/products/prices", "/dashboard/pricesx", "/dashboard/reportsx/1", "/dashboard/finance/pnl",
     "/dashboard/settings/notifications", "/dashboard/settings", "/dashboard/alerts", "/dashboard/warehouses/withdrawal",
 ]
@@ -90,7 +93,7 @@ STAYS = [
 # старые адреса в исходниках: только в таблице переадресации
 OLD_IN_SOURCE = re.compile(
     r"/dashboard/(payouts|reports|costs|prices|promotions|supply)\b|/dashboard/planning\?tab|"
-    r"/dashboard/settings/(stores|api-keys|banks)\b|/dashboard/finance(?![/\w-])"
+    r"/dashboard/settings/(stores|api-keys|banks)\b|/dashboard/finance(?![/\w-])|/dashboard/products\?product="
 )
 
 SCRIPT = """
@@ -157,7 +160,7 @@ def test_current_addresses_are_not_redirected(site):
 def test_old_pages_moved_not_duplicated(site):
     # старая страница не осталась рядом с новой (кроме /dashboard/planning — там остался «Обзор», уходят только вкладки)
     for rule in site["rules"]:
-        if "tab" in rule:
+        if "tab" in rule or "param" in rule:  # вкладка или параметр — сама страница остаётся
             continue
         assert not page_exists(rule["from"]), rule["from"]
         assert page_exists(rule["to"]), rule["to"]
@@ -225,6 +228,8 @@ def test_anomaly_links_lead_to_new_pages():
     assert links["sync_stale"] == "/dashboard?sync=1"  # открывает окно «Синхронизация»
     assert links["accrual_gaps"] == links["report_error"] == "/dashboard/analytics/reports"
     assert links["missing_cost"] == "/dashboard/products/costs?missing=1"
+    # товар — страница «Статистика товара» (10.14), а не панель
+    assert links["low_stock"] == links["sales_product"] == links["low_margin"] == f"/dashboard/products/{ID}"
 
     urls = [u for u in links.values() if u]
     resolved = run_node(urls)["resolved"]

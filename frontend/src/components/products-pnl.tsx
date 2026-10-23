@@ -91,7 +91,7 @@ const QUICK: { value: Quick; label: string; title: string }[] = [
   { value: 'no_cost', label: 'Нет себестоимости', title: 'Продажи есть, себестоимость не указана — прибыль не посчитать' },
 ]
 const PAGE = 50
-const signTone = (v: string) => (Number(v) < 0 ? 'text-bad' : Number(v) > 0 ? 'text-ok' : 'text-muted')
+export const signTone = (v: string) => (Number(v) < 0 ? 'text-bad' : Number(v) > 0 ? 'text-ok' : 'text-muted')
 
 /** Прибыль по товарам: таблица с сортировкой, поиском, страницами, экспортом CSV и карточкой товара. quick — быстрые
  * фильтры «Аналитики прибыльности»; moneyWent={false} — без «На что ушли деньги» (у страницы своя структура расходов). */
@@ -700,7 +700,7 @@ function ProductCard({
 }
 
 /** Юнит-экономика товара: из чего складывается цена одной проданной штуки. */
-function UnitEconomics({ u, costTitle }: { u: PerUnit; costTitle: string }) {
+export function UnitEconomics({ u, costTitle }: { u: PerUnit; costTitle: string }) {
   const line = (label: string, v: string | null, pct: string | null, opts: { strong?: boolean; tone?: string; testid?: string } = {}) => (
     <tr className={`border-b border-line last:border-b-0 ${opts.strong ? 'font-semibold' : ''}`} data-testid={opts.testid}>
       <td className="py-1.5 pr-3">{label}</td>

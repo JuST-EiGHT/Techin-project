@@ -212,7 +212,7 @@ function HistoryRow({ i, onRollback }: { i: PriceHistoryItem; onRollback: () => 
     <li className={`px-4 py-3 text-sm ${tint}`} data-testid={`history-${i.kind === 'rollback' ? 'rollback' : notApplied ? 'gray' : 'row'}`}>
       <div className="flex flex-wrap items-start gap-x-4 gap-y-1">
         <div className="min-w-[12rem] flex-1">
-          <Link href={`/dashboard/products?product=${i.product.id}`} className="break-all font-medium hover:underline">
+          <Link href={`/dashboard/products/${i.product.id}`} className="break-all font-medium hover:underline">
             {i.product.offer_id}
           </Link>
           {i.product.name && <span className="block truncate text-xs text-muted">{i.product.name}</span>}

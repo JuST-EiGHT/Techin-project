@@ -328,7 +328,7 @@ def test_texts():
     t = describe(det.PRICE_CHANGE, YELLOW, Decimal(1000), Decimal(1150), Decimal(10),
                  {"change_pct": 15.0, "via_service": False}, P1, "Подшипник 6001")
     assert t.title == "Цена выросла на 15 %: 1 000 ₽ → 1 150 ₽"
-    assert "кабинете Ozon" in t.message and t.link == f"/dashboard/products?product={P1}"
+    assert "кабинете Ozon" in t.message and t.link == f"/dashboard/products/{P1}"
     t = describe(det.PRICE_CHANGE, RED, Decimal(1000), Decimal(600), Decimal(30), {"change_pct": -40.0, "via_service": True}, P1)
     assert t.title.startswith("Цена снизилась на 40 %") and t.link == f"/dashboard/products/prices/history?product={P1}"
     t = describe(det.LOW_MARGIN, RED, None, Decimal("-2.5"), Decimal(10), {"price": "990"}, P1, "6001")

@@ -1,18 +1,19 @@
 'use client'
-// Товары (шаг 4.1): все товары каталога Ozon — цена, комиссия, себестоимость, остаток, маржа, акции; боковая панель товара.
+// Товары (шаг 4.1): все товары каталога Ozon — цена, комиссия, себестоимость, остаток, маржа, акции.
 // «Все товары» (10.13): продано, выручка и прибыль за период, значки проблем, выбор товаров и групповые действия.
+// Клик по товару — «Статистика товара» (10.14, /dashboard/products/[id]); старый адрес ?product= переадресуется туда.
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
-import { ProductPanel } from '@/components/product-panel'
 import { BulkBar } from '@/components/products-bulk'
 import { Badge, fmtDay, pctText, rub } from '@/components/reports'
 import { refreshSyncStatus, timeAgo } from '@/lib/sync'
 import { api, errorMessage } from '@/lib/api'
 import { rangeOf, type PeriodPreset } from '@/lib/analytics'
 import { saveFile } from '@/lib/download'
+import { productHref } from '@/lib/stocks'
 import { todayMsk } from '@/lib/period'
 import {
   COLUMNS,
@@ -87,12 +88,11 @@ function Products() {
   const router = useRouter()
   const pathname = usePathname()
   const filters = parseFilters(params.get('filter'))
-  const selected = params.get('product')
   const period = parsePeriod(params.get('period'))
   const range = rangeOf(period)
   const periodParams = { date_from: range.from, date_to: range.to }
   const setUrl = useCallback(
-    (next: { filter?: QuickFilter[]; product?: string | null; period?: Period }) => {
+    (next: { filter?: QuickFilter[]; period?: Period }) => {
       const q = new URLSearchParams(params.toString())
       if (next.filter !== undefined) {
         if (next.filter.length) q.set('filter', next.filter.join(','))
@@ -101,10 +101,6 @@ function Products() {
       if (next.period !== undefined) {
         if (next.period !== '30d') q.set('period', next.period)
         else q.delete('period')
-      }
-      if (next.product !== undefined) {
-        if (next.product) q.set('product', next.product)
-        else q.delete('product')
       }
       const s = q.toString()
       router.replace(s ? `${pathname}?${s}` : pathname, { scroll: false })
@@ -262,7 +258,6 @@ function Products() {
     }
   }
 
-  const closePanel = useCallback(() => setUrl({ product: null }), [setUrl])
   const reloadList = useCallback(() => setReload((n) => n + 1), [])
   useOnPriceSettingsChange(reloadList) // маржа считается калькулятором цены
   const settings = useSettings() // пороги остатков (шаг 5.1) — для подсказок
@@ -466,8 +461,8 @@ function Products() {
                     {data.items.map((r) => (
                       <tr
                         key={r.id}
-                        onClick={() => setUrl({ product: r.id })}
-                        className={`cursor-pointer border-b border-line last:border-b-0 hover:bg-line/40 ${selected === r.id || chosen.has(r.id) ? 'bg-accent/10' : ''}`}
+                        onClick={() => router.push(productHref(r.id))}
+                        className={`cursor-pointer border-b border-line last:border-b-0 hover:bg-line/40 ${chosen.has(r.id) ? 'bg-accent/10' : ''}`}
                         data-testid="product-row"
                       >
                         <td className="py-2 pl-3 pr-0 align-top" onClick={(e) => e.stopPropagation()}>
@@ -482,7 +477,9 @@ function Products() {
                         </td>
                         <td className="max-w-[15rem] px-3 py-2">
                           <div className="flex items-center gap-1.5">
-                            <span className="truncate font-medium">{r.offer_id}</span>
+                            <Link href={productHref(r.id)} onClick={(e) => e.stopPropagation()} className="truncate font-medium hover:text-accent" data-testid="product-link">
+                              {r.offer_id}
+                            </Link>
                             <Flags flags={r.flags} />
                           </div>
                           <div className="truncate text-xs text-muted">
@@ -532,8 +529,6 @@ function Products() {
           </div>
         </div>
       )}
-
-      {selected && <ProductPanel productId={selected} onClose={closePanel} onChanged={reloadList} />}
     </div>
   )
 }
