@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { api } from '@/lib/api'
 
 export type Severity = 'red' | 'yellow'
-export type AlertGroup = 'sales' | 'price' | 'margin' | 'stock' | 'promo' | 'money'
+export type AlertGroup = 'sales' | 'price' | 'margin' | 'stock' | 'promo' | 'money' | 'data'
 export type AlertStatus = 'active' | 'resolved' | 'all'
 
 export type Anomaly = {
@@ -23,6 +23,7 @@ export type Anomaly = {
   threshold: string | null
   unit: string | null
   details: Record<string, unknown>
+  money_at_risk: string | null // деньги под риском, ₽ — где можно оценить (10.5)
   detected_at: string
   last_seen_at: string
   resolved_at: string | null
@@ -48,9 +49,10 @@ export const GROUPS: { value: AlertGroup; label: string; hint: string }[] = [
   { value: 'sales', label: 'Продажи', hint: 'упали или резко выросли — по магазину и по товарам' },
   { value: 'price', label: 'Цены', hint: 'цена или комиссия Ozon изменились за 7 дней' },
   { value: 'margin', label: 'Маржа', hint: 'маржа при текущей цене ниже вашего порога' },
-  { value: 'stock', label: 'Остатки', hint: 'запаса меньше порога «Мало» или «Критично»' },
+  { value: 'stock', label: 'Остатки', hint: 'запаса меньше порога «Мало» или «Критично» или больше порога «Избыток»' },
   { value: 'promo', label: 'Акции', hint: 'Ozon сам добавил товар в акцию или в акции маржа ниже нуля' },
   { value: 'money', label: 'Деньги', hint: 'выплаты Ozon, сверка с банком, кассовый разрыв, операции без статьи' },
+  { value: 'data', label: 'Данные', hint: 'синхронизация, пропуски в начислениях, отчёты с ошибкой, продажи без себестоимости' },
 ]
 
 export const SEVERITY: Record<Severity, { label: string; dot: string; text: string; stripe: string }> = {

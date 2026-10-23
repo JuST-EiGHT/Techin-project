@@ -8,7 +8,10 @@ import { FormError } from '@/components/AuthForm'
 import { type NotifySettings, TELEGRAM_HREF } from '@/components/settings/Telegram'
 import { api, errorMessage } from '@/lib/api'
 
-type Prefs = Pick<NotifySettings, 'notify_red' | 'notify_yellow' | 'notify_auto_promo' | 'notify_money' | 'quiet_enabled' | 'quiet_from' | 'quiet_to' | 'timezone'>
+type Prefs = Pick<
+  NotifySettings,
+  'notify_red' | 'notify_yellow' | 'notify_auto_promo' | 'notify_money' | 'notify_data' | 'quiet_enabled' | 'quiet_from' | 'quiet_to' | 'timezone'
+>
 
 // Что присылать: категории не пересекаются — каждая аномалия ровно в одной (правило 15: у каждой — что изменится)
 const CATEGORIES: { key: keyof Prefs; label: string; why: string }[] = [
@@ -32,9 +35,14 @@ const CATEGORIES: { key: keyof Prefs; label: string; why: string }[] = [
     label: 'Деньги',
     why: 'Выплата Ozon не пришла или разошлась с прогнозом; с «Планированием» — не дошла до счёта, кассовый разрыв, операции без статьи.',
   },
+  {
+    key: 'notify_data',
+    label: 'Данные',
+    why: 'Ключ Ozon или токен банка не принят, данные давно не обновлялись, пропуски в начислениях, отчёт не перечитался, продажи без себестоимости. По умолчанию выключено — на сайте это всегда в «Требует внимания».',
+  },
 ]
 const TIMES = Array.from({ length: 48 }, (_, i) => `${String(Math.floor(i / 2)).padStart(2, '0')}:${i % 2 ? '30' : '00'}`)
-const PREF_KEYS: (keyof Prefs)[] = ['notify_red', 'notify_yellow', 'notify_auto_promo', 'notify_money', 'quiet_enabled', 'quiet_from', 'quiet_to', 'timezone']
+const PREF_KEYS: (keyof Prefs)[] = ['notify_red', 'notify_yellow', 'notify_auto_promo', 'notify_money', 'notify_data', 'quiet_enabled', 'quiet_from', 'quiet_to', 'timezone']
 
 function Section({ title, hint, children }: { title: string; hint?: React.ReactNode; children: React.ReactNode }) {
   return (

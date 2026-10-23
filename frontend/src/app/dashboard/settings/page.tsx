@@ -407,6 +407,8 @@ type AnomalyKey =
   | 'anomaly_payout_diff_pct'
   | 'anomaly_cash_gap_days'
   | 'anomaly_uncategorized_days'
+  | 'anomaly_sync_stale_hours'
+  | 'anomaly_data_gap_days'
 
 type AnomalyField = { key: AnomalyKey; label: string; suffix: string; why: string; min: number; max: number; places?: number }
 
@@ -454,6 +456,14 @@ const ANOMALY_GROUPS: { title: string; why: string; fields: AnomalyField[] }[] =
       { key: 'anomaly_uncategorized_days', label: 'Операция без статьи дольше', suffix: 'дн.', why: 'Без статьи ДДС по статьям и прогноз неточны — пора разметить.', min: 1, max: 90 },
     ],
   },
+  {
+    title: 'Данные',
+    why: 'Проблемы с данными попадают в «Требует внимания» на главной: без свежих и полных данных цифры в разделах неверны. Ключ или токен банка не принят — сразу, без порогов.',
+    fields: [
+      { key: 'anomaly_sync_stale_hours', label: 'Данные не обновлялись дольше', suffix: 'ч', why: 'Ozon или банк не отвечает, загрузка не идёт: разовый сбой между плановыми загрузками не тревожит, а долгий — да.', min: 1, max: 720 },
+      { key: 'anomaly_data_gap_days', label: 'Дней без начислений между загруженными — от', suffix: 'дн.', why: 'Пропуск в начислениях за последние 30 дней: выручка, прибыль и P&L за эти дни неполные. Хвост после последнего загруженного дня не считаем.', min: 1, max: 30 },
+    ],
+  },
 ]
 const ANOMALY_FIELDS = ANOMALY_GROUPS.flatMap((g) => g.fields)
 const ANOMALY_DEFAULTS: Record<AnomalyKey, string> = {
@@ -467,6 +477,8 @@ const ANOMALY_DEFAULTS: Record<AnomalyKey, string> = {
   anomaly_payout_diff_pct: '10',
   anomaly_cash_gap_days: '14',
   anomaly_uncategorized_days: '7',
+  anomaly_sync_stale_hours: '24',
+  anomaly_data_gap_days: '1',
 }
 const decimalText = (v: string | number) => String(Number(v)).replace('.', ',')
 

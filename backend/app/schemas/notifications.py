@@ -22,6 +22,7 @@ class NotificationSettingsResponse(BaseModel):
     notify_yellow: bool  # жёлтые
     notify_auto_promo: bool  # Ozon сам добавил товар в акцию
     notify_money: bool  # выплаты Ozon, сверка с банком, кассовый разрыв, операции без статьи
+    notify_data: bool  # данные: синхронизация, пропуски начислений, отчёты, себестоимость (10.5; по умолчанию нет)
     quiet_enabled: bool
     quiet_from: str  # «23:00» — местное время пользователя
     quiet_to: str  # «08:00»
@@ -41,6 +42,7 @@ class NotificationSettingsUpdate(BaseModel):
     notify_yellow: bool | None = None
     notify_auto_promo: bool | None = None
     notify_money: bool | None = None
+    notify_data: bool | None = None
     quiet_enabled: bool | None = None
     quiet_from: str | None = Field(None, pattern=HHMM)
     quiet_to: str | None = Field(None, pattern=HHMM)

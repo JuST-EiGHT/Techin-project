@@ -192,6 +192,14 @@ def anomaly_links() -> tuple[dict[str, str | None], set[str]]:
         "cash_gap": (det.CASH_GAP, det.RED, None, {"first_day": "2026-10-17", "min_day": "2026-10-20"}),
         "uncategorized": (det.UNCATEGORIZED, det.YELLOW, None, {"oldest_day": "2026-09-01"}),
         "uncategorized_no_day": (det.UNCATEGORIZED, det.YELLOW, None, {}),
+        # шаг 10.5: избыток и проверки данных
+        "excess_stock": (det.EXCESS_STOCK, det.YELLOW, pid, {"available": 300, "avg_daily": "2", "excess_qty": 180}),
+        "sync_key": (det.SYNC_PROBLEM, det.RED, None, {"titles": ["Остатки"], "problem": "Ozon не принял ключ",
+                                                       "href": "/dashboard/settings/integrations"}),
+        "sync_stale": (det.SYNC_PROBLEM, det.YELLOW, None, {"titles": ["Остатки"], "problem": "Давно не обновлялись"}),
+        "accrual_gaps": (det.ACCRUAL_GAPS, det.YELLOW, None, {"count": 2, "ranges": [["2026-10-05", "2026-10-06"]]}),
+        "report_error": (det.REPORT_ERROR, det.YELLOW, None, {"filename": "sept.xlsx"}),
+        "missing_cost": (det.MISSING_COST, det.YELLOW, None, {"count": 1, "revenue": "500", "top": []}),
     }
     links = {
         name: describe(t, sev, Decimal(100), Decimal(50), Decimal(10), d, pid_, "Подшипник 6001", today).link
@@ -202,7 +210,7 @@ def anomaly_links() -> tuple[dict[str, str | None], set[str]]:
 
 def test_anomaly_links_lead_to_new_pages():
     links, types = anomaly_links()
-    assert types == set(det.TYPES)  # все 14 проверок
+    assert types == set(det.TYPES)  # все 19 проверок (14 — шаг 7.1, 5 — шаг 10.5)
     assert links["sales_shop"] == "/dashboard/finance/pnl?tab=products"
     assert links["price_service"] == f"/dashboard/products/prices/history?product={ID}"
     assert links["promo_auto"] == "/dashboard/products/promotions/1234567"
@@ -212,6 +220,11 @@ def test_anomaly_links_lead_to_new_pages():
     assert links["cash_gap"] == "/dashboard/planning/calendar"
     assert links["uncategorized"] == "/dashboard/operations?category=none&from=2026-09-01&to=2026-10-15"
     assert links["uncategorized_no_day"] == "/dashboard/operations"
+    assert links["excess_stock"] == "/dashboard/warehouses/withdrawal"
+    assert links["sync_key"] == "/dashboard/settings/integrations"
+    assert links["sync_stale"] == "/dashboard?sync=1"  # открывает окно «Синхронизация»
+    assert links["accrual_gaps"] == links["report_error"] == "/dashboard/analytics/reports"
+    assert links["missing_cost"] == "/dashboard/products/costs?missing=1"
 
     urls = [u for u in links.values() if u]
     resolved = run_node(urls)["resolved"]

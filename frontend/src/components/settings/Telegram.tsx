@@ -21,6 +21,7 @@ export type NotifySettings = {
   notify_yellow: boolean
   notify_auto_promo: boolean
   notify_money: boolean
+  notify_data: boolean
   quiet_enabled: boolean
   quiet_from: string
   quiet_to: string

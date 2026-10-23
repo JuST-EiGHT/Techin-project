@@ -55,7 +55,7 @@ class NotifyError(Exception):
 async def get_settings(db: AsyncSession, user_id: uuid.UUID) -> NotificationSettings:
     """Для чтения: строки нет — значения по умолчанию (в сессию не добавляется)."""
     return await db.get(NotificationSettings, user_id) or NotificationSettings(
-        user_id=user_id, notify_red=True, notify_yellow=False, notify_auto_promo=True, notify_money=True,
+        user_id=user_id, notify_red=True, notify_yellow=False, notify_auto_promo=True, notify_money=True, notify_data=False,
         quiet_enabled=False, quiet_from=23 * 60, quiet_to=8 * 60, timezone="Europe/Moscow",
     )
 
@@ -70,11 +70,11 @@ async def _row(db: AsyncSession, user_id: uuid.UUID) -> NotificationSettings:
 
 def prefs(s: NotificationSettings) -> engine.Prefs:
     return engine.Prefs(s.notify_red, s.notify_yellow, s.notify_auto_promo, s.notify_money, s.quiet_enabled,
-                        s.quiet_from, s.quiet_to, s.timezone)
+                        s.quiet_from, s.quiet_to, s.timezone, data=bool(s.notify_data))
 
 
-FIELDS = ("notify_red", "notify_yellow", "notify_auto_promo", "notify_money", "quiet_enabled", "quiet_from", "quiet_to",
-          "timezone")
+FIELDS = ("notify_red", "notify_yellow", "notify_auto_promo", "notify_money", "notify_data", "quiet_enabled", "quiet_from",
+          "quiet_to", "timezone")
 
 
 async def update_settings(db: AsyncSession, user_id: uuid.UUID, changes: dict) -> NotificationSettings:

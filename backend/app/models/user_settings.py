@@ -74,6 +74,9 @@ class UserSettings(Base):
     anomaly_payout_diff_pct: Mapped[int | None] = mapped_column(Integer)  # выплата разошлась с прогнозом, % (10)
     anomaly_cash_gap_days: Mapped[int | None] = mapped_column(Integer)  # кассовый разрыв: смотрим вперёд, дней (14)
     anomaly_uncategorized_days: Mapped[int | None] = mapped_column(Integer)  # операция без статьи дольше, дней (7)
+    # проверки данных (шаг 10.5): данные не обновлялись дольше, часов (24); дней без начислений между загруженными (1)
+    anomaly_sync_stale_hours: Mapped[int | None] = mapped_column(Integer)
+    anomaly_data_gap_days: Mapped[int | None] = mapped_column(Integer)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

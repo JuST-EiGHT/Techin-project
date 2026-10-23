@@ -98,8 +98,7 @@ async def cmd_stop(db: AsyncSession, chat_id: int) -> str:
 
 
 def _prefs_text(p: engine.Prefs) -> str:
-    on = [engine.CATEGORY_TITLES[c] for c, flag in ((engine.RED, p.red), (engine.YELLOW, p.yellow),
-                                                     (engine.AUTO_PROMO, p.auto_promo), (engine.MONEY, p.money)) if flag]
+    on = p.enabled()
     quiet = (f"тихие часы {engine.hhmm(p.quiet_from)}–{engine.hhmm(p.quiet_to)}" if p.quiet_enabled else "без тихих часов")
     return f"присылаем: {', '.join(on) if on else 'ничего'}; {quiet}"
 

@@ -59,6 +59,7 @@ ANOMALY_FIELDS = {
     "anomaly_sales_growth_pct": "sales_growth", "anomaly_price_pct": "price", "anomaly_price_red_pct": "price_red",
     "anomaly_commission_pp": "commission_pp", "low_margin_pct": "low_margin", "anomaly_payout_diff_pct": "payout_diff",
     "anomaly_cash_gap_days": "cash_gap_days", "anomaly_uncategorized_days": "uncategorized_days",
+    "anomaly_sync_stale_hours": "sync_stale_hours", "anomaly_data_gap_days": "data_gap_days",
 }
 
 
@@ -84,7 +85,7 @@ def anomaly_thresholds(s: UserSettings) -> anomalies.Thresholds:
     values["commission_pp"] = _plain(values["commission_pp"])
     values["low_margin"] = _plain(values["low_margin"])
     stock = stock_thresholds(s)
-    return anomalies.Thresholds(**values, stock_critical=stock.critical, stock_low=stock.low)
+    return anomalies.Thresholds(**values, stock_critical=stock.critical, stock_low=stock.low, stock_excess=stock.excess)
 
 
 class SettingsError(Exception):

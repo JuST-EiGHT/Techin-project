@@ -32,7 +32,7 @@ async def list_anomalies(
     status_: Literal["active", "resolved", "all"] = Query("active", alias="status",
                                                           description="active — сейчас, resolved — закрытые, all — все"),
     severity: Severity | None = Query(None),
-    group: Group | None = Query(None, description="sales | price | margin | stock | promo | money"),
+    group: Group | None = Query(None, description="sales | price | margin | stock | promo | money | data"),
     type_: str | None = Query(None, alias="type", description="Тип: sales_drop, price_change …"),
     product_id: uuid.UUID | None = Query(None),
     acknowledged: bool | None = Query(None, description="false — только без «Ок»"),
@@ -43,7 +43,8 @@ async def list_anomalies(
     user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
-    """Аномалии: активные — красные первыми, внутри — новые первыми; закрытые — по времени закрытия. Записи не
+    """Аномалии: активные — красные первыми, внутри — больше денег под риском, затем новые («Требует внимания», 10.5);
+    закрытые — по времени закрытия. Записи не
     удаляются: закрытая остаётся в истории, повторное появление — новая запись."""
     if type_ is not None and type_ not in TYPES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Тип аномалии: недопустимое значение")

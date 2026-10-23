@@ -3,6 +3,8 @@
 Категории не пересекаются — каждая аномалия ровно в одной:
 - «Деньги» — проверки денег (выплаты Ozon, сверка с банком, кассовый разрыв, операции без статьи), любая важность;
 - «Автоакции» — Ozon сам добавил товар в акцию;
+- «Данные» (шаг 10.5) — синхронизация, пропуски начислений, отчёты с ошибкой, продажи без себестоимости, любая
+  важность; по умолчанию выключено — это видно на сайте в «Требует внимания»;
 - остальное — по важности: «Красные», «Жёлтые».
 Тихие часы — в часовом поясе пользователя (пояса России без перехода на летнее время — смещение от UTC постоянное):
 сообщения не уходят, а копятся и уходят одним сообщением, когда тихие часы кончатся.
@@ -14,8 +16,8 @@ from datetime import datetime, time, timedelta, timezone
 from app.engine import anomaly_detector as det
 from app.engine.anomaly_text import Text
 
-RED, YELLOW, AUTO_PROMO, MONEY = "red", "yellow", "auto_promo", "money"
-CATEGORY_TITLES = {RED: "красные", YELLOW: "жёлтые", AUTO_PROMO: "автоакции", MONEY: "деньги"}
+RED, YELLOW, AUTO_PROMO, MONEY, DATA = "red", "yellow", "auto_promo", "money", "data"
+CATEGORY_TITLES = {RED: "красные", YELLOW: "жёлтые", AUTO_PROMO: "автоакции", MONEY: "деньги", DATA: "данные"}
 
 # Часовые пояса России: IANA-имя, подпись, смещение от UTC (часы; переходов на летнее время нет с 2014 года)
 TIMEZONES: list[tuple[str, str, int]] = [
@@ -39,18 +41,29 @@ class Prefs:
     quiet_from: int = 23 * 60  # минуты от полуночи, местное время
     quiet_to: int = 8 * 60
     timezone: str = "Europe/Moscow"
+    data: bool = False  # проблемы с данными (10.5)
+
+    def enabled(self) -> list[str]:
+        """Какие категории присылаем — подписи по порядку."""
+        flags = ((RED, self.red), (YELLOW, self.yellow), (AUTO_PROMO, self.auto_promo), (MONEY, self.money),
+                 (DATA, self.data))
+        return [CATEGORY_TITLES[c] for c, on in flags if on]
 
 
 def category(type_: str, severity: str) -> str:
-    if det.GROUPS.get(type_) == "money":
+    group = det.GROUPS.get(type_)
+    if group == "money":
         return MONEY
+    if group == "data":
+        return DATA
     if type_ == det.PROMO_AUTO_ADDED:
         return AUTO_PROMO
     return RED if severity == "red" else YELLOW
 
 
 def wanted(prefs: Prefs, type_: str, severity: str) -> bool:
-    return {RED: prefs.red, YELLOW: prefs.yellow, AUTO_PROMO: prefs.auto_promo, MONEY: prefs.money}[category(type_, severity)]
+    return {RED: prefs.red, YELLOW: prefs.yellow, AUTO_PROMO: prefs.auto_promo, MONEY: prefs.money,
+            DATA: prefs.data}[category(type_, severity)]
 
 
 def tz(name: str) -> timezone:
@@ -125,8 +138,7 @@ def render_digest(items: list[Item], site: str) -> str:
 
 
 def render_test(site: str, prefs: Prefs) -> str:
-    on = [CATEGORY_TITLES[c] for c, flag in ((RED, prefs.red), (YELLOW, prefs.yellow), (AUTO_PROMO, prefs.auto_promo),
-                                                 (MONEY, prefs.money)) if flag]
+    on = prefs.enabled()
     quiet = (f"Тихие часы: {hhmm(prefs.quiet_from)}–{hhmm(prefs.quiet_to)}." if prefs.quiet_enabled
              else "Тихие часы выключены.")
     return "\n".join([

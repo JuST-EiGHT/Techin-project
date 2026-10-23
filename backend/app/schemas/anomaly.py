@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 Severity = Literal["yellow", "red"]
-Group = Literal["sales", "price", "margin", "stock", "promo", "money"]
+Group = Literal["sales", "price", "margin", "stock", "promo", "money", "data"]
 
 
 class AnomalyProduct(BaseModel):
@@ -19,7 +19,7 @@ class AnomalyItem(BaseModel):
     id: uuid.UUID
     type: str  # sales_drop, price_change … (engine/anomaly_detector)
     type_title: str  # «Падение продаж»
-    group: Group | None  # sales | price | margin | stock | promo | money
+    group: Group | None  # sales | price | margin | stock | promo | money | data (10.5)
     severity: Severity
     title: str  # «Продажи упали на 62 %»
     message: str  # что случилось и что сделать
@@ -30,6 +30,7 @@ class AnomalyItem(BaseModel):
     threshold: Decimal | None  # какой порог пройден
     unit: str | None  # шт./день, ₽, %, дн., шт.
     details: dict
+    money_at_risk: Decimal | None = None  # деньги под риском, ₽ — оценка по последней проверке (10.5); оценить нельзя — null
     detected_at: datetime
     last_seen_at: datetime  # последняя проверка, на которой аномалия ещё была
     resolved_at: datetime | None

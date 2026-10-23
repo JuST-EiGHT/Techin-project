@@ -360,7 +360,7 @@ async def test_api_list_count_acknowledge(client, tokens, sessions):
     again = await client.post(f"/api/v1/anomalies/{item['id']}/acknowledge", headers=auth(tokens))
     assert again.json()["acknowledged_at"] == r.json()["acknowledged_at"]  # повторно — без изменений
 
-    await add_stock(sessions, p["B"], Хоругвино=100)
+    await add_stock(sessions, p["B"], Хоругвино=5)  # 25 дней запаса — норма (100 шт. — уже «Избыток», 10.5)
     await run_sync("anomalies", uid, sessions)
     resolved = (await get(status="resolved")).json()
     assert resolved["total"] == 1 and resolved["items"][0]["resolution"] == "normal"

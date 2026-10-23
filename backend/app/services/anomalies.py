@@ -2,10 +2,13 @@
 
 `detect` — раз в час (Celery, вид запуска anomalies в журнале sync_runs): собирает данные из готового (товары и маржа —
 страница товаров 4.1, продажи — sales_daily 3.5, цены и комиссии — снимки 1.2, выплаты — 3.6, сверка с банком — 3.11,
-календарь — 3.9, операции — 3.8), прогоняет детекторы (engine/anomaly_detector) и сверяет с активными: новые
-создаются, прошедшие закрываются (resolved_at), жёлтая, ставшая красной, — новой записью. Проверки «Планирования» —
-только если оно включено; денежные проверки Ozon банка не требуют. Сбой одной проверки не мешает остальным: её
-аномалии остаются как были. Записи не удаляются.
+календарь — 3.9, операции — 3.8; данные (10.5): окно «Синхронизация» 10.2, покрытие начислений 3.2, отчёты 2.2,
+справочник себестоимости 2.3), прогоняет детекторы (engine/anomaly_detector) и сверяет с активными: новые
+создаются, прошедшие закрываются (resolved_at), жёлтая, ставшая красной, — новой записью; у активных обновляются деньги
+под риском, у сводных — и цифры. Проверки «Планирования» — только если оно включено; денежные проверки Ozon банка не
+требуют. Сбой одной проверки не мешает остальным: её аномалии остаются как были. Записи не удаляются.
+
+Порядок «Требует внимания» (10.5) — важность, затем деньги под риском, затем новые (`list_anomalies`, order=severity).
 """
 import logging
 import uuid
@@ -17,6 +20,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.crud import credential as crud_credential
 from app.engine import anomaly_detector as det
 from app.engine import payouts as payout_engine
 from app.engine.anomaly_text import TYPE_TITLES, UNITS, describe
@@ -24,9 +28,13 @@ from app.models.anomaly import RED, YELLOW, Anomaly
 from app.models.planning import MoneyOperation, PlanningSettings
 from app.models.price_change import APPLIED, UNKNOWN, PriceChange
 from app.models.product import Product, ProductPrice
+from app.models.report import ERROR as REPORT_FAILED
+from app.models.report import Report
 from app.models.sales_daily import SalesDaily
 from app.schemas.sync import utc
-from app.services import bank, ozon_payouts, pnl_data, products, sales
+from app.services import bank, bank_connections, ozon_payouts, pnl_data, products, sales
+from app.services.costs import load_cost_history
+from app.services.sync import overview, runner
 from app.services.sync.finance import today_msk
 from app.services.user_settings import anomaly_thresholds, get_settings
 
@@ -67,14 +75,17 @@ async def _products(db: AsyncSession, ctx: Context) -> list[det.Check]:
             continue
         if r["stock"] == 0:
             ctx.zero_stock.add(r["id"])
+        avg = r["avg_daily_sales"]
         if (r["stock"] or 0) > 0 or (r["last_sale"] is not None and r["last_sale"] >= selling_since):
-            margins.append(det.MarginItem(r["id"], r["margin"], r["price"]))
+            margins.append(det.MarginItem(r["id"], r["margin"], r["price"], avg))
         if r["stock"] is not None:
-            stocks.append(det.StockItem(r["id"], r["stock_status"], r["days_of_supply"], r["stock"], r["avg_daily_sales"]))
-        promos += [det.PromoItem(r["id"], p.id, p.title, p.action_price, p.added_automatically, p.margin_in_promo, p.date_to)
-                   for p in r["promotions"]]
-    return [det.low_margin(margins, ctx.th), det.low_stock(stocks, ctx.th, sales_known=bool(pctx.sales)),
-            det.promo_auto_added(promos), det.promo_loss(promos)]
+            stocks.append(det.StockItem(r["id"], r["stock_status"], r["days_of_supply"], r["stock"], avg, r["cost_with_vat"]))
+        promos += [det.PromoItem(r["id"], p.id, p.title, p.action_price, p.added_automatically, p.margin_in_promo, p.date_to,
+                                 avg) for p in r["promotions"]]
+    known = bool(pctx.sales)
+    return [det.low_margin(margins, ctx.th), det.low_stock(stocks, ctx.th, sales_known=known),
+            det.excess_stock(stocks, ctx.th, sales_known=known), det.promo_auto_added(promos),
+            det.promo_loss(promos, ctx.today)]
 
 
 async def _sales(db: AsyncSession, ctx: Context) -> list[det.Check]:
@@ -199,9 +210,71 @@ async def _uncategorized(db: AsyncSession, ctx: Context) -> list[det.Check]:
     return [det.uncategorized(ops, ctx.now, ctx.th, enabled=True)]
 
 
+# ── данные (шаг 10.5) ──
+REASONS = {problem: reason for reason, problem in overview.PROBLEMS.items()}
+# само не пройдёт — исправить может только пользователь: ключ, права ключа, токен банка
+ACTION_NEEDED = {runner.NO_KEY, runner.KEY, runner.KEY_ROLE, runner.BANK_TOKEN}
+
+
+async def _sync(db: AsyncSession, ctx: Context) -> list[det.Check]:
+    """Виды данных из окна «Синхронизация» (10.2): ошибка, давно не обновлялись, ещё не загружались. Ключа Ozon никогда не
+    было (только отчёты) — видов Ozon нет, проверять нечего."""
+    ov = await overview.build(db, ctx.user_id, ctx.now)
+    keys = await crud_credential.list_for_user(db, ctx.user_id)
+    banks = await bank_connections.list_connections(db, ctx.user_id)
+    since = {True: utc(keys[0].created_at) if keys else None,
+             False: utc(min(c.created_at for c in banks)) if banks else None}
+    items = []
+    for s in ov.states:
+        reason = REASONS.get(s.problem) if s.problem else None
+        needed = s.state == overview.ERROR and reason in ACTION_NEEDED
+        # разовый сбой («повторим по расписанию») в список попадает, только когда затянулся: тогда совет — как у «давно»
+        hint = None if s.problem is None else s.problem.hint if needed else overview.STALE_PROBLEM.hint
+        items.append(det.SyncItem(
+            s.kind, s.title, s.state, s.last_success_at, reason, s.problem.text if s.problem else None, hint,
+            s.problem.action[1] if s.problem and s.problem.action else None, action_needed=needed,
+            ozon=s.kind != overview.BANK, since=since[s.kind != overview.BANK],
+        ))
+    return [det.sync_problem(items, ctx.now, ctx.th, ctx.active_keys(det.SYNC_PROBLEM))]
+
+
+async def _finance_data(db: AsyncSession, ctx: Context) -> list[det.Check]:
+    """Последние 30 дней до вчера: дни без начислений между загруженными и продажи в дни без себестоимости (по
+    справочнику на день продажи — как P&L). Дни без начислений — пропуски, продажи за них неизвестны."""
+    end = ctx.today - timedelta(days=1)
+    start = ctx.today - timedelta(days=det.DATA_DAYS)
+    cov = await pnl_data.coverage(db, ctx.user_id, start, end, "auto")
+    covered = {d for d, source in cov.days.items() if source is not None}
+    await sales.ensure_built(db, ctx.user_id)
+    history = await load_cost_history(db, ctx.user_id)
+    gaps: dict[str, list] = {}
+    for day, offer, qty, revenue in await db.execute(
+        select(SalesDaily.day, SalesDaily.offer_id, SalesDaily.qty_sold, SalesDaily.revenue)
+        .where(SalesDaily.user_id == ctx.user_id, SalesDaily.day >= start, SalesDaily.day <= end, SalesDaily.qty_sold > 0)
+    ):
+        if day in covered and history.record_at(offer, day) is None:
+            g = gaps.setdefault(offer, [0, Decimal(0)])
+            g[0] += qty
+            g[1] += Decimal(revenue)
+    names = {offer: name for offer, name in await db.execute(
+        select(Product.offer_id, Product.name).where(Product.user_id == ctx.user_id, Product.offer_id.in_(list(gaps))))
+    } if gaps else {}
+    items = [det.CostGap(offer, names.get(offer), revenue, qty) for offer, (qty, revenue) in gaps.items()]
+    return [det.accrual_gaps({d: d in covered for d in cov.days}, ctx.th),
+            det.missing_cost(items, sales_known=bool(covered))]
+
+
+async def _reports(db: AsyncSession, ctx: Context) -> list[det.Check]:
+    """Отчёты XLSX, которые не удалось перечитать (не скрытые)."""
+    rows = (await db.execute(select(Report).where(
+        Report.user_id == ctx.user_id, Report.status == REPORT_FAILED, Report.deleted_at.is_(None)))).scalars()
+    return [det.report_error([det.ReportItem(r.id, r.filename, r.period, r.error_message) for r in rows])]
+
+
 # порядок важен: товары дают «нулевой остаток» и архив для продаж
 GATHERERS = (("products", _products), ("sales", _sales), ("prices", _prices), ("payouts", _payouts),
-             ("bank", _bank), ("cash_gap", _cash_gap), ("uncategorized", _uncategorized))
+             ("bank", _bank), ("cash_gap", _cash_gap), ("uncategorized", _uncategorized),
+             ("sync", _sync), ("finance_data", _finance_data), ("reports", _reports))
 
 
 async def active(db: AsyncSession, user_id: uuid.UUID) -> list[Anomaly]:
@@ -236,11 +309,16 @@ async def detect(db: AsyncSession, user_id: uuid.UUID, now: datetime | None = No
         current[anomaly_id].resolved_at, current[anomaly_id].resolution = now, resolution
     for anomaly_id in plan.seen:
         current[anomaly_id].last_seen_at = now
+    for anomaly_id, (f, live) in plan.refresh.items():
+        a = current[anomaly_id]
+        a.money_at_risk = f.at_risk  # оценка «сейчас»
+        if live:  # сводный пункт: сколько товаров, дней, видов — как сейчас
+            a.metric_before, a.metric_after, a.threshold, a.details = f.metric_before, f.metric_after, f.threshold, f.details or None
     await db.flush()  # закрытые — раньше новых: активная одного типа и предмета одна (уникальный индекс)
     created = [Anomaly(
         id=uuid.uuid4(), user_id=user_id, type=f.type, key=f.key, severity=f.severity, product_id=f.product_id,
         metric_before=f.metric_before, metric_after=f.metric_after, threshold=f.threshold, details=f.details or None,
-        detected_at=now, last_seen_at=now,
+        money_at_risk=f.at_risk, detected_at=now, last_seen_at=now,
     ) for f in plan.create]
     db.add_all(created)
     await db.commit()
@@ -263,7 +341,7 @@ def item(a: Anomaly, product: Product | None, today: date) -> dict:
         "severity": a.severity, "title": text.title, "message": text.message, "link": text.link,
         "product": {"id": product.id, "offer_id": product.offer_id, "name": product.name} if product else None,
         "metric_before": a.metric_before, "metric_after": a.metric_after, "threshold": a.threshold,
-        "unit": UNITS.get(a.type), "details": a.details or {},
+        "unit": UNITS.get(a.type), "details": a.details or {}, "money_at_risk": a.money_at_risk,
         "detected_at": utc(a.detected_at), "last_seen_at": utc(a.last_seen_at), "resolved_at": utc(a.resolved_at),
         "resolution": a.resolution, "is_acknowledged": a.is_acknowledged, "acknowledged_at": utc(a.acknowledged_at),
     }
@@ -311,15 +389,16 @@ async def list_anomalies(
     group: str | None = None, type_: str | None = None, product_id: uuid.UUID | None = None,
     acknowledged: bool | None = None, order: str | None = None, limit: int = 50, offset: int = 0,
 ) -> dict:
-    """Аномалии по фильтрам. Порядок: severity — красные первыми, внутри новые (по умолчанию у активных); new — новые
-    первыми (колокольчик, 7.2); у закрытых по умолчанию — по времени закрытия. by_group — сколько по группам при тех же
+    """Аномалии по фильтрам. Порядок: severity — красные первыми, внутри — больше денег под риском, затем новые (по
+    умолчанию у активных; «Требует внимания» 10.5); new — новые первыми (колокольчик, 7.2); у закрытых по умолчанию — по
+    времени закрытия. by_group — сколько по группам при тех же
     фильтрах, кроме группы и типа (числа у фильтров страницы)."""
     q = _filtered(user_id, status=status, severity=severity, group=group, type_=type_, product_id=product_id,
                   acknowledged=acknowledged)
     total = await db.scalar(select(func.count()).select_from(q.subquery()))
     order = order or ("severity" if status == "active" else "resolved")
     by = {
-        "severity": (Anomaly.severity == YELLOW, Anomaly.detected_at.desc()),
+        "severity": (Anomaly.severity == YELLOW, Anomaly.money_at_risk.desc().nulls_last(), Anomaly.detected_at.desc()),
         "new": (Anomaly.detected_at.desc(),),
         "resolved": (func.coalesce(Anomaly.resolved_at, Anomaly.detected_at).desc(),),
     }[order]

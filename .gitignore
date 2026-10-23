@@ -9,3 +9,6 @@ node_modules/
 *.db
 *.tsbuildinfo
 .deploy/
+
+# снимок Redis от локального запуска redis-server
+dump.rdb

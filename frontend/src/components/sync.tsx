@@ -23,9 +23,11 @@ import {
   useSyncStatus,
 } from '@/lib/sync'
 
-// Открыть окно синхронизации из любого места (например, «Обновлено …» в разделе)
+// Открыть окно синхронизации из любого места (например, «Обновлено …» в разделе). Ссылка «…?sync=1» (аномалии
+// синхронизации 10.5, Telegram) открывает его после перехода.
 const OPEN_SYNC = 'open-sync-panel'
 export const openSyncPanel = () => window.dispatchEvent(new Event(OPEN_SYNC))
+export const isSyncLink = (href: string) => /[?&]sync=1(&|$)/.test(href)
 
 const DOT: Record<SyncState, string> = {
   fresh: 'bg-ok',
@@ -174,9 +176,14 @@ export function SyncButton() {
   useDismiss(open, close, box)
   useTick()
 
-  // при переходах по кабинету — свежий статус (как прежний статус товаров в шапке)
+  // при переходах по кабинету — свежий статус (как прежний статус товаров в шапке); «?sync=1» — сразу открыть окно
   useEffect(() => {
     refreshSyncStatus()
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('sync') !== '1') return
+    url.searchParams.delete('sync')
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
+    setOpen(true)
   }, [pathname])
 
   useEffect(() => {

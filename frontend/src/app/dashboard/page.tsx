@@ -2,12 +2,12 @@
 // Главная (шаг 10.4, docs/SITEMAP.md п. 1) — «как идут дела у магазина?»: ключевые показатели с прошлым периодом, один
 // график динамики, «Требует внимания», «Деньги и ближайшие события», «Рекомендуемые действия». Решение владельца
 // 22.10.2026: деньги из «Планирования» — на главной блоком, если планирование включено (было: только данные Ozon, 3.7).
-// Виджеты «Заканчиваются» и «Последние изменения цен» ушли на свои места: остатки — «Склады» (и «Требует внимания»,
-// 10.5), изменения цен — «Цены → История цен».
+// Виджеты «Заканчиваются» и «Последние изменения цен» ушли на свои места: остатки — «Склады» и «Требует внимания»
+// (10.5), изменения цен — «Цены → История цен».
 import Link from 'next/link'
 import { Suspense, useEffect, useState } from 'react'
 
-import { AlertsWidget } from '@/components/alerts'
+import { AttentionWidget } from '@/components/alerts'
 import { AnalyticsFilters, CoverageNote, MetricsState, useAnalyticsFilter, useMetrics } from '@/components/analytics'
 import type { OzonDashboard } from '@/components/dashboard'
 import { DynamicsChart, KeyFigures, MoneyBlock } from '@/components/home'
@@ -89,8 +89,8 @@ function Dashboard() {
               {data.coverage.data_source !== 'none' && <DynamicsChart data={data} />}
             </>
           )}
-          {/* «Требует внимания»: единый список проблем — шаг 10.5; пока — красные аномалии (7.2) */}
-          {board && <AlertsWidget />}
+          {/* «Требует внимания» (10.5): единый список проблем — аномалии и данные, по важности и деньгам под риском */}
+          {board && <AttentionWidget />}
           {board && <MoneyBlock payouts={board.payouts} hasKey={board.setup.has_key} />}
           {/* «Рекомендуемые действия» — шаг 10.6: после основных блоков, только при достаточных данных */}
         </>

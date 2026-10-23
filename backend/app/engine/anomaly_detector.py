@@ -14,10 +14,18 @@
 - цена и комиссия: сейчас против 7 дней назад (до первого снимка — с первым снимком); через 7 дней после изменения
   новая цена становится обычной — аномалия закрывается; вернулась раньше — закрывается сразу;
 - маржа, дни запаса, акции, кассовый разрыв, операции без статьи — состояние: пока условие выполняется;
-- выплаты Ozon: не пришла — пока не придёт любая выплата после ожидаемого дня; разошлась с прогнозом — 14 дней.
+- выплаты Ozon: не пришла — пока не придёт любая выплата после ожидаемого дня; разошлась с прогнозом — 14 дней;
+- данные (шаг 10.5, группа «Данные»): ошибка или давно не было синхронизации по виду данных, дни без начислений между
+  загруженными, отчёт с ошибкой разбора, продажи без себестоимости; избыток запаса (статус «Избыток» 5.1) — «Остатки».
+
+Деньги под риском (`Finding.at_risk`, шаг 10.5) — где их можно оценить: убыток в акции и при марже ниже нуля до конца
+акции или за 30 дней, недополученная выплата, стоимость лишнего запаса, нехватка денег до нуля или порога. Это оценка
+«сейчас»: пока аномалия активна, каждая проверка её обновляет. У сводных пунктов (`Check.live`: операции без статьи,
+продажи без себестоимости, пропуски начислений, синхронизация) обновляются и цифры текста — сколько товаров, дней, видов.
 """
 import math
 import uuid
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
@@ -43,13 +51,19 @@ BANK_MISSING = "bank_missing"  # выплата не дошла до счёта 
 BANK_DIFF = "bank_diff"  # на счёт пришло не столько, сколько выплатил Ozon
 CASH_GAP = "cash_gap"  # прогноз кассового разрыва (планирование)
 UNCATEGORIZED = "uncategorized"  # операции без статьи (планирование)
+EXCESS_STOCK = "excess_stock"  # избыток запаса — статус «Избыток» (5.1)
+SYNC_PROBLEM = "sync_problem"  # ошибка загрузки или данные давно не обновлялись (окно «Синхронизация», 10.2)
+ACCRUAL_GAPS = "accrual_gaps"  # дни без начислений между загруженными — P&L за них неполный
+REPORT_ERROR = "report_error"  # отчёт XLSX не удалось перечитать
+MISSING_COST = "missing_cost"  # продажи без себестоимости — прибыль по ним не посчитать (правило 5)
 
-# группа — для фильтров и настроек уведомлений (7.2, 7.3): товары, акции, деньги
+# группа — для фильтров и настроек уведомлений (7.2, 7.3): товары, акции, деньги, данные (10.5)
 GROUPS = {
     SALES_DROP: "sales", SALES_GROWTH: "sales", PRICE_CHANGE: "price", COMMISSION_CHANGE: "price",
-    LOW_MARGIN: "margin", LOW_STOCK: "stock", PROMO_AUTO_ADDED: "promo", PROMO_LOSS: "promo",
+    LOW_MARGIN: "margin", LOW_STOCK: "stock", EXCESS_STOCK: "stock", PROMO_AUTO_ADDED: "promo", PROMO_LOSS: "promo",
     PAYOUT_MISSED: "money", PAYOUT_DIFF: "money", BANK_MISSING: "money", BANK_DIFF: "money",
     CASH_GAP: "money", UNCATEGORIZED: "money",
+    SYNC_PROBLEM: "data", ACCRUAL_GAPS: "data", REPORT_ERROR: "data", MISSING_COST: "data",
 }
 TYPES = tuple(GROUPS)
 
@@ -60,7 +74,11 @@ SIGNIFICANCE = 0.01  # падение или рост не объясняютс�
 CHANGE_WINDOW = timedelta(days=7)  # цена и комиссия: с чем сравниваем
 PAYOUT_DIFF_DAYS = 14  # выплаты, расхождение которых показываем
 BANK_DIFF_MIN = Decimal(1)  # копейки округления — не расхождение
+RISK_DAYS = 30  # деньги под риском: убыток при текущей цене — за 30 дней, в акции — до её конца, но не дольше 30 дней
+DATA_DAYS = 30  # проверки данных: пропуски начислений и продажи без себестоимости — за 30 дней
+TOP_ITEMS = 5  # сводные пункты: сколько товаров или промежутков назвать
 _ROUND = Decimal("0.001")
+_KOP = Decimal("0.01")
 
 
 @dataclass(frozen=True)
@@ -77,9 +95,12 @@ class Thresholds:
     low_margin: Decimal = Decimal(10)  # %, общий порог «низкой маржи»: акции, товары, прибыль по товарам
     stock_critical: int = 7
     stock_low: int = 14
+    stock_excess: int = 60  # «Избыток» — пороги остатков 5.1
     payout_diff: int = 10  # %
     cash_gap_days: int = 14
     uncategorized_days: int = 7
+    sync_stale_hours: int = 24  # данные не обновлялись дольше — жёлтая (шаг 10.5)
+    data_gap_days: int = 1  # дней без начислений между загруженными — уже проблема
 
     def error(self) -> str | None:
         """Текст для пользователя, если пороги не подходят; иначе None."""
@@ -87,6 +108,10 @@ class Thresholds:
             return "Падение продаж: жёлтый порог меньше красного, оба — от 1 до 99 %"
         if not self.price < self.price_red:
             return "Изменение цены: жёлтый порог меньше красного"
+        if not 1 <= self.sync_stale_hours <= 720:
+            return "Данные давно не обновлялись: от 1 до 720 часов"
+        if not 1 <= self.data_gap_days <= DATA_DAYS:
+            return f"Дни без начислений: от 1 до {DATA_DAYS}"
         return None
 
 
@@ -105,19 +130,22 @@ class Finding:
     metric_after: Decimal | None = None
     threshold: Decimal | None = None
     details: dict = field(default_factory=dict, compare=False, hash=False)
+    at_risk: Decimal | None = field(default=None, compare=False, hash=False)  # деньги под риском, ₽; оценить нельзя — None
 
 
 @dataclass
 class Check:
     """Итог одного детектора. keep — предметы, о которых судить нельзя (нет данных) или которые ещё не вернулись в норму
     с запасом: активные по ним не закрываются; keep_all — то же для всех; off — проверка не относится к пользователю
-    (планирование выключено, банка нет): активные закрываются как gone."""
+    (планирование выключено, банка нет): активные закрываются как gone. live — сводный пункт («N товаров», «N дней»):
+    пока аномалия активна, её цифры и подробности обновляются каждой проверкой."""
 
     type: str
     findings: list[Finding] = field(default_factory=list)
     keep: set[str] = field(default_factory=set)
     keep_all: bool = False
     off: bool = False
+    live: bool = False
 
 
 def product_key(product_id: uuid.UUID) -> str:
@@ -134,6 +162,11 @@ def day_key(prefix: str, day: date) -> str:
 
 def _d(v: float | Decimal | int) -> Decimal:
     return Decimal(str(v)).quantize(_ROUND, ROUND_HALF_UP)
+
+
+def _money(v: Decimal | None) -> Decimal | None:
+    """Деньги под риском: только больше нуля, до копейки."""
+    return Decimal(v).quantize(_KOP, ROUND_HALF_UP) if v is not None and v > 0 else None
 
 
 # ── продажи ──
@@ -344,19 +377,23 @@ class MarginItem:
     product_id: uuid.UUID
     margin: Decimal | None  # калькулятор цены (шаг 4.2) при текущей цене; нечем посчитать — None
     price: Decimal | None
+    avg_daily: Decimal | None = None  # продаж в день за 30 дней (3.5); нет данных — None
 
 
 def low_margin(items: list[MarginItem], th: Thresholds) -> Check:
-    """Маржа при текущей цене ниже порога пользователя (10 %) — красная."""
+    """Маржа при текущей цене ниже порога пользователя (10 %) — красная. Ниже нуля — под риском убыток за 30 дней при
+    нынешних продажах."""
     check = Check(LOW_MARGIN)
     for it in items:
         key = product_key(it.product_id)
         if it.margin is None:
             check.keep.add(key)
         elif it.margin < th.low_margin:
+            loss = (-it.margin / 100 * it.price * it.avg_daily * RISK_DAYS
+                    if it.margin < 0 and it.price is not None and it.avg_daily else None)
             check.findings.append(Finding(
                 LOW_MARGIN, key, RED, it.product_id, metric_after=it.margin, threshold=th.low_margin,
-                details={"price": str(it.price) if it.price is not None else None},
+                details={"price": str(it.price) if it.price is not None else None}, at_risk=_money(loss),
             ))
     return check
 
@@ -368,6 +405,7 @@ class StockItem:
     days_of_supply: Decimal | None
     available: int
     avg_daily: Decimal | None
+    cost: Decimal | None = None  # себестоимость с НДС на сегодня (2.3); нет — None
 
 
 def low_stock(items: list[StockItem], th: Thresholds, sales_known: bool) -> Check:
@@ -387,6 +425,36 @@ def low_stock(items: list[StockItem], th: Thresholds, sales_known: bool) -> Chec
     return check
 
 
+def excess_qty(it: StockItem, excess_days: int) -> int:
+    """Лишнее сверх порога «Избыток»: остаток минус продажи за excess_days дней; не продаётся — весь остаток."""
+    if not it.avg_daily or it.avg_daily <= 0:
+        return max(it.available, 0)
+    return max(it.available - math.ceil(it.avg_daily * excess_days), 0)
+
+
+def excess_stock(items: list[StockItem], th: Thresholds, sales_known: bool) -> Check:
+    """Избыток запаса (статус «Избыток» 5.1: дней запаса больше порога или лежит без продаж) — жёлтая. Под риском —
+    стоимость лишнего по себестоимости с НДС: деньги, замороженные в товаре (и хранение Ozon за него)."""
+    check = Check(EXCESS_STOCK, keep_all=not sales_known)
+    if not sales_known:
+        return check
+    for it in items:
+        key = product_key(it.product_id)
+        if it.status is None:
+            check.keep.add(key)  # продажи товара неизвестны — не судим
+            continue
+        if it.status != "excess":
+            continue
+        qty = excess_qty(it, th.stock_excess)
+        check.findings.append(Finding(
+            EXCESS_STOCK, key, YELLOW, it.product_id, metric_after=it.days_of_supply, threshold=Decimal(th.stock_excess),
+            details={"available": it.available, "avg_daily": str(it.avg_daily) if it.avg_daily is not None else None,
+                     "excess_qty": qty, "cost": str(it.cost) if it.cost is not None else None},
+            at_risk=_money(it.cost * qty) if it.cost is not None else None,
+        ))
+    return check
+
+
 @dataclass(frozen=True)
 class PromoItem:
     """Текущее участие товара в незакончившейся акции."""
@@ -398,6 +466,7 @@ class PromoItem:
     added_automatically: bool
     margin: Decimal | None  # маржа в акции калькулятором 4.2; нечем посчитать — None
     date_to: datetime | None = None
+    avg_daily: Decimal | None = None  # продаж в день за 30 дней (3.5)
 
 
 def _promo_details(it: PromoItem) -> dict:
@@ -418,17 +487,27 @@ def promo_auto_added(items: list[PromoItem]) -> Check:
     return check
 
 
-def promo_loss(items: list[PromoItem]) -> Check:
-    """Маржа в акции ниже нуля — каждая продажа по цене акции в минус — красная."""
+def promo_days_left(it: PromoItem, today: date | None) -> int:
+    """Сколько дней ещё идёт акция (с сегодняшним), но не больше 30; конец неизвестен — 30."""
+    if it.date_to is None or today is None:
+        return RISK_DAYS
+    return min(max((it.date_to.date() - today).days + 1, 1), RISK_DAYS)
+
+
+def promo_loss(items: list[PromoItem], today: date | None = None) -> Check:
+    """Маржа в акции ниже нуля — каждая продажа по цене акции в минус — красная. Под риском — убыток с штуки × продажи
+    в день × дни до конца акции (не больше 30)."""
     check = Check(PROMO_LOSS)
     for it in items:
         key = promo_key(it.product_id, it.promotion_id)
         if it.margin is None:
             check.keep.add(key)
         elif it.margin < 0:
+            loss = (-it.margin / 100 * it.action_price * it.avg_daily * promo_days_left(it, today)
+                    if it.action_price is not None and it.avg_daily else None)
             check.findings.append(Finding(
                 PROMO_LOSS, key, RED, it.product_id, metric_after=it.margin, threshold=Decimal(0),
-                details={**_promo_details(it), "auto": it.added_automatically},
+                details={**_promo_details(it), "auto": it.added_automatically}, at_risk=_money(loss),
             ))
     return check
 
@@ -443,7 +522,7 @@ def payout_missed(
     for day in overdue:
         amount = expected.get(day)
         check.findings.append(Finding(PAYOUT_MISSED, day_key("payout", day), RED, metric_before=amount,
-                                      details={"day": day.isoformat()}))
+                                      details={"day": day.isoformat()}, at_risk=_money(amount)))
     found = {f.key for f in check.findings}
     for key in active - found:
         day = date.fromisoformat(key.split(":", 1)[1])
@@ -476,6 +555,7 @@ def payout_diff(facts: list[PayoutFact], today: date, th: Thresholds, reliable: 
                 threshold=Decimal(th.payout_diff),
                 details={"day": f.day.isoformat(), "change_pct": float(pct.quantize(Decimal("0.1"), ROUND_HALF_UP)),
                          "week_from": f.week_from.isoformat() if f.week_from else None},
+                at_risk=_money(f.expected - f.amount),  # пришло меньше ожидаемого — недополучено; больше — риска нет
             ))
     return check
 
@@ -503,7 +583,8 @@ def bank_missing(rows: list[BankRow], enabled: bool) -> Check:
     for r in rows if enabled else []:
         key = day_key("payout", r.payout_day)
         if r.status == "no_bank":
-            check.findings.append(Finding(BANK_MISSING, key, RED, metric_before=r.ozon_amount, details=_bank_details(r)))
+            check.findings.append(Finding(BANK_MISSING, key, RED, metric_before=r.ozon_amount, details=_bank_details(r),
+                                          at_risk=_money(r.ozon_amount)))
         elif r.status == "waiting":
             check.keep.add(key)  # выписки за эти дни ещё нет
     return check
@@ -515,8 +596,9 @@ def bank_diff(rows: list[BankRow], enabled: bool) -> Check:
     for r in rows if enabled else []:
         key = day_key("payout", r.payout_day)
         if r.status == "diff" and r.diff is not None and abs(r.diff) >= BANK_DIFF_MIN:
+            short = r.ozon_amount - r.bank_amount if r.ozon_amount is not None and r.bank_amount is not None else None
             check.findings.append(Finding(BANK_DIFF, key, YELLOW, metric_before=r.ozon_amount, metric_after=r.bank_amount,
-                                          threshold=BANK_DIFF_MIN, details=_bank_details(r)))
+                                          threshold=BANK_DIFF_MIN, details=_bank_details(r), at_risk=_money(short)))
         elif r.status == "waiting":
             check.keep.add(key)
     return check
@@ -545,10 +627,11 @@ def cash_gap(
     if first is None:
         return check
     low = min(window, key=lambda d: (d.balance, d.day))
+    floor = Decimal(0) if below_zero else limit
     check.findings.append(Finding(
-        CASH_GAP, "cash", RED if below_zero else YELLOW, metric_after=low.balance,
-        threshold=Decimal(0) if below_zero else limit,
+        CASH_GAP, "cash", RED if below_zero else YELLOW, metric_after=low.balance, threshold=floor,
         details={"first_day": first.day.isoformat(), "min_day": low.day.isoformat(), "days": th.cash_gap_days},
+        at_risk=_money(floor - low.balance),  # сколько не хватит до нуля (до порога)
     ))
     return check
 
@@ -565,7 +648,7 @@ class OpItem:
 
 def uncategorized(ops: list[OpItem], now: datetime, th: Thresholds, enabled: bool) -> Check:
     """Операции без статьи дольше N дней (7) — жёлтая: без статьи ДДС и прогноз по статьям неточны."""
-    check = Check(UNCATEGORIZED, off=not enabled)
+    check = Check(UNCATEGORIZED, off=not enabled, live=True)
     if not enabled:
         return check
     old = [o for o in ops if o.first_seen <= now - timedelta(days=th.uncategorized_days)]
@@ -576,6 +659,140 @@ def uncategorized(ops: list[OpItem], now: datetime, th: Thresholds, enabled: boo
                      "expense": str(sum((o.amount for o in old if o.amount < 0), Decimal(0))),
                      "oldest_day": min(o.day for o in old).isoformat()},
         ))
+    return check
+
+
+# ── данные (шаг 10.5) ──
+@dataclass(frozen=True)
+class SyncItem:
+    """Вид данных из окна «Синхронизация» (10.2): состояние, когда обновлён и что не так простыми словами."""
+
+    kind: str  # products, stocks … bank
+    title: str  # «Остатки»
+    state: str  # fresh | running | error | stale | never
+    last_success_at: datetime | None
+    reason: str | None = None  # причина ошибки (services/sync/runner): key, no_key, ozon_down …
+    problem: str | None = None  # что случилось
+    hint: str | None = None  # что сделать
+    href: str | None = None  # куда идти исправлять («Интеграции»); нет — окно «Синхронизация»
+    action_needed: bool = False  # само не пройдёт: ключ, права ключа, токен банка — исправить может только пользователь
+    ozon: bool = True  # вид Ozon, не банк
+    since: datetime | None = None  # когда подключили ключ или банк: первой загрузки ждём не дольше порога от этого
+
+
+def _sync_details(items: list[SyncItem]) -> dict:
+    first = items[0]
+    at = [i.last_success_at for i in items if i.last_success_at is not None]
+    return {"kinds": [i.kind for i in items], "titles": [i.title for i in items], "state": first.state,
+            "reason": first.reason, "problem": first.problem, "hint": first.hint, "href": first.href,
+            "last_success_at": min(at).isoformat() if len(at) == len(items) else None}
+
+
+def sync_problem(items: list[SyncItem], now: datetime, th: Thresholds, active: set[str] = frozenset()) -> Check:
+    """Синхронизация: само не пройдёт (ключ не принят, нет прав, банку нужен новый токен) — красная сразу; иначе (Ozon не
+    отвечает, давно не обновлялось, ещё не загружалось) — жёлтая, если данных нет дольше порога (24 ч) от последней удачной
+    загрузки, а у ещё не загружавшихся — от подключения: разовый сбой между плановыми загрузками и первые часы после
+    подключения не тревожат. Одна причина у нескольких видов Ozon (ключ) — один пункт. Идёт загрузка — не судим."""
+    check = Check(SYNC_PROBLEM, live=True)
+    stale_after = timedelta(hours=th.sync_stale_hours)
+    groups: dict[str, list[SyncItem]] = defaultdict(list)
+    for it in items:
+        if it.state == "running":
+            check.keep.add(f"sync:{it.kind}")
+            if it.ozon:
+                check.keep.update(k for k in active if k.startswith("sync:ozon:"))
+            continue
+        if it.action_needed:
+            groups[f"sync:ozon:{it.reason}" if it.ozon else f"sync:{it.kind}"].append(it)
+        elif it.state in ("error", "stale", "never") and (
+                (since := it.last_success_at or it.since) is None or now - since > stale_after):
+            check.findings.append(Finding(SYNC_PROBLEM, f"sync:{it.kind}", YELLOW, details=_sync_details([it]),
+                                          threshold=Decimal(th.sync_stale_hours)))
+    ozon_kinds = sum(1 for it in items if it.ozon)
+    for key, group in groups.items():
+        if key.startswith("sync:ozon:") and len(group) == 1:
+            key = f"sync:{group[0].kind}"
+        details = _sync_details(group)
+        details["all_ozon"] = key.startswith("sync:ozon:") and len(group) == ozon_kinds  # ни один вид Ozon не грузится
+        check.findings.append(Finding(SYNC_PROBLEM, key, RED, details=details))
+    return check
+
+
+def _ranges(days: list[date]) -> list[list[str]]:
+    """Подряд идущие дни — промежутками [с, по]."""
+    out: list[list[date]] = []
+    for d in sorted(days):
+        if out and d - out[-1][1] == timedelta(days=1):
+            out[-1][1] = d
+        else:
+            out.append([d, d])
+    return [[a.isoformat(), b.isoformat()] for a, b in out]
+
+
+def accrual_gaps(days: dict[date, bool], th: Thresholds) -> Check:
+    """Дни без начислений между загруженными за последние 30 дней — P&L, прибыль и продажи за них неполные: жёлтая, если
+    таких дней не меньше порога (1). Хвост после последнего загруженного дня не считаем: отчёт за него ещё не вышел, а
+    если не грузит ключ — это покажет синхронизация. Загруженных дней нет — судить не по чему."""
+    check = Check(ACCRUAL_GAPS, live=True)
+    loaded = sorted(d for d, ok in days.items() if ok)
+    if not loaded:
+        check.keep_all = True
+        return check
+    holes = [d for d, ok in days.items() if not ok and loaded[0] < d < loaded[-1]]
+    if len(holes) >= th.data_gap_days:
+        ranges = _ranges(holes)
+        check.findings.append(Finding(
+            ACCRUAL_GAPS, "accruals", YELLOW, metric_after=Decimal(len(holes)), threshold=Decimal(th.data_gap_days),
+            details={"count": len(holes), "ranges": ranges[:TOP_ITEMS], "more_ranges": max(len(ranges) - TOP_ITEMS, 0),
+                     "from": holes[0].isoformat(), "to": holes[-1].isoformat()},
+        ))
+    return check
+
+
+@dataclass(frozen=True)
+class ReportItem:
+    """Отчёт XLSX, который не удалось перечитать (статус «ошибка», шаг 2.2): итоги в нём — от прошлого разбора."""
+
+    report_id: uuid.UUID
+    filename: str
+    period: str
+    error: str | None
+
+
+def report_error(items: list[ReportItem]) -> Check:
+    """Отчёт с ошибкой разбора — жёлтая, пока его не перечитают или не скроют."""
+    check = Check(REPORT_ERROR)
+    for it in items:
+        check.findings.append(Finding(
+            REPORT_ERROR, f"report:{it.report_id}", YELLOW,
+            details={"report_id": str(it.report_id), "filename": it.filename, "period": it.period, "error": it.error},
+        ))
+    return check
+
+
+@dataclass(frozen=True)
+class CostGap:
+    """Артикул с продажами за 30 дней в дни без себестоимости (справочник 2.3)."""
+
+    offer_id: str
+    name: str | None
+    revenue: Decimal  # выручка этих дней
+    qty: int
+
+
+def missing_cost(items: list[CostGap], sales_known: bool) -> Check:
+    """Продажи без себестоимости — прибыль по ним не посчитать (правило 5: не 0) — один жёлтый пункт на все товары, с
+    самыми крупными по выручке. Продажи неизвестны — не судим."""
+    check = Check(MISSING_COST, keep_all=not sales_known, live=True)
+    if not sales_known or not items:
+        return check
+    top = sorted(items, key=lambda x: (-x.revenue, x.offer_id))
+    check.findings.append(Finding(
+        MISSING_COST, "costs", YELLOW, metric_after=Decimal(len(items)),
+        details={"count": len(items), "revenue": str(sum((x.revenue for x in items), Decimal(0))),
+                 "qty": sum(x.qty for x in items),
+                 "top": [{"offer_id": x.offer_id, "name": x.name, "revenue": str(x.revenue)} for x in top[:TOP_ITEMS]]},
+    ))
     return check
 
 
@@ -594,6 +811,8 @@ class Plan:
     create: list[Finding] = field(default_factory=list)
     resolve: dict[uuid.UUID, str] = field(default_factory=dict)  # id → normal | escalated | gone
     seen: list[uuid.UUID] = field(default_factory=list)  # активные, которые всё ещё есть
+    # их находки сейчас: деньги под риском обновляются у всех, цифры и подробности — у сводных (live)
+    refresh: dict[uuid.UUID, tuple[Finding, bool]] = field(default_factory=dict)
 
     @property
     def escalated(self) -> int:
@@ -621,6 +840,7 @@ def reconcile(active: list[Active], checks: list[Check], gone_products: set[uuid
                 plan.create.append(f)
             else:
                 plan.seen.append(a.id)
+                plan.refresh[a.id] = (f, check.live)
         for key, a in current.items():
             if key in findings or check.keep_all or key in check.keep:
                 continue

@@ -35,6 +35,8 @@ export type UserSettings = {
   anomaly_payout_diff_pct: number
   anomaly_cash_gap_days: number
   anomaly_uncategorized_days: number
+  anomaly_sync_stale_hours: number // данные не обновлялись дольше, ч (10.5)
+  anomaly_data_gap_days: number // дней без начислений между загруженными (10.5)
   anomaly_defaults: boolean // пороги аномалий и маржи — по умолчанию
 }
 

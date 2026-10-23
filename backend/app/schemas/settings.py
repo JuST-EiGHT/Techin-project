@@ -38,6 +38,8 @@ class SettingsResponse(BaseModel):
     anomaly_payout_diff_pct: int  # выплата Ozon разошлась с прогнозом
     anomaly_cash_gap_days: int  # кассовый разрыв: на сколько дней вперёд смотреть (планирование)
     anomaly_uncategorized_days: int  # операция без статьи дольше (планирование)
+    anomaly_sync_stale_hours: int  # данные не обновлялись дольше, часов (10.5)
+    anomaly_data_gap_days: int  # дней без начислений между загруженными — уже проблема (10.5)
     anomaly_defaults: bool  # пороги аномалий и маржи ещё не меняли
 
 
@@ -64,3 +66,5 @@ class SettingsUpdate(BaseModel):
     anomaly_payout_diff_pct: int | None = Field(None, ge=1, le=100)
     anomaly_cash_gap_days: int | None = Field(None, ge=1, le=90)
     anomaly_uncategorized_days: int | None = Field(None, ge=1, le=90)
+    anomaly_sync_stale_hours: int | None = Field(None, ge=1, le=720)
+    anomaly_data_gap_days: int | None = Field(None, ge=1, le=30)

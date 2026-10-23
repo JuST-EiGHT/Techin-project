@@ -40,7 +40,7 @@ async def _response(db: AsyncSession, s: NotificationSettings) -> NotificationSe
         telegram_username=s.telegram_username, telegram_name=s.telegram_name, linked_at=utc(s.linked_at),
         blocked=s.blocked_at is not None and s.chat_id is not None,
         notify_red=s.notify_red, notify_yellow=s.notify_yellow, notify_auto_promo=s.notify_auto_promo,
-        notify_money=s.notify_money, quiet_enabled=s.quiet_enabled, quiet_from=engine.hhmm(s.quiet_from),
+        notify_money=s.notify_money, notify_data=s.notify_data, quiet_enabled=s.quiet_enabled, quiet_from=engine.hhmm(s.quiet_from),
         quiet_to=engine.hhmm(s.quiet_to), timezone=s.timezone, timezones=TIMEZONES,
         pending=await notifier.pending_count(db, s.user_id), last_sent_at=await notifier.last_sent(db, s.user_id),
     )
