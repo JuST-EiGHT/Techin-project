@@ -27,6 +27,7 @@ from app.integrations.ozon.errors import (
 )
 from app.integrations.ozon.factory import get_ozon_client
 from app.models.sync_run import ACTIVE_STATUSES, FAILED, QUEUED, RUNNING, SUCCESS, SyncRun
+from app.services.sync.categories import refresh as sync_categories
 from app.services.sync.products import sync_products
 from app.services.sync.promotions import sync_promotions
 from app.services.sync.finance import sync_finance
@@ -80,7 +81,14 @@ Job = Callable[..., Awaitable[Any]]  # (db, user_id, client, **params) -> stats
 
 
 async def _products_job(db: AsyncSession, user_id: uuid.UUID, client: OzonClient) -> dict:
-    return (await sync_products(db, user_id, client)).as_dict()
+    stats = (await sync_products(db, user_id, client)).as_dict()
+    try:  # названия категорий (шаг 10.3): справочник не загрузился — товары всё равно обновлены
+        stats.update(await sync_categories(db, user_id, client))
+    except OzonAPIError as e:
+        await db.rollback()
+        log.warning("Категории Ozon у пользователя %s не загружены: %s (%s)", user_id, e.message, e.ozon_message)
+        stats["categories_error"] = e.message
+    return stats
 
 
 async def _stocks_job(db: AsyncSession, user_id: uuid.UUID, client: OzonClient) -> dict:

@@ -44,10 +44,16 @@ class FakeOzon:
         self.prices = load("product_prices")
         self.price_pages: dict[str, dict] | None = None  # cursor → ответ, для теста пагинации
         self.list_error: httpx.Response | None = None  # если задан — список товаров отвечает ошибкой
-        self.calls: dict[str, list[dict]] = {"list": [], "info": [], "prices": []}
+        self.calls: dict[str, list[dict]] = {"list": [], "info": [], "prices": [], "tree": []}
+        self.tree = load("description_category_tree")  # справочник категорий (шаг 10.3)
+        mock.post("/v1/description-category/tree").mock(side_effect=self._tree)
         mock.post("/v3/product/list").mock(side_effect=self._list)
         mock.post("/v3/product/info/list").mock(side_effect=self._info)
         mock.post("/v5/product/info/prices").mock(side_effect=self._prices)
+
+    def _tree(self, request: httpx.Request) -> httpx.Response:
+        self.calls["tree"].append(json.loads(request.content))
+        return httpx.Response(200, json=self.tree)
 
     def _list(self, request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)

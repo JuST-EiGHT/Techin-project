@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    analytics,
     anomalies,
     audit,
     auth,
@@ -36,6 +37,7 @@ api_router.include_router(auth.router)
 api_router.include_router(stores.router)
 api_router.include_router(credentials.router)
 api_router.include_router(sync.router)
+api_router.include_router(analytics.router)
 api_router.include_router(bank_connections.router)
 api_router.include_router(stocks.warehouses_router)
 api_router.include_router(stocks.stocks_router)

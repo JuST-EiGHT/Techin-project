@@ -8,7 +8,7 @@ auto / xlsx / api, пропуски видны. Себестоимость с Н
 import csv
 import io
 import uuid
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +32,43 @@ def _s(v: Decimal | None) -> str | None:
     return None if v is None else str(Decimal(v).quantize(engine.CENT))
 
 
+@dataclass
+class Runner:
+    """Движок прибыли по товарам с себестоимостью и НДС периода: run(строки) — для всего периода или его части
+    (аналитика по дням, шаг 10.3, — тот же расчёт, что и «Прибыль по товарам»)."""
+
+    posting_offers: dict[str, set[str]]
+    cost_of: engine.CostLookup
+    with_vat: bool
+    default_vat: Decimal
+
+    def __call__(self, lines: list[pnl_data.Line]) -> engine.ProductPnL:
+        return engine.compute(
+            [engine.LineIn(ln.day, ln.type_name, ln.amount, ln.quantity, ln.offer_id, ln.sku, ln.name, ln.posting_number)
+             for ln in lines],
+            self.posting_offers, self.cost_of, self.with_vat, self.default_vat,
+        )
+
+
+async def runner(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest, lines: list[pnl_data.Line]) -> Runner:
+    history = await load_cost_history(db, user_id)
+    row = profile_on(await load_profiles(db, user_id), req.date_from)
+    with_vat = not (row is not None and row.vat_mode == "general")  # НДС с вычетом — поставщику без НДС
+    if req.vat_multiplier is not None:
+        default_vat = req.vat_multiplier
+    else:
+        default_vat = 1 + (Decimal(row.supplier_vat_pct) if row else default_supplier_vat_pct(req.date_from)) / 100
+
+    def cost_of(offer: str, day):
+        rec = history.record_at(offer, day)
+        if rec is None:
+            return None
+        return Decimal(rec.cost_price), Decimal(rec.vat_multiplier) if rec.vat_multiplier is not None else None
+
+    numbers = {ln.posting_number for ln in lines if not ln.offer_id and ln.posting_number}
+    return Runner(await pnl_data.posting_offers(db, user_id, numbers), cost_of, with_vat, default_vat)
+
+
 async def compute(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest, report: Report | None = None) -> dict:
     """Все товары периода (или отчёта по начислениям), «Не распределено», итоги, источник и предупреждения."""
     if report is not None:
@@ -51,29 +88,9 @@ async def compute(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest, report:
         else await pnl_data.coverage(db, user_id, req.date_from, req.date_to, req.source)
     )
     lines = await pnl_data.load_lines(db, user_id, cov)
-    history = await load_cost_history(db, user_id)
-    row = profile_on(await load_profiles(db, user_id), req.date_from)
-    with_vat = not (row is not None and row.vat_mode == "general")  # НДС с вычетом — поставщику без НДС
-    if req.vat_multiplier is not None:
-        default_vat = req.vat_multiplier
-    else:
-        default_vat = 1 + (Decimal(row.supplier_vat_pct) if row else default_supplier_vat_pct(req.date_from)) / 100
-
-    def cost_of(offer: str, day):
-        rec = history.record_at(offer, day)
-        if rec is None:
-            return None
-        return Decimal(rec.cost_price), Decimal(rec.vat_multiplier) if rec.vat_multiplier is not None else None
-
-    numbers = {ln.posting_number for ln in lines if not ln.offer_id and ln.posting_number}
-    result = engine.compute(
-        [engine.LineIn(ln.day, ln.type_name, ln.amount, ln.quantity, ln.offer_id, ln.sku, ln.name, ln.posting_number)
-         for ln in lines],
-        await pnl_data.posting_offers(db, user_id, numbers),
-        cost_of,
-        with_vat,
-        default_vat,
-    )
+    run = await runner(db, user_id, req, lines)
+    with_vat, default_vat = run.with_vat, run.default_vat
+    result = run(lines)
 
     warnings = coverage_warnings(cov)
     missing = [r for r in result.rows if r.cost_missing]

@@ -65,6 +65,7 @@ HTTP-коды для этих текстов в документации не у
 | Ключ: роли и срок | POST | `/v1/roles` | `expires_at`, `roles[].methods` |
 | Список товаров | POST | `/v3/product/list` | `limit` 1–1000, пагинация `last_id`; `filter.visibility`: `ALL` — все **кроме архивных**, `ARCHIVED` — архив; в элементе есть `sku` |
 | Карточки товаров | POST | `/v3/product/info/list` | до 1000 идентификаторов за запрос; `product_id` — массив **строк** int64; ответ `{"items": [...]}` |
+| Дерево категорий и типов (шаг 10.3) | POST | `/v1/description-category/tree` | `language` (`DEFAULT` — русский); весь каталог Ozon одним ответом: `result[]{description_category_id, category_name, disabled, children[]}`, на последнем уровне — типы `{type_id, type_name}` |
 | Цены, комиссии, индексы | POST | `/v5/product/info/prices` | `limit` 1–1000 (обязателен), `filter` обязателен, пагинация `cursor` |
 | Остатки (FBO, FBS, rFBS, FBP) | POST | `/v4/product/info/stocks` | `limit` до 1000, `cursor` |
 | Остатки FBO по кластерам/складам, продажи за 28 дней | POST | `/v1/analytics/stocks` | раздел «FBO → Управление остатками»; только одно из `cluster_ids` / `macrolocal_cluster_ids`; кластеры — `/v1/cluster/list` |
@@ -91,7 +92,7 @@ HTTP-коды для этих текстов в документации не у
 | список товаров | `/v3/product/list`, `visibility` = `ALL`, затем `ARCHIVED` | по документации `ALL` не включает архив |
 | `ozon_sku` | `/v3/product/info/list` → `sku`, иначе `sku` из списка товаров, иначе `sources[].sku` | |
 | `barcode` | `barcodes[0]` | |
-| `category_id` | `description_category_id` | |
+| `category_id` | `description_category_id` | название — справочник категорий (ниже, шаг 10.3) |
 | `vat` | `vat` | бывает `"0.1"`, `0.2` и `"20%"` — приводим к доле |
 | `is_archived` | `is_archived` (вручную) или `is_autoarchived` (автоматически) | |
 | `price`, `min_price`, `old_price` | `/v5/product/info/prices` → `price.*` | 0 у Ozon = «не задано», храним как есть |
@@ -152,6 +153,14 @@ Seller API нельзя: есть только отчёты по вывозу и
 Пригодится позже: `price.net_price` — себестоимость, которую продавец может передать в Ozon
 через `/v1/product/import/prices` (`prices.net_price`); `/v1/product/prices/details` — цена
 для покупателя (`customer_price`), но только с подпиской Premium Pro.
+
+### Категории товаров (шаг 10.3)
+
+`/v1/description-category/tree` сверен с выгрузкой 2026-10. Дерево — весь каталог Ozon, поэтому сохраняем только категории
+товаров магазинов и их родителей (`ozon_categories`: id = `description_category_id`, название, путь «Автотовары /
+Подшипники»); типы (`type_id`) пропускаем — у товара хранится категория. Загружаем после синхронизации товаров, если у
+товара появилась неизвестная категория или справочник старше 30 дней (`services/sync/categories.py`); ошибка справочника
+не проваливает синхронизацию товаров (`stats.categories_error`). Справочник общий для всех продавцов.
 
 ### Отправления (шаг 5.2)
 
@@ -290,7 +299,7 @@ FBS-отправлений хранить `scanit` рядом со штрихк�
 
 | Для чего | Методы | Шаг |
 |---|---|---|
-| Категории товаров (названия) | `/v1/description-category/tree` | 10.3 |
+| ~~Категории товаров (названия)~~ | `/v1/description-category/tree` — сверено, раздел «Категории товаров» выше | 10.3 ✅ |
 | Отчёт о реализации через API | `/v1/finance/realization`, `/v1/finance/realization/by-day`, `/v1/finance/realization/posting` | 10.12 |
 | Взаиморасчёты, движение денег, компенсации | `/v1/finance/mutual-settlement`, `/v1/finance/cash-flow-statement/list`, `/v1/finance/compensation`, `/v1/finance/decompensation`, `/v1/finance/document-b2b-sales` | 10.12, 10.23 |
 | Отчёты, которые Ozon формирует по запросу | `/v1/report/*/create`, `/v1/report/info`, `/v1/report/list` (товары, отправления, возвраты, остатки) | 10.12 |
