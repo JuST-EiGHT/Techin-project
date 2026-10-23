@@ -118,3 +118,50 @@ class ProductOption(BaseModel):
     name: str | None
     category_id: int | None
     is_archived: bool
+
+
+# ── «Обзор бизнеса»: лучшие и худшие товары (шаг 10.7) ──
+class LeaderProduct(BaseModel):
+    id: str | None  # товара нет в каталоге (продажа по артикулу из отчёта) — None
+    offer_id: str
+    name: str | None
+
+
+class ProfitLeader(BaseModel):
+    product: LeaderProduct
+    revenue: str
+    profit: str
+    margin: str | None
+    qty: int
+
+
+class SalesLeader(BaseModel):
+    product: LeaderProduct
+    qty: int  # продано сейчас, шт.
+    prev_qty: int  # в прошлом периоде
+    expected: str  # ожидали за дни с данными сейчас
+    change_pct: str | None  # раньше не продавалось — null
+
+
+class ProfitLeaders(BaseModel):
+    best: list[ProfitLeader]
+    worst: list[ProfitLeader]
+    missing_cost: int  # товаров без себестоимости — в лидерах не участвуют
+    data_source: str
+
+
+class SalesLeaders(BaseModel):
+    compared: bool  # хватает ли дней с данными в обоих периодах
+    note: str | None
+    growth: list[SalesLeader]
+    decline: list[SalesLeader]
+    days: int
+    prev_days: int
+
+
+class Leaders(BaseModel):
+    date_from: str
+    date_to: str
+    previous: Range
+    profit: ProfitLeaders
+    sales: SalesLeaders

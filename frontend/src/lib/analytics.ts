@@ -194,3 +194,27 @@ export function pointTitle(p: { date_from: string; date_to: string }, g: Granula
   }
   return `${fmt(p.date_from).slice(0, 5)} – ${fmt(p.date_to)}`
 }
+
+// ── рамка «Аналитики» (шаг 10.7): общий фильтр переходит между подразделами по вкладкам ──
+/** Подразделы, которые берут общий фильтр (10.8–10.10 добавят свои адреса). */
+export const FILTER_PAGES = ['/dashboard/analytics']
+export const FILTER_EVENT = 'analytics-filter'
+const FILTER_STORE = 'analytics-filter'
+
+/** Запомнить фильтр подраздела (строка адреса без значений по умолчанию) — на время вкладки браузера. */
+export function rememberFilter(query: string): void {
+  try {
+    sessionStorage.setItem(FILTER_STORE, query)
+  } catch {
+    // хранилище недоступно (приватный режим) — вкладки просто откроются с фильтром по умолчанию
+  }
+  window.dispatchEvent(new Event(FILTER_EVENT))
+}
+
+export function rememberedFilter(): string {
+  try {
+    return sessionStorage.getItem(FILTER_STORE) ?? ''
+  } catch {
+    return ''
+  }
+}

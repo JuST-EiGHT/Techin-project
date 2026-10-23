@@ -1,4 +1,5 @@
-"""Основа аналитики (шаг 10.3): одни и те же показатели для главной, «Аналитики», «Товаров» и «Финансов».
+"""Основа аналитики (шаг 10.3): одни и те же показатели для главной, «Аналитики», «Товаров» и «Финансов»; лучшие и
+худшие товары «Обзора бизнеса» (шаг 10.7, `leaders`).
 
 Определения — BUSINESS_LOGIC §10 «Показатели», ряды и итоги — engine/metrics. Откуда данные (по текущему магазину):
 - выручка и прибыль — из P&L, не новым расчётом. Магазин целиком: по дням — `pnl_service.get_by_day` (прибыль до налога),
@@ -18,6 +19,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.engine import leaders as lead
 from app.engine import metrics as m
 from app.models.ozon_category import OzonCategory
 from app.models.posting import Posting, PostingItem, PostingSync
@@ -298,6 +300,91 @@ async def metrics(
     value = _out(value)
     await cache.set(store_id, "metrics", params, value)
     return value
+
+
+# ── «Обзор бизнеса»: лучшие и худшие товары (шаг 10.7) ──
+def _ref(offer: str, catalog: dict[str, Product]) -> dict:
+    p = catalog.get(offer)
+    return {"id": str(p.id) if p else None, "offer_id": offer, "name": p.name if p else None}
+
+
+async def _sold(db: AsyncSession, store_id: uuid.UUID, days: set[date], offers: set[str] | None) -> dict[str, int]:
+    """Продано, шт., по артикулам за дни с данными."""
+    if not days:
+        return {}
+    q = (select(SalesDaily.offer_id, func.sum(SalesDaily.qty_sold))
+         .where(SalesDaily.user_id == store_id, SalesDaily.day.in_(days)).group_by(SalesDaily.offer_id))
+    if offers is not None:
+        q = q.where(SalesDaily.offer_id.in_(offers))
+    return {offer: int(n or 0) for offer, n in (await db.execute(q)).all() if n}
+
+
+async def leaders(
+    db: AsyncSession, store_id: uuid.UUID, date_from: date, date_to: date,
+    product_ids: list[uuid.UUID] | None = None, category_id: int | None = None,
+) -> dict:
+    """Лучшие и худшие товары периода по прибыли («Прибыль по товарам») и по изменению продаж к прошлому сопоставимому
+    периоду — только значимые изменения (engine/leaders). Фильтр товаров и категории — как у показателей."""
+    try:
+        pnl_service.PnLRequest(date_from, date_to).check()
+    except pnl_service.PnLRequestError as exc:
+        raise AnalyticsError(str(exc)) from None
+    product_ids = sorted(set(product_ids or []), key=str)
+    params = {"from": date_from.isoformat(), "to": date_to.isoformat(), "products": [str(p) for p in product_ids],
+              "category": category_id}
+    if (hit := await cache.get(store_id, "leaders", params)) is not None:
+        return hit
+
+    products = await _products(db, store_id, product_ids, category_id)
+    offers = None if products is None else {p.offer_id for p in products}
+    catalog = {p.offer_id: p for p in (await db.execute(select(Product).where(Product.user_id == store_id))).scalars()}
+
+    value = await product_pnl.compute(db, store_id, pnl_service.PnLRequest(date_from, date_to))
+    rows = [r for r in value["items"] if offers is None or r["offer_id"] in offers]
+    profit_rows = [
+        lead.ProfitRow(r["offer_id"], None, None, Decimal(r["revenue"]), None if r["profit"] is None else Decimal(r["profit"]),
+                       None if r["margin"] is None else Decimal(r["margin"]), r["qty"])
+        for r in rows
+    ]
+    best, worst = lead.by_profit(profit_rows)
+
+    prev_from, prev_to = previous_period(date_from, date_to)
+    cov = await pnl_data.coverage(db, store_id, date_from, date_to, "auto")
+    prev_cov = await pnl_data.coverage(db, store_id, prev_from, prev_to, "auto")
+    days = {d for d, s in cov.days.items() if s is not None}
+    prev_days = {d for d, s in prev_cov.days.items() if s is not None}
+    changes = lead.sales_changes(await _sold(db, store_id, days, offers), await _sold(db, store_id, prev_days, offers),
+                                 len(days), len(prev_days))
+
+    def profit_item(r: lead.ProfitRow) -> dict:
+        return {"product": _ref(r.offer_id, catalog), "revenue": r.revenue, "profit": r.profit, "margin": r.margin,
+                "qty": r.qty}
+
+    def sales_item(c: lead.SalesChange) -> dict:
+        return {"product": _ref(c.offer_id, catalog), "qty": c.qty, "prev_qty": c.prev_qty, "expected": c.expected,
+                "change_pct": c.change_pct}
+
+    note = None
+    if changes is None:
+        note = (f"Сравнивать продажи не с чем: нужно не меньше {lead.MIN_DAYS} дней с данными и в этом, и в прошлом "
+                "периоде.")
+    out = {
+        "date_from": date_from, "date_to": date_to,
+        "previous": {"date_from": prev_from, "date_to": prev_to},
+        "profit": {
+            "best": [profit_item(r) for r in best], "worst": [profit_item(r) for r in worst],
+            "missing_cost": sum(1 for r in rows if r["profit"] is None), "data_source": value["data_source"],
+        },
+        "sales": {
+            "compared": changes is not None, "note": note,
+            "growth": [sales_item(c) for c in changes[0]] if changes else [],
+            "decline": [sales_item(c) for c in changes[1]] if changes else [],
+            "days": len(days), "prev_days": len(prev_days),
+        },
+    }
+    out = _out(out)
+    await cache.set(store_id, "leaders", params, out)
+    return out
 
 
 async def categories(db: AsyncSession, store_id: uuid.UUID) -> list[dict]:

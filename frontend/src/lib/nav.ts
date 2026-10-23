@@ -18,6 +18,11 @@ export const NAV: NavSection[] = [
     label: 'Аналитика',
     items: [
       {
+        href: '/dashboard/analytics',
+        label: 'Обзор бизнеса',
+        description: 'Выручка, прибыль, маржа и продажи к прошлому периоду, лучшие и худшие товары',
+      },
+      {
         href: '/dashboard/analytics/reports',
         label: 'Отчёты Ozon и загрузка',
         description: 'Недельные и месячные отчёты Ozon: загрузить XLSX, история, P&L по отчёту',

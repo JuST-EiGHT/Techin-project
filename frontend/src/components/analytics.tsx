@@ -3,6 +3,7 @@
 // состояние — в адресе страницы; загрузка показателей; график показателя через charts.tsx (правило 16). Страницы —
 // главная (10.4), «Аналитика» (10.7 и дальше), «Товары», «Финансы» — берут их отсюда, а не пишут свои.
 import { X } from 'lucide-react'
+import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -23,6 +24,8 @@ import {
   PERIOD_PRESETS,
   type PeriodPreset,
   type ProductOption,
+  FILTER_EVENT,
+  FILTER_PAGES,
   autoGranularity,
   filterQuery,
   formatMetric,
@@ -31,12 +34,18 @@ import {
   pointLabel,
   pointTitle,
   rangeOf,
+  rememberFilter,
+  rememberedFilter,
 } from '@/lib/analytics'
 import { api, errorMessage } from '@/lib/api'
+import { NAV } from '@/lib/nav'
 import { daysWord } from '@/lib/period'
 
 /** Фильтр из адреса и его изменение: новый фильтр — новая запись истории, «назад» возвращает прежний. */
-export function useAnalyticsFilter(defaultPreset?: PeriodPreset): [AnalyticsFilter, (patch: Partial<AnalyticsFilter>) => void] {
+export function useAnalyticsFilter(
+  defaultPreset?: PeriodPreset,
+  opts: { remember?: boolean } = {},
+): [AnalyticsFilter, (patch: Partial<AnalyticsFilter>) => void] {
   const params = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
@@ -45,6 +54,11 @@ export function useAnalyticsFilter(defaultPreset?: PeriodPreset): [AnalyticsFilt
   // выбор виден сразу, адрес догоняет (иначе галочка и кнопки на миг «отскакивают» до перехода)
   const [filter, setFilter] = useState(fromUrl)
   useEffect(() => setFilter(fromUrl), [fromUrl])
+  // подразделы «Аналитики» (10.7): фильтр запоминается — вкладки откроют соседний подраздел с ним же
+  const remember = opts.remember ?? false
+  useEffect(() => {
+    if (remember) rememberFilter(filterQuery(fromUrl, new URLSearchParams(), defaultPreset))
+  }, [remember, fromUrl, defaultPreset])
   const update = useCallback(
     (patch: Partial<AnalyticsFilter>) => {
       const next = { ...filter, ...patch }
@@ -338,4 +352,37 @@ export function MetricsState({ error, loading, empty }: { error: string | null; 
   if (error) return <FormError message={error} />
   if (loading && empty) return <p className="text-sm text-muted">Загрузка…</p>
   return null
+}
+
+/** Вкладки раздела «Аналитика» (шаг 10.7) — пункты меню раздела по мере готовности. Подразделы с общим фильтром
+ * открываются с последним выбранным фильтром — он сохраняется при переходе между ними. */
+export function AnalyticsTabs() {
+  const pathname = usePathname()
+  const [query, setQuery] = useState('')
+  useEffect(() => {
+    const read = () => setQuery(rememberedFilter())
+    read()
+    window.addEventListener(FILTER_EVENT, read)
+    return () => window.removeEventListener(FILTER_EVENT, read)
+  }, [])
+  const items = NAV.find((s) => s.label === 'Аналитика')?.items ?? []
+  return (
+    <nav className="flex gap-1 overflow-x-auto border-b border-line" aria-label="Аналитика" data-testid="analytics-tabs">
+      {items.map((t) => {
+        const active = t.href === '/dashboard/analytics' ? pathname === t.href : pathname.startsWith(t.href)
+        const href = FILTER_PAGES.includes(t.href) && query ? `${t.href}?${query}` : t.href
+        return (
+          <Link
+            key={t.href}
+            href={href}
+            aria-current={active ? 'page' : undefined}
+            className={`-mb-px whitespace-nowrap border-b-2 px-4 py-2 text-sm ${active ? 'border-accent font-medium text-fg' : 'border-transparent text-muted hover:text-fg'}`}
+            data-testid="analytics-tab"
+          >
+            {t.label}
+          </Link>
+        )
+      })}
+    </nav>
+  )
 }

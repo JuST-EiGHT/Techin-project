@@ -1,4 +1,5 @@
-"""Основа аналитики (шаг 10.3): показатели текущего магазина за период, категории и товары для фильтров."""
+"""Основа аналитики (шаг 10.3): показатели текущего магазина за период, категории и товары для фильтров; лучшие и
+худшие товары «Обзора бизнеса» (шаг 10.7)."""
 import uuid
 from datetime import date
 
@@ -7,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.analytics import Category, Metrics, ProductOption
+from app.schemas.analytics import Category, Leaders, Metrics, ProductOption
 from app.services import analytics as svc
 from app.services.stores import get_current_store
 
@@ -29,6 +30,23 @@ async def get_metrics(
     периода и (compare=1) прошлый сопоставимый период. Дни без данных — пропуски (null), а не ноль."""
     try:
         return await svc.metrics(db, user.id, date_from, date_to, granularity, product_id, category_id, compare)
+    except svc.AnalyticsError as exc:
+        raise HTTPException(exc.code, exc.message) from None
+
+
+@router.get("/leaders", response_model=Leaders)
+async def get_leaders(
+    date_from: date,
+    date_to: date,
+    product_id: list[uuid.UUID] = Query(default_factory=list, description="Только среди этих товаров"),
+    category_id: int | None = Query(None, description="Только среди товаров категории; 0 — «Без категории»"),
+    user: User = Depends(get_current_store),
+    db: AsyncSession = Depends(get_db),
+):
+    """«Обзор бизнеса»: лучшие и худшие товары по прибыли за период и по изменению продаж к прошлому сопоставимому
+    периоду (только значимые — не случайные колебания)."""
+    try:
+        return await svc.leaders(db, user.id, date_from, date_to, product_id, category_id)
     except svc.AnalyticsError as exc:
         raise HTTPException(exc.code, exc.message) from None
 

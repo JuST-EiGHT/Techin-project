@@ -50,7 +50,13 @@ function Card({ href, label, value, testid, tone, children }: {
 }
 
 /** Выручка, прибыль, маржинальность, заказы: значение, ▲ / ▼ к прошлому периоду, «было …», переход в подробности. */
-export function KeyFigures({ data, taxSet, costLabel }: { data: Metrics; taxSet: boolean; costLabel: string }) {
+/** Четыре главные цифры: выручка, прибыль, маржинальность и заказы (главная) или продажи в штуках («Обзор бизнеса»). */
+export function KeyFigures({ data, taxSet, costLabel, fourth = 'orders' }: {
+  data: Metrics
+  taxSet: boolean
+  costLabel: string
+  fourth?: 'orders' | 'sold_qty'
+}) {
   const t = data.totals
   const prev = data.previous?.totals ?? null
   const ch = data.changes
@@ -60,6 +66,7 @@ export function KeyFigures({ data, taxSet, costLabel }: { data: Metrics; taxSet:
     prev === null ? null : prev[k] === null ? 'в прошлом периоде нет данных' : `было ${formatMetric(prev[k], METRICS[k].format)}`
   const profit = t.profit === null ? null : Number(t.profit)
   const noData = (k: MetricKey) => (t[k] === null ? 'нет данных за период' : null)
+  const byProducts = data.filter.product_count !== null // товар или категория — прибыль до налога, как «Прибыль по товарам»
   return (
     <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line lg:grid-cols-4" data-testid="key-figures">
       <Card href={link('revenue')} label="Выручка" value={formatMetric(t.revenue, 'rub')} testid="figure-revenue">
@@ -81,21 +88,34 @@ export function KeyFigures({ data, taxSet, costLabel }: { data: Metrics; taxSet:
           </Hint>
         )}
         {t.profit !== null && data.profit_kind === 'before_tax' && (
-          <Hint>{taxSet ? 'до налога — в прошлом периоде налог не посчитан' : 'налог не задан — без налога'}</Hint>
+          <Hint>
+            {byProducts
+              ? 'по товарам — до налога, как в «Прибыли по товарам»'
+              : taxSet
+                ? 'до налога — в прошлом периоде налог не посчитан'
+                : 'налог не задан — без налога'}
+          </Hint>
         )}
       </Card>
       <Card href={link('margin')} label="Маржинальность" value={formatMetric(t.margin, 'pct')} testid="figure-margin">
         {ch && <Change pct={ch.margin_pp} against={against} unit="п.п." />}
         <Hint>{noData('margin') ?? was('margin') ?? 'прибыль / выручка'}</Hint>
       </Card>
-      <Card href={link('orders')} label="Заказы" value={formatMetric(t.orders, 'count')} testid="figure-orders">
-        {ch && <Change pct={ch.orders} against={against} />}
-        <Hint>
-          {t.orders === null
-            ? 'отправления не загружены — нужен ключ Ozon'
-            : (was('orders') ?? `${formatMetric(t.ordered_qty, 'qty')} в заказах`)}
-        </Hint>
-      </Card>
+      {fourth === 'sold_qty' ? (
+        <Card href={link('sold_qty')} label="Продажи, шт." value={formatMetric(t.sold_qty, 'qty')} testid="figure-sold_qty">
+          {ch && <Change pct={ch.sold_qty} against={against} />}
+          <Hint>{noData('sold_qty') ?? was('sold_qty') ?? `возвратов ${formatMetric(t.returned_qty, 'qty')}`}</Hint>
+        </Card>
+      ) : (
+        <Card href={link('orders')} label="Заказы" value={formatMetric(t.orders, 'count')} testid="figure-orders">
+          {ch && <Change pct={ch.orders} against={against} />}
+          <Hint>
+            {t.orders === null
+              ? 'отправления не загружены — нужен ключ Ozon'
+              : (was('orders') ?? `${formatMetric(t.ordered_qty, 'qty')} в заказах`)}
+          </Hint>
+        </Card>
+      )}
     </div>
   )
 }
