@@ -300,3 +300,63 @@ class ProfitLines(BaseModel):
     total: str  # = «начислено Ozon» товара в «Прибыли по товарам»
     count: int  # строк всего (в lines — до 500)
     lines: list[ProfitLine]
+
+
+# ── ABC-анализ (шаг 10.10) ──
+class AbcItem(BaseModel):
+    product: LeaderProduct
+    group: str | None  # A | B | C; None — значение неизвестно (прибыль без себестоимости)
+    value: str | None
+    rank: int | None
+    share: str | None  # доля в сумме положительных, %
+    cum_share: str | None  # накопленная доля с этим товаром, %
+    loss: bool  # значение < 0
+    prev_value: str | None
+    prev_group: str | None  # группа в прошлом периоде; товара тогда не было — null
+    change_pct: str | None
+    revenue_group: str | None
+    profit_group: str | None
+    profit_loss: bool  # прибыль < 0
+
+
+class AbcGroup(BaseModel):
+    group: str
+    count: int
+    value: str
+    share: str  # вклад в сумму, %
+    product_share: str  # доля товаров, %
+
+
+class AbcBounds(BaseModel):
+    a: int
+    b: int
+
+
+class AbcPrevious(Range):
+    has_data: bool
+
+
+class AbcLoss(BaseModel):
+    count: int
+    value: str
+
+
+class AbcCell(BaseModel):
+    revenue_group: str
+    profit_group: str | None  # None — нет себестоимости
+    count: int
+
+
+class Abc(BaseModel):
+    date_from: str
+    date_to: str
+    criterion: str  # revenue | profit | qty
+    bounds: AbcBounds
+    data_source: str
+    previous: AbcPrevious
+    total: str  # сумма положительных значений
+    groups: list[AbcGroup]
+    loss: AbcLoss
+    unknown: int  # товаров без значения (прибыль без себестоимости)
+    items: list[AbcItem]
+    matrix: list[AbcCell]

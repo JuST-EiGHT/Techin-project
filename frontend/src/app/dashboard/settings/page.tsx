@@ -672,6 +672,91 @@ function RecommendationSection() {
   )
 }
 
+function AbcSection() {
+  const { user } = useAuth()
+  const settings = useSettings()
+  const [a, setA] = useState('')
+  const [b, setB] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
+
+  useEffect(() => {
+    if (settings) {
+      setA(String(settings.abc_a_pct))
+      setB(String(settings.abc_b_pct))
+    }
+  }, [settings])
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault()
+    if (!user) return
+    setError(null)
+    setDone(false)
+    const na = Number(a)
+    const nb = Number(b)
+    if (!/^\d+$/.test(a) || na < 10 || na > 98) return setError('Граница A — от 10 до 98 %')
+    if (!/^\d+$/.test(b) || nb < 11 || nb > 99) return setError('Граница B — от 11 до 99 %')
+    if (na >= nb) return setError('Граница A должна быть меньше границы B: например, 80 и 95 %')
+    try {
+      await saveSettings(user.id, { abc_a_pct: na, abc_b_pct: nb })
+      setDone(true)
+    } catch (err) {
+      setError(errorMessage(err, 'Не сохранилось — попробуйте ещё раз'))
+    }
+  }
+
+  const field = (id: string, label: string, value: string, set: (v: string) => void, why: string) => (
+    <div>
+      <label htmlFor={id} className="block text-sm text-muted">
+        {label}
+      </label>
+      <div className="mt-1 flex items-center gap-2">
+        <input
+          id={id}
+          inputMode="numeric"
+          disabled={!settings}
+          value={value}
+          onChange={(e) => {
+            setDone(false)
+            set(e.target.value.replace(/\D/g, ''))
+          }}
+          className="w-20 rounded-lg border border-line bg-bg px-3 py-1.5 outline-none focus:border-accent disabled:opacity-60"
+          data-testid={`settings-${id}`}
+        />
+        <span className="text-sm text-muted">%</span>
+      </div>
+      <p className="mt-1 text-xs text-faint">{why}</p>
+    </div>
+  )
+
+  return (
+    <Section
+      id="abc"
+      title="ABC-анализ"
+      hint="Границы групп в «Аналитике → ABC-анализ»: товары по убыванию выручки, прибыли или продаж, пока их накопленная доля не дойдёт до границы."
+    >
+      <form onSubmit={save} className="space-y-3" data-testid="abc-settings">
+        <FormError message={error} />
+        <div className="grid gap-4 sm:grid-cols-2">
+          {field('abc_a_pct', 'Группа A — первые', a, setA, 'Главные товары: дают эту долю выручки (прибыли, продаж). Обычно 80 %.')}
+          {field('abc_b_pct', 'Группа B — до', b, setB, 'Средние — от границы A до этой. Остальные — C. Обычно 95 %.')}
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="submit"
+            disabled={!settings}
+            className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+            data-testid="settings-abc-save"
+          >
+            Сохранить
+          </button>
+          {done && <span className="text-sm text-ok">Сохранено</span>}
+        </div>
+      </form>
+    </Section>
+  )
+}
+
 function PlanningSection() {
   const [state, setState] = useState<PlanningState | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -735,6 +820,7 @@ export default function SettingsPage() {
       <SupplySection />
       <AnomalySection />
       <RecommendationSection />
+      <AbcSection />
       <PlanningSection />
     </div>
   )

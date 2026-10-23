@@ -79,6 +79,9 @@ class UserSettings(Base):
     anomaly_data_gap_days: Mapped[int | None] = mapped_column(Integer)
     # «Рекомендуемые действия» (шаг 10.6): «Скрыть» — на сколько дней; пусто — 7
     recommendation_hide_days: Mapped[int | None] = mapped_column(Integer)
+    # ABC-анализ (шаг 10.10): границы групп, % накопленной доли; пусто — 80 и 95 (engine/abc)
+    abc_a_pct: Mapped[int | None] = mapped_column(Integer)
+    abc_b_pct: Mapped[int | None] = mapped_column(Integer)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

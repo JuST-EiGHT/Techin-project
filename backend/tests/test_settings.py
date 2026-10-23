@@ -18,6 +18,8 @@ ANOMALY_DEFAULTS = {
     "anomaly_payout_diff_pct": 10, "anomaly_cash_gap_days": 14, "anomaly_uncategorized_days": 7,
     "anomaly_sync_stale_hours": 24, "anomaly_data_gap_days": 1, "anomaly_defaults": True,
     "recommendation_hide_days": 7,
+    "abc_a_pct": 80,
+    "abc_b_pct": 95,
 }
 
 

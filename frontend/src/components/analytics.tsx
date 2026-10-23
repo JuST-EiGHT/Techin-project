@@ -178,11 +178,14 @@ export function AnalyticsFilters({
   showCompare = true,
   showProduct = true,
   showCategory = true,
+  showGranularity = true,
 }: {
   value: AnalyticsFilter
   onChange: (patch: Partial<AnalyticsFilter>) => void
   kinds?: string[]
   showCompare?: boolean
+  /** ABC — итог за период, детализация по дням не нужна. */
+  showGranularity?: boolean
   /** Главная — без товара и категории: там магазин целиком. */
   showProduct?: boolean
   showCategory?: boolean
@@ -227,13 +230,15 @@ export function AnalyticsFilters({
             ))}
           </select>
         )}
-        <div className="flex gap-1" role="group" aria-label="Детализация">
-          {GRANULARITIES.map((g) => (
-            <button key={g.value} type="button" onClick={() => onChange({ granularity: g.value, granularityChosen: true })} className={chip(value.granularity === g.value)} aria-pressed={value.granularity === g.value} data-testid={`granularity-${g.value}`}>
-              {g.label}
-            </button>
-          ))}
-        </div>
+        {showGranularity && (
+          <div className="flex gap-1" role="group" aria-label="Детализация">
+            {GRANULARITIES.map((g) => (
+              <button key={g.value} type="button" onClick={() => onChange({ granularity: g.value, granularityChosen: true })} className={chip(value.granularity === g.value)} aria-pressed={value.granularity === g.value} data-testid={`granularity-${g.value}`}>
+                {g.label}
+              </button>
+            ))}
+          </div>
+        )}
         {showCompare && (
           <label className="flex cursor-pointer items-center gap-2 text-sm text-muted" title="Прошлый сопоставимый период: месяц — прошлый месяц, неделя — прошлая неделя, иначе столько же дней перед периодом">
             <input type="checkbox" checked={value.compare} onChange={(e) => onChange({ compare: e.target.checked })} className="accent-accent" data-testid="filter-compare" />

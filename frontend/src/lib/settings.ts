@@ -38,6 +38,8 @@ export type UserSettings = {
   anomaly_sync_stale_hours: number // данные не обновлялись дольше, ч (10.5)
   anomaly_data_gap_days: number // дней без начислений между загруженными (10.5)
   recommendation_hide_days: number // «Скрыть» рекомендацию — на сколько дней (10.6)
+  abc_a_pct: number // ABC-анализ (10.10): граница группы A, % накопленной доли
+  abc_b_pct: number // граница группы B
   anomaly_defaults: boolean // пороги аномалий и маржи — по умолчанию
 }
 

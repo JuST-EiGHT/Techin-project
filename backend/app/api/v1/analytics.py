@@ -1,7 +1,8 @@
 """Основа аналитики (шаг 10.3): показатели текущего магазина за период, категории и товары для фильтров; лучшие и
-худшие товары «Обзора бизнеса» (шаг 10.7); продажи (10.8); структура расходов и её разбор (10.9)."""
+худшие товары «Обзора бизнеса» (шаг 10.7); продажи (10.8); структура расходов и её разбор (10.9); ABC-анализ (10.10)."""
 import uuid
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,10 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.analytics import (
-    Category, Leaders, Metrics, ProductOption, ProfitGroupDetail, ProfitLines, ProfitStructure, SalesEvent, SalesTable,
+    Abc, Category, Leaders, Metrics, ProductOption, ProfitGroupDetail, ProfitLines, ProfitStructure, SalesEvent,
+    SalesTable,
 )
 from app.core.files import attachment
 from app.services import analytics as svc
+from app.services import abc as abc_svc
 from app.services import profit_analytics, sales_analytics
 from app.services.stores import get_current_store
 
@@ -133,6 +136,37 @@ async def get_profit_lines(date_from: date, date_to: date,
         return await profit_analytics.product_lines(db, user.id, date_from, date_to, offer_id)
     except svc.AnalyticsError as exc:
         raise HTTPException(exc.code, exc.message) from None
+
+
+Criterion = Literal["revenue", "profit", "qty"]
+
+
+@router.get("/abc", response_model=Abc)
+async def get_abc(by: Criterion = Query("revenue", description="revenue — выручка, profit — прибыль, qty — продажи, шт."),
+                  q: dict = Depends(_filter_query), user: User = Depends(get_current_store),
+                  db: AsyncSession = Depends(get_db)):
+    """ABC-анализ товаров за период: группы A, B, C по накопленной доле (границы — настройки), доля и накопленная доля,
+    прошлый период и смена группы, убыточные, сравнение ABC по выручке и по прибыли."""
+    try:
+        return await abc_svc.analysis(db, user.id, criterion=by, **q)
+    except svc.AnalyticsError as exc:
+        raise HTTPException(exc.code, exc.message) from None
+
+
+@router.get("/abc/export", response_class=Response)
+async def export_abc(by: Criterion = Query("revenue"), q: dict = Depends(_filter_query),
+                     user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
+    """ABC-анализ в Excel — для чтения и работы (не шаблон для загрузки)."""
+    try:
+        data = await abc_svc.analysis(db, user.id, criterion=by, **q)
+        products = await svc._products(db, user.id, q["product_ids"], q["category_id"])
+    except svc.AnalyticsError as exc:
+        raise HTTPException(exc.code, exc.message) from None
+    what = "все" if products is None else ", ".join(p.offer_id for p in products[:10]) + (" …" if len(products) > 10 else "")
+    return attachment(
+        abc_svc.to_xlsx(data, what), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        f"ABC {q['date_from']:%d.%m.%Y}–{q['date_to']:%d.%m.%Y}.xlsx", "abc.xlsx",
+    )
 
 
 @router.get("/categories", response_model=list[Category])

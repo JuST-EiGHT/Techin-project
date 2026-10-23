@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.engine import abc
 from app.engine import anomaly_detector as anomalies
 from app.engine.stocks import DEFAULT_THRESHOLDS, Thresholds
 from app.engine.supply_planner import DEFAULT_LEAD_TIME_DAYS, DEFAULT_TARGET_DAYS
@@ -52,6 +53,21 @@ DEFAULT_HIDE_DAYS = 7
 def recommendation_hide_days(s: UserSettings) -> int:
     """«Скрыть» рекомендацию — на сколько дней (шаг 10.6); не задано — 7."""
     return DEFAULT_HIDE_DAYS if s.recommendation_hide_days is None else s.recommendation_hide_days
+
+
+def abc_bounds(s: UserSettings) -> abc.Bounds:
+    """Границы ABC-групп, % накопленной доли (шаг 10.10); не заданы — 80 и 95."""
+    return abc.Bounds(abc.DEFAULT_A if s.abc_a_pct is None else Decimal(s.abc_a_pct),
+                      abc.DEFAULT_B if s.abc_b_pct is None else Decimal(s.abc_b_pct))
+
+
+def check_abc_bounds(current: UserSettings, changes: dict) -> None:
+    a = changes.get("abc_a_pct", current.abc_a_pct)
+    b = changes.get("abc_b_pct", current.abc_b_pct)
+    a = abc.DEFAULT_A if a is None else Decimal(a)
+    b = abc.DEFAULT_B if b is None else Decimal(b)
+    if a >= b:
+        raise SettingsError("Граница группы A должна быть меньше границы группы B: например, 80 и 95 %")
 
 
 def supply_params(s: UserSettings) -> tuple[int, int]:
@@ -138,6 +154,8 @@ async def update_settings(db: AsyncSession, user_id: uuid.UUID, changes: dict) -
         check_thresholds(current or defaults(user_id), changes)
     if ANOMALY_FIELDS.keys() & changes.keys():
         check_anomaly_thresholds(current or defaults(user_id), changes)
+    if {"abc_a_pct", "abc_b_pct"} & changes.keys():
+        check_abc_bounds(current or defaults(user_id), changes)
     if current is None:
         current = defaults(user_id)
         db.add(current)

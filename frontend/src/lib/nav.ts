@@ -33,6 +33,11 @@ export const NAV: NavSection[] = [
         description: 'Выручка, расходы и прибыль, на что ушли деньги, товары в минус и с низкой маржой — до начислений Ozon',
       },
       {
+        href: '/dashboard/analytics/abc',
+        label: 'ABC-анализ',
+        description: 'Какие товары дают основную выручку, прибыль или продажи — группы A, B, C и их сравнение',
+      },
+      {
         href: '/dashboard/analytics/reports',
         label: 'Отчёты Ozon и загрузка',
         description: 'Недельные и месячные отчёты Ozon: загрузить XLSX, история, P&L по отчёту',
