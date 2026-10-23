@@ -77,8 +77,9 @@ export function formatMetric(v: string | number | null, format: MetricFormat): s
 }
 
 // ── фильтры ──
-export type PeriodPreset = '7d' | '30d' | 'month' | 'prev_month' | '90d' | '365d' | 'custom'
+export type PeriodPreset = 'week' | '7d' | '30d' | 'month' | 'prev_month' | '90d' | '365d' | 'custom'
 export const PERIOD_PRESETS: { value: PeriodPreset; label: string }[] = [
+  { value: 'week', label: 'Эта неделя' },
   { value: '7d', label: '7 дней' },
   { value: '30d', label: '30 дней' },
   { value: 'month', label: 'Этот месяц' },
@@ -104,7 +105,7 @@ export type AnalyticsFilter = {
   compare: boolean
 }
 
-const DEFAULT_PRESET: PeriodPreset = '30d'
+const DEFAULT_PRESET: PeriodPreset = '30d' // у страницы может быть свой (главная — «Этот месяц»)
 const DAY = /^\d{4}-\d{2}-\d{2}$/
 const MAX_DAYS = 366
 
@@ -115,22 +116,22 @@ export function autoGranularity(range: Range): Granularity {
 }
 
 export function rangeOf(preset: Exclude<PeriodPreset, 'custom'>, today = todayMsk()): Range {
-  if (preset === 'month' || preset === 'prev_month') return presetRange(preset, today)
+  if (preset === 'week' || preset === 'month' || preset === 'prev_month') return presetRange(preset, today)
   const days = { '7d': 7, '30d': 30, '90d': 90, '365d': 365 }[preset]
   return { from: addDays(today, -(days - 1)), to: today }
 }
 
 /** Фильтр из адреса: ?period=30d | period=custom&from=…&to=…, g, product, category, compare=0. Мусор — значения по умолчанию. */
-export function parseFilter(params: URLSearchParams, today = todayMsk()): AnalyticsFilter {
+export function parseFilter(params: URLSearchParams, today = todayMsk(), defaultPreset = DEFAULT_PRESET): AnalyticsFilter {
   const raw = params.get('period') as PeriodPreset | null
-  let preset: PeriodPreset = PERIOD_PRESETS.some((p) => p.value === raw) ? (raw as PeriodPreset) : DEFAULT_PRESET
+  let preset: PeriodPreset = PERIOD_PRESETS.some((p) => p.value === raw) ? (raw as PeriodPreset) : defaultPreset
   let range: Range
   const from = params.get('from') ?? ''
   const to = params.get('to') ?? ''
   if (preset === 'custom' && DAY.test(from) && DAY.test(to) && from <= to && daysCount({ from, to }) <= MAX_DAYS) {
     range = { from, to }
   } else {
-    if (preset === 'custom') preset = DEFAULT_PRESET
+    if (preset === 'custom') preset = defaultPreset
     range = rangeOf(preset as Exclude<PeriodPreset, 'custom'>, today)
   }
   const g = params.get('g') as Granularity | null
@@ -148,10 +149,10 @@ export function parseFilter(params: URLSearchParams, today = todayMsk()): Analyt
 }
 
 /** Фильтр → строка адреса без значений по умолчанию. Остальные параметры страницы (вкладки и т. п.) сохраняются. */
-export function filterQuery(f: AnalyticsFilter, base = new URLSearchParams()): string {
+export function filterQuery(f: AnalyticsFilter, base = new URLSearchParams(), defaultPreset = DEFAULT_PRESET): string {
   const q = new URLSearchParams(base)
   for (const key of ['period', 'from', 'to', 'g', 'product', 'category', 'compare']) q.delete(key)
-  if (f.preset !== DEFAULT_PRESET) q.set('period', f.preset)
+  if (f.preset !== defaultPreset) q.set('period', f.preset)
   if (f.preset === 'custom') {
     q.set('from', f.range.from)
     q.set('to', f.range.to)

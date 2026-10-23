@@ -36,12 +36,12 @@ import { api, errorMessage } from '@/lib/api'
 import { daysWord } from '@/lib/period'
 
 /** Фильтр из адреса и его изменение: новый фильтр — новая запись истории, «назад» возвращает прежний. */
-export function useAnalyticsFilter(): [AnalyticsFilter, (patch: Partial<AnalyticsFilter>) => void] {
+export function useAnalyticsFilter(defaultPreset?: PeriodPreset): [AnalyticsFilter, (patch: Partial<AnalyticsFilter>) => void] {
   const params = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
   const key = params.toString()
-  const fromUrl = useMemo(() => parseFilter(new URLSearchParams(key)), [key])
+  const fromUrl = useMemo(() => parseFilter(new URLSearchParams(key), undefined, defaultPreset), [key, defaultPreset])
   // выбор виден сразу, адрес догоняет (иначе галочка и кнопки на миг «отскакивают» до перехода)
   const [filter, setFilter] = useState(fromUrl)
   useEffect(() => setFilter(fromUrl), [fromUrl])
@@ -51,10 +51,10 @@ export function useAnalyticsFilter(): [AnalyticsFilter, (patch: Partial<Analytic
       if (patch.preset && patch.preset !== 'custom') next.range = rangeOf(patch.preset)
       if (!next.granularityChosen) next.granularity = autoGranularity(next.range)
       setFilter(next)
-      const q = filterQuery(next, new URLSearchParams(key))
+      const q = filterQuery(next, new URLSearchParams(key), defaultPreset)
       router.push(q ? `${pathname}?${q}` : pathname, { scroll: false })
     },
-    [filter, key, pathname, router],
+    [filter, key, pathname, router, defaultPreset],
   )
   return [filter, update]
 }
@@ -162,16 +162,22 @@ export function AnalyticsFilters({
   onChange,
   kinds = ['finance', 'postings', 'products'],
   showCompare = true,
+  showProduct = true,
+  showCategory = true,
 }: {
   value: AnalyticsFilter
   onChange: (patch: Partial<AnalyticsFilter>) => void
   kinds?: string[]
   showCompare?: boolean
+  /** Главная — без товара и категории: там магазин целиком. */
+  showProduct?: boolean
+  showCategory?: boolean
 }) {
   const [categories, setCategories] = useState<CategoryOption[]>([])
   useEffect(() => {
+    if (!showCategory) return
     api.get<CategoryOption[]>('/analytics/categories').then(({ data }) => setCategories(data)).catch(() => setCategories([]))
-  }, [])
+  }, [showCategory])
 
   return (
     <section className="space-y-3 rounded-xl border border-line bg-card p-3 sm:p-4" data-testid="analytics-filters">
@@ -190,21 +196,23 @@ export function AnalyticsFilters({
         )}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <ProductPicker value={value.product} onChange={(product) => onChange({ product })} />
-        <select
-          value={value.category ?? ''}
-          onChange={(e) => onChange({ category: e.target.value === '' ? null : Number(e.target.value) })}
-          aria-label="Категория"
-          className={`${input} max-w-[16rem]`}
-          data-testid="filter-category"
-        >
-          <option value="">Все категории</option>
-          {categories.map((c) => (
-            <option key={c.id} value={c.id} title={c.path ?? undefined}>
-              {c.name} ({c.products})
-            </option>
-          ))}
-        </select>
+        {showProduct && <ProductPicker value={value.product} onChange={(product) => onChange({ product })} />}
+        {showCategory && (
+          <select
+            value={value.category ?? ''}
+            onChange={(e) => onChange({ category: e.target.value === '' ? null : Number(e.target.value) })}
+            aria-label="Категория"
+            className={`${input} max-w-[16rem]`}
+            data-testid="filter-category"
+          >
+            <option value="">Все категории</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id} title={c.path ?? undefined}>
+                {c.name} ({c.products})
+              </option>
+            ))}
+          </select>
+        )}
         <div className="flex gap-1" role="group" aria-label="Детализация">
           {GRANULARITIES.map((g) => (
             <button key={g.value} type="button" onClick={() => onChange({ granularity: g.value, granularityChosen: true })} className={chip(value.granularity === g.value)} aria-pressed={value.granularity === g.value} data-testid={`granularity-${g.value}`}>

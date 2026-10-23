@@ -21,6 +21,7 @@ from app.services.tax_profile import load_profiles
 WEEKLY_AFTER_DAYS = 45  # период длиннее — ряды по неделям
 PAYOUT_WEEKS_BACK = 8  # выплаты на главной: 8 недель назад
 PAYOUT_WEEKS_AHEAD = 4  # и 4 вперёд
+UPCOMING_DAYS = 14  # «Деньги и ближайшие события» (шаг 10.4): выплаты Ozon на две недели вперёд
 TENTH = Decimal("0.1")
 
 
@@ -157,6 +158,10 @@ async def ozon_dashboard(db: AsyncSession, user_id: uuid.UUID, date_from: date, 
             "last_day": payouts["last_day"],
             # баланс не загружался — прогноз по стандартному графику без сумм не показываем: «нет данных»
             "next_payout": payouts["next_payout"] if payouts["has_data"] else None,
+            "upcoming": [
+                f for f in payouts["forecast"]
+                if today.isoformat() <= str(f["date"]) <= (today + timedelta(days=UPCOMING_DAYS - 1)).isoformat()
+            ] if payouts["has_data"] else [],
             "schedule_title": payouts["schedule"]["title"],
             "weeks": [w for w in payouts["weeks"] if w["week_from"] >= since] if payouts["has_data"] else [],
         },
