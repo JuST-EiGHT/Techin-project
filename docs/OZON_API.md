@@ -77,7 +77,14 @@ HTTP-коды для этих текстов в документации не у
 | Начисления за день | POST | `/v1/finance/accrual/by-day` | `last_id` = `date` из предыдущего ответа |
 | Баланс у Ozon: начислено, выплаты, остаток (шаг 3.6) | POST | `/v1/finance/balance` | **бета**, «Финансы → Баланс»; `date_from`, `date_to` (YYYY-MM-DD), период ≤ 30 дней; `total{opening_balance, accrued, payments[], closing_balance}`, `cashflows{sales, returns, services[]}`; **дат выплат нет** — запрашиваем по одному дню (`services/sync/ozon_balance.py`; предположение «выплаты за день = выплата этого дня» проверить на реальном ключе, сверка по полумесяцам покажет расхождение) |
 | Финансовый отчёт по полумесяцам (шаг 3.6, сверка) | POST | `/v1/finance/cash-flow-statement/list` | только периоды 1–15 и 16–конец месяца; `date{from,to}`, `page`, `page_size`, `with_details`; `details{payments[], begin_balance_amount, end_balance_amount, …}` |
-| Отчёт о реализации за месяц | POST | `/v2/finance/realization` | не раньше августа 2023; приходит не позднее 5-го числа следующего месяца |
+| Отчёт о реализации за месяц (шаг 10.12) | POST | `/v2/finance/realization` | `month`, `year`; не раньше августа 2023; приходит не позднее 5-го числа следующего месяца; ответ `result{header{start_date, stop_date, номер, реквизиты}, rows[]}`; строка — `item{offer_id, sku, name, barcode}`, `delivery_commission` (продажи) и `return_commission` (возвраты): `amount`, `quantity`, `bonus`, `bank_coinvestment`, `stars`, `pick_up_point_coinvestment`, `commission`, `compensation`, `standard_fee`, `total`, `price_per_instance`; описаний полей в выгрузке нет — итоги собираем сами (`integrations/ozon_reports/realization.py`), сверить с файлом из кабинета (8.4a). `/v1/finance/realization` устарел и удалён из документации |
+| Позаказный отчёт о реализации | POST | `/v1/finance/realization/posting` | `month`, `year`; с августа 2023; **не используем** — продажи по отправлениям есть в начислениях |
+| Отчёт о реализации за день | POST | `/v1/finance/realization/by-day` | `day`, `month`, `year`; не дальше 32 дней; **только с подпиской Premium Plus / Pro** — не используем |
+| Отчёт о взаиморасчётах (шаг 10.12) | POST | `/v1/finance/mutual-settlement` | `date` (YYYY-MM), `language` RU / EN; ответ — `result.code`, файл — по `/v1/report/info`; «Финансы → Документы → Аналитические отчёты» |
+| Отчёты о компенсациях и декомпенсациях (шаг 10.12) | POST | `/v1/finance/compensation`, `/v1/finance/decompensation` | `date` (YYYY-MM), `language`; ответ — `result.code`, файл — по `/v1/report/info`; «Финансы → Документы → Компенсации и прочие начисления» |
+| Готовность отчёта по коду и файл (шаг 10.12) | POST | `/v1/report/info` | `code`; `result{status: waiting / processing / success / failed, file (ссылка на XLSX), error, report_type (MUTUAL_SETTLEMENT, COMPENSATION_REPORT, DECOMPENSATION_REPORT …), expires_at}`; код живёт 3 дня; файл скачиваем только с доменов `ozone.ru` / `ozon.ru` |
+| Реестр продаж юрлицам | POST | `/v1/finance/document-b2b-sales`, `/json` | `date` (YYYY-MM); **не используем** — продажи есть в начислениях и реализации |
+| Закрывающие документы за услуги Ozon (акты, УПД, счета-фактуры) | — | — | **через API нет** — только в личном кабинете (Финансы → Документы) |
 | Аналитика (выручка, заказы) | POST | `/v1/analytics/data` | лимит 50/сутки без Premium Plus |
 | Акции Ozon | GET | `/v1/actions` | |
 | Товары в акции / кандидаты | POST | `/v2/actions/products`, `/v2/actions/candidates` | v1 отключаются 13.10.2026 |
@@ -300,9 +307,10 @@ FBS-отправлений хранить `scanit` рядом со штрихк�
 | Для чего | Методы | Шаг |
 |---|---|---|
 | ~~Категории товаров (названия)~~ | `/v1/description-category/tree` — сверено, раздел «Категории товаров» выше | 10.3 ✅ |
-| Отчёт о реализации через API | `/v1/finance/realization`, `/v1/finance/realization/by-day`, `/v1/finance/realization/posting` | 10.12 |
-| Взаиморасчёты, движение денег, компенсации | `/v1/finance/mutual-settlement`, `/v1/finance/cash-flow-statement/list`, `/v1/finance/compensation`, `/v1/finance/decompensation`, `/v1/finance/document-b2b-sales` | 10.12, 10.23 |
-| Отчёты, которые Ozon формирует по запросу | `/v1/report/*/create`, `/v1/report/info`, `/v1/report/list` (товары, отправления, возвраты, остатки) | 10.12 |
+| ~~Отчёт о реализации через API~~ | `/v2/finance/realization` — сверено, таблица выше; `/v1/finance/realization` удалён, `/posting` и `/by-day` — не используем | 10.12 ✅ |
+| ~~Взаиморасчёты, компенсации~~ | `/v1/finance/mutual-settlement`, `/compensation`, `/decompensation` + `/v1/report/info` — сверено, выше; `/v1/finance/cash-flow-statement/list` — уже в 3.6 | 10.12 ✅ |
+| Движение денег по статьям (ДДС, бюджеты) | `/v1/finance/cash-flow-statement/list` (детали) | 10.23 |
+| Отчёты, которые Ozon формирует по запросу | `/v1/report/*/create`, `/v1/report/list` (товары, отправления, возвраты, остатки) — те же данные сервис берёт синхронизацией; `/v1/report/info` — сверено (10.12) | по необходимости |
 | Возвраты | `/v1/returns/list` | 10.8 |
 | Заявки на поставку FBO | `/v1/supply-order/list`, `/get`, `/items`, `/details`, `/status/counter`, `/cancel` | 10.18 |
 | Черновики поставок и таймслоты (изменение в Ozon — правило 6) | `/v1/draft/create`, `/v1/draft/create/info`, `/v1/draft/timeslot/info`, `/v1/draft/supply/create`, `/v1/draft/supply/create/status` | 10.18 |

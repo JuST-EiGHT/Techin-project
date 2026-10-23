@@ -1,4 +1,5 @@
-"""Загруженные XLSX-отчёты: сохранение, конфликты периода, скрытие и восстановление, повторный разбор.
+"""Загруженные XLSX-отчёты и отчёты, полученные через Ozon API (10.12): сохранение, конфликты периода, скрытие и
+восстановление, повторный разбор.
 
 Исходный файл хранится всегда (docs/DATA_HISTORY.md): из него пересобираются итоги и строки
 начислений — после исправления парсера, при восстановлении скрытого отчёта.
@@ -7,6 +8,7 @@
 """
 import asyncio
 import hashlib
+import json
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -16,12 +18,13 @@ from typing import Literal
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.integrations.ozon_reports import REALIZATION_SUFFIX, parse_realization_api
 from app.integrations.xlsx import AccrualLine, CostProvider, ParsedReport, ReportParseError, parse_report_full
 from app.integrations.xlsx.common import norm
 from app.integrations.xlsx.parsers.base import money
 from app.models.accrual import SOURCE_XLSX, Accrual, AccrualType
 from app.models.product import Product
-from app.models.report import ERROR, READY, Report, ReportFile
+from app.models.report import ERROR, FILE, READY, Report, ReportFile
 from app.services.pnl_stale import invalidate
 from app.services.report_costs import apply_costs
 from app.services.sales import rebuild as rebuild_sales
@@ -72,6 +75,14 @@ def sha256(content: bytes) -> str:
 
 
 async def parse_file(content: bytes, costs: CostProvider, filename: str | None) -> ParsedReport:
+    if (filename or "").endswith(REALIZATION_SUFFIX):  # ответ Ozon API (10.12), сохранённый как есть
+        try:
+            payload = json.loads(content)
+        except ValueError:
+            raise ReportParseError("Сохранённый ответ Ozon повреждён — получите отчёт через API заново.") from None
+        parsed = parse_realization_api(payload, costs)
+        parsed.data = apply_costs(parsed.data, costs)
+        return parsed
     # openpyxl синхронный — разбор в отдельном потоке, чтобы не держать event loop
     parsed = await asyncio.to_thread(parse_report_full, content, costs, filename)
     # себестоимость — на дату начала периода отчёта (история цен справочника, шаг 2.3)
@@ -106,9 +117,10 @@ async def create_report(
     content: bytes,
     costs: CostProvider,
     on_conflict: OnConflict = "ask",
+    source: str = FILE,
 ) -> Report:
     """Разобрать и сохранить отчёт. ReportParseError — файл не разобран (ничего не сохраняется),
-    ReportConflict — такой период или файл уже есть, а on_conflict='ask'."""
+    ReportConflict — такой период или файл уже есть, а on_conflict='ask'. source — file (XLSX) или api (ответ Ozon)."""
     parsed = await parse_file(content, costs, filename)
     file_hash = sha256(content)
     conflicts = await find_conflicts(db, user_id, parsed, file_hash)
@@ -118,7 +130,7 @@ async def create_report(
     now = _now()
     report = Report(  # налог и НДС — по налоговому профилю на дату периода, пока в отчёте не поправили
         id=uuid.uuid4(), user_id=user_id, filename=filename, file_sha256=file_hash, file_size=len(content),
-        uploaded_at=now,
+        uploaded_at=now, source=source,
     )
     _apply_parsed(report, parsed, now)
     db.add(report)

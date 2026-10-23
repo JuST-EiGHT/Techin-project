@@ -96,6 +96,7 @@ class ReportItem(BaseModel):
     tax_base: Literal["profit", "revenue"] | None  # свой процент: от прибыли или от дохода
     tax_rate: Decimal | None
     rows_count: int
+    source: Literal["file", "api"] = "file"  # загружен файлом или получен через Ozon API (10.12)
     missing_cost_count: int  # артикулов без себестоимости
     warnings_count: int
     pnl: PnLOut  # остаток, налог, маржа — шаг 3.1
@@ -135,3 +136,81 @@ class ReportConflictItem(BaseModel):
 from app.schemas.bank import PayoutHint  # noqa: E402 — подсказка по выписке банка
 
 ReportDetail.model_rebuild()
+
+
+# ── отчёты через API, документы, каталог, полнота (шаг 10.12) ──
+class FetchRequest(BaseModel):
+    kind: Literal["realization"] = "realization"
+    year: int = Field(ge=2023, le=2100)
+    month: int = Field(ge=1, le=12)
+    on_conflict: Literal["ask", "replace", "keep"] = "ask"
+
+
+class DocumentRequest(BaseModel):
+    doc_type: Literal["mutual_settlement", "compensation", "decompensation"]
+    year: int = Field(ge=2019, le=2100)
+    month: int = Field(ge=1, le=12)
+
+
+class DocumentOut(BaseModel):
+    id: uuid.UUID
+    doc_type: str
+    title: str
+    period_start: date
+    period_end: date
+    status: Literal["requested", "ready", "error"]
+    state_text: str | None  # запрошен: «в очереди у Ozon», «Ozon формирует»
+    requested_at: datetime
+    ready_at: datetime | None
+    error: str | None  # простыми словами, что случилось и что сделать
+    file_name: str | None
+    file_size: int | None
+
+
+class ReportKindOut(BaseModel):
+    key: str
+    title: str
+    what: str
+    cabinet: str
+    how: list[str]  # auto | button | upload | not_used | cabinet
+    how_titles: list[str]
+    api: list[str]
+    gives: str | None  # data | file
+    used_for: str
+    finance: bool
+    link: str | None
+
+
+class CoverageRange(BaseModel):
+    date_from: date
+    date_to: date
+
+
+class CoverageWeek(BaseModel):
+    date_from: date
+    date_to: date
+    days: int  # дней, за которые данные уже должны быть
+    xlsx: int
+    api: int
+    missing: int
+    state: Literal["xlsx", "api", "mixed", "partial", "none", "future"]
+    missing_ranges: list[CoverageRange]
+
+
+class CoverageMonth(BaseModel):
+    year: int
+    month: int
+    title: str
+    date_from: date
+    date_to: date
+    days: int
+    missing: int
+    realization: Literal["have", "current", "not_yet", "missing"]
+    realization_sources: list[str]
+    realization_ids: list[str]
+    weeks: list[CoverageWeek]
+
+
+class CoverageOut(BaseModel):
+    today: date
+    months: list[CoverageMonth]

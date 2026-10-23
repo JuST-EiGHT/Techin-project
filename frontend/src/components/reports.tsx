@@ -26,6 +26,7 @@ export type ReportItem = {
   tax_base: 'profit' | 'revenue' | null
   tax_rate: string | null
   rows_count: number
+  source: 'file' | 'api' // загружен файлом или получен через Ozon API (10.12)
   missing_cost_count: number
   warnings_count: number
   pnl: PnL
@@ -396,7 +397,7 @@ export function ReportHeading({ report, link }: { report: ReportItem; link?: boo
     <div>
       <h2 className="text-lg font-semibold">{link ? <Link href={`/dashboard/analytics/reports/${report.id}`} className="hover:text-accent">{title}</Link> : title}</h2>
       <p className="text-xs text-muted">
-        {report.filename} · загружен {fmtDateTime(report.uploaded_at)}
+        {report.source === 'api' ? `получен через API Ozon ${fmtDateTime(report.uploaded_at)}` : `${report.filename} · загружен ${fmtDateTime(report.uploaded_at)}`}
       </p>
     </div>
   )
@@ -520,5 +521,43 @@ export function PnLTable({ byType, pnl, revenue, manual }: {
         />
       </div>
     </section>
+  )
+}
+
+/** Отчёт за этот период уже есть (409): заменить, оставить оба или отменить — при загрузке файла и получении через API. */
+export function ConflictDialog({ detail, conflicts, onCancel, onKeep, onReplace }: {
+  detail: string
+  conflicts: Conflict[]
+  onCancel: () => void
+  onKeep: () => void
+  onReplace: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true">
+      <div className="w-full max-w-lg rounded-xl border border-line bg-card p-6" data-testid="conflict-dialog">
+        <h2 className="text-lg font-semibold">Отчёт за этот период уже есть</h2>
+        <p className="mt-2 text-sm text-fg">{detail}</p>
+        <ul className="mt-3 space-y-1 text-sm text-muted">
+          {conflicts.map((c) => (
+            <li key={c.id}>
+              {c.filename} · {periodLabel(c)} · загружен {fmtDateTime(c.uploaded_at)}
+              {c.same_file && ' · тот же файл'}
+            </li>
+          ))}
+        </ul>
+        <p className="mt-3 text-xs text-faint">Заменённый отчёт пропадёт из списка и расчётов, но не удалится — его можно будет вернуть.</p>
+        <div className="mt-5 flex flex-wrap justify-end gap-3">
+          <button onClick={onCancel} className="rounded-lg border border-line px-4 py-2 text-sm hover:border-muted">
+            Отмена
+          </button>
+          <button onClick={onKeep} className="rounded-lg border border-line px-4 py-2 text-sm hover:border-accent hover:text-accent">
+            Оставить оба
+          </button>
+          <button onClick={onReplace} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90" data-testid="conflict-replace">
+            Заменить
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }

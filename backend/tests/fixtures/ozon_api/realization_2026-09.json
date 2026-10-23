@@ -1,0 +1,53 @@
+{
+  "result": {
+    "header": {
+      "contract_date": "2024-01-15",
+      "contract_number": "ИР-000000/24",
+      "currency_sys_name": "RUB",
+      "doc_date": "2026-09-30",
+      "number": "0000000000",
+      "payer_inn": "7700000000",
+      "payer_kpp": "770000000",
+      "payer_name": "ООО «ПРОДАВЕЦ»",
+      "receiver_inn": "7704217370",
+      "receiver_kpp": "997750001",
+      "receiver_name": "ООО «Интернет Решения»",
+      "start_date": "2026-09-01",
+      "stop_date": "2026-09-30"
+    },
+    "rows": [
+      {
+        "rowNumber": 1,
+        "commission_ratio": 0.15,
+        "seller_price_per_instance": 1000,
+        "item": {"barcode": "4600000000011", "name": "Подшипник A", "offer_id": "A-1", "sku": 111},
+        "delivery_commission": {"amount": 10000, "bonus": 300, "commission": 1500, "compensation": 0,
+                                "price_per_instance": 1000, "quantity": 10, "standard_fee": 0, "bank_coinvestment": 50,
+                                "stars": 0, "pick_up_point_coinvestment": 10, "total": 8860},
+        "return_commission": {"amount": 1000, "bonus": 30, "commission": 150, "compensation": 0,
+                              "price_per_instance": 1000, "quantity": 1, "standard_fee": 0, "bank_coinvestment": 5,
+                              "stars": 0, "pick_up_point_coinvestment": 1, "total": 886}
+      },
+      {
+        "rowNumber": 2,
+        "commission_ratio": 0.15,
+        "seller_price_per_instance": 500,
+        "item": {"barcode": "4600000000028", "name": "Подшипник B", "offer_id": "B-2", "sku": 222},
+        "delivery_commission": {"amount": 2500, "bonus": 0, "commission": 375, "compensation": 0,
+                                "price_per_instance": 500, "quantity": 5, "standard_fee": 0, "bank_coinvestment": 0,
+                                "stars": 25, "pick_up_point_coinvestment": 0, "total": 2150},
+        "return_commission": null
+      },
+      {
+        "rowNumber": 3,
+        "commission_ratio": 0.15,
+        "seller_price_per_instance": 300,
+        "item": {"barcode": "4600000000035", "name": "Сальник C", "offer_id": "C-3", "sku": 333},
+        "delivery_commission": {"amount": 600, "bonus": 0, "commission": 90, "compensation": 0,
+                                "price_per_instance": 300, "quantity": 2, "standard_fee": 0, "bank_coinvestment": 0,
+                                "stars": 0, "pick_up_point_coinvestment": 0, "total": 510},
+        "return_commission": {"amount": 0, "quantity": 0}
+      }
+    ]
+  }
+}

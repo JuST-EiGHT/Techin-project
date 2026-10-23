@@ -5,7 +5,7 @@ from app.models.sync_run import SyncRun  # noqa: F401
 from app.models.warehouse import ProductStock, Warehouse  # noqa: F401
 from app.models.accrual import Accrual, AccrualDay, AccrualType  # noqa: F401
 from app.models.promotion import Promotion, PromotionPriceSnapshot, PromotionProduct  # noqa: F401
-from app.models.report import Report, ReportFile  # noqa: F401
+from app.models.report import OzonDocument, Report, ReportFile  # noqa: F401
 from app.models.user_settings import UserSettings  # noqa: F401
 from app.models.product_cost import ProductCost  # noqa: F401
 from app.models.tax_profile import TaxPlanFreeze, TaxProfile  # noqa: F401

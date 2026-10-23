@@ -280,7 +280,7 @@ async def _reports(db: AsyncSession, c: Ctx, errors: bool) -> tuple[list[ef.Even
                for r in rows]
     else:
         out = [ef.report_uploaded(f"report:{r.id}", ef.utc(r.uploaded_at), str(r.id), _report_name(r),
-                                  r.report_type == "accrual") for r in rows]
+                                  r.report_type == "accrual", r.source == "api") for r in rows]
     return out, len(rows) == c.k
 
 

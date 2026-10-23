@@ -199,9 +199,9 @@ def report_error(key: str, at: datetime, report_id: str, name: str, message: str
                  f"/dashboard/analytics/reports/{report_id}", "Отчёт")
 
 
-def report_uploaded(key: str, at: datetime, report_id: str, name: str, accrual: bool) -> Event:
-    return Event(key, at, ACTION, f"Загружен отчёт {name}",
-                 "отчёт по начислениям" if accrual else "отчёт о реализации", None, None,
+def report_uploaded(key: str, at: datetime, report_id: str, name: str, accrual: bool, api: bool = False) -> Event:
+    what = "отчёт по начислениям" if accrual else "отчёт о реализации"
+    return Event(key, at, ACTION, f"{'Получен через API' if api else 'Загружен'} отчёт {name}", what, None, None,
                  f"/dashboard/analytics/reports/{report_id}", "Отчёт")
 
 
@@ -283,6 +283,8 @@ ACTIONS: dict[tuple[str, str], Action] = {
     ("POST", f"{P}/bank/statements/upload"): Action("Загружена выписка банка", "/dashboard/operations/accounts", "Счета"),
     ("POST", f"{P}/bank/matches/merge"): Action("Объединены дубли операций", "/dashboard/operations", "Операции"),
     ("POST", f"{P}/bank/matches/dismiss"): Action("Операции отмечены разными", "/dashboard/operations", "Операции"),
+    ("POST", f"{P}/reports/documents"): Action("Запрошен документ Ozon", "/dashboard/finance/documents?tab=documents",
+                                              "Документы"),
 }
 REPORT_UPLOAD = ("POST", f"{P}/reports/upload")  # загрузка — событие отчёта; не загрузился — ошибка загрузки
 # не события ленты: вход и токены; «Обновить» (синхронизация — свои события); предпросмотры и расчёты (в журнал не
@@ -304,7 +306,8 @@ IGNORED: set[tuple[str, str]] = {
     ("POST", f"{P}/anomalies/acknowledge-all"), ("POST", f"{P}/anomalies/{{anomaly_id}}/acknowledge"),
     ("POST", f"{P}/recommendations/hide"), ("POST", f"{P}/recommendations/unhide"),
     ("POST", f"{P}/notifications/link-code"), ("POST", f"{P}/notifications/test"),
-    ("POST", f"{P}/reports/parse"),
+    ("POST", f"{P}/reports/parse"), ("POST", f"{P}/reports/fetch"),
+    ("POST", f"{P}/reports/documents/{{doc_id}}/refresh"),
     ("POST", f"{P}/costs/import/errors"), ("POST", f"{P}/tax-profile/preview"),
     ("POST", f"{P}/planning/operations/import/errors"), ("POST", f"{P}/planning/plans/import/errors"),
     ("POST", f"{P}/planning/rules/preview"),
