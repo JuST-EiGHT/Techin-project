@@ -127,7 +127,11 @@ export function LeadersBlock({ filter }: { filter: AnalyticsFilter }) {
           <span className="text-xs text-muted">
             {short(data.date_from)}–{short(data.date_to)}
           </span>
-          <Link href={`${pnl(data.date_from, data.date_to)}&tab=products`} className="ml-auto text-sm text-accent hover:underline" data-testid="leaders-profit-more">
+          <Link
+            href={`/dashboard/analytics/profit?period=custom&from=${data.date_from}&to=${data.date_to}`}
+            className="ml-auto text-sm text-accent hover:underline"
+            data-testid="leaders-profit-more"
+          >
             Подробнее →
           </Link>
         </div>

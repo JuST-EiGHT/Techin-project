@@ -19,14 +19,14 @@ import { useSyncStatus } from '@/lib/sync'
 
 const range = (from: string, to: string) => `period=custom&from=${from}&to=${to}`
 
-/** Куда ведут показатели — по тому, что уже сделано: выручка, заказы и продажи — «Аналитика продаж» (10.8), прибыль —
- * P&L («Аналитика прибыльности» 10.9 заменит). */
+/** Куда ведут показатели: выручка, заказы и продажи — «Аналитика продаж» (10.8), прибыль и маржа — «Аналитика
+ * прибыльности» (10.9). */
 export const METRIC_LINKS: Partial<Record<MetricKey, (from: string, to: string) => string>> = {
   revenue: (from, to) => `/dashboard/analytics/sales?${range(from, to)}`,
   orders: (from, to) => `/dashboard/analytics/sales?${range(from, to)}`,
   sold_qty: (from, to) => `/dashboard/analytics/sales?${range(from, to)}`,
-  profit: (from, to) => `/dashboard/finance/pnl?${range(from, to)}`,
-  margin: (from, to) => `/dashboard/finance/pnl?${range(from, to)}`,
+  profit: (from, to) => `/dashboard/analytics/profit?${range(from, to)}`,
+  margin: (from, to) => `/dashboard/analytics/profit?${range(from, to)}`,
 }
 
 const short = (iso: string) => fmtDay(iso).slice(0, 5)

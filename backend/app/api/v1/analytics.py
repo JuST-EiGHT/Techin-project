@@ -1,5 +1,5 @@
 """Основа аналитики (шаг 10.3): показатели текущего магазина за период, категории и товары для фильтров; лучшие и
-худшие товары «Обзора бизнеса» (шаг 10.7)."""
+худшие товары «Обзора бизнеса» (шаг 10.7); продажи (10.8); структура расходов и её разбор (10.9)."""
 import uuid
 from datetime import date
 
@@ -8,10 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.analytics import Category, Leaders, Metrics, ProductOption, SalesEvent, SalesTable
+from app.schemas.analytics import (
+    Category, Leaders, Metrics, ProductOption, ProfitGroupDetail, ProfitLines, ProfitStructure, SalesEvent, SalesTable,
+)
 from app.core.files import attachment
 from app.services import analytics as svc
-from app.services import sales_analytics
+from app.services import profit_analytics, sales_analytics
 from app.services.stores import get_current_store
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
@@ -97,6 +99,40 @@ async def export_sales(q: dict = Depends(_filter_query), user: User = Depends(ge
         sales_analytics.to_xlsx(data, what), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         f"Продажи {q['date_from']:%d.%m.%Y}–{q['date_to']:%d.%m.%Y}.xlsx", "sales.xlsx",
     )
+
+
+@router.get("/profit/structure", response_model=ProfitStructure)
+async def get_profit_structure(q: dict = Depends(_filter_query), user: User = Depends(get_current_store),
+                               db: AsyncSession = Depends(get_db)):
+    """«Аналитика прибыльности»: выручка, расходы по группам (себестоимость, комиссии, логистика, реклама, хранение,
+    возвраты, прочее), прибыль до налога и маржа — и прошлый сопоставимый период. По магазину сумма групп = выручка −
+    прибыль до налога P&L; по товарам — их строки «Прибыли по товарам»."""
+    try:
+        return await profit_analytics.structure(db, user.id, **q)
+    except svc.AnalyticsError as exc:
+        raise HTTPException(exc.code, exc.message) from None
+
+
+@router.get("/profit/group", response_model=ProfitGroupDetail)
+async def get_profit_group(key: str = Query(..., description="Группа расходов из /profit/structure"),
+                           q: dict = Depends(_filter_query), user: User = Depends(get_current_store),
+                           db: AsyncSession = Depends(get_db)):
+    """Группа расходов → товары, на которые она пришлась, и начисления группы без товара."""
+    try:
+        return await profit_analytics.group_detail(db, user.id, key=key, **q)
+    except svc.AnalyticsError as exc:
+        raise HTTPException(exc.code, exc.message) from None
+
+
+@router.get("/profit/lines", response_model=ProfitLines)
+async def get_profit_lines(date_from: date, date_to: date,
+                           offer_id: str = Query(..., min_length=1, max_length=100, description="Артикул товара"),
+                           user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
+    """Исходные строки начислений товара за период: дата, статья, сумма, ID начисления, источник — API или отчёт."""
+    try:
+        return await profit_analytics.product_lines(db, user.id, date_from, date_to, offer_id)
+    except svc.AnalyticsError as exc:
+        raise HTTPException(exc.code, exc.message) from None
 
 
 @router.get("/categories", response_model=list[Category])

@@ -28,6 +28,11 @@ export const NAV: NavSection[] = [
         description: 'Заказы, продажи, возвраты и средняя цена по дням, товарам и с событиями — цена, акции, остатки',
       },
       {
+        href: '/dashboard/analytics/profit',
+        label: 'Аналитика прибыльности',
+        description: 'Выручка, расходы и прибыль, на что ушли деньги, товары в минус и с низкой маржой — до начислений Ozon',
+      },
+      {
         href: '/dashboard/analytics/reports',
         label: 'Отчёты Ozon и загрузка',
         description: 'Недельные и месячные отчёты Ozon: загрузить XLSX, история, P&L по отчёту',

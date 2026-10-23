@@ -13,10 +13,10 @@ from app.core.files import attachment
 from app.models.user_settings import COST_LABELS
 from app.schemas.pnl import PeriodPnL, PnLByDay, PnLPeriods, ProductsPage, Source
 from app.services import pnl_service as svc
-from app.services import product_pnl
+from app.services import analytics, product_pnl
 from app.services import reports as reports_svc
 from app.services.stores import get_current_store
-from app.services.user_settings import get_settings
+from app.services.user_settings import get_settings, load_low_margin
 from app.services.sync.finance import today_msk
 
 router = APIRouter(prefix="/pnl", tags=["pnl"])
@@ -86,14 +86,32 @@ async def get_pnl_by_product(
     order: Literal["asc", "desc"] = Query("desc"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    filter_: list[Literal["loss", "low_margin", "no_cost"]] = Query(
+        default_factory=list, alias="filter", description="loss — прибыль < 0, low_margin — маржа ниже порога, no_cost — без себестоимости"),
+    product_id: list[uuid.UUID] = Query(default_factory=list, description="Только эти товары («Аналитика прибыльности»)"),
+    category_id: int | None = Query(None, description="Только товары категории; 0 — «Без категории»"),
     user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
     """Прибыль по товарам: продано, выручка, комиссия, логистика, прочее, себестоимость, прибыль до налога, маржа.
-    Начисления без товара — в «Не распределено»; итоги — по всем товарам периода."""
+    Начисления без товара — в «Не распределено»; итоги — по всем товарам периода. Быстрые фильтры и выбор товаров или
+    категории — для «Аналитики прибыльности» (10.9); filter_counts — числа у кнопок, low_margin — порог."""
     value = await _products(db, user, req, report_id)
-    rows = product_pnl.select_rows(value["items"], search, sort, order)
-    return {**value, "items": rows[offset:offset + limit], "total": len(rows), "limit": limit, "offset": offset}
+    offers = await _filter_offers(db, user, product_id, category_id)
+    low = await load_low_margin(db, user.id)
+    picked = product_pnl.filter_rows(value["items"], filter_, low, offers)
+    rows = product_pnl.select_rows(picked, search, sort, order)
+    return {**value, "items": rows[offset:offset + limit], "total": len(rows), "limit": limit, "offset": offset,
+            "filter_counts": product_pnl.filter_counts(value["items"], low, offers), "low_margin": low}
+
+
+async def _filter_offers(db: AsyncSession, user: User, product_ids: list[uuid.UUID], category_id: int | None):
+    """Артикулы выбранных товаров или категории; ничего не выбрано — None (все). Чужой товар — 404."""
+    try:
+        products = await analytics._products(db, user.id, product_ids, category_id)
+    except analytics.AnalyticsError as exc:
+        raise HTTPException(exc.code, exc.message) from None
+    return None if products is None else {p.offer_id for p in products}
 
 
 @router.get("/by-product/export", response_class=Response)
@@ -103,12 +121,17 @@ async def export_pnl_by_product(
     search: str | None = Query(None, max_length=100),
     sort: SortField = Query("revenue"),
     order: Literal["asc", "desc"] = Query("desc"),
+    filter_: list[Literal["loss", "low_margin", "no_cost"]] = Query(default_factory=list, alias="filter"),
+    product_id: list[uuid.UUID] = Query(default_factory=list),
+    category_id: int | None = Query(None),
     user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
-    """Таблица «По товарам» в CSV для Excel — все строки по тому же поиску и сортировке."""
+    """Таблица «По товарам» в CSV для Excel — все строки по тому же поиску, фильтрам и сортировке."""
     value = await _products(db, user, req, report_id)
-    rows = product_pnl.select_rows(value["items"], search, sort, order)
+    offers = await _filter_offers(db, user, product_id, category_id)
+    picked = product_pnl.filter_rows(value["items"], filter_, await load_low_margin(db, user.id), offers)
+    rows = product_pnl.select_rows(picked, search, sort, order)
     if value["cost_basis"] == product_pnl.WITHOUT_VAT:
         cost_title = "Себестоимость без НДС, руб."
     else:

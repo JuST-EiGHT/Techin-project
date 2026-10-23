@@ -184,6 +184,30 @@ def select_rows(items: list[dict], search: str | None, sort: str, order: str) ->
     return present + sorted(empty, key=lambda i: i["offer_id"])
 
 
+# быстрые фильтры «Аналитики прибыльности» (10.9): прибыль < 0, маржа ниже порога «низкой маржи» (7.1), нет себестоимости
+LOSS, LOW_MARGIN, NO_COST = "loss", "low_margin", "no_cost"
+FILTERS = (LOSS, LOW_MARGIN, NO_COST)
+
+
+def passes(item: dict, kind: str, low_margin: Decimal) -> bool:
+    if kind == LOSS:
+        return item["profit"] is not None and Decimal(item["profit"]) < 0
+    if kind == LOW_MARGIN:  # и в минусе тоже — маржа ниже порога
+        return item["margin"] is not None and Decimal(item["margin"]) < low_margin
+    return bool(item["cost_missing"])
+
+
+def filter_rows(items: list[dict], kinds: list[str], low_margin: Decimal, offers: set[str] | None = None) -> list[dict]:
+    """Товары фильтра (None — все) и все условия kinds сразу."""
+    return [i for i in items if (offers is None or i["offer_id"] in offers) and all(passes(i, k, low_margin) for k in kinds)]
+
+
+def filter_counts(items: list[dict], low_margin: Decimal, offers: set[str] | None = None) -> dict[str, int]:
+    """Сколько товаров у каждого быстрого фильтра — числа у кнопок."""
+    scope = filter_rows(items, [], low_margin, offers)
+    return {"all": len(scope), **{k: sum(passes(i, k, low_margin) for i in scope) for k in FILTERS}}
+
+
 CSV_COLUMNS = [
     ("offer_id", "Артикул"), ("name", "Название"), ("sku", "SKU"), ("qty", "Продано, шт."),
     ("revenue", "Выручка, руб."), ("avg_price", "Средняя цена, руб."), ("commission", "Комиссия, руб."),

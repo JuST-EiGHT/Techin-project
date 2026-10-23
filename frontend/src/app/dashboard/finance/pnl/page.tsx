@@ -217,11 +217,21 @@ function Finance() {
           </>
         ) : (
           <>
-            <div className="text-sm">
-              <span className="font-semibold" data-testid="range-label">
-                {fmtDay(range.from)} – {fmtDay(range.to)}
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
+              <span>
+                <span className="font-semibold" data-testid="range-label">
+                  {fmtDay(range.from)} – {fmtDay(range.to)}
+                </span>
+                <span className="text-muted"> · {daysWord(daysCount(range))}</span>
               </span>
-              <span className="text-muted"> · {daysWord(daysCount(range))}</span>
+              <Link
+                href={`/dashboard/analytics/profit?period=custom&from=${range.from}&to=${range.to}`}
+                className="ml-auto text-accent hover:underline"
+                data-testid="products-analytics-link"
+                title="Структура расходов, товары в минус и с низкой маржой, исходные строки начислений"
+              >
+                Аналитика прибыльности →
+              </Link>
             </div>
             <ProductsView
               key={`${range.from}:${range.to}`}

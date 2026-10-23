@@ -191,3 +191,5 @@ class ProductsPage(BaseModel):
     period_total: Decimal  # все начисления периода = товары + не распределено
     period_by_type: dict[str, Decimal] = {}  # все начисления периода по статьям: удержания — первыми
     warnings: list[str]
+    filter_counts: dict[str, int] = {}  # «Аналитика прибыльности» (10.9): all, loss, low_margin, no_cost
+    low_margin: Decimal | None = None  # порог «низкой маржи», % (настройка 7.1)

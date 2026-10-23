@@ -218,3 +218,85 @@ class SalesEvent(BaseModel):
     count: int  # товаров в событии (в items — до 10)
     link: str
     items: list[SalesEventItem]
+
+
+# ── «Аналитика прибыльности» (шаг 10.9) ──
+class ProfitType(BaseModel):
+    name: str  # статья начислений Ozon
+    amount: str  # расход, ₽ (минус — Ozon доплатил)
+
+
+class ProfitGroup(BaseModel):
+    key: str  # cost | commission | logistics | ads | storage | returns | other | adjustment
+    title: str
+    amount: str
+    share: str | None  # доля выручки, %
+    prev_amount: str | None
+    types: list[ProfitType]
+
+
+class ProfitPrevious(BaseModel):
+    date_from: str
+    date_to: str
+    revenue: str | None = None
+    expenses: str | None = None
+    profit: str | None = None
+    margin: str | None = None
+
+
+class ProfitStructure(BaseModel):
+    date_from: str
+    date_to: str
+    scope: str  # store — весь магазин (как P&L), products — выбранные товары или категория
+    has_data: bool
+    revenue: str | None
+    expenses: str | None  # = выручка − прибыль до налога
+    profit: str | None  # прибыль до налога
+    margin: str | None
+    missing_cost: int  # товаров с продажами без себестоимости — расходы неполные
+    net: str | None  # прибыль после налога и НДС — магазин целиком, налоговый профиль задан (P&L)
+    groups: list[ProfitGroup]
+    previous: ProfitPrevious | None
+
+
+class ProfitGroupProduct(BaseModel):
+    id: str | None
+    offer_id: str
+    name: str
+    amount: str
+    revenue: str
+    share: str | None  # доля выручки товара, %
+
+
+class ProfitGroupDetail(BaseModel):
+    key: str
+    title: str
+    products: list[ProfitGroupProduct]
+    unallocated: str | None  # начисления группы без товара — только по магазину целиком
+
+
+class ProfitLineReport(BaseModel):
+    id: str
+    filename: str
+    period: str
+
+
+class ProfitLine(BaseModel):
+    day: str
+    type_name: str
+    group: str
+    amount: str  # как в начислениях: + доход, − расход
+    quantity: int | None
+    posting_number: str | None  # ID начисления / номер отправления Ozon
+    via_posting: bool  # товар определён по номеру отправления
+    source: str | None  # api | xlsx
+    report: ProfitLineReport | None
+
+
+class ProfitLines(BaseModel):
+    offer_id: str
+    date_from: str
+    date_to: str
+    total: str  # = «начислено Ozon» товара в «Прибыли по товарам»
+    count: int  # строк всего (в lines — до 500)
+    lines: list[ProfitLine]

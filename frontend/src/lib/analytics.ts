@@ -197,7 +197,7 @@ export function pointTitle(p: { date_from: string; date_to: string }, g: Granula
 
 // ── рамка «Аналитики» (шаг 10.7): общий фильтр переходит между подразделами по вкладкам ──
 /** Подразделы, которые берут общий фильтр (10.8–10.10 добавят свои адреса). */
-export const FILTER_PAGES = ['/dashboard/analytics', '/dashboard/analytics/sales']
+export const FILTER_PAGES = ['/dashboard/analytics', '/dashboard/analytics/sales', '/dashboard/analytics/profit']
 export const FILTER_EVENT = 'analytics-filter'
 const FILTER_STORE = 'analytics-filter'
 
