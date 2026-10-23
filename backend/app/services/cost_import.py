@@ -334,9 +334,11 @@ async def import_costs(
 TEMPLATE_NAMES = {"all": "все товары", "missing": "без себестоимости", "empty": "пустой шаблон"}
 
 
-async def cost_template(db: AsyncSession, user_id: uuid.UUID, rows_kind: RowsKind, fmt: str) -> bytes:
+async def cost_template(db: AsyncSession, user_id: uuid.UUID, rows_kind: RowsKind, fmt: str,
+                        offers: set[str] | None = None) -> bytes:
     """Шаблон с товарами пользователя: all — все с текущими ценами (это и выгрузка справочника),
-    missing — только без себестоимости, empty — без строк. «Действует с» пустая: новая цена — с сегодня."""
+    missing — только без себестоимости, empty — без строк. «Действует с» пустая: новая цена — с сегодня.
+    offers — только эти артикулы (выбранные на странице «Все товары», 10.13)."""
     rows: list[dict[str, Any]] = []
     if rows_kind != "empty":
         history = await load_cost_history(db, user_id)
@@ -345,6 +347,8 @@ async def cost_template(db: AsyncSession, user_id: uuid.UUID, rows_kind: RowsKin
         for info in (await known_articles(db, user_id, history)).values():
             current = history.record_at(info.offer_id, today)
             if rows_kind == "missing" and current is not None:
+                continue
+            if offers is not None and info.offer_id not in offers:
                 continue
             items.append((info, current))
         # как на странице: без себестоимости и самые продаваемые — первыми

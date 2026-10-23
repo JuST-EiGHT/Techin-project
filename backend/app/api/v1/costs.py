@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.files import attachment
@@ -20,7 +21,9 @@ from app.schemas.costs import (
     ImportCounts,
     ImportResponse,
     ImportRowOut,
+    SelectedTemplate,
 )
+from app.models.product import Product
 from app.services import audit
 from app.services import costs as svc
 from app.services.stores import get_current_store
@@ -92,6 +95,19 @@ async def download_template(
     """Шаблон себестоимости с товарами пользователя: скачал → заполнил → загрузил в /import."""
     content = await cost_template(db, user.id, rows, fmt)
     return _file(content, fmt, f"Себестоимость — {TEMPLATE_NAMES[rows]} {today_msk():%d.%m.%Y}", "costs")
+
+
+@router.post("/template/selected", response_class=Response, dependencies=[Depends(audit.read_only)])
+async def selected_template(data: SelectedTemplate, user: User = Depends(get_current_store),
+                            db: AsyncSession = Depends(get_db)):
+    """Шаблон себестоимости только по выбранным товарам («Все товары» → «Заполнить себестоимость», шаг 10.13):
+    скачал → заполнил → загрузил в /import, как обычный шаблон."""
+    offers = set((await db.execute(select(Product.offer_id).where(
+        Product.user_id == user.id, Product.id.in_(data.product_ids)))).scalars())
+    if not offers:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Выбранных товаров нет в этом магазине")
+    content = await cost_template(db, user.id, "all", data.format, offers)
+    return _file(content, data.format, f"Себестоимость — выбранные товары {today_msk():%d.%m.%Y}", "costs")
 
 
 @router.put("/{offer_id:path}", response_model=CostSaved)

@@ -4,6 +4,10 @@
 остаток — последние снимки по складам (1.3), продажи в день и дни запаса — `sales_daily` (3.5), себестоимость —
 справочник на сегодня (2.3), акции — текущее участие (1.5). Маржа — калькулятор цены (шаг 4.2,
 services/pricing). Чего нет — null, а не 0 (правила 5 и 12).
+
+«Все товары» (10.13): продано, выручка и прибыль до налога за выбранный период — «Прибыль по товарам» (3.4, те же
+цифры, что в аналитике 10.3 и 10.9); за период без начислений — null, товар без продаж при данных — 0. Индикаторы
+проблем — `engine/products.problem_flags`; «цена изменилась» — последний снимок с другой ценой за 7 дней.
 """
 import csv
 import io
@@ -14,6 +18,7 @@ from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.engine import anomaly_detector
 from app.engine import price_calculator as calc
@@ -25,10 +30,11 @@ from app.models.promotion import Promotion, PromotionProduct
 from app.models.warehouse import ProductStock, Warehouse
 from app.schemas.products import ProductPromo
 from app.schemas.sync import utc
-from app.services import pricing
+from app.services import pnl_service, pricing
+from app.services import product_pnl as pnl_products
 from app.services.sales import last_sales
 from app.services.stocks import avg_daily_sales, latest_stocks
-from app.services.sync.finance import MSK
+from app.services.sync.finance import MSK, today_msk
 from app.services.user_settings import load_low_margin, load_thresholds
 
 MARGIN_NOTE = (
@@ -60,6 +66,9 @@ class Context:
     last_sale: dict[str, date] = field(default_factory=dict)
     thresholds: Thresholds = DEFAULT_THRESHOLDS  # пороги статуса остатка пользователя (шаг 5.1)
     low_margin: Decimal = anomaly_detector.DEFAULT_THRESHOLDS.low_margin  # порог «низкой маржи» пользователя, % (7.1)
+    period: dict[str, dict] = field(default_factory=dict)  # артикул → строка «Прибыли по товарам» за период (10.13)
+    period_known: bool = False  # за период есть начисления — товар без строки продал 0
+    price_changes: dict[uuid.UUID, tuple[date, Decimal, Decimal]] = field(default_factory=dict)  # недавняя смена цены
 
     @property
     def today(self) -> date:
@@ -75,7 +84,43 @@ async def _has_stocks(db: AsyncSession, user_id: uuid.UUID) -> bool:
     return found is not None
 
 
-async def load_context(db: AsyncSession, user_id: uuid.UUID, products: list[Product], one: Product | None = None) -> Context:
+def default_period(today: date | None = None) -> tuple[date, date]:
+    """30 дней по сегодня — как «30 дней» в аналитике."""
+    today = today or today_msk()
+    return today - timedelta(days=29), today
+
+
+async def recent_price_changes(db: AsyncSession, user_id: uuid.UUID, today: date,
+                               product_id: uuid.UUID | None = None) -> dict[uuid.UUID, tuple[date, Decimal, Decimal]]:
+    """Товар → (день, было, стало): последний снимок за 7 дней с другой ценой, чем в снимке перед ним."""
+    start = datetime.combine(today - timedelta(days=engine.RECENT_PRICE_DAYS - 1), time(), MSK).astimezone(timezone.utc)
+    prev = aliased(ProductPrice)
+    before = (select(prev.price).where(prev.product_id == ProductPrice.product_id, prev.snapshot_at < ProductPrice.snapshot_at)
+              .order_by(prev.snapshot_at.desc()).limit(1).correlate(ProductPrice).scalar_subquery())
+    q = (select(ProductPrice.product_id, ProductPrice.snapshot_at, ProductPrice.price, before)
+         .join(Product, Product.id == ProductPrice.product_id)
+         .where(Product.user_id == user_id, ProductPrice.snapshot_at >= start)
+         .order_by(ProductPrice.snapshot_at))
+    if product_id is not None:
+        q = q.where(ProductPrice.product_id == product_id)
+    out = {}
+    for pid, at, price, was in await db.execute(q):
+        if price and was and price > 0 and was > 0 and price != was:
+            out[pid] = (_msk_day(at), money(was), money(price))  # по времени — остаётся последняя смена
+    return out
+
+
+async def load_period(db: AsyncSession, user_id: uuid.UUID, date_from: date, date_to: date) -> tuple[dict[str, dict], dict]:
+    """Строки «Прибыли по товарам» за период по артикулу и что известно о периоде (источник, дни с данными)."""
+    value = await pnl_products.compute(db, user_id, pnl_service.PnLRequest(date_from, date_to))
+    cov = value["coverage"]
+    info = {"date_from": date_from, "date_to": date_to, "data_source": value["data_source"],
+            "days_total": cov["days_total"], "missing_days": cov["missing_days"]}
+    return {r["offer_id"]: r for r in value["items"]}, info
+
+
+async def load_context(db: AsyncSession, user_id: uuid.UUID, products: list[Product], one: Product | None = None,
+                       period: tuple[date, date] | None = None) -> Context:
     stocks: dict[uuid.UUID, tuple[int, int | None]] = {}
     snapshots = await latest_stocks(db, user_id, product_id=one.id if one else None)
     for stock, product, _ in snapshots:
@@ -84,6 +129,7 @@ async def load_context(db: AsyncSession, user_id: uuid.UUID, products: list[Prod
             transit = (transit or 0) + stock.in_transit
         stocks[product.id] = (present + max(stock.present or 0, 0), transit)
     sales = await avg_daily_sales(db, user_id)  # собирает sales_daily при первом чтении — раньше, чем last_sale
+    rows, info = await load_period(db, user_id, *(period or default_period()))
     return Context(
         pricing=await pricing.load(db, user_id, products),
         stocks=stocks,
@@ -93,6 +139,8 @@ async def load_context(db: AsyncSession, user_id: uuid.UUID, products: list[Prod
         last_sale=await last_sales(db, user_id, one.offer_id if one else None),
         thresholds=await load_thresholds(db, user_id),
         low_margin=await load_low_margin(db, user_id),
+        period=rows, period_known=info["data_source"] != "none",
+        price_changes=await recent_price_changes(db, user_id, today_msk(), one.id if one else None),
     )
 
 
@@ -120,7 +168,7 @@ def build_row(ctx: Context, p: Product) -> dict:
         )
         for r, promo in ctx.promos.get(p.id, [])
     ]
-    return {
+    row = {
         "id": p.id, "offer_id": p.offer_id, "name": p.name, "ozon_sku": p.ozon_sku, "ozon_product_id": p.ozon_product_id,
         "is_archived": p.is_archived,
         "price": money(price), "old_price": money(engine.positive(snap.old_price)) if snap else None,
@@ -137,12 +185,28 @@ def build_row(ctx: Context, p: Product) -> dict:
         "price_index": engine.price_index_level(snap.price_index) if snap else None,
         "promotions": promos,
         "last_sale": ctx.last_sale.get(p.offer_id),
+        **_period_cells(ctx, p),
     }
+    row["flags"] = engine.problem_flags(row, ctx.low_margin, ctx.price_changes.get(p.id))
+    return row
 
 
-async def product_rows(db: AsyncSession, user_id: uuid.UUID) -> tuple[list[dict], Context]:
+def _period_cells(ctx: Context, p: Product) -> dict:
+    """Продано, выручка, прибыль до налога за период: нет начислений за период — null; товар без продаж — 0; прибыль
+    без себестоимости — null (правило 5)."""
+    r = ctx.period.get(p.offer_id)
+    if r is None:
+        zero = Decimal(0) if ctx.period_known else None
+        return {"sold_qty": 0 if ctx.period_known else None, "revenue": money(zero), "period_profit": money(zero)}
+    profit = r["profit"]
+    return {"sold_qty": r["qty"], "revenue": money(Decimal(r["revenue"])),
+            "period_profit": None if profit is None else money(Decimal(profit))}
+
+
+async def product_rows(db: AsyncSession, user_id: uuid.UUID,
+                       period: tuple[date, date] | None = None) -> tuple[list[dict], Context]:
     products = list((await db.execute(select(Product).where(Product.user_id == user_id))).scalars())
-    ctx = await load_context(db, user_id, products)
+    ctx = await load_context(db, user_id, products, period=period)
     return [build_row(ctx, p) for p in products], ctx
 
 
@@ -177,7 +241,8 @@ CSV_COLUMNS = [
     ("stock", "Остаток, шт."), ("in_transit", "В пути, шт."), ("avg_daily_sales", "Продажи в день, шт."),
     ("days_of_supply", "Дней запаса"), ("stock_status", "Остаток"), ("unit_profit", "Остаётся с 1 шт., руб."),
     ("margin", "Маржа, %"), ("price_index", "Индекс цены"), ("promotions", "Акции"),
-    ("last_sale", "Последняя продажа"), ("is_archived", "В архиве"),
+    ("last_sale", "Последняя продажа"), ("sold_qty", "Продано за период, шт."), ("revenue", "Выручка за период, руб."),
+    ("period_profit", "Прибыль до налога за период, руб."), ("flags", "Проблемы"), ("is_archived", "В архиве"),
 ]
 
 
@@ -190,6 +255,8 @@ def _cell(key: str, v) -> str:
         return INDEX_TEXT.get(v, v)
     if key == "promotions":
         return ", ".join(p.title for p in v)
+    if key == "flags":
+        return "; ".join(f["text"] for f in v)
     if key == "is_archived":
         return "да" if v else ""
     if isinstance(v, date):

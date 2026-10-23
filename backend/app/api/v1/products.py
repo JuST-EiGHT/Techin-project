@@ -1,5 +1,7 @@
-"""Товары (шаг 4.1): таблица с ценой, комиссией, себестоимостью, остатком, маржой и акциями; CSV; карточка."""
+"""Товары (шаг 4.1): таблица с ценой, комиссией, себестоимостью, остатком, маржой и акциями; CSV; карточка.
+«Все товары» (10.13): продажи, выручка, прибыль за период, индикаторы проблем, выбор всех по фильтру, выгрузка выбранных."""
 import uuid
+from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -7,9 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.files import attachment
 from app.db.session import get_db
-from app.engine.products import FILTERS, SORTS
+from app.engine.products import FILTERS, SORTS, sort_rows
 from app.models.user import User
-from app.schemas.products import ProductDetail, ProductsPage
+from app.schemas.products import ProductDetail, ProductIds, ProductsPage, SelectedRequest
+from app.services import audit
 from app.services import products as svc
 from app.services.stores import get_current_store
 from app.services.stocks import SALES_WINDOW_DAYS
@@ -35,8 +38,20 @@ def _filters(text: str | None) -> set[str]:
     return chosen
 
 
-async def _selected(db: AsyncSession, user: User, search, filters, archived, sort, order):
-    rows, ctx = await svc.product_rows(db, user.id)
+def _period(date_from: date | None, date_to: date | None) -> tuple[date, date]:
+    """Период продаж, выручки и прибыли: не задан — 30 дней по сегодня; не больше года."""
+    default_from, default_to = svc.default_period()
+    d_to = date_to or default_to
+    d_from = date_from or d_to - (default_to - default_from)  # 30 дней, заканчивая концом периода
+    if d_from > d_to:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Период: дата начала позже даты окончания")
+    if (d_to - d_from).days + 1 > 366:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Период: не больше года")
+    return d_from, d_to
+
+
+async def _selected(db: AsyncSession, user: User, search, filters, archived, sort, order, period=None):
+    rows, ctx = await svc.product_rows(db, user.id, period)
     chosen, counts = svc.select_rows(
         rows, search=(search or "").strip() or None, filters=_filters(filters), archived=archived, sort=sort, order=order
     )
@@ -52,15 +67,42 @@ async def list_products(
     order: Order = Query("asc"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    date_from: date | None = Query(None, description="Начало периода продаж, выручки и прибыли; нет — 30 дней по сегодня"),
+    date_to: date | None = Query(None),
     user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
-    rows, counts, ctx = await _selected(db, user, search, filters, archived, sort, order)
+    period = _period(date_from, date_to)
+    rows, counts, ctx = await _selected(db, user, search, filters, archived, sort, order, period)
+    _, info = await svc.load_period(db, user.id, *period)
     return ProductsPage(
         items=rows[offset:offset + limit], total=len(rows), limit=limit, offset=offset, counts=counts,
         sales_known=bool(ctx.sales), stocks_known=ctx.stocks_known, sales_window_days=SALES_WINDOW_DAYS,
-        margin_note=svc.MARGIN_NOTE,
+        margin_note=svc.MARGIN_NOTE, period=info,
     )
+
+
+@router.get("/ids", response_model=ProductIds)
+async def product_ids(
+    search: str | None = Query(None, max_length=100),
+    filters: str | None = Query(None, description=_FILTER_HELP),
+    archived: bool = Query(False),
+    user: User = Depends(get_current_store),
+    db: AsyncSession = Depends(get_db),
+):
+    """Все товары по поиску и фильтрам (без страниц) — «выбрать все по фильтру» для групповых действий."""
+    rows, _, _ = await _selected(db, user, search, filters, archived, "offer_id", "asc")
+    return ProductIds(ids=[r["id"] for r in rows], total=len(rows))
+
+
+@router.post("/export/selected", response_class=Response, dependencies=[Depends(audit.read_only)])
+async def export_selected(data: SelectedRequest, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
+    """Выбранные товары в CSV — все колонки, порядок — по артикулу; чужие и несуществующие id пропускаются."""
+    rows, _ = await svc.product_rows(db, user.id, _period(data.date_from, data.date_to))
+    wanted = set(data.product_ids)
+    chosen = sort_rows([r for r in rows if r["id"] in wanted], "offer_id", "asc")
+    return attachment(svc.to_csv(chosen), "text/csv; charset=utf-8", f"Товары — выбранные {today_msk():%d.%m.%Y}.csv",
+                      "products.csv")
 
 
 @router.get("/export", response_class=Response)
@@ -70,11 +112,13 @@ async def export_products(
     archived: bool = Query(False),
     sort: Sort = Query("offer_id"),
     order: Order = Query("asc"),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
     user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
-    """Те же товары, что на странице (поиск, фильтры, сортировка), — все строки, все колонки."""
-    rows, _, _ = await _selected(db, user, search, filters, archived, sort, order)
+    """Те же товары, что на странице (поиск, фильтры, сортировка, период), — все строки, все колонки."""
+    rows, _, _ = await _selected(db, user, search, filters, archived, sort, order, _period(date_from, date_to))
     return attachment(svc.to_csv(rows), "text/csv; charset=utf-8", f"Товары {today_msk():%d.%m.%Y}.csv", "products.csv")
 
 

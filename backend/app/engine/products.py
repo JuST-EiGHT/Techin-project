@@ -1,11 +1,14 @@
 """Страница товаров (шаг 4.1): индекс цены, цена по дням, фильтры и сортировка. Чистые функции — без БД и HTTP.
 
-Маржа при текущей цене — калькулятор цены (шаг 4.2, engine/price_calculator.py).
+Маржа при текущей цене — калькулятор цены (шаг 4.2, engine/price_calculator.py). «Все товары» (10.13): продажи, выручка
+и прибыль за период, индикаторы проблем строки (`problem_flags`).
 """
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Callable
+
+from app.engine.anomaly_text import num, rub
 
 _CENT = Decimal("0.01")
 
@@ -19,7 +22,11 @@ NEGATIVE, LOW_STOCK, CRITICAL_STOCK, IN_PROMO, NO_COST = "negative", "low_stock"
 FILTERS = (NEGATIVE, LOW_STOCK, CRITICAL_STOCK, IN_PROMO, NO_COST)
 
 SORTS = ("offer_id", "name", "price", "min_price", "commission", "cost", "stock", "days", "margin", "index", "promo",
-         "last_sale")
+         "last_sale", "sold", "revenue", "profit")
+
+# Индикаторы проблем строки (10.13): значок с подсказкой у товара
+LOSS, LOW_MARGIN, LOW_STOCK_FLAG, NO_COST_FLAG, PRICE_CHANGED = "loss", "low_margin", "low_stock", "no_cost", "price_changed"
+RECENT_PRICE_DAYS = 7  # «недавно изменилась цена» — за столько дней
 
 
 def price_index_level(raw: str | None) -> str | None:
@@ -121,6 +128,9 @@ _SORT_KEYS: dict[str, Callable[[dict], Any]] = {
     "index": lambda r: _index_rank(r["price_index"]),
     "promo": lambda r: len(r["promotions"]) or None,
     "last_sale": lambda r: r["last_sale"],
+    "sold": lambda r: r["sold_qty"],
+    "revenue": lambda r: r["revenue"],
+    "profit": lambda r: r["period_profit"],
 }
 
 
@@ -131,3 +141,26 @@ def sort_rows(rows: list[dict], sort: str, order: str) -> list[dict]:
     filled = [r for r in by_offer if key(r) is not None]
     empty = [r for r in by_offer if key(r) is None]
     return sorted(filled, key=key, reverse=order == "desc") + empty
+
+
+def problem_flags(row: dict, low_margin: Decimal, price_change: tuple[date, Decimal, Decimal] | None) -> list[dict]:
+    """Проблемы товара — значками с подсказкой: убыток (за период или в минус при текущей цене), низкая маржа, мало
+    остатков, нет себестоимости, цена недавно изменилась (день, было → стало)."""
+    out: list[dict] = []
+    profit, margin = row.get("period_profit"), row["margin"]
+    if profit is not None and profit < 0:
+        out.append({"code": LOSS, "text": f"Убыток за период: {rub(profit)}"})
+    elif margin is not None and margin < 0:
+        out.append({"code": LOSS, "text": f"В минус при текущей цене: маржа {num(margin)} %"})
+    if margin is not None and 0 <= margin < low_margin:
+        out.append({"code": LOW_MARGIN, "text": f"Маржа {num(margin)} % — ниже порога {num(low_margin)} %"})
+    if row["stock_status"] in ("critical", "low"):
+        what = "Критично мало" if row["stock_status"] == "critical" else "Мало"
+        days = row["days_of_supply"]
+        out.append({"code": LOW_STOCK_FLAG, "text": f"{what} остатков" + (f": запаса на {num(days)} дн." if days is not None else "")})
+    if row["cost_price"] is None:
+        out.append({"code": NO_COST_FLAG, "text": "Нет себестоимости — маржу и прибыль не посчитать"})
+    if price_change is not None:
+        day, before, after = price_change
+        out.append({"code": PRICE_CHANGED, "text": f"Цена изменилась {day:%d.%m}: {rub(before)} → {rub(after)}"})
+    return out

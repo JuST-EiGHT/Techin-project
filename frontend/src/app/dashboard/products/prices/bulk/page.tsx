@@ -9,6 +9,7 @@ import { Badge, pctText, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { downloadPriceErrors, downloadPriceTemplate, type TemplateFormat } from '@/lib/download'
 import { fieldNumber } from '@/lib/pricing'
+import { takeSelection } from '@/lib/products'
 import {
   BULK_CONFIRM_ABOVE,
   BULK_LIMIT,
@@ -83,14 +84,23 @@ export default function BulkPrices() {
   const [status, setStatus] = useState<BulkStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // выбрано на странице «Все товары» (10.13): сколько пришло и сколько из них здесь не изменить (нет цены, архив)
+  const [handed, setHanded] = useState<{ taken: number; skipped: number } | null>(null)
 
   // товары в продаже и наша целевая маржа — для выбора и подсказки (только расчёт)
   useEffect(() => {
+    const fromProducts = new URLSearchParams(window.location.search).get('from') === 'products' ? takeSelection() : null
     api
       .get<PricesPage>('/price', { params: { limit: BULK_LIMIT, sort: 'offer_id' } })
       .then((r) => {
         setRows(r.data.items)
         setTargetMargin(r.data.settings.target_margin_pct)
+        if (fromProducts) {
+          const known = new Set(r.data.items.map((i) => i.id))
+          const ids = fromProducts.filter((id) => known.has(id))
+          setSelected(new Set(ids))
+          setHanded({ taken: ids.length, skipped: fromProducts.length - ids.length })
+        }
       })
       .catch((err) => setError(errorMessage(err)))
   }, [])
@@ -201,6 +211,13 @@ export default function BulkPrices() {
       </ol>
 
       <FormError message={error} />
+      {handed !== null && step < 2 && (
+        <p className="rounded-lg border border-accent/40 bg-accent/10 px-4 py-2 text-sm" data-testid="bulk-handed">
+          Выбрано на странице «Все товары»: {handed.taken}
+          {handed.skipped > 0 && ` (ещё ${handed.skipped} — без цены в Ozon или в архиве, их цену здесь не изменить)`}. Выберите, как
+          менять цены, — дальше предпросмотр, в Ozon ничего не уйдёт без подтверждения.
+        </p>
+      )}
 
       {step === 0 && (
         <section className="space-y-4 rounded-xl border border-line bg-card p-4" data-testid="bulk-way">

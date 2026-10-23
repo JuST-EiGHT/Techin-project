@@ -1,3 +1,4 @@
+import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
@@ -78,3 +79,10 @@ class ImportResponse(BaseModel):
     counts: ImportCounts
     recosted_reports: int
     rows: list[ImportRowOut]
+
+
+class SelectedTemplate(BaseModel):
+    """Шаблон себестоимости по выбранным товарам (10.13)."""
+
+    product_ids: list[uuid.UUID] = Field(min_length=1, max_length=5000)
+    format: Literal["xlsx", "csv"] = "xlsx"

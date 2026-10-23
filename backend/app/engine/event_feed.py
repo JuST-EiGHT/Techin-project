@@ -307,6 +307,7 @@ IGNORED: set[tuple[str, str]] = {
     ("POST", f"{P}/recommendations/hide"), ("POST", f"{P}/recommendations/unhide"),
     ("POST", f"{P}/notifications/link-code"), ("POST", f"{P}/notifications/test"),
     ("POST", f"{P}/reports/parse"), ("POST", f"{P}/reports/fetch"),
+    ("POST", f"{P}/products/export/selected"), ("POST", f"{P}/costs/template/selected"),
     ("POST", f"{P}/reports/documents/{{doc_id}}/refresh"),
     ("POST", f"{P}/costs/import/errors"), ("POST", f"{P}/tax-profile/preview"),
     ("POST", f"{P}/planning/operations/import/errors"), ("POST", f"{P}/planning/plans/import/errors"),

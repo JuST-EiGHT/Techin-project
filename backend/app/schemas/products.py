@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ProductPromo(BaseModel):
@@ -44,6 +44,35 @@ class ProductItem(BaseModel):
     price_index: str | None  # super | green | yellow | red | null — индекса нет
     promotions: list[ProductPromo]
     last_sale: date | None  # последний день с продажей по загруженным начислениям
+    # за выбранный период (10.13) — «Прибыль по товарам»: нет начислений за период — null, без продаж — 0
+    sold_qty: int | None
+    revenue: Decimal | None
+    period_profit: Decimal | None  # до налога; нет себестоимости — null
+    flags: list["ProductFlag"] = []  # индикаторы проблем: значок с подсказкой
+
+
+class ProductFlag(BaseModel):
+    code: str  # loss | low_margin | low_stock | no_cost | price_changed
+    text: str
+
+
+class ProductsPeriod(BaseModel):
+    date_from: date
+    date_to: date
+    data_source: str  # xlsx | api | mixed | none
+    days_total: int
+    missing_days: int
+
+
+class ProductIds(BaseModel):
+    ids: list[uuid.UUID]  # все товары по поиску и фильтрам — «выбрать все по фильтру»
+    total: int
+
+
+class SelectedRequest(BaseModel):
+    product_ids: list[uuid.UUID] = Field(min_length=1, max_length=5000)
+    date_from: date | None = None
+    date_to: date | None = None
 
 
 class ProductCounts(BaseModel):
@@ -66,6 +95,7 @@ class ProductsPage(BaseModel):
     stocks_known: bool  # остатки загружались
     sales_window_days: int
     margin_note: str  # как считаем маржу — подсказка «?»
+    period: ProductsPeriod  # за какой период продажи, выручка и прибыль (10.13)
 
 
 class ProductCost(BaseModel):
@@ -116,3 +146,4 @@ class ProductDetail(BaseModel):
     price_days: list[PriceDay]  # цена на конец каждого дня за период
     price_changes: list[PriceChange]  # снимки цены за период (новые — первыми)
     first_price_at: datetime | None  # с какого момента копится история цены
+ProductItem.model_rebuild()
