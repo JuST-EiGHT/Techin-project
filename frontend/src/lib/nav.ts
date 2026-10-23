@@ -38,6 +38,11 @@ export const NAV: NavSection[] = [
         description: 'Какие товары дают основную выручку, прибыль или продажи — группы A, B, C и их сравнение',
       },
       {
+        href: '/dashboard/analytics/events',
+        label: 'История событий',
+        description: 'Цены, акции, остатки, аномалии, ваши действия и ошибки загрузки — одной лентой',
+      },
+      {
         href: '/dashboard/analytics/reports',
         label: 'Отчёты Ozon и загрузка',
         description: 'Недельные и месячные отчёты Ozon: загрузить XLSX, история, P&L по отчёту',

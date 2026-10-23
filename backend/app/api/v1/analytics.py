@@ -1,5 +1,6 @@
 """Основа аналитики (шаг 10.3): показатели текущего магазина за период, категории и товары для фильтров; лучшие и
-худшие товары «Обзора бизнеса» (шаг 10.7); продажи (10.8); структура расходов и её разбор (10.9); ABC-анализ (10.10)."""
+худшие товары «Обзора бизнеса» (шаг 10.7); продажи (10.8); структура расходов и её разбор (10.9); ABC-анализ (10.10);
+лента «История изменений и событий» (10.11)."""
 import uuid
 from datetime import date
 from typing import Literal
@@ -10,12 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.analytics import (
-    Abc, Category, Leaders, Metrics, ProductOption, ProfitGroupDetail, ProfitLines, ProfitStructure, SalesEvent,
-    SalesTable,
+    Abc, Category, EventFeed, Leaders, Metrics, ProductOption, ProfitGroupDetail, ProfitLines, ProfitStructure,
+    SalesEvent, SalesTable,
 )
 from app.core.files import attachment
 from app.services import analytics as svc
 from app.services import abc as abc_svc
+from app.services import event_feed
 from app.services import profit_analytics, sales_analytics
 from app.services.stores import get_current_store
 
@@ -167,6 +169,28 @@ async def export_abc(by: Criterion = Query("revenue"), q: dict = Depends(_filter
         abc_svc.to_xlsx(data, what), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         f"ABC {q['date_from']:%d.%m.%Y}–{q['date_to']:%d.%m.%Y}.xlsx", "abc.xlsx",
     )
+
+
+@router.get("/events", response_model=EventFeed)
+async def get_events(
+    date_from: date | None = None,
+    date_to: date | None = None,
+    kind: list[Literal["price", "promo", "stock", "anomaly", "action", "error"]] = Query(
+        default_factory=list, description="Виды событий; не заданы — все"),
+    product_id: list[uuid.UUID] = Query(default_factory=list, description="Только события этих товаров"),
+    category_id: int | None = Query(None, description="Только события товаров категории; 0 — «Без категории»"),
+    before: str | None = Query(None, max_length=200, description="Курсор: next с прошлой страницы"),
+    limit: int = Query(event_feed.DEFAULT_LIMIT, ge=1, le=event_feed.MAX_LIMIT),
+    user: User = Depends(get_current_store),
+    db: AsyncSession = Depends(get_db),
+):
+    """«История изменений и событий»: цены (через сервис и нет), акции, остатки и поставки, аномалии, действия
+    пользователя, ошибки загрузки — по времени назад, страницами по курсору."""
+    try:
+        return await event_feed.feed(db, user.id, date_from=date_from, date_to=date_to, kinds=kind,
+                                     product_ids=product_id, category_id=category_id, before=before, limit=limit)
+    except svc.AnalyticsError as exc:
+        raise HTTPException(exc.code, exc.message) from None
 
 
 @router.get("/categories", response_model=list[Category])

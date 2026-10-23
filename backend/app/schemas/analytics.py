@@ -360,3 +360,28 @@ class Abc(BaseModel):
     unknown: int  # товаров без значения (прибыль без себестоимости)
     items: list[AbcItem]
     matrix: list[AbcCell]
+
+
+# ── «История изменений и событий» (шаг 10.11) ──
+class FeedEvent(BaseModel):
+    key: str
+    at: str  # UTC, ISO
+    kind: str  # price | promo | stock | anomaly | action | error
+    kind_title: str
+    title: str
+    detail: str | None
+    tone: str | None  # ok | bad | warn
+    product: LeaderProduct | None
+    link: str | None
+    link_label: str | None
+
+
+class FeedKind(BaseModel):
+    kind: str
+    title: str
+
+
+class EventFeed(BaseModel):
+    items: list[FeedEvent]
+    next: str | None  # курсор следующей страницы (старее); null — дальше событий нет
+    kinds: list[FeedKind]
