@@ -33,7 +33,7 @@ from app.models.report import Report
 from app.models.sales_daily import SalesDaily
 from app.schemas.sync import utc
 from app.services import bank, bank_connections, ozon_payouts, pnl_data, products, sales
-from app.services.costs import load_cost_history
+from app.services.costs import sales_without_cost
 from app.services.sync import overview, runner
 from app.services.sync.finance import today_msk
 from app.services.user_settings import anomaly_thresholds, get_settings
@@ -246,20 +246,7 @@ async def _finance_data(db: AsyncSession, ctx: Context) -> list[det.Check]:
     cov = await pnl_data.coverage(db, ctx.user_id, start, end, "auto")
     covered = {d for d, source in cov.days.items() if source is not None}
     await sales.ensure_built(db, ctx.user_id)
-    history = await load_cost_history(db, ctx.user_id)
-    gaps: dict[str, list] = {}
-    for day, offer, qty, revenue in await db.execute(
-        select(SalesDaily.day, SalesDaily.offer_id, SalesDaily.qty_sold, SalesDaily.revenue)
-        .where(SalesDaily.user_id == ctx.user_id, SalesDaily.day >= start, SalesDaily.day <= end, SalesDaily.qty_sold > 0)
-    ):
-        if day in covered and history.record_at(offer, day) is None:
-            g = gaps.setdefault(offer, [0, Decimal(0)])
-            g[0] += qty
-            g[1] += Decimal(revenue)
-    names = {offer: name for offer, name in await db.execute(
-        select(Product.offer_id, Product.name).where(Product.user_id == ctx.user_id, Product.offer_id.in_(list(gaps))))
-    } if gaps else {}
-    items = [det.CostGap(offer, names.get(offer), revenue, qty) for offer, (qty, revenue) in gaps.items()]
+    items = await sales_without_cost(db, ctx.user_id, start, end, covered)
     return [det.accrual_gaps({d: d in covered for d in cov.days}, ctx.th),
             det.missing_cost(items, sales_known=bool(covered))]
 

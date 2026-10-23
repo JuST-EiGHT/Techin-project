@@ -16,10 +16,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.engine.anomaly_detector import CostGap
 from app.integrations.xlsx.costs import MappingCostProvider
 from app.models.product import Product
 from app.models.product_cost import BEGINNING, ProductCost
 from app.models.report import Report
+from app.models.sales_daily import SalesDaily
 from app.models.user import User
 from app.services.stores import get_current_store
 from app.services.sync.finance import today_msk
@@ -76,6 +78,29 @@ def _created(r: ProductCost) -> datetime:
 async def load_cost_history(db: AsyncSession, user_id: uuid.UUID) -> CostHistory:
     res = await db.execute(select(ProductCost).where(ProductCost.user_id == user_id))
     return CostHistory(list(res.scalars()))
+
+
+async def sales_without_cost(
+    db: AsyncSession, user_id: uuid.UUID, start: date, end: date, covered: set[date], history: CostHistory | None = None
+) -> list[CostGap]:
+    """Продажи в дни без себестоимости (справочник на день продажи — как P&L) по артикулам: штуки и выручка. Считаются
+    только дни с данными о продажах (`covered`): за остальные продажи неизвестны. «Требует внимания» (10.5) и
+    «Рекомендуемые действия» (10.6)."""
+    history = history or await load_cost_history(db, user_id)
+    gaps: dict[str, list] = {}
+    for day, offer, qty, revenue in await db.execute(
+        select(SalesDaily.day, SalesDaily.offer_id, SalesDaily.qty_sold, SalesDaily.revenue)
+        .where(SalesDaily.user_id == user_id, SalesDaily.day >= start, SalesDaily.day <= end, SalesDaily.qty_sold > 0)
+    ):
+        if day in covered and history.record_at(offer, day) is None:
+            g = gaps.setdefault(offer, [0, Decimal(0)])
+            g[0] += qty
+            g[1] += Decimal(revenue)
+    if not gaps:
+        return []
+    names = {offer: name for offer, name in await db.execute(
+        select(Product.offer_id, Product.name).where(Product.user_id == user_id, Product.offer_id.in_(list(gaps))))}
+    return [CostGap(offer, names.get(offer), revenue, qty) for offer, (qty, revenue) in gaps.items()]
 
 
 async def get_cost_provider(

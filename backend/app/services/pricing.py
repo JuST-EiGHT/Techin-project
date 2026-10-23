@@ -21,6 +21,7 @@ from app.engine import price_calculator as calc
 from app.engine.products import acquiring_pct, positive
 from app.models.product import Product, ProductPrice
 from app.models.promotion import Promotion, PromotionProduct
+from app.schemas.sync import utc
 from app.services import product_pnl
 from app.services.costs import CostHistory, load_cost_history
 from app.services.pnl_service import PnLRequest
@@ -284,8 +285,9 @@ def table_row(ctx: PricingContext, product: Product, promos: list[tuple[Promotio
         "gap_pct": None if price is None or min_price is None or min_price <= 0
         else ((price - min_price) / min_price * 100).quantize(Decimal("0.1"), ROUND_HALF_UP),
         "promo": None if worst is None else {
-            "title": worst[1].title, "action_price": worst[0].action_price, "margin": promo_margin,
+            "id": worst[1].id, "title": worst[1].title, "action_price": worst[0].action_price, "margin": promo_margin,
             "count": len(promo_rows), "added_automatically": worst[0].added_automatically,
+            "date_to": utc(worst[1].date_to),
         },
         "logistics": inputs.logistics.per_unit, "logistics_source": inputs.logistics.source,
         "missing": inputs.missing, "errors": errors,

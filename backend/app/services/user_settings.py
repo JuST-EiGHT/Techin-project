@@ -46,6 +46,14 @@ async def load_thresholds(db: AsyncSession, user_id: uuid.UUID) -> Thresholds:
     return stock_thresholds(await get_settings(db, user_id))
 
 
+DEFAULT_HIDE_DAYS = 7
+
+
+def recommendation_hide_days(s: UserSettings) -> int:
+    """«Скрыть» рекомендацию — на сколько дней (шаг 10.6); не задано — 7."""
+    return DEFAULT_HIDE_DAYS if s.recommendation_hide_days is None else s.recommendation_hide_days
+
+
 def supply_params(s: UserSettings) -> tuple[int, int]:
     """Поставки (шаг 5.2): запас после поставки и дней в пути; не заданы — 45 и 7 (engine/supply_planner)."""
     target = DEFAULT_TARGET_DAYS if s.supply_target_days is None else s.supply_target_days

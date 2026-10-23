@@ -17,6 +17,7 @@ ANOMALY_DEFAULTS = {
     "anomaly_sales_growth_pct": 200, "anomaly_price_pct": 10, "anomaly_price_red_pct": 30, "anomaly_commission_pp": "2",
     "anomaly_payout_diff_pct": 10, "anomaly_cash_gap_days": 14, "anomaly_uncategorized_days": 7,
     "anomaly_sync_stale_hours": 24, "anomaly_data_gap_days": 1, "anomaly_defaults": True,
+    "recommendation_hide_days": 7,
 }
 
 

@@ -32,6 +32,7 @@ def _response(s: UserSettings, theme: str) -> SettingsResponse:
         anomaly_commission_pp=a.commission_pp, anomaly_payout_diff_pct=a.payout_diff,
         anomaly_cash_gap_days=a.cash_gap_days, anomaly_uncategorized_days=a.uncategorized_days,
         anomaly_sync_stale_hours=a.sync_stale_hours, anomaly_data_gap_days=a.data_gap_days,
+        recommendation_hide_days=svc.recommendation_hide_days(s),
         anomaly_defaults=all(getattr(a, f) == getattr(DEFAULT_THRESHOLDS, f) for f in svc.ANOMALY_FIELDS.values()),
     )
 

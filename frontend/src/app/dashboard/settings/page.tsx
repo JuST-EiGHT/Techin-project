@@ -195,12 +195,12 @@ const STOCK_FIELDS = [
   {
     key: 'stock_critical_days',
     label: '«Критично» — меньше',
-    why: 'Товар вот-вот кончится: красным на складах, в «Заканчиваются» на главной и в фильтре «Критичный остаток».',
+    why: 'Товар вот-вот кончится: красным на складах, в «Требует внимания» на главной и в фильтре «Критичный остаток».',
   },
   {
     key: 'stock_low_days',
     label: '«Мало» — меньше',
-    why: 'Пора планировать поставку: жёлтым на складах, в «Заканчиваются» и в фильтре «Мало остатков» на странице товаров.',
+    why: 'Пора планировать поставку: жёлтым на складах, в «Требует внимания» и в фильтре «Мало остатков» на странице товаров.',
   },
   {
     key: 'stock_excess_days',
@@ -600,6 +600,78 @@ function AnomalySection() {
 
 type PlanningState = { enabled: boolean; setup_done: boolean }
 
+function RecommendationSection() {
+  const { user } = useAuth()
+  const settings = useSettings()
+  const [days, setDays] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
+
+  useEffect(() => {
+    if (settings) setDays(String(settings.recommendation_hide_days))
+  }, [settings])
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault()
+    if (!user) return
+    setError(null)
+    setDone(false)
+    const n = Number(days)
+    if (!/^\d+$/.test(days) || n < 1 || n > 90) return setError('Скрывать — от 1 до 90 дней')
+    try {
+      await saveSettings(user.id, { recommendation_hide_days: n })
+      setDone(true)
+    } catch (err) {
+      setError(errorMessage(err, 'Не сохранилось — попробуйте ещё раз'))
+    }
+  }
+
+  return (
+    <Section
+      title="Рекомендации"
+      hint="«Рекомендуемые действия» на главной: что сделать с ценой, акцией, поставкой, себестоимостью и лишним запасом."
+    >
+      <form onSubmit={save} className="space-y-3" data-testid="recommendation-settings">
+        <FormError message={error} />
+        <div>
+          <label htmlFor="recommendation_hide_days" className="block text-sm text-muted">
+            «Скрыть» — на
+          </label>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              id="recommendation_hide_days"
+              inputMode="numeric"
+              disabled={!settings}
+              value={days}
+              onChange={(e) => {
+                setDone(false)
+                setDays(e.target.value.replace(/\D/g, ''))
+              }}
+              className="w-20 rounded-lg border border-line bg-bg px-3 py-1.5 outline-none focus:border-accent disabled:opacity-60"
+              data-testid="settings-recommendation_hide_days"
+            />
+            <span className="text-sm text-muted">дн.</span>
+          </div>
+          <p className="mt-1 text-xs text-faint">
+            Скрытый совет не показывается столько дней. Если за это время ничего не изменилось — он вернётся; сделали — исчезнет сам.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="submit"
+            disabled={!settings}
+            className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+            data-testid="settings-recommendation-save"
+          >
+            Сохранить
+          </button>
+          {done && <span className="text-sm text-ok">Сохранено</span>}
+        </div>
+      </form>
+    </Section>
+  )
+}
+
 function PlanningSection() {
   const [state, setState] = useState<PlanningState | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -662,6 +734,7 @@ export default function SettingsPage() {
       <StockSection />
       <SupplySection />
       <AnomalySection />
+      <RecommendationSection />
       <PlanningSection />
     </div>
   )

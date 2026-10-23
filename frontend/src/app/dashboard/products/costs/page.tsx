@@ -385,9 +385,11 @@ export default function CostsPage() {
   const [importing, setImporting] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
 
-  // ?missing=1 — со страницы отчёта «Указать себестоимость»
+  // ?missing=1 — со страницы отчёта «Указать себестоимость»; &search=артикул — из рекомендации по товару (10.6)
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get('missing') === '1') setMissingOnly(true)
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('missing') === '1') setMissingOnly(true)
+    if (params.get('search')) setSearch(params.get('search') as string)
   }, [])
   // поиск — с задержкой 300 мс
   useEffect(() => {
