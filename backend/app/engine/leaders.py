@@ -55,6 +55,32 @@ def by_profit(rows: list[ProfitRow], limit: int = LIMIT) -> tuple[list[ProfitRow
     return best, worst
 
 
+UP, DOWN = "up", "down"
+
+
+@dataclass(frozen=True)
+class QtyChange:
+    expected: Decimal  # ожидали за дни с данными сейчас
+    change_pct: Decimal | None  # к ожидаемому; раньше не продавалось — None
+    direction: str | None  # up | down — значимое изменение; None — в пределах случайных колебаний
+
+
+def compare_qty(qty: int, prev: int, days: int, prev_days: int) -> QtyChange | None:
+    """Продано сейчас против прошлого периода с поправкой на дни с данными; значимость — как в аномалиях 7.1.
+    Меньше MIN_DAYS дней с данными в одном из периодов — None (не сравниваем). «Аналитика продаж» (10.8) — для таблицы."""
+    if days < MIN_DAYS or prev_days < MIN_DAYS:
+        return None
+    expected = Decimal(prev) / prev_days * days
+    lam = float(expected)
+    pct = None if prev == 0 else ((qty / expected - 1) * 100).quantize(Decimal("0.1"), ROUND_HALF_UP)
+    direction = None
+    if qty > expected and poisson_ge(qty, max(lam, MIN_EXPECTED)) < SIGNIFICANCE:
+        direction = UP
+    elif qty < expected and poisson_le(qty, lam) < SIGNIFICANCE:
+        direction = DOWN
+    return QtyChange(expected.quantize(Decimal("0.1"), ROUND_HALF_UP), pct, direction)
+
+
 def sales_changes(
     current: dict[str, int], previous: dict[str, int], days: int, prev_days: int,
     info: dict[str, tuple[uuid.UUID | None, str | None]] | None = None, limit: int = LIMIT,
@@ -67,14 +93,12 @@ def sales_changes(
     decline: list[SalesChange] = []
     for offer in sorted(set(current) | set(previous)):
         qty, prev = current.get(offer, 0), previous.get(offer, 0)
-        expected = Decimal(prev) / prev_days * days
-        lam = float(expected)
-        pct = None if prev == 0 else ((qty / expected - 1) * 100).quantize(Decimal("0.1"), ROUND_HALF_UP)
+        c = compare_qty(qty, prev, days, prev_days)
         pid, name = info.get(offer, (None, None))
-        item = SalesChange(offer, pid, name, qty, prev, expected.quantize(Decimal("0.1"), ROUND_HALF_UP), pct)
-        if qty > expected and poisson_ge(qty, max(lam, MIN_EXPECTED)) < SIGNIFICANCE:
+        item = SalesChange(offer, pid, name, qty, prev, c.expected, c.change_pct)
+        if c.direction == UP:
             growth.append(item)
-        elif qty < expected and poisson_le(qty, lam) < SIGNIFICANCE:
+        elif c.direction == DOWN:
             decline.append(item)
     growth.sort(key=lambda x: (-x.delta, x.offer_id))
     decline.sort(key=lambda x: (x.delta, x.offer_id))

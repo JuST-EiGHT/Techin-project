@@ -165,3 +165,56 @@ class Leaders(BaseModel):
     previous: Range
     profit: ProfitLeaders
     sales: SalesLeaders
+
+
+# ── «Аналитика продаж» (шаг 10.8) ──
+class SalesRow(BaseModel):
+    product: LeaderProduct
+    orders: int | None  # отправления без отмен; отправления не загружены — null
+    ordered_qty: int | None
+    sold_qty: int | None  # по начислениям; дней с данными нет — null
+    returned_qty: int | None
+    return_share: str | None  # возвращено / продано, %
+    revenue: str | None
+    returns_amount: str | None
+    avg_price: str | None
+    prev_sold_qty: int | None
+    expected: str | None  # ожидали с поправкой на дни с данными
+    change_pct: str | None
+    direction: str | None  # up | down — заметное изменение; null — в пределах колебаний или не сравнивали
+
+
+class SalesTotals(BaseModel):
+    orders: int
+    ordered_qty: int
+    sold_qty: int
+    returned_qty: int
+    revenue: str
+    return_share: str | None
+
+
+class SalesTable(BaseModel):
+    date_from: str
+    date_to: str
+    previous: Range
+    days: int
+    prev_days: int
+    orders_days: int
+    compared: bool
+    items: list[SalesRow]
+    totals: SalesTotals
+
+
+class SalesEventItem(BaseModel):
+    product: LeaderProduct
+    text: str
+    link: str
+
+
+class SalesEvent(BaseModel):
+    day: str
+    kind: str  # price | promo_in | promo_out | stockout | restock
+    title: str
+    count: int  # товаров в событии (в items — до 10)
+    link: str
+    items: list[SalesEventItem]

@@ -34,10 +34,17 @@ export type OzonDashboard = {
 const num = (v: string) => Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 1 })
 
 /** «▲ 12,5 %» — рост выручки и прибыли хорош (зелёный), падение — красный. */
-export function Change({ pct, against, unit = '%' }: { pct: string | null; against: string; unit?: '%' | 'п.п.' }) {
+export function Change({ pct, against, unit = '%', upIsBad = false }: {
+  pct: string | null
+  against: string
+  unit?: '%' | 'п.п.'
+  /** Рост — плохо (возвраты): ▲ красным, ▼ зелёным. */
+  upIsBad?: boolean
+}) {
   if (pct === null) return null
   const v = Number(pct)
-  const tone = v > 0 ? 'text-ok' : v < 0 ? 'text-bad' : 'text-muted'
+  const good = upIsBad ? v < 0 : v > 0
+  const tone = v === 0 ? 'text-muted' : good ? 'text-ok' : 'text-bad'
   return (
     <span className={`text-xs font-medium ${tone}`} data-testid="change">
       {v > 0 ? '▲' : v < 0 ? '▼' : '='} {num(String(Math.abs(v)))} {unit} <span className="font-normal text-faint">{against}</span>

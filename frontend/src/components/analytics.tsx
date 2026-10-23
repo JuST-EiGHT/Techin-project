@@ -6,7 +6,7 @@ import { X } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { FormError } from '@/components/AuthForm'
 import { type Drill, MoreLink, TipBox, useDrill } from '@/components/charts'
@@ -263,11 +263,17 @@ export function CoverageNote({ data }: { data: Metrics }) {
   )
 }
 
-type Row = { label: string; value: number | null; prev: number | null; point: MetricPoint }
+/** Событие на графике (10.8): метка у точки и строка в подсказке. */
+export type ChartEvent = { day: string; kind: string; title: string }
+/** Знак метки по виду события — над линией на графике. */
+export const EVENT_MARK: Record<string, string> = { price: '₽', promo_in: '%', promo_out: '%', stockout: '0', restock: '↑' }
+const TIP_EVENTS = 3
+
+type Row = { label: string; value: number | null; prev: number | null; point: MetricPoint; events: ChartEvent[] }
 
 function MetricTooltip({ active, payload, metric, data, drill }: { active?: boolean; payload?: { payload: Row }[]; metric: MetricKey; data: Metrics; drill: Drill<Row> }) {
   if (!active || !payload?.length) return null
-  const { point } = payload[0].payload
+  const { point, events } = payload[0].payload
   const meta = METRICS[metric]
   const g = data.granularity
   const missing = metric === 'orders' || metric === 'ordered_qty' ? point.orders_missing_days : point.missing_days
@@ -286,6 +292,16 @@ function MetricTooltip({ active, payload, metric, data, drill }: { active?: bool
         </div>
       )}
       {missing > 0 && <div className="text-faint">{missing === point.days ? 'нет данных' : `без данных — ${daysWord(missing)}`}</div>}
+      {events.length > 0 && (
+        <div className="mt-1.5 border-t border-line pt-1.5" data-testid="tip-events">
+          {events.slice(0, TIP_EVENTS).map((e, i) => (
+            <div key={i} className="text-warn">
+              {EVENT_MARK[e.kind] ?? '•'} {e.title}
+            </div>
+          ))}
+          {events.length > TIP_EVENTS && <div className="text-faint">и ещё {events.length - TIP_EVENTS} — список под графиком</div>}
+        </div>
+      )}
     </TipBox>
   )
 }
@@ -297,12 +313,15 @@ export function MetricChart({
   title,
   pointHref,
   moreHref,
+  events = [],
 }: {
   data: Metrics
   metric: MetricKey
   title?: string
   pointHref?: (p: MetricPoint) => string | null
   moreHref?: string
+  /** События периода — метки у точек, в которые они попали (день, неделя или месяц). */
+  events?: ChartEvent[]
 }) {
   const colors = useTokenColors()
   const drill = useDrill<Row>(pointHref ? (r) => (r.value === null ? null : pointHref(r.point)) : undefined)
@@ -313,6 +332,7 @@ export function MetricChart({
     value: p[metric] === null ? null : Number(p[metric]),
     prev: p.prev?.[metric] == null ? null : Number(p.prev[metric]),
     point: p,
+    events: events.filter((e) => p.date_from <= e.day && e.day <= p.date_to),
   }))
   const profitNote = metric === 'profit' && data.profit_kind === 'net' ? ' (в точках — до налога)' : ''
   return (
@@ -331,7 +351,7 @@ export function MetricChart({
       </div>
       <div className={`h-60 ${drill.boxProps.className}`} onPointerDown={drill.boxProps.onPointerDown}>
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={rows} margin={{ top: 4, right: 4, bottom: 0, left: 0 }} onClick={drill.onClick}>
+          <LineChart data={rows} margin={{ top: events.length ? 16 : 4, right: 4, bottom: 0, left: 0 }} onClick={drill.onClick}>
             <CartesianGrid vertical={false} stroke={colors.line} />
             <XAxis dataKey="label" tick={{ fill: colors.muted, fontSize: 11 }} tickLine={false} axisLine={{ stroke: colors.line }} minTickGap={8} />
             <YAxis tick={{ fill: colors.muted, fontSize: 11 }} tickFormatter={meta.format === 'pct' ? (v: number) => `${v} %` : compact} tickLine={false} axisLine={false} width={64} />
@@ -340,6 +360,18 @@ export function MetricChart({
             {data.previous && (
               <Line type="monotone" dataKey="prev" stroke={colors.muted} strokeDasharray="4 3" strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />
             )}
+            {rows
+              .filter((r) => r.events.length > 0)
+              .map((r) => (
+                <ReferenceLine
+                  key={r.label}
+                  x={r.label}
+                  stroke={colors.warn}
+                  strokeDasharray="2 3"
+                  className="event-mark"
+                  label={{ value: Array.from(new Set(r.events.map((e) => EVENT_MARK[e.kind] ?? '•'))).join(''), position: 'top', fill: colors.warn, fontSize: 11 }}
+                />
+              ))}
           </LineChart>
         </ResponsiveContainer>
       </div>

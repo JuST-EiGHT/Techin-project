@@ -19,11 +19,12 @@ import { useSyncStatus } from '@/lib/sync'
 
 const range = (from: string, to: string) => `period=custom&from=${from}&to=${to}`
 
-/** Куда ведут показатели — по тому, что уже сделано: продажи — «Прибыль по товарам», прибыль — P&L.
- * «Аналитика продаж» (10.8) и «Аналитика прибыльности» (10.9) заменят эти ссылки; у заказов своей страницы пока нет. */
+/** Куда ведут показатели — по тому, что уже сделано: выручка, заказы и продажи — «Аналитика продаж» (10.8), прибыль —
+ * P&L («Аналитика прибыльности» 10.9 заменит). */
 export const METRIC_LINKS: Partial<Record<MetricKey, (from: string, to: string) => string>> = {
-  revenue: (from, to) => `/dashboard/finance/pnl?${range(from, to)}&tab=products`,
-  sold_qty: (from, to) => `/dashboard/finance/pnl?${range(from, to)}&tab=products`,
+  revenue: (from, to) => `/dashboard/analytics/sales?${range(from, to)}`,
+  orders: (from, to) => `/dashboard/analytics/sales?${range(from, to)}`,
+  sold_qty: (from, to) => `/dashboard/analytics/sales?${range(from, to)}`,
   profit: (from, to) => `/dashboard/finance/pnl?${range(from, to)}`,
   margin: (from, to) => `/dashboard/finance/pnl?${range(from, to)}`,
 }
@@ -31,7 +32,7 @@ export const METRIC_LINKS: Partial<Record<MetricKey, (from: string, to: string) 
 const short = (iso: string) => fmtDay(iso).slice(0, 5)
 
 /** Карточка показателя: ссылка на подробности или просто цифра, если подробной страницы пока нет. */
-function Card({ href, label, value, testid, tone, children }: {
+export function Card({ href, label, value, testid, tone, children }: {
   href: string | null
   label: string
   value: string

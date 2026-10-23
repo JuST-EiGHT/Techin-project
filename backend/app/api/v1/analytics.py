@@ -3,13 +3,15 @@
 import uuid
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.analytics import Category, Leaders, Metrics, ProductOption
+from app.schemas.analytics import Category, Leaders, Metrics, ProductOption, SalesEvent, SalesTable
+from app.core.files import attachment
 from app.services import analytics as svc
+from app.services import sales_analytics
 from app.services.stores import get_current_store
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
@@ -49,6 +51,52 @@ async def get_leaders(
         return await svc.leaders(db, user.id, date_from, date_to, product_id, category_id)
     except svc.AnalyticsError as exc:
         raise HTTPException(exc.code, exc.message) from None
+
+
+def _filter_query(
+    date_from: date,
+    date_to: date,
+    product_id: list[uuid.UUID] = Query(default_factory=list, description="Товары; можно несколько"),
+    category_id: int | None = Query(None, description="Категория Ozon; 0 — «Без категории»"),
+) -> dict:
+    return {"date_from": date_from, "date_to": date_to, "product_ids": product_id, "category_id": category_id}
+
+
+@router.get("/sales", response_model=SalesTable)
+async def get_sales(q: dict = Depends(_filter_query), user: User = Depends(get_current_store),
+                    db: AsyncSession = Depends(get_db)):
+    """«Аналитика продаж»: продажи по товарам — заказы, продано, возвраты и их доля, выручка, средняя цена, к прошлому
+    сопоставимому периоду (с поправкой на дни с данными и пометкой заметных изменений)."""
+    try:
+        return await sales_analytics.table(db, user.id, **q)
+    except svc.AnalyticsError as exc:
+        raise HTTPException(exc.code, exc.message) from None
+
+
+@router.get("/sales/events", response_model=list[SalesEvent])
+async def get_sales_events(q: dict = Depends(_filter_query), user: User = Depends(get_current_store),
+                           db: AsyncSession = Depends(get_db)):
+    """События, которые влияли на продажи, по дням: цена, вход и выход из акции, «нет остатка», «снова в наличии»."""
+    try:
+        return await sales_analytics.events(db, user.id, **q)
+    except svc.AnalyticsError as exc:
+        raise HTTPException(exc.code, exc.message) from None
+
+
+@router.get("/sales/export", response_class=Response)
+async def export_sales(q: dict = Depends(_filter_query), user: User = Depends(get_current_store),
+                       db: AsyncSession = Depends(get_db)):
+    """Продажи по товарам в Excel — для чтения и работы (не шаблон для загрузки)."""
+    try:
+        data = await sales_analytics.table(db, user.id, **q)
+        products = await svc._products(db, user.id, q["product_ids"], q["category_id"])
+    except svc.AnalyticsError as exc:
+        raise HTTPException(exc.code, exc.message) from None
+    what = "все" if products is None else ", ".join(p.offer_id for p in products[:10]) + (" …" if len(products) > 10 else "")
+    return attachment(
+        sales_analytics.to_xlsx(data, what), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        f"Продажи {q['date_from']:%d.%m.%Y}–{q['date_to']:%d.%m.%Y}.xlsx", "sales.xlsx",
+    )
 
 
 @router.get("/categories", response_model=list[Category])
