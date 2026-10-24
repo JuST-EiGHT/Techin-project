@@ -213,7 +213,7 @@ async def unblock(db: AsyncSession, args, out, _ask) -> None:
     out(f"Блокировка входа для {user.email} снята.")
 
 
-RESYNC_KINDS = ("products", "stocks", "promotions", "postings", "finance", "balance")
+RESYNC_KINDS = ("products", "stocks", "promotions", "postings", "supplies", "finance", "balance")
 
 
 async def resync(db: AsyncSession, args, out, _ask) -> None:

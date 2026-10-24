@@ -190,8 +190,48 @@ Seller API нельзя: есть только отчёты по вывозу и
   из `analytics_data` убираем город и регион. Сборку FBS сервис не делает, поэтому `scanit` и штрихкоды не нужны.
 - Кластер покупателя приходит названием (`"Екатеринбург"`), остатки (`/v1/analytics/stocks`) — названием и id; сопоставляем
   по названию без учёта регистра, «ё» и пробелов. Поставку FBO Ozon принимает в кластер (`/v1/draft/*/create` —
-  обязательный `cluster_info`), поэтому рекомендации — по кластеру. Создание заявки на поставку через API (черновик,
-  таймслоты) — не делаем: рекомендации и Excel для логиста.
+  обязательный `cluster_info`), поэтому рекомендации — по кластеру. Заявки на поставку и их создание по плану — шаг 10.18,
+  раздел «Заявки на поставку FBO» ниже.
+
+### Заявки на поставку FBO (шаг 10.18, сверено с выгрузкой документации 2026-10)
+
+Чтение (синхронизация `supplies`, раз в 3 часа, `services/sync/supply_orders.py`):
+- `/v3/supply-order/list` (бета → основной 13.11.2025; v1 и v2 удалены): `filter.states` (обязателен, передаём все
+  статусы), `sort_by` (`ORDER_CREATION`), `sort_dir`, `limit` 1–100, `last_id` → `order_ids[]`, `last_id`. Идём по `last_id`,
+  пока он меняется (до 20 страниц).
+- `/v3/supply-order/get`: `order_ids` (до 50) → `orders[]`: `order_id`, `order_number`, `created_date`, `state`,
+  `state_updated_date`, `timeslot.timeslot.{from,to}` + `timezone_info.iana_name`, `dropoff_warehouse.name`,
+  `supplies[]`: `supply_id`, `bundle_id`, `macrolocal_cluster_id`, `storage_warehouse.{warehouse_id,name}`, `state`.
+  Статусы: `DATA_FILLING`, `READY_TO_SUPPLY`, `ACCEPTED_AT_SUPPLY_WAREHOUSE`, `IN_TRANSIT`,
+  `ACCEPTANCE_AT_STORAGE_WAREHOUSE`, `REPORTS_CONFIRMATION_AWAITING`, `REPORT_REJECTED`, `COMPLETED`,
+  `REJECTED_AT_SUPPLY_WAREHOUSE`, `CANCELLED`, `OVERDUE`. `/v1/supply-order/details` не используем — в нём водитель и
+  машина (персональные данные).
+- `/v1/supply-order/bundle` (заменил удалённый `/v1/supply-order/items`): `bundle_ids` (одна поставка за вызов), `limit`
+  1–100, `last_id` → `items[]` (`sku`, `offer_id`, `name`, `quantity`, `quant`), `has_next`, `last_id`.
+- `/v1/supply-order/act/product/get` (бета, акты FBO): `supply_id` → `supply_acts[].items[]` (`declared_quantity`,
+  `fact_quantity`, `approved_quantity`, `sku_info.{sku,offer_id,name}`), `skus_defects[]` (SKU с браком). Сбой — не
+  ошибка синхронизации: акты подтянутся в следующий раз. Итоговые заявки старше 180 дней — без состава и актов.
+- `/v1/cluster/list` `{"cluster_type": "CLUSTER_TYPE_OZON"}` → `clusters[]`: `id`, `macrolocal_cluster_id`, `name`,
+  `logistic_clusters[].warehouses[]` — кластер склада хранения и id кластера для черновика (по названию).
+- `/v1/supply-order/status/counter` не нужен — считаем по загруженным заявкам; таймслоты заявки и пропуск водителя
+  (`/v2/supply-order/timeslot/list`, `/v1/supply-order/pass/*`), грузоместа (`/v1/cargoes/*`), отмена
+  (`/v1/supply-order/cancel`) — в кабинете Ozon.
+
+Создание заявки по плану (`services/supply_ozon.py`, правило 6 — проверка → подтверждение → журнал):
+- `/v1/draft/direct/create`: `cluster_info.{items[{sku, quantity}], macrolocal_cluster_id}`, `deletion_sku_mode`
+  (обязателен; `PARTIAL` — убрать только не прошедшие единицы) → `draft_id`, `errors[]`. Черновик в кабинете не виден,
+  живёт 30 минут. Лимит: 2 в минуту, 50 в час, 500 в день (429).
+- `/v2/draft/create/info` `{draft_id}` → `status` (`SUCCESS` / `IN_PROGRESS` / `FAILED`), `clusters[].warehouses[]`
+  (`storage_warehouse`, `availability_status.{state, invalid_reason}` — значения `state` в документации не перечислены:
+  склад считаем недоступным, если есть `invalid_reason` или в `state` есть `NOT`/`UNAVAILABLE`), `errors[].items_validation[]
+  .rejected_items[{sku, reasons}]`.
+- `/v2/draft/timeslot/info`: `date_from`, `date_to` (не дальше 28 дней), `draft_id`, `supply_type` (`DIRECT`),
+  `selected_cluster_warehouses[{macrolocal_cluster_id, storage_warehouse_id}]` → `result.drop_off_warehouse_timeslots
+  .days[].timeslots[{from_in_timezone, to_in_timezone}]`, `warehouse_timezone`.
+- `/v2/draft/supply/create`: `draft_id`, `selected_cluster_warehouses`, `timeslot.{from_in_timezone, to_in_timezone}`,
+  `supply_type` → `error_reasons[]`; `/v2/draft/supply/create/status` `{draft_id}` → `status`, `order_id`. Тот же лимит.
+- Кросс-докинг и несколько кластеров (`/v1/draft/crossdock/create`, `/v1/draft/multi-cluster/create`) — не используем:
+  план поставки — в один кластер.
 
 ## Изменение (только через систему безопасности, см. BUSINESS_LOGIC.md §8)
 
@@ -312,7 +352,7 @@ FBS-отправлений хранить `scanit` рядом со штрихк�
 | Движение денег по статьям (ДДС, бюджеты) | `/v1/finance/cash-flow-statement/list` (детали) | 10.23 |
 | Отчёты, которые Ozon формирует по запросу | `/v1/report/*/create`, `/v1/report/list` (товары, отправления, возвраты, остатки) — те же данные сервис берёт синхронизацией; `/v1/report/info` — сверено (10.12) | по необходимости |
 | Возвраты | `/v1/returns/list` | 10.8 |
-| Заявки на поставку FBO | `/v1/supply-order/list`, `/get`, `/items`, `/details`, `/status/counter`, `/cancel` | 10.18 |
-| Черновики поставок и таймслоты (изменение в Ozon — правило 6) | `/v1/draft/create`, `/v1/draft/create/info`, `/v1/draft/timeslot/info`, `/v1/draft/supply/create`, `/v1/draft/supply/create/status` | 10.18 |
+| ~~Заявки на поставку FBO~~ | сверено: `/v3/supply-order/list`, `/v3/supply-order/get`, `/v1/supply-order/bundle`, акты `/v1/supply-order/act/product/get` — раздел «Заявки на поставку FBO» выше (v1/v2 списка и `/items` удалены) | 10.18 ✅ |
+| ~~Черновики поставок и таймслоты (изменение в Ozon — правило 6)~~ | сверено: `/v1/draft/direct/create`, `/v2/draft/create/info`, `/v2/draft/timeslot/info`, `/v2/draft/supply/create`, `/v2/draft/supply/create/status` — там же | 10.18 ✅ |
 | ~~Вывозы со складов (только списки)~~ | `/v1/removal/from-stock/list` — сверено (выгрузка 2026-10, бета): `date_from`, `date_to` (YYYY-MM-DD), `last_id`, `limit` 1–500 → `returns_summary_report_rows[]` (`offer_id`, `name`, `sku`, `quantity_for_return`, `return_created_at`, `return_state`, `box_state`, `stock_type`, `delivery_type`, `is_auto_return`, `clearing_warehouse_name`, `destination_warehouse_name` …), `last_id`; соответствует разделу кабинета «FBO → Вывоз и утилизация»; создать заявку нельзя. `/v1/removal/from-supply/list` (вывоз с поставки) — не используем | 10.17 ✅ |
-| Кластеры | `/v1/cluster/list` — 10.17 не нужен: кластер склада приходит в `/v1/analytics/stocks` (`cluster_id`, `cluster_name`) | 10.18 |
+| ~~Кластеры~~ | `/v1/cluster/list` — сверено (10.18): кластер склада хранения заявки и `macrolocal_cluster_id` для черновика | 10.18 ✅ |

@@ -1,0 +1,10 @@
+{
+  "clusters": [
+    {"id": 2, "macrolocal_cluster_id": 2, "name": "Санкт-Петербург и СЗО", "type": "CLUSTER_TYPE_OZON",
+     "logistic_clusters": [{"warehouses": [{"name": "СПБ_БУГРЫ_РФЦ", "type": "FULL_FILLMENT", "warehouse_id": 1020000000000202}]}]},
+    {"id": 154, "macrolocal_cluster_id": 154, "name": "Екатеринбург", "type": "CLUSTER_TYPE_OZON",
+     "logistic_clusters": [{"warehouses": [{"name": "ЕКАТЕРИНБУРГ_РФЦ_НОВЫЙ", "type": "FULL_FILLMENT", "warehouse_id": 1020000000000101}]}]},
+    {"id": 999, "macrolocal_cluster_id": 999, "name": "Краснодар", "type": "CLUSTER_TYPE_OZON",
+     "logistic_clusters": [{"warehouses": [{"name": "КРАСНОДАР_2_РФЦ", "type": "FULL_FILLMENT", "warehouse_id": 1020000000000303}]}]}
+  ]
+}

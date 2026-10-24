@@ -44,6 +44,7 @@ export type SyncStatus = {
   balance: KindStatus
   bank: KindStatus | null
   postings: KindStatus | null
+  supplies?: KindStatus | null // заявки на поставку FBO (10.18)
   state: SyncState
   oldest_kind: string | null
   oldest_success_at: string | null

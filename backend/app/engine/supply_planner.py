@@ -6,8 +6,8 @@
     avg_daily    = продажи за 30 дней / 30 (дней с данными, если загружено меньше)
     trend        = (продажи за 7 дней / 7) / avg_daily
     days_left    = остаток / (avg_daily × trend)          — остаток на складе сейчас, без «в пути»
-    target_stock = avg_daily × target_days                — запас после поставки (по умолчанию 45 дней)
-    to_order     = max(0, avg_daily × (target_days + lead_time_days) − (остаток + в пути))
+    target_stock = avg_daily × (target_days + safety_days) — запас после поставки (по умолчанию 45 дней + страховой 0)
+    to_order     = max(0, avg_daily × (target_days + safety_days + lead_time_days) − (остаток + в пути))
                    пока поставка едет (lead_time_days, по умолчанию 7), товар продаётся — довозим и это
     срочность:   days_left < порог «Критично» (7) — critical, < порог «Мало» (14) — urgent, остальные — planned
 
@@ -26,6 +26,7 @@ CRITICAL, URGENT, PLANNED = "critical", "urgent", "planned"
 URGENCIES = (CRITICAL, URGENT, PLANNED)
 DEFAULT_TARGET_DAYS = 45
 DEFAULT_LEAD_TIME_DAYS = 7
+DEFAULT_SAFETY_DAYS = 0  # страховой запас (шаг 10.18) — сверх цели, на случай задержки поставки или всплеска спроса
 MIN_DAYS = 7  # меньше дней с данными о заказах — не считаем: среднее по паре дней обманчиво
 
 _TENTH = Decimal("0.1")
@@ -36,6 +37,7 @@ _RATE = Decimal("0.001")
 class Params:
     target_days: int = DEFAULT_TARGET_DAYS  # на сколько дней продаж запас после поставки
     lead_time_days: int = DEFAULT_LEAD_TIME_DAYS  # сколько дней поставка в пути
+    safety_days: int = DEFAULT_SAFETY_DAYS  # страховой запас, дней продаж
 
 
 @dataclass(frozen=True)
@@ -84,7 +86,7 @@ def recommend(
     trend = rate / avg
     stock = max(point.stock, 0)
     days_left = (Decimal(stock) / rate).quantize(_TENTH, ROUND_HALF_UP) if rate > 0 else None
-    need = math.ceil(avg * (params.target_days + params.lead_time_days))
+    need = math.ceil(avg * (params.target_days + params.safety_days + params.lead_time_days))
     to_order = max(0, need - stock - max(point.in_transit, 0))
     if to_order == 0:
         return None
@@ -97,7 +99,7 @@ def recommend(
     return SupplyRecommendation(
         point=point, avg_daily=avg.quantize(_RATE, ROUND_HALF_UP), rate=rate.quantize(_RATE, ROUND_HALF_UP),
         trend=trend.quantize(Decimal("0.01"), ROUND_HALF_UP), days_left=days_left,
-        target_stock=math.ceil(avg * params.target_days), need=need, to_order=to_order, urgency=urgency,
+        target_stock=math.ceil(avg * (params.target_days + params.safety_days)), need=need, to_order=to_order, urgency=urgency,
         arrives_late=days_left is not None and days_left < params.lead_time_days,
     )
 

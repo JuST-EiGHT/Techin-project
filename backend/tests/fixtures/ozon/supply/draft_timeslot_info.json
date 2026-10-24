@@ -1,0 +1,18 @@
+{
+  "error_reason": "UNSPECIFIED",
+  "result": {
+    "drop_off_warehouse_timeslots": {
+      "current_time_in_timezone": "2026-10-24T12:00:00",
+      "warehouse_timezone": "Asia/Yekaterinburg",
+      "days": [
+        {"date_in_timezone": "2026-10-29", "timeslots": [
+          {"from_in_timezone": "2026-10-29T09:00:00", "to_in_timezone": "2026-10-29T10:00:00"},
+          {"from_in_timezone": "2026-10-29T10:00:00", "to_in_timezone": "2026-10-29T11:00:00"}]},
+        {"date_in_timezone": "2026-10-30", "timeslots": [
+          {"from_in_timezone": "2026-10-30T09:00:00", "to_in_timezone": "2026-10-30T10:00:00"}]}
+      ]
+    },
+    "requested_date_from": "2026-10-24",
+    "requested_date_to": "2026-11-20"
+  }
+}

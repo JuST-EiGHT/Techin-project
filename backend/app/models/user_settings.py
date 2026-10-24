@@ -61,6 +61,7 @@ class UserSettings(Base):
     # планирование поставок (шаг 5.2): запас после поставки, дней, и сколько дней везти; пусто — 45 и 7
     supply_target_days: Mapped[int | None] = mapped_column(Integer)
     supply_lead_time_days: Mapped[int | None] = mapped_column(Integer)
+    supply_safety_days: Mapped[int | None] = mapped_column(Integer)  # страховой запас, дней (10.18); нет — 0
     # порог «низкой маржи», % (шаг 7.1): акции, страница товаров, прибыль по товарам и аномалия «маржа ниже порога»;
     # пусто — 10 % (engine/anomaly_detector.Thresholds)
     low_margin_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))

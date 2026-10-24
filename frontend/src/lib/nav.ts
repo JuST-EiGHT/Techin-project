@@ -85,7 +85,7 @@ export const NAV: NavSection[] = [
       {
         href: '/dashboard/warehouses/supply',
         label: 'Поставки',
-        description: 'Что, в какой кластер и сколько везти — срочные первыми, Excel для логиста',
+        description: 'Что и куда везти, планы поставок, заявки Ozon со статусами и календарь',
       },
       {
         href: '/dashboard/warehouses/withdrawal',

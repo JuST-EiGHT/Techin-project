@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.engine import abc
 from app.engine import anomaly_detector as anomalies
 from app.engine.stocks import DEFAULT_THRESHOLDS, Thresholds
-from app.engine.supply_planner import DEFAULT_LEAD_TIME_DAYS, DEFAULT_TARGET_DAYS
+from app.engine.supply_planner import DEFAULT_LEAD_TIME_DAYS, DEFAULT_SAFETY_DAYS, DEFAULT_TARGET_DAYS
 from app.models.user_settings import (
     DEFAULT_AD_PCT,
     DEFAULT_SUPPLIER_PAYMENT,
@@ -75,6 +75,11 @@ def supply_params(s: UserSettings) -> tuple[int, int]:
     target = DEFAULT_TARGET_DAYS if s.supply_target_days is None else s.supply_target_days
     lead = DEFAULT_LEAD_TIME_DAYS if s.supply_lead_time_days is None else s.supply_lead_time_days
     return target, lead
+
+
+def supply_safety_days(s: UserSettings) -> int:
+    """Страховой запас для поставок (шаг 10.18), дней; не задан — 0."""
+    return DEFAULT_SAFETY_DAYS if s.supply_safety_days is None else s.supply_safety_days
 
 
 # пороги аномалий (шаг 7.1): поле настроек → поле engine/anomaly_detector.Thresholds

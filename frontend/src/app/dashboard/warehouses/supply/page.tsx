@@ -2,11 +2,17 @@
 // Поставки (шаг 5.2, BUSINESS_LOGIC §5): что, в какой кластер Ozon и сколько везти, что закупить на свой склад — по
 // заказам за 30 дней и текущим остаткам. Группы «Срочно / Скоро / Плановые», параметры меняются на странице и
 // сохраняются в аккаунте, Excel для логиста.
+// 10.18: вкладки (?tab=) — «Рекомендации» (+ страховой запас, «уже в планах и заявках», выбор товаров → план поставки с
+// вашими количествами), «Планы» (components/supply-plans.tsx: правка, дата, Excel, заявка в Ozon), «Заявки Ozon» и
+// «Календарь» (components/supply-orders.tsx).
 import Link from 'next/link'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
 import { fmtDay } from '@/components/reports'
+import { CalendarTab, OrdersTab } from '@/components/supply-orders'
+import { PlansTab } from '@/components/supply-plans'
 import { refreshSyncStatus, timeAgo } from '@/lib/sync'
 import { useAuth } from '@/contexts/AuthContext'
 import { api, errorMessage } from '@/lib/api'
@@ -16,6 +22,8 @@ import { num, perDay, productHref } from '@/lib/stocks'
 import {
   KIND,
   LEAD_WHY,
+  type PlanDetail,
+  SAFETY_WHY,
   type SupplyItem,
   type SupplyParams,
   type SupplyReport,
@@ -30,23 +38,105 @@ type SyncState = {
   has_active_key: boolean
   postings: { last_run: { status: string; error: string | null } | null; last_success_at: string | null } | null
 }
-type Form = { target_days: string; lead_time_days: string }
+type Form = { target_days: string; lead_time_days: string; safety_days: string }
+type Tab = 'recommendations' | 'plans' | 'orders' | 'calendar'
+/** Выбранные в план: ключ — тип|куда|товар. */
+type Picked = Record<string, { item: SupplyItem; qty: string }>
 
 const DEBOUNCE_MS = 400
 const POLL_MS = 3000
-const toForm = (p: SupplyParams): Form => ({ target_days: String(p.target_days), lead_time_days: String(p.lead_time_days) })
+const TABS: { value: Tab; label: string }[] = [
+  { value: 'recommendations', label: 'Рекомендации' },
+  { value: 'plans', label: 'Планы' },
+  { value: 'orders', label: 'Заявки Ozon' },
+  { value: 'calendar', label: 'Календарь' },
+]
+const toForm = (p: SupplyParams): Form => ({
+  target_days: String(p.target_days),
+  lead_time_days: String(p.lead_time_days),
+  safety_days: String(p.safety_days ?? 0),
+})
+const pickKey = (i: SupplyItem) => `${i.kind}|${i.destination.key}|${i.product.id}`
+const defaultQty = (i: SupplyItem) => String(i.still_needed > 0 ? i.still_needed : i.to_order)
 
 function query(f: Form): { params?: SupplyParams; error?: string } {
   const target = Number(f.target_days)
   const lead = Number(f.lead_time_days)
+  const safety = Number(f.safety_days)
   if (!/^\d+$/.test(f.target_days) || target < 1 || target > 365) return { error: 'Запас после поставки — от 1 до 365 дней' }
   if (!/^\d+$/.test(f.lead_time_days) || lead > 180) return { error: 'Дней в пути — от 0 до 180' }
-  return { params: { target_days: target, lead_time_days: lead } }
+  if (!/^\d+$/.test(f.safety_days) || safety > 180) return { error: 'Страховой запас — от 0 до 180 дней' }
+  return { params: { target_days: target, lead_time_days: lead, safety_days: safety } }
 }
 
 const pieces = (n: number) => `${n.toLocaleString('ru-RU')} шт.`
 
-export default function SupplyPage() {
+export default function SupplyRoute() {
+  return (
+    <Suspense>
+      <SupplyPage />
+    </Suspense>
+  )
+}
+
+function SupplyPage() {
+  const params = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
+  const rawTab = params.get('tab')
+  const tab: Tab = TABS.some((t) => t.value === rawTab) ? (rawTab as Tab) : 'recommendations'
+  const setUrl = useCallback(
+    (next: Record<string, string | null>) => {
+      const q = new URLSearchParams(params.toString())
+      for (const [k, v] of Object.entries(next)) {
+        if (v) q.set(k, v)
+        else q.delete(k)
+      }
+      if (q.get('tab') === 'recommendations') q.delete('tab')
+      const qs = q.toString()
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+    },
+    [params, pathname, router],
+  )
+  const nav = useRef<HTMLElement>(null)
+  useEffect(() => {
+    // на телефоне вкладки прокручиваются вбок — открытая должна быть видна
+    nav.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [tab])
+  const openPlan = (id: string | null) => setUrl({ tab: 'plans', plan: id, order: null })
+  const openOrder = (id: string | null) => setUrl({ tab: 'orders', order: id, plan: null })
+
+  return (
+    <div className="mx-auto max-w-6xl space-y-5">
+      <div>
+        <h1 className="text-2xl font-semibold">Поставки</h1>
+        <p className="mt-1 text-sm text-muted">
+          Что, в какой кластер Ozon и сколько везти, что закупить на свой склад; планы поставок, заявки Ozon и их результаты.
+        </p>
+      </div>
+      <nav ref={nav} className="flex gap-1 overflow-x-auto border-b border-line" aria-label="Поставки" data-testid="supply-tabs">
+        {TABS.map((t) => (
+          <button
+            key={t.value}
+            type="button"
+            onClick={() => setUrl({ tab: t.value, plan: null, order: null })}
+            aria-current={tab === t.value ? 'page' : undefined}
+            className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm sm:px-4 ${tab === t.value ? 'border-accent font-medium text-fg' : 'border-transparent text-muted hover:text-fg'}`}
+            data-testid={`supply-tab-${t.value}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+      {tab === 'recommendations' && <Recommendations onPlans={(id) => openPlan(id)} />}
+      {tab === 'plans' && <PlansTab openId={params.get('plan')} onOpen={openPlan} onOrder={(id) => openOrder(id)} />}
+      {tab === 'orders' && <OrdersTab openId={params.get('order')} onOpen={openOrder} onPlan={(id) => openPlan(id)} />}
+      {tab === 'calendar' && <CalendarTab onPlan={(id) => openPlan(id)} onOrder={(id) => openOrder(id)} />}
+    </div>
+  )
+}
+
+function Recommendations({ onPlans }: { onPlans: (id: string | null) => void }) {
   const { user } = useAuth()
   const [form, setForm] = useState<Form | null>(null)
   const [data, setData] = useState<SupplyReport | null>(null)
@@ -55,6 +145,7 @@ export default function SupplyPage() {
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
   const [starting, setStarting] = useState(false)
+  const [picked, setPicked] = useState<Picked>({})
   const first = useRef(true)
   const wasActive = useRef(false)
 
@@ -138,7 +229,11 @@ export default function SupplyPage() {
     if (!q.params) return setError(q.error ?? null)
     setError(null)
     try {
-      await saveSettings(user.id, { supply_target_days: q.params.target_days, supply_lead_time_days: q.params.lead_time_days })
+      await saveSettings(user.id, {
+        supply_target_days: q.params.target_days,
+        supply_lead_time_days: q.params.lead_time_days,
+        supply_safety_days: q.params.safety_days,
+      })
       await load(q.params)
       setSaved(true)
     } catch (err) {
@@ -163,17 +258,50 @@ export default function SupplyPage() {
     setForm((f) => (f ? { ...f, ...next } : f))
   }
 
+  function toggle(items: SupplyItem[], on: boolean) {
+    setPicked((p) => {
+      const next = { ...p }
+      for (const i of items) {
+        if (on) next[pickKey(i)] = next[pickKey(i)] ?? { item: i, qty: defaultQty(i) }
+        else delete next[pickKey(i)]
+      }
+      return next
+    })
+  }
+
+  async function createPlans(day: string) {
+    setError(null)
+    const groups = new Map<string, { item: SupplyItem; qty: string }[]>()
+    for (const p of Object.values(picked)) {
+      const k = `${p.item.kind}|${p.item.destination.key}`
+      groups.set(k, [...(groups.get(k) ?? []), p])
+    }
+    try {
+      const made: string[] = []
+      for (const rows of groups.values()) {
+        const d = rows[0].item
+        const { data: plan } = await api.post<PlanDetail>('/supply/plans', {
+          kind: d.kind,
+          destination_key: d.destination.key,
+          destination_name: d.destination.name,
+          planned_date: day || null,
+          items: rows.map((r) => ({ product_id: r.item.product.id, qty: Number(r.qty || 0), recommended: Number(defaultQty(r.item)) })),
+        })
+        made.push(plan.id)
+      }
+      setPicked({})
+      onPlans(made.length === 1 ? made[0] : null)
+    } catch (err) {
+      setError(errorMessage(err, 'План не создался — проверьте количества'))
+    }
+  }
+
   const lastRun = sync?.postings?.last_run
   const lastSuccess = sync?.postings?.last_success_at
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="space-y-5">
       <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-semibold">Поставки</h1>
-          <p className="mt-1 text-sm text-muted">
-            Что, в какой кластер Ozon и сколько везти, что закупить на свой склад — по заказам за 30 дней и текущим остаткам.
-          </p>
-        </div>
+        <p className="min-w-0 flex-1 text-sm text-muted">По заказам за 30 дней и текущим остаткам; отметьте товары, поправьте количество и создайте план поставки.</p>
         {sync?.has_active_key && (
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <span className="text-muted" data-testid="postings-synced">
@@ -197,9 +325,10 @@ export default function SupplyPage() {
       {form && data && (
         <section className="rounded-xl border border-line bg-card p-5" data-testid="supply-params">
           <h2 className="font-semibold">Параметры</h2>
-          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <div className="mt-3 grid gap-4 sm:grid-cols-3">
             <DaysField id="target_days" label="Запас после поставки" value={form.target_days} onChange={(v) => change({ target_days: v })} why={TARGET_WHY} />
             <DaysField id="lead_time_days" label="Поставка в пути" value={form.lead_time_days} onChange={(v) => change({ lead_time_days: v })} why={LEAD_WHY} />
+            <DaysField id="safety_days" label="Страховой запас" value={form.safety_days} onChange={(v) => change({ safety_days: v })} why={SAFETY_WHY} />
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <button
@@ -230,8 +359,60 @@ export default function SupplyPage() {
         </section>
       )}
 
-      {data && <Result data={data} busy={busy} onExport={exportXlsx} onSync={syncNow} syncing={active || starting} />}
+      {data && (
+        <Result
+          data={data}
+          busy={busy}
+          onExport={exportXlsx}
+          onSync={syncNow}
+          syncing={active || starting}
+          picked={picked}
+          onToggle={toggle}
+          onQty={(i, qty) => setPicked((p) => ({ ...p, [pickKey(i)]: { item: i, qty } }))}
+        />
+      )}
       {!data && !error && <p className="text-sm text-muted">Загрузка…</p>}
+      {Object.keys(picked).length > 0 && <PlanBar picked={picked} onCreate={createPlans} onClear={() => setPicked({})} />}
+    </div>
+  )
+}
+
+function PlanBar({ picked, onCreate, onClear }: { picked: Picked; onCreate: (day: string) => void; onClear: () => void }) {
+  const [day, setDay] = useState('')
+  const [busy, setBusy] = useState(false)
+  const rows = Object.values(picked)
+  const units = rows.reduce((s, r) => s + Number(r.qty || 0), 0)
+  const places = new Set(rows.map((r) => `${r.item.kind}|${r.item.destination.key}`)).size
+  return (
+    <div className="sticky bottom-3 z-10 rounded-xl border border-accent bg-card p-3 shadow-lg" data-testid="plan-bar">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <span className="text-sm">
+          Выбрано: <span className="font-medium">{rows.length}</span> · {pieces(units)}
+          <span className="text-muted"> → {places === 1 ? 'один план' : `${places} плана(ов) — по одному на кластер или склад`}</span>
+        </span>
+        <label className="flex items-center gap-2 text-sm text-muted">
+          когда везти
+          <input type="date" value={day} onChange={(e) => setDay(e.target.value)} className="rounded-lg border border-line bg-bg px-2 py-1 text-fg" data-testid="plan-bar-date" />
+        </label>
+        <div className="flex items-center gap-2 sm:ml-auto">
+          <button type="button" onClick={onClear} className="text-sm text-muted hover:text-fg">
+            Сбросить
+          </button>
+          <button
+            type="button"
+            disabled={busy || units === 0}
+            onClick={async () => {
+              setBusy(true)
+              await onCreate(day)
+              setBusy(false)
+            }}
+            className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+            data-testid="plan-create"
+          >
+            Создать план
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -266,12 +447,15 @@ function Empty({ children, testid }: { children: React.ReactNode; testid: string
   )
 }
 
-function Result({ data, busy, onExport, onSync, syncing }: {
+function Result({ data, busy, onExport, onSync, syncing, picked, onToggle, onQty }: {
   data: SupplyReport
   busy: boolean
   onExport: () => void
   onSync: () => void
   syncing: boolean
+  picked: Picked
+  onToggle: (items: SupplyItem[], on: boolean) => void
+  onQty: (item: SupplyItem, qty: string) => void
 }) {
   if (!data.has_key)
     return (
@@ -349,14 +533,17 @@ function Result({ data, busy, onExport, onSync, syncing }: {
           Везти ничего не нужно: у всех товаров с заказами за 30 дней запаса хватает на {data.params.target_days} дн. и дорогу.
         </Empty>
       ) : (
-        groups.map(({ u, items }) => <Group key={u} urgency={u} items={items} hint={urgencyHint(u, t)} lead={data.params.lead_time_days} />)
+        groups.map(({ u, items }) => (
+          <Group key={u} urgency={u} items={items} hint={urgencyHint(u, t)} lead={data.params.lead_time_days} picked={picked} onToggle={onToggle} onQty={onQty} />
+        ))
       )}
 
       <p className="text-xs text-faint">
         Продажи — заказы без отмен: для складов Ozon — по кластеру покупателя (Ozon принимает поставку в кластер и сам
         раскладывает по его складам), для своих складов — по складу отгрузки. «Хватит на» — остаток сейчас / продажи в день за
         последние 7 дней. «Отправить» — продажи в день за 30 дней × (запас после поставки + дни в пути) минус остаток и то, что
-        уже едет. Пороги «Срочно» и «Скоро» — те же, что у остатков, меняются в{' '}
+        уже едет; со страховым запасом — ещё на столько дней продаж. «Нужно ещё» — за вычетом того, что уже в ваших планах и в
+        заявках Ozon, которые готовятся. Пороги «Срочно» и «Скоро» — те же, что у остатков, меняются в{' '}
         <Link href="/dashboard/settings" className="text-accent hover:underline">
           «Настройках»
         </Link>
@@ -406,15 +593,61 @@ function Sales({ item }: { item: SupplyItem }) {
   )
 }
 
-function Group({ urgency, items, hint, lead }: { urgency: Urgency; items: SupplyItem[]; hint: string; lead: number }) {
+function Planned({ item }: { item: SupplyItem }) {
+  if (!item.in_plans && !item.in_orders) return null
+  return (
+    <span className="block text-xs text-faint" data-testid="already-planned">
+      {item.in_plans > 0 && `в планах ${item.in_plans}`}
+      {item.in_plans > 0 && item.in_orders > 0 && ' · '}
+      {item.in_orders > 0 && `в заявках ${item.in_orders}`}
+      {' · '}
+      <span className={item.still_needed > 0 ? 'text-warn' : 'text-ok'}>{item.still_needed > 0 ? `нужно ещё ${item.still_needed}` : 'хватает'}</span>
+    </span>
+  )
+}
+
+function Pick({ item, picked, onToggle, onQty }: { item: SupplyItem; picked: Picked; onToggle: (items: SupplyItem[], on: boolean) => void; onQty: (item: SupplyItem, qty: string) => void }) {
+  const p = picked[pickKey(item)]
+  return (
+    <span className="inline-flex items-center gap-2">
+      <input type="checkbox" checked={Boolean(p)} onChange={(e) => onToggle([item], e.target.checked)} aria-label={`В план: ${item.product.offer_id}`} data-testid="pick" />
+      {p && (
+        <input
+          inputMode="numeric"
+          value={p.qty}
+          onChange={(e) => onQty(item, e.target.value.replace(/\D/g, '').slice(0, 6))}
+          className="w-20 rounded-lg border border-line bg-bg px-2 py-0.5 text-right text-sm tabular-nums outline-none focus:border-accent"
+          aria-label="Сколько в план"
+          data-testid="pick-qty"
+        />
+      )}
+    </span>
+  )
+}
+
+function Group({ urgency, items, hint, lead, picked, onToggle, onQty }: {
+  urgency: Urgency
+  items: SupplyItem[]
+  hint: string
+  lead: number
+  picked: Picked
+  onToggle: (items: SupplyItem[], on: boolean) => void
+  onQty: (item: SupplyItem, qty: string) => void
+}) {
   const meta = URGENCY[urgency]
   const units = items.reduce((s, i) => s + i.to_order, 0)
+  const all = items.length > 0 && items.every((i) => picked[pickKey(i)])
   return (
     <section id={`group-${urgency}`} className="scroll-mt-4 rounded-xl border border-line bg-card" data-testid={`group-${urgency}`}>
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line px-4 py-3">
         <h2 className={`font-semibold ${meta.text}`}>{meta.label}</h2>
         <span className="text-sm text-muted">{items.length ? `${items.length} · ${pieces(units)}` : 'нет'}</span>
         <span className="text-xs text-faint">{hint}</span>
+        {items.length > 0 && (
+          <button type="button" onClick={() => onToggle(items, !all)} className="ml-auto text-xs text-accent hover:underline" data-testid={`pick-all-${urgency}`}>
+            {all ? 'Снять выбор' : 'Выбрать все в план'}
+          </button>
+        )}
       </div>
       {items.length > 0 && (
         <>
@@ -432,6 +665,10 @@ function Group({ urgency, items, hint, lead }: { urgency: Urgency; items: Supply
                     <div className="font-semibold tabular-nums">{pieces(i.to_order)}</div>
                     <div className="text-xs text-faint">{i.kind === 'supply' ? 'отправить' : 'закупить'}</div>
                   </div>
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 text-sm">
+                  <Pick item={i} picked={picked} onToggle={onToggle} onQty={onQty} />
+                  <Planned item={i} />
                 </div>
                 <div className="mt-1 text-sm">
                   <Where item={i} />
@@ -456,6 +693,7 @@ function Group({ urgency, items, hint, lead }: { urgency: Urgency; items: Supply
             <table className="w-full text-sm">
               <thead className="text-left text-xs text-muted">
                 <tr className="border-b border-line">
+                  <th className="px-4 py-2 font-normal">В план</th>
                   <th className="px-4 py-2 font-normal">Товар</th>
                   <th className="px-4 py-2 font-normal">Куда</th>
                   <th className="px-4 py-2 font-normal" title="Остаток сейчас / продажи в день за последние 7 дней">
@@ -473,6 +711,9 @@ function Group({ urgency, items, hint, lead }: { urgency: Urgency; items: Supply
               <tbody>
                 {items.map((i) => (
                   <tr key={`${i.kind}-${i.destination.key}-${i.product.id}`} className={`border-b border-l-4 border-b-line last:border-b-0 ${meta.border}`} data-testid="supply-row">
+                    <td className="whitespace-nowrap px-4 py-2">
+                      <Pick item={i} picked={picked} onToggle={onToggle} onQty={onQty} />
+                    </td>
                     <td className="px-4 py-2">
                       <Link href={productHref(i.product.id)} className="font-medium hover:text-accent">
                         {i.product.offer_id}
@@ -495,6 +736,7 @@ function Group({ urgency, items, hint, lead }: { urgency: Urgency; items: Supply
                     <td className="px-4 py-2 text-right">
                       <span className="font-semibold tabular-nums">{pieces(i.to_order)}</span>
                       <span className="block text-xs text-faint">{i.kind === 'supply' ? `станет ${i.stock + i.in_transit + i.to_order}` : 'закупить'}</span>
+                      <Planned item={i} />
                     </td>
                   </tr>
                 ))}

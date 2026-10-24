@@ -34,6 +34,7 @@ from app.services.sync.finance import sync_finance
 from app.services.sync.ozon_balance import sync_balance
 from app.services.sync.postings import sync_postings
 from app.services.sync.stocks import sync_stocks
+from app.services.sync.supply_orders import sync_supply_orders
 
 log = logging.getLogger(__name__)
 
@@ -121,6 +122,10 @@ async def _postings_job(db: AsyncSession, user_id: uuid.UUID, client: OzonClient
     return (await sync_postings(db, user_id, client)).as_dict()
 
 
+async def _supplies_job(db: AsyncSession, user_id: uuid.UUID, client: OzonClient) -> dict:
+    return (await sync_supply_orders(db, user_id, client)).as_dict()
+
+
 async def _bank_job(db: AsyncSession, user_id: uuid.UUID, connection_id: str | None = None) -> dict:
     from app.services.bank_connections import sync_user
 
@@ -149,6 +154,7 @@ JOBS: dict[str, Job] = {
     "balance": _balance_job,
     "bank": _bank_job,
     "postings": _postings_job,
+    "supplies": _supplies_job,
     "anomalies": _anomalies_job,
 }
 NO_OZON_CLIENT = {"bank", "anomalies"}  # задачи, которым клиент Ozon не нужен

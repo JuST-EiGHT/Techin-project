@@ -77,7 +77,7 @@ async def test_sync_problem_detected_and_closed(client, tokens, sessions):
                       stats={"error_kind": "key"})
     await detect(sessions, uid)
     [a] = active(await rows(sessions, uid, det.SYNC_PROBLEM))
-    assert (a.key, a.severity, len(a.details["kinds"]), a.details["all_ozon"]) == ("sync:ozon:key", "red", 6, True)
+    assert (a.key, a.severity, len(a.details["kinds"]), a.details["all_ozon"]) == ("sync:ozon:key", "red", 7, True)
     assert describe(a.type, a.severity, None, None, None, a.details).title == "Ozon не принял ключ — данные Ozon не обновляются"
 
     for kind in OZON_KINDS:  # ключ заменили — всё загрузилось

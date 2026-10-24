@@ -1,0 +1,14 @@
+{
+  "_comment": "Обезличенные ответы /v1/supply-order/bundle по bundle_id",
+  "bnd-5001": {"items": [
+    {"sku": 900001001, "name": "Подшипник тестовый 1", "offer_id": "6001-2RS.C3.SRL.NAC.TH", "quantity": 20, "barcode": "", "product_id": 1001, "quant": 1},
+    {"sku": 900001002, "name": "Подшипник тестовый 2", "offer_id": "ACB305523.NAC.JP", "quantity": 5, "product_id": 1002, "quant": 1}
+  ], "total_count": 2, "has_next": false, "last_id": "x"},
+  "bnd-5002": {"items": [
+    {"sku": 900001001, "name": "Подшипник тестовый 1", "offer_id": "6001-2RS.C3.SRL.NAC.TH", "quantity": 12, "product_id": 1001, "quant": 1},
+    {"sku": 900009999, "name": "Товар не из каталога", "offer_id": "UNKNOWN-1", "quantity": 3, "product_id": 9999, "quant": 1}
+  ], "total_count": 2, "has_next": false, "last_id": "y"},
+  "bnd-5003": {"items": [
+    {"sku": 900001003, "name": "Подшипник тестовый 3", "offer_id": "6000-2RS.C3.SRL.NAC.JP", "quantity": 10, "product_id": 1003, "quant": 1}
+  ], "total_count": 1, "has_next": false, "last_id": "z"}
+}

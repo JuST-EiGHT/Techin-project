@@ -68,6 +68,7 @@ class SyncStatusResponse(BaseModel):
     has_bank: bool = False  # подключён банк по API (шаг 3.12) — ключ Ozon для этого не нужен
     bank: KindStatus | None = None
     postings: KindStatus | None = None  # отправления FBO и FBS (шаг 5.2)
+    supplies: KindStatus | None = None  # заявки на поставку FBO (шаг 10.18)
     # шаг 10.2: общее состояние для кнопки «Синхронизация» — fresh | running | error | stale | no_source (нечего загружать)
     state: str = "no_source"
     oldest_kind: str | None = None  # самые старые данные: вид…

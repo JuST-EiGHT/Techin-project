@@ -89,6 +89,12 @@ async def sync_postings_now(user: User = Depends(get_current_store), db: AsyncSe
     return await _sync_now("postings", user, db)
 
 
+@router.post("/supplies", response_model=SyncRunResponse, status_code=status.HTTP_202_ACCEPTED)
+async def sync_supplies_now(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
+    """Заявки на поставку FBO — статусы, таймслоты, состав и акты приёмки (шаг 10.18)."""
+    return await _sync_now("supplies", user, db)
+
+
 async def _kind_status(db: AsyncSession, user_id: uuid.UUID, kind: str) -> KindStatus:
     await active_run(db, user_id, kind)  # помечает зависшие запуски проваленными
     last = await latest_run(db, user_id, kind)
@@ -123,6 +129,7 @@ async def sync_status(user: User = Depends(get_current_store), db: AsyncSession 
         has_bank=bool(await bank_connections.list_connections(db, user.id)),
         bank=await _kind_status(db, user.id, "bank"),
         postings=await _kind_status(db, user.id, "postings"),
+        supplies=await _kind_status(db, user.id, "supplies"),
         state=view.state,
         oldest_kind=view.oldest_kind,
         oldest_success_at=view.oldest_at,

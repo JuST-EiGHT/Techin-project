@@ -154,6 +154,17 @@ def sync_postings_all() -> int:
     return _fan_out("postings", sync_postings_for_user)
 
 
+@celery_app.task(name="tasks.sync_supplies_for_user")
+def sync_supplies_for_user(user_id: str, run_id: str | None = None) -> dict:
+    """Заявки на поставку FBO (шаг 10.18): статусы, таймслоты, состав, акты приёмки."""
+    return asyncio.run(_sync_for_user("supplies", user_id, run_id))
+
+
+@celery_app.task(name="tasks.sync_supplies_all")
+def sync_supplies_all() -> int:
+    return _fan_out("supplies", sync_supplies_for_user)
+
+
 async def _bank_users() -> list[uuid.UUID]:
     from app.services.bank_connections import users_with_connections
 
@@ -232,5 +243,6 @@ FOR_USER_TASKS = {
     "balance": sync_balance_for_user,
     "bank": sync_bank_for_user,
     "postings": sync_postings_for_user,
+    "supplies": sync_supplies_for_user,
     "anomalies": detect_anomalies_for_user,
 }

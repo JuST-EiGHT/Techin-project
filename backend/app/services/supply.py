@@ -5,6 +5,9 @@
 раньше, чем загружены отправления, и не позже последней синхронизации. Остаток: кластер — сумма по складам Ozon этого
 кластера (доступно + в пути), свой склад — доступно минус резерв. Расчёт — engine/supply_planner (BUSINESS_LOGIC §5).
 Параметры — настройки пользователя (запас 45 дней, 7 дней в пути); в запросе их можно переопределить, не сохраняя.
+
+10.18: страховой запас (дней, по умолчанию 0) добавляется к цели; у рекомендации — сколько уже в открытых планах сервиса и в
+заявках Ozon, которые ещё готовятся (не в пути — в остатках «в пути» их нет), и сколько нужно ещё.
 """
 import uuid
 from dataclasses import dataclass, replace
@@ -24,7 +27,7 @@ from app.schemas.sync import utc
 from app.services.stocks import latest_stocks
 from app.services.sync.finance import MSK, today_msk
 from app.services.sync.postings import is_cancelled
-from app.services.user_settings import get_settings, load_thresholds, supply_params
+from app.services.user_settings import get_settings, load_thresholds, supply_params, supply_safety_days
 from app.services.xlsx_export import Col, table_xlsx
 
 WINDOW_DAYS = 30
@@ -42,13 +45,20 @@ def cluster_key(name: str | None) -> str | None:
 
 # ── параметры ──
 async def load_params(db: AsyncSession, user_id: uuid.UUID) -> engine.Params:
-    target, lead = supply_params(await get_settings(db, user_id))
-    return engine.Params(target_days=target, lead_time_days=lead)
+    s = await get_settings(db, user_id)
+    target, lead = supply_params(s)
+    return engine.Params(target_days=target, lead_time_days=lead, safety_days=supply_safety_days(s))
 
 
-def with_overrides(base: engine.Params, *, target_days: int | None, lead_time_days: int | None) -> engine.Params:
-    changes = {k: v for k, v in (("target_days", target_days), ("lead_time_days", lead_time_days)) if v is not None}
+def with_overrides(base: engine.Params, *, target_days: int | None, lead_time_days: int | None,
+                   safety_days: int | None = None) -> engine.Params:
+    changes = {k: v for k, v in (("target_days", target_days), ("lead_time_days", lead_time_days),
+                                 ("safety_days", safety_days)) if v is not None}
     return replace(base, **changes)
+
+
+def params_out(p: engine.Params) -> dict:
+    return {"target_days": p.target_days, "lead_time_days": p.lead_time_days, "safety_days": p.safety_days}
 
 
 # ── покрытие данными ──
@@ -182,6 +192,10 @@ async def report(db: AsyncSession, user_id: uuid.UUID, params: engine.Params) ->
                 stock=stock, in_transit=transit, demand=engine.Demand(sold, sold_7, cov.days_30, cov.days_7),
             ))
     recs = engine.plan(points, params, thresholds)
+    from app.services import supply_plans  # планы и заявки — свой модуль, он считает по этому же расчёту (10.18)
+
+    in_plans = await supply_plans.open_plan_qty(db, user_id)
+    in_orders = await supply_plans.preparing_order_qty(db, user_id)
 
     items = []
     for r in recs:
@@ -197,12 +211,15 @@ async def report(db: AsyncSession, user_id: uuid.UUID, params: engine.Params) ->
             "avg_daily": r.avg_daily, "rate": r.rate, "trend": r.trend, "stock": r.point.stock,
             "in_transit": r.point.in_transit, "days_left": r.days_left, "target_stock": r.target_stock,
             "need": r.need, "to_order": r.to_order, "arrives_late": r.arrives_late,
+            "in_plans": (planned := in_plans.get((r.point.kind, dest.key, p.id), 0)),
+            "in_orders": (ordered := in_orders.get((dest.key, p.id), 0) if r.point.kind == engine.SUPPLY else 0),
+            "still_needed": max(0, r.to_order - planned - ordered),
         })
     totals = {u: sum(1 for r in recs if r.urgency == u) for u in engine.URGENCIES}
     fbo, fbs = covs.get(FBO), covs.get(FBS)
     return {
-        "params": {"target_days": params.target_days, "lead_time_days": params.lead_time_days},
-        "saved": {"target_days": saved.target_days, "lead_time_days": saved.lead_time_days},
+        "params": params_out(params),
+        "saved": params_out(saved),
         "is_saved": params == saved,
         "thresholds": {"critical": thresholds.critical, "low": thresholds.low, "excess": thresholds.excess},
         "has_key": await crud_credential.has_active(db, user_id),
@@ -224,6 +241,7 @@ COLUMNS = [
     Col("Отправить / закупить, шт.", 14, "int"), Col("Сейчас там, шт.", 11, "int"), Col("В пути, шт.", 10, "int"),
     Col("Хватит на, дн.", 10, "number"), Col("Продажи в день (30 дн.)", 12, "number"),
     Col("Продажи в день (7 дн.)", 12, "number"), Col("Запас после поставки, шт.", 13, "int"),
+    Col("Уже в планах, шт.", 11, "int"), Col("Уже в заявках Ozon, шт.", 12, "int"), Col("Нужно ещё, шт.", 11, "int"),
 ]
 
 
@@ -236,7 +254,7 @@ def to_xlsx(data: dict) -> bytes:
     rows = [
         [KIND_TEXT[i["kind"]], i["destination"]["name"], URGENCY_TEXT[i["urgency"]], i["product"]["offer_id"],
          i["product"]["name"], i["to_order"], i["stock"], i["in_transit"], i["days_left"], i["avg_daily"], i["rate"],
-         i["target_stock"]]
+         i["target_stock"], i["in_plans"], i["in_orders"], i["still_needed"]]
         for i in items
     ]
     prm, t = data["params"], data["thresholds"]
@@ -244,7 +262,8 @@ def to_xlsx(data: dict) -> bytes:
     notes = [
         f"Планирование поставок — {data['today']:%d.%m.%Y}",
         "",
-        f"Запас после поставки: на {prm['target_days']} дн. продаж; поставка в пути: {prm['lead_time_days']} дн.",
+        f"Запас после поставки: на {prm['target_days']} дн. продаж, страховой — {prm['safety_days']} дн.; поставка в "
+        f"пути: {prm['lead_time_days']} дн.",
         f"Срочно — запаса меньше чем на {t['critical']} дн., скоро — меньше чем на {t['low']} дн.",
         "",
         "Продажи — заказы без отмен за последние 30 дней (и 7 дней — тренд): для складов Ozon — по кластеру покупателя, "
@@ -252,7 +271,10 @@ def to_xlsx(data: dict) -> bytes:
         "Хватит на — остаток сейчас / продажи в день за 7 дней. Отправить — продажи в день за 30 дней × (запас + дни в "
         "пути) минус остаток и то, что уже в пути.",
         "Поставка в Ozon — в кластер (Ozon сам распределит по складам кластера); закупка — на свой склад (FBS / rFBS).",
+        "Уже в планах — в открытых планах поставки сервиса; уже в заявках — в заявках Ozon, которые ещё готовятся. "
+        "Нужно ещё = отправить − в планах − в заявках.",
         f"Итого: в Ozon — {supply} шт., закупить на свои склады — {purchase} шт.",
     ]
-    total = ["Итого", None, None, None, None, supply + purchase, None, None, None, None, None, None]
+    total = ["Итого", None, None, None, None, supply + purchase, None, None, None, None, None, None, None, None,
+             sum(i["still_needed"] for i in items)]
     return table_xlsx("Поставки", COLUMNS, rows, total=total, notes_title="Параметры", notes=notes)

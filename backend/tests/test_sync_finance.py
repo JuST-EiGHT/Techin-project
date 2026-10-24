@@ -459,7 +459,7 @@ async def test_backfill_queued_when_key_added(client, tokens, no_celery):
         r = await client.post("/api/v1/credentials", json={"client_id": "1234567", "api_key": API_KEY}, headers=auth(tokens))
     assert r.status_code == 201
     # 90 дней: начисления и баланс у Ozon (выплаты, шаг 3.6), без периода
-    assert [q[0] for q in no_celery] == ["finance", "balance", "postings"] and no_celery[0][3] is None
+    assert [q[0] for q in no_celery] == ["finance", "balance", "postings", "supplies"] and no_celery[0][3] is None
     status = (await client.get("/api/v1/sync/status", headers=auth(tokens))).json()
     assert status["finance"]["last_run"]["status"] == "queued"
 

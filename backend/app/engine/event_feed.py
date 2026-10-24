@@ -171,6 +171,15 @@ def restock(key: str, at: datetime, product: ProductRef, present: int) -> Event:
                  "Товар")
 
 
+def supply_order(key: str, at: datetime, order_id: str, number: str, state_text: str, group: str, where: str | None,
+                 units: int | None) -> Event:
+    """Заявка на поставку FBO сменила статус (шаг 10.18)."""
+    tone = OK if group == "done" else BAD if group == "failed" else None
+    detail = ", ".join(x for x in (where, f"{units} шт." if units else None) if x) or None
+    return Event(key, at, STOCK, f"Поставка №{number}: {state_text.lower()}", detail, tone, None,
+                 f"/dashboard/warehouses/supply?tab=orders&order={order_id}", "Заявка")
+
+
 # ── аномалии ──
 RESOLUTION = {"normal": "вернулось в норму", "gone": "больше не относится — товар в архиве или проверка выключена"}
 
@@ -230,6 +239,13 @@ ACTIONS: dict[tuple[str, str], Action] = {
                                                          "/dashboard/warehouses/withdrawal", "На вывоз"),
     ("POST", f"{P}/warehouses/withdrawal/decisions"): Action("Решение по вывозу товара: вывозим или оставить",
                                                              "/dashboard/warehouses/withdrawal", "На вывоз"),
+    ("POST", f"{P}/supply/plans"): Action("Создан план поставки", "/dashboard/warehouses/supply?tab=plans", "Поставки"),
+    ("PATCH", f"{P}/supply/plans/{{plan_id}}"): Action("Изменён план поставки: дата, заметка, отмена или заявка Ozon",
+                                                     "/dashboard/warehouses/supply?tab=plans", "Поставки"),
+    ("PUT", f"{P}/supply/plans/{{plan_id}}/items/{{product_id}}"): Action(
+        "Изменено количество в плане поставки", "/dashboard/warehouses/supply?tab=plans", "Поставки"),
+    ("POST", f"{P}/supply/drafts/{{draft_id}}/create"): Action("Создана заявка на поставку в Ozon",
+                                                              "/dashboard/warehouses/supply?tab=orders", "Заявки"),
     ("PATCH", f"{P}/notifications/settings"): Action("Изменены настройки уведомлений", "/dashboard/settings/notifications",
                                                      "Уведомления"),
     ("POST", f"{P}/notifications/unlink"): Action("Telegram отвязан", "/dashboard/settings/notifications", "Уведомления"),
@@ -300,7 +316,8 @@ IGNORED: set[tuple[str, str]] = {
     ("POST", f"{P}/auth/logout"),
     ("POST", f"{P}/credentials/{{cred_id}}/verify"),
     ("POST", f"{P}/sync/products"), ("POST", f"{P}/sync/stocks"), ("POST", f"{P}/sync/balance"),
-    ("POST", f"{P}/sync/promotions"), ("POST", f"{P}/sync/postings"), ("POST", f"{P}/sync/all"),
+    ("POST", f"{P}/sync/promotions"), ("POST", f"{P}/sync/postings"), ("POST", f"{P}/sync/supplies"),
+    ("POST", f"{P}/sync/all"),
     ("POST", f"{P}/finance/sync"), ("POST", f"{P}/sales/rebuild"),
     ("POST", f"{P}/bank/connections/sync"), ("POST", f"{P}/bank/connections/{{conn_id}}/sync"),
     ("POST", f"{P}/bank/connections/{{conn_id}}/verify"),
@@ -317,7 +334,7 @@ IGNORED: set[tuple[str, str]] = {
     ("POST", f"{P}/reports/documents/{{doc_id}}/refresh"),
     ("POST", f"{P}/costs/import/errors"), ("POST", f"{P}/tax-profile/preview"),
     ("POST", f"{P}/planning/operations/import/errors"), ("POST", f"{P}/planning/plans/import/errors"),
-    ("POST", f"{P}/planning/rules/preview"),
+    ("POST", f"{P}/planning/rules/preview"), ("POST", f"{P}/supply/plans/{{plan_id}}/ozon-check"),
 }
 COSTS_TEMPLATE = f"{P}/costs/{{offer_id:path}}"
 

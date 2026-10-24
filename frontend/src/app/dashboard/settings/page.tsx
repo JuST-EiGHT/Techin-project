@@ -11,7 +11,7 @@ import { useTheme } from '@/contexts/ThemeContext'
 import { api, errorMessage } from '@/lib/api'
 import { type SupplierPayment, type UserSettings, saveSettings, useSettings } from '@/lib/settings'
 import { SUPPLIER_OPTIONS, SUPPLIER_WHY } from '@/lib/supplier'
-import { LEAD_WHY, TARGET_WHY } from '@/lib/supply'
+import { LEAD_WHY, SAFETY_WHY, TARGET_WHY } from '@/lib/supply'
 import type { ThemePreference } from '@/lib/theme'
 
 const THEMES: { value: ThemePreference; label: string; hint: string; Icon: React.ComponentType<{ className?: string }> }[] = [
@@ -321,6 +321,7 @@ function SupplySection() {
   const settings = useSettings()
   const [target, setTarget] = useState('')
   const [lead, setLead] = useState('')
+  const [safety, setSafety] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
 
@@ -328,6 +329,7 @@ function SupplySection() {
     if (!settings) return
     setTarget(String(settings.supply_target_days))
     setLead(String(settings.supply_lead_time_days))
+    setSafety(String(settings.supply_safety_days ?? 0))
   }, [settings])
 
   async function save(e: React.FormEvent) {
@@ -339,8 +341,10 @@ function SupplySection() {
     const l = Number(lead)
     if (!/^\d+$/.test(target) || t < 1 || t > 365) return setError('Запас после поставки — от 1 до 365 дней')
     if (!/^\d+$/.test(lead) || l > 180) return setError('Дней в пути — от 0 до 180')
+    const s = Number(safety)
+    if (!/^\d+$/.test(safety) || s > 180) return setError('Страховой запас — от 0 до 180 дней')
     try {
-      await saveSettings(user.id, { supply_target_days: t, supply_lead_time_days: l })
+      await saveSettings(user.id, { supply_target_days: t, supply_lead_time_days: l, supply_safety_days: s })
       setDone(true)
     } catch (err) {
       setError(errorMessage(err, 'Не сохранилось — попробуйте ещё раз'))
@@ -350,6 +354,7 @@ function SupplySection() {
   const fields = [
     { id: 'supply_target_days', label: 'Запас после поставки', value: target, set: setTarget, why: TARGET_WHY },
     { id: 'supply_lead_time_days', label: 'Поставка в пути', value: lead, set: setLead, why: LEAD_WHY },
+    { id: 'supply_safety_days', label: 'Страховой запас', value: safety, set: setSafety, why: SAFETY_WHY },
   ]
   return (
     <Section title="Поставки" hint="По ним «Поставки» считают, сколько везти в каждый кластер Ozon и что закупить на свой склад.">

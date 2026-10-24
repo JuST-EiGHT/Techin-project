@@ -9,6 +9,7 @@
 - акции — вход (`first_seen_at`, «Ozon добавил сам») и выход (`left_at`) из участия;
 - остатки — товар закончился на всех складах и снова появился (пришла поставка): по снимкам остатков; первый снимок
   товара только запоминаем; изменения на нескольких складах в одну минуту — одно состояние;
+- поставки — смена статуса заявки на поставку FBO (`supply_order_events`, шаг 10.18); фильтр товара — заявки с ним;
 - аномалии — появилась (с важностью) и прошла (кроме «стала красной» — тогда появляется новая, красная);
 - действия — журнал запросов (`audit_log`, только успешные), понятным текстом; загрузка отчёта — по самому отчёту;
 - ошибки загрузки — начало сбоя синхронизации (прошлый запуск того же вида был успешным), отчёт с ошибкой перечитывания,
@@ -24,6 +25,7 @@ from sqlalchemy.orm import aliased
 
 from app.engine import event_feed as ef
 from app.engine.anomaly_text import SYNC_WINDOW, TYPE_TITLES, describe
+from app.engine.supply_orders import group_of, state_text
 from app.models.anomaly import ESCALATED, RED, Anomaly
 from app.models.audit import HTTP_ENTITY, OK, AuditLog
 from app.models.price_change import APPLIED, MANUAL_BULK, PREVIEW, QUEUED, UNKNOWN, PriceChange
@@ -31,9 +33,11 @@ from app.models.product import Product, ProductPrice
 from app.models.promotion import Promotion, PromotionProduct
 from app.models.report import ERROR as REPORT_ERROR
 from app.models.report import Report
+from app.models.supply import SupplyOrder, SupplyOrderEvent, SupplyOrderItem
 from app.models.sync_run import FAILED, SyncRun
 from app.models.warehouse import ProductStock
 from app.services.analytics import AnalyticsError, _products
+from app.services.supply_plans import latest_bundle_qty
 from app.services.sync import overview
 from app.services.sync.finance import MSK, today_msk
 
@@ -210,6 +214,23 @@ async def _stock(db: AsyncSession, c: Ctx) -> tuple[list[ef.Event], bool]:
     return out, len(rows) == c.k
 
 
+async def _supplies(db: AsyncSession, c: Ctx) -> tuple[list[ef.Event], bool]:
+    """Заявки на поставку: каждая смена статуса — событие (время — по Ozon, если он его отдал)."""
+    at = func.coalesce(SupplyOrderEvent.state_updated_at, SupplyOrderEvent.seen_at)
+    q = (select(SupplyOrderEvent, SupplyOrder, at.label("at"))
+         .join(SupplyOrder, SupplyOrder.id == SupplyOrderEvent.order_id)
+         .where(SupplyOrder.user_id == c.store_id, c.upto(at)))
+    if c.product_ids is not None:
+        q = q.where(SupplyOrder.id.in_(select(SupplyOrderItem.order_id).where(SupplyOrderItem.product_id.in_(c.product_ids))))
+    rows = (await db.execute(q.order_by(at.desc()).limit(c.k))).all()
+    units = await latest_bundle_qty(db, list({o.id for _, o, _ in rows}))
+    out = [ef.supply_order(f"supply:{e.id}", ef.utc(when), str(o.id), o.order_number or str(o.ozon_order_id),
+                           state_text(e.state), group_of(e.state), o.cluster_name or o.storage_warehouse,
+                           sum(units.get(o.id, {}).values()) or None)
+           for e, o, when in rows]
+    return out, len(rows) == c.k
+
+
 # ── аномалии ──
 async def _anomalies(db: AsyncSession, c: Ctx) -> tuple[list[ef.Event], bool]:
     today = today_msk()
@@ -308,7 +329,7 @@ async def _sync_failures(db: AsyncSession, c: Ctx) -> tuple[list[ef.Event], bool
 SOURCES = {
     ef.PRICE: (_price_changes, _price_batches, _price_cabinet),
     ef.PROMO: (_promotions,),
-    ef.STOCK: (_stock,),
+    ef.STOCK: (_stock, _supplies),
     ef.ANOMALY: (_anomalies,),
     ef.ACTION: (lambda db, c: _actions(db, c, False), lambda db, c: _reports(db, c, False)),
     ef.ERROR: (_sync_failures, lambda db, c: _reports(db, c, True), lambda db, c: _actions(db, c, True)),

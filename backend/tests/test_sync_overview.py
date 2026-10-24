@@ -70,18 +70,18 @@ async def test_sync_all_queues_only_idle_and_not_recent(client, tokens, sessions
     items = {i["kind"]: i for i in r.json()["items"]}
     assert {k: i["result"] for k, i in items.items()} == {
         "products": "recent", "stocks": "running", "promotions": "queued", "finance": "queued", "balance": "queued",
-        "postings": "queued",
+        "postings": "queued", "supplies": "queued",
     }
     assert items["products"]["recent_until"] is not None and items["promotions"]["run_id"]
-    assert kinds_of(no_celery) == ["promotions", "finance", "balance", "postings"]  # идущие и свежие — не трогаем
+    assert kinds_of(no_celery) == ["promotions", "finance", "balance", "postings", "supplies"]  # идущие и свежие — нет
     message = r.json()["message"]
-    assert "Обновляем: акции, начисления, баланс и выплаты, отправления." in message
+    assert "Обновляем: акции, начисления, баланс и выплаты, отправления, заявки на поставку." in message
     assert "Уже загружаются: остатки." in message and "Обновлены недавно: товары и цены — снова можно через" in message
 
     # второй раз: поставленные уже в очереди — ничего нового
     r = await client.post(f"{API}/all", headers=auth(tokens))
     assert {i["result"] for i in r.json()["items"]} == {"recent", "running"}
-    assert len(no_celery) == 4
+    assert len(no_celery) == 5
 
 
 async def test_sync_all_one_kind_and_checks(client, tokens, sessions, no_celery):
@@ -162,7 +162,7 @@ async def test_status_per_kind(client, tokens, sessions):
 
     s = (await client.get(f"{API}/status", headers=auth(tokens))).json()
     k = {x["kind"]: x for x in s["kinds"]}
-    assert list(k) == ["products", "stocks", "promotions", "finance", "balance", "postings"]
+    assert list(k) == ["products", "stocks", "promotions", "finance", "balance", "postings", "supplies"]
     assert k["products"]["state"] == "fresh" and k["products"]["problem"] is None
     assert k["products"]["recent_until"] is not None and k["products"]["schedule"] == "сами — раз в час"
     assert k["stocks"]["state"] == "error" and k["stocks"]["problem"].startswith("Ozon не принял ключ")
@@ -188,7 +188,8 @@ async def test_status_per_kind(client, tokens, sessions):
 async def test_status_all_fresh_and_oldest(client, tokens, sessions):
     uid = await me(client, tokens)
     await add_key(sessions, uid)
-    for kind, ago in (("products", 20), ("stocks", 5), ("promotions", 30), ("finance", 90), ("balance", 60), ("postings", 45)):
+    for kind, ago in (("products", 20), ("stocks", 5), ("promotions", 30), ("finance", 90), ("balance", 60), ("postings", 45),
+                      ("supplies", 25)):
         await add_run(sessions, uid, kind, SUCCESS, ago=timedelta(minutes=ago))
     s = (await client.get(f"{API}/status", headers=auth(tokens))).json()
     assert s["state"] == "fresh" and s["oldest_kind"] == "finance"
