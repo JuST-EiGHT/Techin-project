@@ -13,18 +13,27 @@
 Порядок: дольше не продававшиеся первыми (продаж в данных нет — самые первые), при равных — больше дней запаса,
 больше остаток. Внутри товара — сначала кластеры с большим остатком, в кластере — склады с большим остатком.
 Лимит «вывезти всего» — по этому порядку: последняя строка может войти частично.
+
+Причина и приоритет (шаг 10.17): не продаётся — «Нет продаж N дн.», высокий; продаётся, но запаса больше двух порогов
+«Избыток» — «Низкая оборачиваемость», средний; остальные — «Избыточный запас», обычный. Замороженные деньги — сколько
+вывезти × себестоимость с НДС; нет себестоимости — «нет данных», а не 0.
 """
 import math
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
-from app.engine.stocks import DEFAULT_THRESHOLDS, EXCESS, Thresholds, days_of_supply, stock_status
+from app.engine.stocks import DEFAULT_THRESHOLDS, EXCESS, Thresholds, days_of_supply, stock_status, stock_value
 
 IDLE, SELLING = "idle", "selling"  # не продаётся / продаётся, но запаса слишком много
 DEFAULT_KEEP_IDLE = 2
 DEFAULT_KEEP_SELLING = 10
 MAX_KEEP = 10_000
+
+NO_SALES, LOW_TURNOVER, EXCESS_STOCK = "no_sales", "low_turnover", "excess"  # причина
+HIGH, MEDIUM, NORMAL = "high", "medium", "normal"  # приоритет
+PRIORITY = {NO_SALES: HIGH, LOW_TURNOVER: MEDIUM, EXCESS_STOCK: NORMAL}
+LOW_TURNOVER_FACTOR = 2  # запас больше двух порогов «Избыток» — низкая оборачиваемость
 
 _NEVER = 10 ** 9  # «продаж в данных нет» — хуже любого числа дней без продаж
 
@@ -212,3 +221,17 @@ def plan(items: list[Item], params: Params, thresholds: Thresholds = DEFAULT_THR
         candidates=candidates, possible=possible_total, planned=sum(c.qty for c in candidates), left_out=left_out,
         no_sales_data=all(i.avg_daily is None for i in items),
     )
+
+
+def reason_kind(c: Candidate, thresholds: Thresholds = DEFAULT_THRESHOLDS) -> str:
+    """Почему на вывоз: не продаётся / низкая оборачиваемость / избыточный запас."""
+    if c.kind == IDLE:
+        return NO_SALES
+    if c.days_of_supply is not None and c.days_of_supply >= LOW_TURNOVER_FACTOR * thresholds.excess:
+        return LOW_TURNOVER
+    return EXCESS_STOCK
+
+
+def frozen_money(qty: int, unit_cost: Decimal | None) -> Decimal | None:
+    """Деньги в товаре, который рекомендовано вывезти: штуки × себестоимость с НДС; нет себестоимости — None."""
+    return stock_value(qty, unit_cost)

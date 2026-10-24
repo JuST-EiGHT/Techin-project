@@ -314,5 +314,5 @@ FBS-отправлений хранить `scanit` рядом со штрихк�
 | Возвраты | `/v1/returns/list` | 10.8 |
 | Заявки на поставку FBO | `/v1/supply-order/list`, `/get`, `/items`, `/details`, `/status/counter`, `/cancel` | 10.18 |
 | Черновики поставок и таймслоты (изменение в Ozon — правило 6) | `/v1/draft/create`, `/v1/draft/create/info`, `/v1/draft/timeslot/info`, `/v1/draft/supply/create`, `/v1/draft/supply/create/status` | 10.18 |
-| Вывозы со складов (только списки) | `/v1/removal/from-stock/list`, `/v1/removal/from-supply/list` | 10.17 |
-| Кластеры | `/v1/cluster/list` | 10.17, 10.18 |
+| ~~Вывозы со складов (только списки)~~ | `/v1/removal/from-stock/list` — сверено (выгрузка 2026-10, бета): `date_from`, `date_to` (YYYY-MM-DD), `last_id`, `limit` 1–500 → `returns_summary_report_rows[]` (`offer_id`, `name`, `sku`, `quantity_for_return`, `return_created_at`, `return_state`, `box_state`, `stock_type`, `delivery_type`, `is_auto_return`, `clearing_warehouse_name`, `destination_warehouse_name` …), `last_id`; соответствует разделу кабинета «FBO → Вывоз и утилизация»; создать заявку нельзя. `/v1/removal/from-supply/list` (вывоз с поставки) — не используем | 10.17 ✅ |
+| Кластеры | `/v1/cluster/list` — 10.17 не нужен: кластер склада приходит в `/v1/analytics/stocks` (`cluster_id`, `cluster_name`) | 10.18 |

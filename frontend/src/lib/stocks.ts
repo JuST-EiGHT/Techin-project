@@ -49,6 +49,8 @@ export type Summary = {
   running_out_total: number
   lying: ProductStock[]
   lying_total: number
+  no_cost: ProductStock[] // лежат без себестоимости — стоимость запаса не посчитать (10.17)
+  no_cost_total: number
 }
 
 /** Строка таблицы: товар на складе. */
@@ -127,3 +129,48 @@ export function warehouseLabel(w: { name: string; type: string; cluster_name: st
 
 /** Карточка товара (шаг 4.1) — боковая панель на странице товаров. */
 export const productHref = (id: string) => `/dashboard/products/${id}`
+
+// ── «Остатки» — главная таблица (шаг 10.17) ──
+export type StockGroup = 'product' | 'warehouse' | 'cluster'
+export type TableStatus = StatusKey | 'no_sales'
+export type TableSort =
+  | 'offer_id'
+  | 'available'
+  | 'reserved'
+  | 'in_transit'
+  | 'avg_daily_sales'
+  | 'days_of_supply'
+  | 'end_date'
+  | 'stock_value'
+  | 'last_sale'
+
+export type StockTableRow = {
+  product: StockProduct
+  warehouse: { id: string; name: string; type: string; cluster_name: string | null } | null
+  cluster: string | null
+  cluster_type: string | null
+  places: number
+  available: number
+  reserved: number | null
+  in_transit: number | null
+  product_available: number
+  avg_daily_sales: string | null
+  days_of_supply: string | null
+  end_date: string | null
+  sells: boolean | null // null — продаж в данных нет
+  unit_cost: string | null
+  stock_value: string | null // null — нет себестоимости
+  status: StockStatus | null
+  last_sale: string | null
+  days_without_sales: number | null
+}
+
+export type StockTableData = {
+  group: StockGroup
+  today: string
+  sales_known: boolean
+  stocks_known: boolean
+  thresholds: Thresholds
+  totals: { rows: number; products: number; available: number; in_transit: number; stock_value: string | null; without_cost: number }
+  rows: StockTableRow[]
+}

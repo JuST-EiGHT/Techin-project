@@ -228,6 +228,8 @@ ACTIONS: dict[tuple[str, str], Action] = {
     ("DELETE", f"{P}/bank/connections/{{conn_id}}"): Action("Отключён банк", f"{INTEGRATIONS}?tab=banks", "Банки"),
     ("PUT", f"{P}/warehouses/withdrawal/params"): Action("Изменены параметры вывоза со складов",
                                                          "/dashboard/warehouses/withdrawal", "На вывоз"),
+    ("POST", f"{P}/warehouses/withdrawal/decisions"): Action("Решение по вывозу товара: вывозим или оставить",
+                                                             "/dashboard/warehouses/withdrawal", "На вывоз"),
     ("PATCH", f"{P}/notifications/settings"): Action("Изменены настройки уведомлений", "/dashboard/settings/notifications",
                                                      "Уведомления"),
     ("POST", f"{P}/notifications/unlink"): Action("Telegram отвязан", "/dashboard/settings/notifications", "Уведомления"),

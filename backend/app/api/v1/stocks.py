@@ -1,4 +1,5 @@
-"""Склады и остатки (данные синхронизации из Ozon): список и сводка складов, товары склада, CSV, «Заканчиваются»."""
+"""Склады и остатки (данные синхронизации из Ozon): список и сводка складов, товары склада, CSV, «Заканчиваются».
+10.17: главная таблица остатков (по товарам, складам, кластерам) и её Excel; «На вывоз» — решения и вывозы Ozon."""
 import uuid
 from collections import defaultdict
 from typing import Literal
@@ -15,12 +16,17 @@ from app.models.warehouse import Warehouse
 from app.schemas.stock import (
     RunningOut,
     StockResponse,
+    StockTable,
     WarehouseResponse,
     WarehousesSummary,
+    Removals,
+    WithdrawalDecisionIn,
+    WithdrawalDecisionOut,
     WithdrawalParams,
     WithdrawalReport,
 )
 from app.schemas.sync import utc
+from app.services import stock_table
 from app.services import stocks as svc
 from app.services import withdrawal
 from app.services.stores import get_current_store
@@ -86,25 +92,63 @@ class _ParamsQuery:
         )
 
 
+def _view(
+    warehouse_id: uuid.UUID | None = Query(None, description="Показать только этот склад"),
+    priority: Literal["high", "medium", "normal"] | None = Query(None, description="Приоритет"),
+    decision: Literal["undecided", "remove", "keep"] | None = Query(None, description="Решение пользователя"),
+) -> withdrawal.View:
+    return withdrawal.View(warehouse_id=warehouse_id, priority=priority, decision=decision)
+
+
 @warehouses_router.get("/withdrawal", response_model=WithdrawalReport)
 async def withdrawal_report(
-    q: _ParamsQuery = Depends(), user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
+    q: _ParamsQuery = Depends(), view: withdrawal.View = Depends(_view), user: User = Depends(get_current_store),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Кандидаты на вывоз со складов Ozon (BUSINESS_LOGIC §6): товар, кластер, склад, сколько вывезти. Параметры — из
-    запроса, не переданные — сохранённые у пользователя."""
-    return await withdrawal.report(db, user.id, await q.params(db, user))
+    """Кандидаты на вывоз со складов Ozon (BUSINESS_LOGIC §6): товар, кластер, склад, сколько вывезти, причина и
+    приоритет, замороженные деньги, решение пользователя. Параметры — из запроса, не переданные — сохранённые у
+    пользователя; склад, приоритет и решение — только фильтр показа."""
+    return await withdrawal.report(db, user.id, await q.params(db, user), view)
 
 
 @warehouses_router.get("/withdrawal/export", response_class=Response)
 async def withdrawal_export(
-    q: _ParamsQuery = Depends(), user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
+    q: _ParamsQuery = Depends(), view: withdrawal.View = Depends(_view), user: User = Depends(get_current_store),
+    db: AsyncSession = Depends(get_db),
 ):
     """Тот же отчёт в Excel для логиста: артикул, кластер, склад, сколько вывезти; на втором листе — параметры."""
-    data = await withdrawal.report(db, user.id, await q.params(db, user))
+    data = await withdrawal.report(db, user.id, await q.params(db, user), view)
     return attachment(
         withdrawal.to_xlsx(data), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         f"Вывоз со складов {today_msk():%d.%m.%Y}.xlsx", "withdrawal.xlsx",
     )
+
+
+@warehouses_router.post("/withdrawal/decisions", response_model=WithdrawalDecisionOut | None)
+async def withdrawal_decision(
+    data: WithdrawalDecisionIn, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
+):
+    """«Вывозим» / «оставить» по товару — новая запись с датой, действует последняя; undecided — отменить решение."""
+    try:
+        d = await withdrawal.decide(db, user.id, data.product_id, data.decision, data.qty)
+    except withdrawal.WithdrawalError as exc:
+        raise HTTPException(exc.status_code, exc.message) from None
+    return withdrawal.decision_out(d) if d.decision != "undecided" else None
+
+
+@warehouses_router.get("/withdrawal/removals", response_model=Removals)
+async def withdrawal_removals(
+    days: int = Query(30, description="За сколько дней: 30 или 90"),
+    user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db),
+):
+    """Вывозы, уже оформленные в кабинете Ozon (FBO → Вывоз и утилизация): `/v1/removal/from-stock/list`, бета, только
+    чтение — создать заявку через API нельзя."""
+    if days not in withdrawal.REMOVALS_DAYS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Период — 30 или 90 дней")
+    try:
+        return await withdrawal.removals(db, user.id, days)
+    except withdrawal.WithdrawalError as exc:
+        raise HTTPException(exc.status_code, exc.message) from None
 
 
 @warehouses_router.get("/withdrawal/params", response_model=WithdrawalParams)
@@ -153,6 +197,43 @@ async def list_stocks(
         db, user.id, warehouse_id=warehouse_id, product_id=product_id, status=status, include_empty=include_empty
     )
     return [StockResponse.from_row(r) for r in rows]
+
+
+TableStatus = Literal["critical", "low", "normal", "excess", "no_data", "no_sales"]
+
+
+class _TableQuery:
+    def __init__(
+        self,
+        group: Literal["product", "warehouse", "cluster"] = Query("product", description="Строка — товар, товар × склад или товар × кластер"),
+        warehouse_id: uuid.UUID | None = Query(None),
+        status: TableStatus | None = Query(None, description="Статус остатка (5.1) или no_sales — за 30 дней продаж нет"),
+        search: str | None = Query(None, max_length=100, description="Артикул, название или SKU"),
+        sort: Literal[stock_table.SORTS] = Query("offer_id"),  # type: ignore[valid-type]
+        order: Literal["asc", "desc"] = Query("asc"),
+        include_empty: bool = Query(False, description=_EMPTY_HELP),
+    ):
+        self.kw = dict(group=group, warehouse_id=warehouse_id, status=status, search=(search or "").strip() or None,
+                       sort=sort, order=order, include_empty=include_empty)
+
+
+@stocks_router.get("/table", response_model=StockTable)
+async def stock_table_page(q: _TableQuery = Depends(), user: User = Depends(get_current_store),
+                           db: AsyncSession = Depends(get_db)):
+    """Главная таблица остатков: доступно, резерв, в пути, продажи в день, дни запаса, дата окончания, стоимость
+    запаса по себестоимости (нет себестоимости — null), статус; итоги."""
+    return await stock_table.table(db, user.id, **q.kw)
+
+
+@stocks_router.get("/table/export", response_class=Response)
+async def stock_table_export(q: _TableQuery = Depends(), user: User = Depends(get_current_store),
+                             db: AsyncSession = Depends(get_db)):
+    """Та же таблица в Excel."""
+    data = await stock_table.table(db, user.id, **q.kw)
+    return attachment(
+        stock_table.to_xlsx(data), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        f"Остатки {today_msk():%d.%m.%Y}.xlsx", "stocks.xlsx",
+    )
 
 
 @stocks_router.get("/export", response_class=Response)

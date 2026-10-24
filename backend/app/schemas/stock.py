@@ -1,6 +1,7 @@
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -129,6 +130,8 @@ class WarehousesSummary(BaseModel):
     running_out_total: int
     lying: list[ProductStockOut]  # «Избыток»: дольше не продававшиеся первыми
     lying_total: int
+    no_cost: list[ProductStockOut] = []  # лежат без себестоимости — стоимость запаса не посчитать (10.17)
+    no_cost_total: int = 0
 
 
 class RunningOut(BaseModel):
@@ -141,6 +144,47 @@ class RunningOut(BaseModel):
     low: int
     items: list[ProductStockOut]
 
+
+
+# ── «Остатки» — главная таблица (шаг 10.17) ──
+class StockTableRow(BaseModel):
+    product: StockProduct
+    warehouse: StockWarehouse | None  # группировка по складам
+    cluster: str | None  # группировка по кластерам: кластер Ozon или свой склад
+    cluster_type: str | None  # FBO — кластер Ozon; FBS / rFBS — свой склад
+    places: int  # складов с остатком в строке
+    available: int  # доступно к продаже в строке (товар — на всех складах)
+    reserved: int | None
+    in_transit: int | None  # ожидается к поступлению
+    product_available: int  # у товара на всех складах — по нему дни запаса и дата окончания
+    avg_daily_sales: Decimal | None  # по товару в целом, null — мало данных
+    days_of_supply: Decimal | None
+    end_date: date | None  # закончится при нынешних продажах; null — не продаётся или нет данных
+    sells: bool | None  # продажи за 30 дней есть; null — неизвестно
+    unit_cost: Decimal | None  # себестоимость с НДС на сегодня
+    stock_value: Decimal | None  # остаток × себестоимость; null — нет себестоимости, а не 0
+    status: str | None
+    last_sale: date | None
+    days_without_sales: int | None
+
+
+class StockTableTotals(BaseModel):
+    rows: int
+    products: int
+    available: int
+    in_transit: int
+    stock_value: Decimal | None  # по строкам с себестоимостью
+    without_cost: int  # товаров с остатком без себестоимости
+
+
+class StockTable(BaseModel):
+    group: str  # product | warehouse | cluster
+    today: date
+    sales_known: bool
+    stocks_known: bool
+    thresholds: Thresholds
+    totals: StockTableTotals
+    rows: list[StockTableRow]
 
 
 # ── кандидаты на вывоз (шаг 5.1) ──
@@ -168,6 +212,12 @@ class WithdrawalLine(BaseModel):
     cluster_left: int  # останется в кластере
 
 
+class WithdrawalDecisionOut(BaseModel):
+    decision: str  # remove | keep
+    qty: int | None  # сколько было рекомендовано в момент решения
+    at: datetime
+
+
 class WithdrawalItem(BaseModel):
     product: StockProduct
     kind: str  # idle — не продаётся, selling — продаётся, но запаса слишком много
@@ -180,9 +230,46 @@ class WithdrawalItem(BaseModel):
     last_sale: date | None
     days_without_sales: int | None
     possible: int  # можно вывезти без лимита
-    qty: int  # вывезти с учётом лимита
+    qty: int  # вывезти с учётом лимита (и фильтра склада)
     excluded_units: int  # лежит в исключённых кластерах
     lines: list[WithdrawalLine]
+    # 10.17
+    qty_all: int | None = None  # вывезти по товару целиком — без фильтра склада
+    reason_kind: str = "excess"  # no_sales | low_turnover | excess
+    reason_title: str = ""  # «Нет продаж 45 дн.», «Низкая оборачиваемость», «Избыточный запас»
+    priority: str = "normal"  # high | medium | normal
+    sold_30: int | None = None  # продано за 30 / 90 дней за вычетом возвратов; null — нет данных
+    sold_90: int | None = None
+    unit_cost: Decimal | None = None  # себестоимость с НДС на сегодня
+    frozen: Decimal | None = None  # вывезти × себестоимость; null — нет себестоимости
+    decision: WithdrawalDecisionOut | None = None
+
+
+class WithdrawalDecisionIn(BaseModel):
+    product_id: uuid.UUID
+    decision: Literal["remove", "keep", "undecided"]
+    qty: int | None = Field(None, ge=0, le=1_000_000)
+
+
+class WithdrawalWarehouse(BaseModel):
+    id: uuid.UUID
+    name: str
+    cluster: str | None
+    qty: int  # можно вывезти отсюда, шт.
+    products: int
+
+
+class WithdrawalFilters(BaseModel):
+    warehouse_id: uuid.UUID | None
+    priority: str | None
+    decision: str | None
+
+
+class WithdrawalShown(BaseModel):
+    items: int
+    qty: int
+    frozen: Decimal | None
+    without_cost: int
 
 
 class WithdrawalReport(BaseModel):
@@ -199,3 +286,37 @@ class WithdrawalReport(BaseModel):
     planned: int  # вывезти с учётом лимита
     left_out: int  # товаров, не вошедших в лимит
     items: list[WithdrawalItem]
+    # 10.17
+    frozen: Decimal | None = None  # замороженные деньги по всему плану; null — ни у одного товара нет себестоимости
+    without_cost: int = 0  # товаров плана без себестоимости
+    filters: WithdrawalFilters | None = None
+    warehouses: list[WithdrawalWarehouse] = []
+    counts: dict[str, dict[str, int]] = {}  # priority: {high, medium, normal}, decision: {undecided, remove, keep}
+    shown: WithdrawalShown | None = None  # по фильтру
+    cabinet_url: str = ""
+    cabinet_path: str = ""
+
+
+class RemovalRow(BaseModel):
+    product_id: uuid.UUID | None  # товар каталога по артикулу; нет — товара нет в каталоге
+    offer_id: str
+    name: str | None
+    sku: str | None
+    qty: int
+    created_at: datetime | None
+    state: str | None  # статус вывоза, как в кабинете
+    box_state: str | None
+    stock_type: str | None
+    delivery_type: str | None
+    is_auto_return: bool
+    warehouse: str | None  # склад Ozon, откуда
+    destination: str | None  # куда
+
+
+class Removals(BaseModel):
+    date_from: date
+    date_to: date
+    rows: list[RemovalRow]
+    qty: int
+    cabinet_url: str
+    cabinet_path: str

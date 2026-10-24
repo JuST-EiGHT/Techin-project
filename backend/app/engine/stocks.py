@@ -9,9 +9,13 @@ days_of_supply = остаток / среднесуточные продажи
 а не 0: ноль выглядел бы как «товар кончился».
 Продажи известны и равны нулю → дни запаса не определены (None), но лежащий без
 продаж остаток — это excess.
+
+Шаг 10.17 (BUSINESS_LOGIC §10, «Запасы»): дата окончания = сегодня + остаток / продажи в день (продаж нет — не
+продаётся, а не дата); стоимость запаса = остаток × себестоимость с НДС (нет себестоимости — нет данных, а не 0).
 """
+import math
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 CRITICAL_DAYS = 7
@@ -73,3 +77,20 @@ def days_without_sales(last_sale: date | None, today: date) -> int | None:
     """Сколько дней товар не продавался: от последнего дня с продажей до сегодня. Продаж в данных нет — None
     (сколько именно — неизвестно: «нет продаж с первого дня данных»)."""
     return None if last_sale is None else max((today - last_sale).days, 0)
+
+
+def end_date(available: int, avg_daily_sales: Decimal | None, today: date) -> date | None:
+    """Когда закончится при нынешних продажах: сегодня + целых дней запаса. Остатка нет — сегодня; продажи неизвестны
+    или их нет — None (не продаётся — даты окончания нет)."""
+    if avg_daily_sales is None or avg_daily_sales <= 0:
+        return None
+    if available <= 0:
+        return today
+    return today + timedelta(days=math.floor(Decimal(available) / avg_daily_sales))
+
+
+def stock_value(qty: int, unit_cost: Decimal | None) -> Decimal | None:
+    """Стоимость запаса по себестоимости с НДС; нет себестоимости — None, а не 0 (правило 5)."""
+    if unit_cost is None:
+        return None
+    return (Decimal(max(qty, 0)) * unit_cost).quantize(Decimal("0.01"), ROUND_HALF_UP)

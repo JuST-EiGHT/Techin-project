@@ -1,13 +1,25 @@
-"""Кандидаты на вывоз (шаг 5.1, BUSINESS_LOGIC §6): расчёт, API, параметры пользователя, Excel."""
+"""Кандидаты на вывоз (шаг 5.1, BUSINESS_LOGIC §6): расчёт, API, параметры пользователя, Excel.
+10.17: причина и приоритет, замороженные деньги, история продаж, фильтры, решения «вывозим» / «оставить», вывозы Ozon."""
 import io
-from datetime import datetime
+import uuid
+from datetime import datetime, timedelta
 from decimal import Decimal
 
+import httpx
 import pytest
+import respx
 from openpyxl import load_workbook
+from sqlalchemy import func, select
 
+from app.core.config import settings
+from app.engine import withdrawal as engine
 from app.engine.stocks import Thresholds
 from app.engine.withdrawal import IDLE, SELLING, Item, Params, Place, plan, surplus
+from app.models.withdrawal import WithdrawalDecision
+from app.services import withdrawal as withdrawal_svc
+from app.services.sales import sold_by_product
+from app.services.sync.finance import today_msk
+from tests.test_pnl_api import add_api_day
 from tests.test_sync_stocks import api_user, auth, ozon  # noqa: F401 — фикстура ozon
 from tests.test_warehouses import ACB, CM, RS, TH, fake_sales, product_ids
 
@@ -217,3 +229,152 @@ async def test_export_xlsx(client, tokens, seller):
     notes = [c.value for c in wb["Параметры"]["A"] if c.value]
     assert "Вывезти всего: 100 шт." in notes
     assert "Не трогать кластеры: нет" in notes  # в запросе исключение снято — файл как на экране
+
+
+# ── 10.17: причина, приоритет, замороженные деньги ──
+def test_reason_priority_and_frozen_money():
+    t = Thresholds(7, 14, 60)
+    idle = plan([item("A", [place("w1", SPB, 5)], "0", 45)], Params(), t).candidates[0]
+    assert (engine.reason_kind(idle, t), engine.PRIORITY[engine.reason_kind(idle, t)]) == (engine.NO_SALES, engine.HIGH)
+    # 130 шт. по 1 в день — 130 дней ≥ двух порогов «Избыток» (120): низкая оборачиваемость
+    slow = plan([item("B", [place("w1", SPB, 130)], "1", 1)], Params(keep_selling=0), t).candidates[0]
+    assert engine.reason_kind(slow, t) == engine.LOW_TURNOVER and engine.PRIORITY[engine.LOW_TURNOVER] == engine.MEDIUM
+    # 80 дней — больше порога, но меньше двух: избыточный запас
+    extra = plan([item("C", [place("w1", SPB, 80)], "1", 1)], Params(keep_selling=0), t).candidates[0]
+    assert engine.reason_kind(extra, t) == engine.EXCESS_STOCK and engine.PRIORITY[engine.EXCESS_STOCK] == engine.NORMAL
+    # замороженные деньги — сколько вывезти × себестоимость с НДС; нет себестоимости — нет данных, а не 0
+    assert engine.frozen_money(extra.qty, Decimal("120")) == Decimal("2400.00")  # вывезти 20 шт. сверх 60 дней
+    assert engine.frozen_money(3, Decimal("33.335")) == Decimal("100.01")
+    assert engine.frozen_money(5, None) is None
+
+
+async def test_sold_by_product(sessions, client, tokens):
+    from tests.test_pnl_api import user_id
+
+    uid = await user_id(client, tokens)
+    today = today_msk()
+    for i, qty in ((1, 2), (10, 3), (60, 5)):
+        await add_api_day(sessions, uid, today - timedelta(days=i), [("Выручка", "500", qty, "W-1")])
+    await add_api_day(sessions, uid, today - timedelta(days=2), [("Выручка", "0", None, None)])
+    async with sessions() as db:
+        assert set((await sold_by_product(db, uid, 30, today)).values()) == {5}
+        assert set((await sold_by_product(db, uid, 90, today)).values()) == {10}
+        assert await sold_by_product(db, uid, 30, today + timedelta(days=400)) == {}  # дней с данными нет — не 0
+
+
+@pytest.fixture
+async def priced(client, tokens, seller, monkeypatch):
+    """TH — себестоимость 100 × 1,2; у ACB себестоимости нет. Продажи: TH — 6 за 30 дней и 18 за 90; ACB — 0."""
+    await client.put(f"/api/v1/costs/{TH}", json={"cost_price": "100", "vat_multiplier": "1.2"}, headers=auth(tokens))
+
+    async def sold(db, uid, days, today=None):
+        return {seller[TH]: 6 if days == 30 else 18, seller[ACB]: 0}
+
+    monkeypatch.setattr(withdrawal_svc, "sold_by_product", sold)
+    return seller
+
+
+async def test_report_reasons_frozen_and_filters(client, tokens, priced):
+    get = lambda **q: client.get(URL, params={"keep_selling": 5, **q}, headers=auth(tokens))  # noqa: E731
+    data = (await get()).json()
+    acb, th = data["items"]
+    assert (acb["reason_kind"], acb["reason_title"], acb["priority"], acb["frozen"], acb["sold_30"]) == (
+        "no_sales", "Нет продаж 45 дн.", "high", None, 0)
+    # TH: 155 дней запаса ≥ 120 — низкая оборачиваемость; вывезти 9 × 120 ₽ = 1080 ₽ заморожено
+    assert (th["reason_kind"], th["reason_title"], th["priority"], th["qty"], th["unit_cost"], th["frozen"]) == (
+        "low_turnover", "Низкая оборачиваемость", "medium", 9, "120.00", "1080.00")
+    assert (th["sold_30"], th["sold_90"], th["days_of_supply"], th["available"]) == (6, 18, "155.0", 31)
+    assert (data["frozen"], data["without_cost"]) == ("1080.00", 1)
+    assert data["counts"] == {"priority": {"high": 1, "medium": 1, "normal": 0},
+                              "decision": {"undecided": 2, "remove": 0, "keep": 0}}
+    assert [(w["name"], w["qty"], w["products"]) for w in data["warehouses"]] == [
+        ("СПБ_БУГРЫ_РФЦ", 8, 2), ("ЕКАТЕРИНБУРГ_РФЦ_НОВЫЙ", 4, 1)]
+    assert data["cabinet_url"].startswith("https://seller.ozon.ru") and "Вывоз и утилизация" in data["cabinet_path"]
+
+    # фильтр склада — только его строки, количество и деньги по ним; план (лимит) — по всем товарам
+    ekb = data["warehouses"][1]["id"]
+    data = (await get(warehouse_id=ekb)).json()
+    assert [(it["product"]["offer_id"], it["qty"], it["qty_all"], it["frozen"]) for it in data["items"]] == [
+        (TH, 4, 9, "480.00")]
+    assert (data["shown"], data["planned"]) == ({"items": 1, "qty": 4, "frozen": "480.00", "without_cost": 0}, 12)
+    data = (await get(priority="high")).json()
+    assert [it["product"]["offer_id"] for it in data["items"]] == [ACB]
+    assert (await get(priority="urgent")).status_code == 400
+
+
+async def test_decisions(sessions, client, tokens, priced):
+    post = lambda body: client.post(f"{URL}/decisions", json=body, headers=auth(tokens))  # noqa: E731
+    get = lambda **q: client.get(URL, params={"keep_selling": 5, **q}, headers=auth(tokens))  # noqa: E731
+    acb = str(priced[ACB])
+    r = await post({"product_id": acb, "decision": "remove", "qty": 3})
+    assert r.status_code == 200 and (r.json()["decision"], r.json()["qty"]) == ("remove", 3)
+    data = (await get()).json()
+    assert data["items"][0]["decision"]["decision"] == "remove" and data["items"][1]["decision"] is None
+    assert data["counts"]["decision"] == {"undecided": 1, "remove": 1, "keep": 0}
+    assert [it["product"]["offer_id"] for it in (await get(decision="remove")).json()["items"]] == [ACB]
+    assert [it["product"]["offer_id"] for it in (await get(decision="undecided")).json()["items"]] == [TH]
+
+    # передумал — действует последнее; «отменить» — решения нет, записи не удаляются
+    await post({"product_id": acb, "decision": "keep"})
+    assert (await get()).json()["items"][0]["decision"]["decision"] == "keep"
+    r = await post({"product_id": acb, "decision": "undecided"})
+    assert r.status_code == 200 and r.json() is None
+    assert (await get()).json()["items"][0]["decision"] is None
+    async with sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WithdrawalDecision)) == 3
+
+    # в Excel — приоритет, замороженные деньги, решение
+    await post({"product_id": str(priced[TH]), "decision": "remove", "qty": 9})
+    r = await client.get(f"{URL}/export", params={"keep_selling": 5}, headers=auth(tokens))
+    rows = [list(row) for row in load_workbook(io.BytesIO(r.content))["Вывоз"].iter_rows(values_only=True)]
+    assert rows[0][9:12] == ["Приоритет", "Замороженные деньги, ₽", "Решение"]
+    assert rows[1][9:11] == ["высокий", "нет себестоимости"]
+    assert rows[2][9:12] == ["средний", 600, f"вывозим, {today_msk():%d.%m.%Y}"]  # СПб: 5 × 120
+    assert rows[-1][0] == "Итого" and rows[-1][10] == 1080
+
+    # чужой товар, неверное решение
+    assert (await post({"product_id": str(uuid.uuid4()), "decision": "keep"})).status_code == 404
+    assert (await post({"product_id": acb, "decision": "maybe"})).status_code == 400
+
+
+async def test_removals_from_ozon(client, tokens, seller):
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        body = json.loads(request.content)
+        calls.append(body)
+        if not body["last_id"]:
+            rows = [{"offer_id": ACB, "name": "Подшипник", "sku": "900001002", "quantity_for_return": 2,
+                     "return_created_at": "2026-10-20T06:49:37.591Z", "return_state": "В пути", "box_state": "Собран",
+                     "clearing_warehouse_name": "СПБ_БУГРЫ_РФЦ", "destination_warehouse_name": "РАЗДОРЫ_4",
+                     "is_auto_return": False, "stock_type": "Излишек", "delivery_type": "Вывоз с ПВЗ/СЦ"}] * 500
+            return httpx.Response(200, json={"returns_summary_report_rows": rows, "last_id": "next"})
+        return httpx.Response(200, json={"returns_summary_report_rows": [
+            {"offer_id": "NOT-IN-CATALOG", "quantity_for_return": 1, "return_created_at": "2026-10-22T10:00:00Z"}],
+            "last_id": ""})
+
+    with respx.mock(base_url=settings.OZON_API_URL, assert_all_called=False) as mock:
+        mock.post("/v1/removal/from-stock/list").mock(side_effect=handler)
+        r = await client.get(f"{URL}/removals", params={"days": 30}, headers=auth(tokens))
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert calls[0]["date_to"] == today_msk().isoformat() and calls[0]["limit"] == 500 and calls[1]["last_id"] == "next"
+    assert (len(data["rows"]), data["qty"]) == (501, 1001)
+    first = data["rows"][0]  # новые — первыми
+    assert (first["offer_id"], first["product_id"], first["qty"]) == ("NOT-IN-CATALOG", None, 1)
+    second = data["rows"][1]
+    assert (second["product_id"], second["state"], second["warehouse"], second["destination"]) == (
+        str(seller[ACB]), "В пути", "СПБ_БУГРЫ_РФЦ", "РАЗДОРЫ_4")
+
+    with respx.mock(base_url=settings.OZON_API_URL, assert_all_called=False) as mock:
+        mock.post("/v1/removal/from-stock/list").mock(return_value=httpx.Response(500, json={"message": "boom"}))
+        r = await client.get(f"{URL}/removals", headers=auth(tokens))
+    assert r.status_code == 502 and r.json()["detail"].startswith("Ozon не отдал список вывозов")
+    assert (await client.get(f"{URL}/removals", params={"days": 7}, headers=auth(tokens))).status_code == 400
+
+
+async def test_removals_without_key(client, tokens):
+    r = await client.get(f"{URL}/removals", headers=auth(tokens))
+    assert r.status_code == 400 and "ключ" in r.json()["detail"].lower()

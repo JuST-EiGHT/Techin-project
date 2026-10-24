@@ -80,7 +80,7 @@ export const NAV: NavSection[] = [
       {
         href: '/dashboard/warehouses',
         label: 'Остатки',
-        description: 'Что заканчивается и что лежит: склады FBO по кластерам, FBS и rFBS',
+        description: 'По товарам, складам и кластерам: что заканчивается, что лежит, сколько денег в запасе',
       },
       {
         href: '/dashboard/warehouses/supply',
@@ -90,7 +90,7 @@ export const NAV: NavSection[] = [
       {
         href: '/dashboard/warehouses/withdrawal',
         label: 'На вывоз',
-        description: 'Что, откуда и сколько забрать со складов Ozon — Excel для логиста',
+        description: 'Что, откуда и сколько забрать со складов Ozon, сколько денег заморожено — решения и Excel',
       },
     ],
   },

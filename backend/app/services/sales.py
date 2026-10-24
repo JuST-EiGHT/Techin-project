@@ -166,6 +166,26 @@ async def avg_daily_by_product(
     return out
 
 
+async def sold_by_product(
+    db: AsyncSession, user_id: uuid.UUID, days: int, today: date | None = None
+) -> dict[uuid.UUID, int]:
+    """Продано за вычетом возвратов, шт., по товарам каталога за последние `days` полных дней (история продаж в «На
+    вывоз», 10.17). Ни одного дня с данными — пусто («нет данных»); товар без продаж при данных — 0."""
+    await ensure_built(db, user_id)
+    end = (today or today_msk()) - timedelta(days=1)
+    start = end - timedelta(days=days - 1)
+    cov = await pnl_data.coverage(db, user_id, start, end, "auto")
+    if len(cov.days) == cov.count(None):
+        return {}
+    net = {offer: int(s or 0) - int(r or 0) for offer, s, r in await db.execute(
+        select(SalesDaily.offer_id, func.sum(SalesDaily.qty_sold), func.sum(SalesDaily.qty_returned))
+        .where(SalesDaily.user_id == user_id, SalesDaily.day >= start, SalesDaily.day <= end)
+        .group_by(SalesDaily.offer_id)
+    )}
+    return {pid: net.get(offer, 0) for pid, offer in await db.execute(
+        select(Product.id, Product.offer_id).where(Product.user_id == user_id))}
+
+
 async def last_sales(db: AsyncSession, user_id: uuid.UUID, offer_id: str | None = None) -> dict[str, date]:
     """Последний день с продажей по артикулу (страница товаров 4.1, склады 5.1). Нет в ответе — продаж в данных нет."""
     q = (
