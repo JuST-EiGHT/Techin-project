@@ -42,9 +42,9 @@ async def calculate(data: CalculateRequest, user: User = Depends(get_current_sto
     ctx = await svc.load(db, user.id, [product])
     promos = (await svc.current_promotions(db, user.id, product.id)).get(product.id, [])
     priced = sorted((rp for rp in promos if rp[0].action_price), key=lambda rp: rp[0].action_price)
-    ov = svc.Overrides(**data.model_dump(exclude={"product_id"}))
+    ov = svc.Overrides(**data.model_dump(exclude={"product_id", "what_if"}))
     worst = priced[0] if priced and data.promo_price is None else None
-    out = svc.calculate(ctx, product, ov, worst[0].action_price if worst else None)
+    out = svc.calculate(ctx, product, ov, worst[0].action_price if worst else None, what_if=data.what_if)
     return {
         **out, "product": {"id": product.id, "offer_id": product.offer_id, "name": product.name},
         "tax": _tax(ctx), "promo_title": worst[1].title if worst else None,

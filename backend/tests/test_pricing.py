@@ -87,6 +87,19 @@ async def test_calculate_with_ozon_data(client, tokens, sessions):
     assert (r["promo"]["profit"], r["promo"]["margin"]) == ("42.42", "8.48")
 
 
+async def test_what_if_prices(client, tokens, sessions):
+    """«А если поставить …» (10.15): тот же расчёт при нескольких ценах — в порядке запроса."""
+    p = await seed(sessions, await user_id_of(client, tokens))
+    r = (await calc(client, tokens, p["A"].id, what_if=["700", "500", "429.89"]))["result"]
+    # 0,605 × 700 − 260,08 = 163,42 → 23,35 %; 500 — как в акции; минимальная — ноль прибыли
+    assert [(w["price"], w["profit"], w["margin"]) for w in r["what_if"]] == [
+        ("700.00", "163.42", "23.35"), ("500.00", "42.42", "8.48"), ("429.89", "0.00", "0.00")]
+    assert r["current"]["profit"] == "102.92"  # текущая цена — как была
+    bad = await client.post("/api/v1/price/calculate", json={"product_id": str(p["A"].id), "what_if": ["0"]},
+                            headers=auth(tokens))
+    assert bad.status_code == 400  # ошибки проверки — понятным текстом, как везде (core/errors)
+
+
 async def test_logistics_fallbacks_and_missing(client, tokens, sessions):
     p = await seed(sessions, await user_id_of(client, tokens))
     e = (await calc(client, tokens, p["E"].id))["inputs"]

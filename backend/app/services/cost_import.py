@@ -3,6 +3,10 @@
 Шаблон и разбор — на общем модуле `services/templates` (правило 14): файл, скачанный из сервиса,
 загружается обратно без ошибок. Пустая себестоимость — «пропущено», такая же цена — «без
 изменений». Каждая строка проверяется отдельно: ошибки не мешают применить остальные строки.
+
+Сопоставление с товарами Ozon (шаг 10.15): артикул файла, которого нет в каталоге Ozon, — сначала по запомненной
+привязке (`offer_aliases`), иначе «нет в Ozon» с подсказкой похожих артикулов каталога (`engine/offer_match`). Без
+привязки строка загружается как есть — для артикулов из отчётов это нормально; привязанная позже — сопоставится.
 """
 
 import uuid
@@ -12,9 +16,13 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Literal
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.engine.offer_match import normalize, suggest
 from app.integrations.xlsx.common import cell_text
+from app.models.offer_alias import OfferAlias
+from app.models.product import Product
 from app.services.costs import CostHistory, add_cost, known_articles, load_cost_history
 from app.services.pnl_stale import affected_period, invalidate
 from app.services.report_costs import recost_reports
@@ -179,6 +187,9 @@ class ImportRow:
     current_cost: Decimal | None = None
     message: str | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)  # ячейки как в файле — для файла ошибок
+    unknown: bool = False  # артикула нет в каталоге Ozon (10.15)
+    suggestions: list[str] = field(default_factory=list)  # похожие артикулы каталога — привязать
+    matched_from: str | None = None  # артикул в файле, если сопоставлен по привязке
 
 
 @dataclass
@@ -278,6 +289,38 @@ def classify(rows: list[ImportRow], history: CostHistory) -> None:
             row.status = "changed"
 
 
+async def active_aliases(db: AsyncSession, user_id: uuid.UUID) -> dict[str, OfferAlias]:
+    """Действующие привязки: ключ артикула файла → привязка (последняя, если перепривязывали)."""
+    rows = await db.execute(
+        select(OfferAlias).where(OfferAlias.user_id == user_id, OfferAlias.removed_at.is_(None))
+        .order_by(OfferAlias.created_at)
+    )
+    return {a.alias_key: a for a in rows.scalars()}
+
+
+async def match_offers(db: AsyncSession, user_id: uuid.UUID, rows: list[ImportRow]) -> None:
+    """Артикулы файла, которых нет в каталоге Ozon (и в архиве): по привязке — подменяем (в строке видно, с чего),
+    иначе — «нет в Ozon» и похожие артикулы каталога. Привязка важнее прежних записей справочника по артикулу файла."""
+    catalog = sorted(set((await db.execute(select(Product.offer_id).where(Product.user_id == user_id))).scalars()))
+    known = set(catalog)
+    aliases = await active_aliases(db, user_id)
+    taken = {r.offer_id: r.line for r in rows if r.status not in ("error", "skipped") and r.offer_id}
+    for row in rows:
+        if row.status in ("error", "skipped") or not row.offer_id or row.offer_id in known:
+            continue
+        alias = aliases.get(normalize(row.offer_id))
+        if alias is None:
+            row.unknown, row.suggestions = True, suggest(row.offer_id, catalog)
+            continue
+        other = taken.get(alias.offer_id)
+        if other is not None and other != row.line:
+            row.status = "error"
+            row.message = f"Артикул привязан к {alias.offer_id}, а он уже есть в строке {other}"
+            continue
+        taken[alias.offer_id] = row.line
+        row.matched_from, row.offer_id = row.offer_id, alias.offer_id
+
+
 @dataclass
 class ImportResult:
     rows: list[ImportRow]
@@ -297,6 +340,7 @@ async def import_costs(
 ) -> ImportResult:
     rows = (await _parse_for_user(db, user_id, content, filename)).rows
     history = await load_cost_history(db, user_id)
+    await match_offers(db, user_id, rows)
     classify(rows, history)
     if not apply:
         return ImportResult(rows, applied=False)
@@ -370,10 +414,12 @@ async def cost_template(db: AsyncSession, user_id: uuid.UUID, rows_kind: RowsKin
 async def error_file(db: AsyncSession, user_id: uuid.UUID, content: bytes, filename: str) -> tuple[bytes, str]:
     """Строки с ошибками — тем же шаблоном с колонкой «Ошибка»: исправил → загрузил снова."""
     parsed = await _parse_for_user(db, user_id, content, filename)
+    history = await load_cost_history(db, user_id)
+    await match_offers(db, user_id, parsed.rows)
     errors = [r for r in parsed.rows if r.status == "error"]
     if not errors:
         raise CostImportError("В файле нет строк с ошибками.")
-    articles = await known_articles(db, user_id, await load_cost_history(db, user_id))
+    articles = await known_articles(db, user_id, history)
     columns = [ERROR_COLUMN] + [c for c in COST_SPEC.columns if c.in_template or c.key in parsed.columns]
     rows = []
     for r in errors:

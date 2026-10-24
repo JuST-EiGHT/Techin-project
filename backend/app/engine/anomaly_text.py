@@ -40,6 +40,14 @@ UNITS = {
 SYNC_WINDOW = "/dashboard?sync=1"  # открывает окно «Синхронизация» (10.2)
 
 
+def below_min(price: Decimal | str | None, breakeven: Decimal | str | None) -> str:
+    """«Цена ниже минимальной» — одна формулировка для «Цен», «Всех товаров», страницы товара и «Требует внимания»
+    (шаг 10.15). Минимальная — цена без прибыли и без убытка по калькулятору 4.2."""
+    if price is None or breakeven is None:
+        return "Цена ниже минимальной — каждая продажа в минус"
+    return f"Цена {rub(price)} ниже минимальной {rub(breakeven)}"
+
+
 @dataclass(frozen=True)
 class Text:
     title: str
@@ -126,8 +134,12 @@ def describe(
                            "в разделе «Цены».", product_link)
 
     if type_ == det.LOW_MARGIN:
-        loss = after is not None and after < 0
-        title = f"Маржа {num(after)} % — {'каждая продажа в минус' if loss else f'ниже порога {num(threshold)} %'}"
+        if after is not None and after < 0:  # маржа в минус = цена ниже минимальной (10.15): та же проверка, без дублей
+            return Text(below_min(d.get("price"), d.get("breakeven")),
+                        f"Маржа {num(after)} %: каждая продажа {what} в минус. Минимальная цена — без прибыли и без "
+                        "убытка: себестоимость, комиссия, логистика, реклама и налоги. Поднимите цену или проверьте "
+                        "расходы — расчёт по шагам и «Изменить цену» на странице товара.", product_link)
+        title = f"Маржа {num(after)} % — ниже порога {num(threshold)} %"
         price = f" {rub(d['price'])}" if d.get("price") else ""
         return Text(title, f"При текущей цене{price} у {what} остаётся меньше, чем вы считаете нормой. Минимальная и "
                            "целевая цена — в разделе «Цены», порог — в «Настройках».", product_link)

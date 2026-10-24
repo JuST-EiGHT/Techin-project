@@ -1,10 +1,14 @@
 'use client'
-
+// Себестоимость (шаги 2.3–2.4): справочник с историей, правка, загрузка из файла и шаблона, файл ошибок.
+// 10.15: полнота (товары с продажами без себестоимости, доля выручки, «заполнить»), вкладки «Справочник» и «Загрузка из
+// файла» (?tab=import) на одной странице, сопоставление артикулов файла с товарами Ozon (привязка запоминается).
 import { Download, History, Upload } from 'lucide-react'
+import { usePathname, useRouter } from 'next/navigation'
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
 import { CostTemplateButton } from '@/components/CostTemplateButton'
+import { AliasesBlock, BindCell, CoverageBlock } from '@/components/cost-tools'
 import { Badge, fmtDateTime, fmtDay, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { VAT_OPTIONS, costPath, since, toNumber, vatText } from '@/lib/costs'
@@ -37,6 +41,9 @@ type ImportRow = {
   status: ImportStatus
   current_cost: string | null
   message: string | null
+  unknown: boolean // артикула нет в каталоге Ozon (10.15)
+  suggestions: string[] // похожие артикулы каталога — привязать
+  matched_from: string | null // как артикул записан в файле, если сопоставлен по привязке
 }
 type ImportResult = {
   applied: boolean
@@ -182,7 +189,7 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
   )
 }
 
-function ImportPanel({ allCount, missingCount, onDone, onClose }: { allCount: number; missingCount: number; onDone: (r: ImportResult) => void; onClose: () => void }) {
+function ImportPanel({ allCount, missingCount, onDone, onAliases }: { allCount: number; missingCount: number; onDone: (r: ImportResult) => void; onAliases: () => void }) {
   const input = useRef<HTMLInputElement>(null)
   const [format, setFormat] = useState<TemplateFormat>('xlsx')
   const [file, setFile] = useState<File | null>(null)
@@ -218,17 +225,19 @@ function ImportPanel({ allCount, missingCount, onDone, onClose }: { allCount: nu
   }
 
   const sorted = preview ? [...preview.rows].sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status)) : []
-  const actionable = sorted.filter((r) => ['error', 'changed', 'new'].includes(r.status))
+  const actionable = sorted.filter((r) => ['error', 'changed', 'new'].includes(r.status) || r.unknown)
+  const unknown = preview ? preview.rows.filter((r) => r.unknown && r.status !== 'error' && r.status !== 'skipped').length : 0
   const rows = showAll ? sorted : actionable
   const toApply = preview ? preview.counts.new + preview.counts.changed : 0
   const button = 'inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent disabled:opacity-60'
   return (
     <section className="space-y-4 rounded-xl border border-accent/40 bg-card p-5" data-testid="import-panel">
-      <div className="flex flex-wrap items-center gap-3">
+      <div>
         <h2 className="text-lg font-semibold">Загрузка себестоимости из файла</h2>
-        <button onClick={onClose} className="ml-auto text-sm text-muted hover:text-fg">
-          Закрыть
-        </button>
+        <p className="mt-1 text-sm text-muted">
+          Массовое обновление: шаблон с вашими товарами → заполнить → загрузить. Ошибки — по строкам, файлом с колонкой «Ошибка»;
+          артикулы, которых нет в Ozon, можно привязать к похожим товарам — привязка запомнится для следующих файлов.
+        </p>
       </div>
       <ol className="grid gap-3 lg:grid-cols-3">
         <Step n={1} title="Скачайте шаблон">
@@ -305,6 +314,7 @@ function ImportPanel({ allCount, missingCount, onDone, onClose }: { allCount: nu
             <Badge tone="muted">Без изменений: {preview.counts.unchanged}</Badge>
             <Badge tone="muted">Пропущено: {preview.counts.skipped}</Badge>
             <Badge tone="bad">Ошибок: {preview.counts.error}</Badge>
+            {unknown > 0 && <Badge tone="warn">Нет в Ozon: {unknown}</Badge>}
           </div>
           {actionable.length === 0 && !showAll && (
             <p className="text-sm text-muted">Изменений нет: цены в файле не заполнены или совпадают с текущими.</p>
@@ -327,7 +337,14 @@ function ImportPanel({ allCount, missingCount, onDone, onClose }: { allCount: nu
                   {rows.map((r) => (
                     <tr key={r.line} className="border-b border-line last:border-b-0" data-testid="import-row">
                       <td className="px-3 py-1.5 text-faint">{r.line}</td>
-                      <td className="px-3 py-1.5">{r.offer_id || '—'}</td>
+                      <td className="px-3 py-1.5">
+                        {r.offer_id || '—'}
+                        {r.matched_from && (
+                          <span className="block text-xs text-faint" data-testid="matched-from">
+                            в файле: {r.matched_from}
+                          </span>
+                        )}
+                      </td>
                       <td className="px-3 py-1.5 text-right tabular-nums text-muted">{rub(r.current_cost)}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums">
                         {rub(r.cost_price)}
@@ -338,6 +355,17 @@ function ImportPanel({ allCount, missingCount, onDone, onClose }: { allCount: nu
                       <td className="px-3 py-1.5">
                         <Badge tone={STATUS[r.status].tone}>{STATUS[r.status].label}</Badge>
                         {r.message && r.status === 'error' && <span className="ml-2 text-xs text-bad">{r.message}</span>}
+                        {r.unknown && r.status !== 'error' && (
+                          <BindCell
+                            key={`${r.line}-${r.offer_id}`}
+                            alias={r.offer_id}
+                            suggestions={r.suggestions}
+                            onBound={() => {
+                              onAliases()
+                              if (file) send(file, false)
+                            }}
+                          />
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -382,15 +410,35 @@ export default function CostsPage() {
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const [historyOf, setHistoryOf] = useState<string | null>(null)
-  const [importing, setImporting] = useState(false)
+  const [tab, setTabState] = useState<'list' | 'import'>('list')
   const [notice, setNotice] = useState<string | null>(null)
+  const [coverageKey, setCoverageKey] = useState(0)
+  const [aliasKey, setAliasKey] = useState(0)
+  const router = useRouter()
+  const pathname = usePathname()
 
-  // ?missing=1 — со страницы отчёта «Указать себестоимость»; &search=артикул — из рекомендации по товару (10.6)
+  // ?missing=1 — со страницы отчёта «Указать себестоимость»; &search=артикул — из рекомендации по товару (10.6);
+  // ?tab=import — вкладка загрузки из файла (10.15)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('missing') === '1') setMissingOnly(true)
     if (params.get('search')) setSearch(params.get('search') as string)
+    if (params.get('tab') === 'import') setTabState('import')
   }, [])
+  function setTab(next: 'list' | 'import') {
+    setTabState(next)
+    const q = new URLSearchParams(window.location.search)
+    if (next === 'import') q.set('tab', 'import')
+    else q.delete('tab')
+    const qs = q.toString()
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+  }
+  function fill(offerId: string) {
+    setTab('list')
+    setMissingOnly(false)
+    setSearch(offerId)
+    setEditing(offerId)
+  }
   // поиск — с задержкой 300 мс
   useEffect(() => {
     const t = setTimeout(() => setQuery(search.trim()), 300)
@@ -412,12 +460,14 @@ export default function CostsPage() {
 
   function saved(row: CostRow, recosted: number) {
     setEditing(null)
+    setCoverageKey((n) => n + 1)
     setNotice(`Себестоимость ${row.offer_id} сохранена${recosted ? `; пересчитано отчётов: ${recosted}` : ''}.`)
     load()
   }
 
   function imported(r: ImportResult) {
-    setImporting(false)
+    setTab('list')
+    setCoverageKey((n) => n + 1)
     setNotice(
       `Добавлено: ${r.counts.new}, обновлено: ${r.counts.changed}, без изменений: ${r.counts.unchanged}, пропущено: ${r.counts.skipped}, ошибок: ${r.counts.error}` +
         (r.recosted_reports ? `; пересчитано отчётов: ${r.recosted_reports}.` : '.'),
@@ -432,13 +482,14 @@ export default function CostsPage() {
           <h1 className="text-2xl font-semibold">Себестоимость</h1>
           <p className="text-sm text-muted">Цена закупки за единицу без НДС. Новая цена — новая запись в истории: прошлые отчёты не меняются.</p>
         </div>
-        <button onClick={() => setImporting(true)} className="ml-auto flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90">
-          <Upload className="h-4 w-4" />
-          Загрузить из файла
-        </button>
+        {tab === 'list' && (
+          <button onClick={() => setTab('import')} className="ml-auto flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90">
+            <Upload className="h-4 w-4" />
+            Загрузить из файла
+          </button>
+        )}
       </div>
 
-      {importing && <ImportPanel allCount={page?.all_count ?? 0} missingCount={page?.missing_count ?? 0} onDone={imported} onClose={() => setImporting(false)} />}
       {notice && (
         <div className="flex items-center gap-3 rounded-lg border border-ok/40 bg-ok/10 px-4 py-2 text-sm text-ok" role="status">
           {notice}
@@ -449,6 +500,42 @@ export default function CostsPage() {
       )}
       <FormError message={error} />
 
+      <CoverageBlock reloadKey={coverageKey} onFill={fill} />
+
+      <nav className="flex gap-1 overflow-x-auto border-b border-line" aria-label="Себестоимость" data-testid="costs-tabs">
+        {(
+          [
+            { value: 'list', label: 'Справочник' },
+            { value: 'import', label: 'Загрузка из файла' },
+          ] as const
+        ).map((t) => (
+          <button
+            key={t.value}
+            type="button"
+            onClick={() => setTab(t.value)}
+            aria-current={tab === t.value ? 'page' : undefined}
+            className={`-mb-px whitespace-nowrap border-b-2 px-4 py-2 text-sm ${tab === t.value ? 'border-accent font-medium text-fg' : 'border-transparent text-muted hover:text-fg'}`}
+            data-testid={`costs-tab-${t.value}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+
+      {tab === 'import' && (
+        <>
+          <ImportPanel
+            allCount={page?.all_count ?? 0}
+            missingCount={page?.missing_count ?? 0}
+            onDone={imported}
+            onAliases={() => setAliasKey((n) => n + 1)}
+          />
+          <AliasesBlock reloadKey={aliasKey} onChanged={() => setAliasKey((n) => n + 1)} />
+        </>
+      )}
+
+      {tab === 'list' && (
+        <>
       {page && page.missing_count > 0 && (
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-warn/40 bg-warn/10 px-4 py-2 text-sm text-warn" data-testid="missing-banner">
           Себестоимость не задана для {page.missing_count} артикулов — прибыль по ним завышена.
@@ -557,6 +644,8 @@ export default function CostsPage() {
             </tbody>
           </table>
         </section>
+      )}
+        </>
       )}
     </div>
   )

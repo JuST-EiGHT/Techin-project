@@ -378,11 +378,12 @@ class MarginItem:
     margin: Decimal | None  # калькулятор цены (шаг 4.2) при текущей цене; нечем посчитать — None
     price: Decimal | None
     avg_daily: Decimal | None = None  # продаж в день за 30 дней (3.5); нет данных — None
+    breakeven: Decimal | None = None  # минимальная цена калькулятора (без прибыли и убытка); недостижима — None
 
 
 def low_margin(items: list[MarginItem], th: Thresholds) -> Check:
-    """Маржа при текущей цене ниже порога пользователя (10 %) — красная. Ниже нуля — под риском убыток за 30 дней при
-    нынешних продажах."""
+    """Маржа при текущей цене ниже порога пользователя (10 %) — красная. Ниже нуля — цена ниже минимальной (10.15: та же
+    проверка, а не вторая аномалия), под риском убыток за 30 дней при нынешних продажах."""
     check = Check(LOW_MARGIN)
     for it in items:
         key = product_key(it.product_id)
@@ -393,7 +394,8 @@ def low_margin(items: list[MarginItem], th: Thresholds) -> Check:
                     if it.margin < 0 and it.price is not None and it.avg_daily else None)
             check.findings.append(Finding(
                 LOW_MARGIN, key, RED, it.product_id, metric_after=it.margin, threshold=th.low_margin,
-                details={"price": str(it.price) if it.price is not None else None}, at_risk=_money(loss),
+                details={"price": str(it.price) if it.price is not None else None,
+                         "breakeven": str(it.breakeven) if it.breakeven is not None else None}, at_risk=_money(loss),
             ))
     return check
 

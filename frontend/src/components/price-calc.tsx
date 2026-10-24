@@ -1,5 +1,6 @@
 'use client'
 // Калькулятор цены (шаг 4.2): блок «Расчёт цены» в панели товара и форма настроек «реклама % и целевая маржа %».
+// «А если поставить …» (10.15): прибыль, расходы и маржа сразу при нескольких ценах — тем же расчётом.
 import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 
@@ -241,6 +242,8 @@ export function PriceCalcBlock({ productId, refreshKey }: { productId: string; r
             </div>
           </details>
 
+          {r && i?.price && <WhatIf productId={productId} body={body} data={data} />}
+
           {shown && <BreakdownTable b={shown} data={data} />}
 
           <div className="text-xs text-faint" data-testid="calc-tax">
@@ -366,5 +369,110 @@ export function PriceSettingsForm({ onSaved }: { onSaved?: () => void }) {
         {done && <span className="text-sm text-ok">Сохранено — цены пересчитаны</span>}
       </div>
     </form>
+  )
+}
+
+/** Цены для «а если»: минимальная, текущая ±10 %, текущая, целевая и своя — по возрастанию, без повторов. */
+function whatIfPrices(data: CalculateResponse, own: number | null): number[] {
+  const r = data.result!
+  const current = Number(data.inputs.price)
+  const list = [r.min_price && Number(r.min_price), current * 0.9, current, current * 1.1, r.target_price && Number(r.target_price), own]
+  const prices = list.filter((v): v is number => typeof v === 'number' && v > 0).map((v) => Math.round(v * 100) / 100)
+  return Array.from(new Set(prices)).sort((a, b) => a - b)
+}
+
+/** «А если поставить …»: та же формула при нескольких ценах — сколько уходит на расходы, сколько остаётся, маржа. */
+function WhatIf({ productId, body, data }: { productId: string; body: Record<string, string>; data: CalculateResponse }) {
+  const [own, setOwn] = useState('')
+  const [rows, setRows] = useState<Breakdown[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const ownValue = fieldNumber(own)
+  const ownOk = ownValue !== null && Number.isFinite(ownValue) && ownValue > 0 && ownValue <= 100_000_000
+  const prices = whatIfPrices(data, ownOk ? ownValue : null)
+  const key = JSON.stringify([body, prices])
+  useEffect(() => {
+    let alive = true
+    const t = setTimeout(() => {
+      api
+        .post<CalculateResponse>('/price/calculate', { product_id: productId, ...body, what_if: prices.map((p) => p.toFixed(2)) })
+        .then(({ data: d }) => {
+          if (!alive) return
+          setRows(d.result?.what_if ?? null)
+          setError(null)
+        })
+        .catch((err) => alive && setError(errorMessage(err)))
+    }, 300)
+    return () => {
+      alive = false
+      clearTimeout(t)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productId, key])
+
+  const r = data.result!
+  const current = Number(data.inputs.price)
+  const label = (price: number) => {
+    const marks = []
+    if (r.min_price && price === Number(r.min_price)) marks.push('минимальная')
+    if (r.target_price && price === Number(r.target_price)) marks.push('целевая')
+    if (price === Math.round(current * 100) / 100) marks.push('сейчас')
+    if (ownOk && price === Math.round(ownValue! * 100) / 100) marks.push('ваша')
+    if (!marks.length) marks.push(`${price > current ? '+' : '−'}10 %`)
+    return marks.join(', ')
+  }
+  return (
+    <div className="rounded-lg border border-line p-3" data-testid="calc-what-if">
+      <div className="flex flex-wrap items-center gap-2">
+        <h4 className="text-sm font-medium">А если поставить…</h4>
+        <label className="ml-auto flex items-center gap-1.5 text-xs text-muted">
+          своя цена
+          <input
+            inputMode="decimal"
+            value={own}
+            onChange={(e) => setOwn(e.target.value)}
+            placeholder="например, 1500"
+            aria-label="Своя цена"
+            className="w-28 rounded-lg border border-line bg-bg px-2 py-1 text-right text-sm text-fg outline-none placeholder:text-faint focus:border-accent"
+            data-testid="what-if-own"
+          />
+          ₽
+        </label>
+      </div>
+      <FormError message={error ?? (own && !ownOk ? 'Своя цена — число больше 0' : null)} />
+      {rows && (
+        <div className="-mx-3 mt-2 overflow-x-auto px-3">
+          <table className="w-full min-w-[22rem] text-sm">
+            <thead className="text-left text-xs text-faint">
+              <tr>
+                <th className="py-1 pr-2 font-normal">Цена</th>
+                <th className="py-1 pr-2 text-right font-normal" title="Комиссия, эквайринг, реклама, логистика, себестоимость, налоги — на 1 шт.">
+                  Расходы
+                </th>
+                <th className="py-1 pr-2 text-right font-normal">Остаётся</th>
+                <th className="py-1 text-right font-normal">Маржа</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((b) => {
+                const price = Number(b.price)
+                const loss = Number(b.profit) < 0
+                return (
+                  <tr key={b.price} className={`border-t border-line ${price === Math.round(current * 100) / 100 ? 'font-medium' : ''}`} data-testid="what-if-row">
+                    <td className="py-1.5 pr-2 tabular-nums">
+                      {rub(b.price)}
+                      <span className="block text-[11px] font-normal text-faint">{label(price)}</span>
+                    </td>
+                    <td className="whitespace-nowrap py-1.5 pr-2 text-right tabular-nums text-muted">{rub(String(price - Number(b.profit)))}</td>
+                    <td className={`whitespace-nowrap py-1.5 pr-2 text-right tabular-nums ${loss ? 'text-bad' : 'text-ok'}`}>{rub(b.profit)}</td>
+                    <td className={`whitespace-nowrap py-1.5 text-right tabular-nums ${loss ? 'text-bad' : ''}`}>{pctText(b.margin)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="mt-1 text-xs text-faint">До налога на прибыль, на 1 шт. Цена в Ozon не меняется — это только расчёт.</p>
+    </div>
   )
 }

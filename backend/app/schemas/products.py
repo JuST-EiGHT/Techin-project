@@ -41,6 +41,7 @@ class ProductItem(BaseModel):
     unit_profit: Decimal | None  # остаётся с 1 шт. при текущей цене (простая формула)
     margin: Decimal | None  # %, та же формула
     margin_level: str | None  # negative | low | ok
+    breakeven_price: Decimal | None = None  # минимальная цена калькулятора 4.2: без прибыли и без убытка (10.15)
     price_index: str | None  # super | green | yellow | red | null — индекса нет
     promotions: list[ProductPromo]
     last_sale: date | None  # последний день с продажей по загруженным начислениям

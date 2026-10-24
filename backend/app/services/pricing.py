@@ -222,7 +222,9 @@ def _breakdown(b: calc.Breakdown | None) -> dict | None:
     return None if b is None else vars(b).copy()
 
 
-def calculate(ctx: PricingContext, product: Product, ov: Overrides | None = None, promo_price: Decimal | None = None) -> dict:
+def calculate(ctx: PricingContext, product: Product, ov: Overrides | None = None, promo_price: Decimal | None = None,
+              what_if: list[Decimal] | None = None) -> dict:
+    """Расчёт товара; what_if — «а если поставить …» (10.15): разбор цены при каждой из этих цен."""
     inputs = ctx.inputs(product, ov)
     params = ctx.params(inputs)
     promo = ov.promo_price if ov and ov.promo_price is not None else promo_price
@@ -233,6 +235,7 @@ def calculate(ctx: PricingContext, product: Product, ov: Overrides | None = None
             "min_price": r.min_price, "min_error": r.min_error, "target_price": r.target_price,
             "target_error": r.target_error, "profitable": r.profitable,
             "current": _breakdown(r.current), "promo": _breakdown(r.promo),
+            "what_if": [_breakdown(calc.breakdown(params, p)) for p in (what_if or [])],
         }
     return {
         "inputs": {

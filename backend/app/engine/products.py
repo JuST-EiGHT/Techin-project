@@ -8,7 +8,7 @@ from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Callable
 
-from app.engine.anomaly_text import num, rub
+from app.engine.anomaly_text import below_min, num, rub
 
 _CENT = Decimal("0.01")
 
@@ -151,7 +151,7 @@ def problem_flags(row: dict, low_margin: Decimal, price_change: tuple[date, Deci
     if profit is not None and profit < 0:
         out.append({"code": LOSS, "text": f"Убыток за период: {rub(profit)}"})
     elif margin is not None and margin < 0:
-        out.append({"code": LOSS, "text": f"В минус при текущей цене: маржа {num(margin)} %"})
+        out.append({"code": LOSS, "text": f"{below_min(row['price'], row.get('breakeven_price'))}: маржа {num(margin)} %"})
     if margin is not None and 0 <= margin < low_margin:
         out.append({"code": LOW_MARGIN, "text": f"Маржа {num(margin)} % — ниже порога {num(low_margin)} %"})
     if row["stock_status"] in ("critical", "low"):

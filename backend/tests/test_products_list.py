@@ -26,9 +26,10 @@ def test_problem_flags():
     assert [f["code"] for f in flags] == ["loss", "low_margin", "low_stock", "price_changed"]
     assert flags[0]["text"] == "Убыток за период: −50 ₽" and flags[2]["text"] == "Критично мало остатков: запаса на 3,4 дн."
     assert flags[3]["text"].endswith("120 ₽ → 100 ₽")
-    row = {"period_profit": None, "margin": D("-3"), "stock_status": "normal", "days_of_supply": None, "cost_price": None}
+    row = {"period_profit": None, "margin": D("-3"), "stock_status": "normal", "days_of_supply": None, "cost_price": None,
+           "price": D("970"), "breakeven_price": D("1000")}
     assert [f["text"] for f in engine.problem_flags(row, D(10), None)] == [
-        "В минус при текущей цене: маржа −3 %", "Нет себестоимости — маржу и прибыль не посчитать"]
+        "Цена 970 ₽ ниже минимальной 1 000 ₽: маржа −3 %", "Нет себестоимости — маржу и прибыль не посчитать"]
 
 
 async def seed(client, tokens, sessions):

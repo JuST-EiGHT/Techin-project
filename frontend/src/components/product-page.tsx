@@ -142,7 +142,9 @@ const LEVEL_NOTE: Record<PriceLevel['kind'], string> = {
 
 export function PricesBlock({ data, lowMargin, onChange }: { data: ProductStats; lowMargin: number; onChange: (() => void) | null }) {
   const { levels, missing, note } = data.prices
-  const id = data.detail.item.id
+  const item = data.detail.item
+  const id = item.id
+  const below = item.margin !== null && Number(item.margin) < 0
   return (
     <Box
       title="Цена и скидки"
@@ -160,6 +162,21 @@ export function PricesBlock({ data, lowMargin, onChange }: { data: ProductStats;
         </>
       }
     >
+      {below && (
+        <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-bad/10 px-3 py-2 text-sm text-bad" data-testid="below-min">
+          <span>
+            <b>
+              Цена {rub(item.price)} ниже минимальной{item.breakeven_price ? ` ${rub(item.breakeven_price)}` : ''}
+            </b>{' '}
+            — каждая продажа в минус{item.unit_profit ? ` ${rub(String(-Number(item.unit_profit)))}` : ''}.
+          </span>
+          {onChange && (
+            <button type="button" onClick={onChange} className="font-medium underline">
+              Изменить цену
+            </button>
+          )}
+        </div>
+      )}
       {levels.length === 0 ? (
         <p className="text-sm text-muted">Цену из Ozon ещё не загружали — обновите товары.</p>
       ) : (

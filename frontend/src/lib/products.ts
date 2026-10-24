@@ -43,6 +43,7 @@ export type ProductItem = {
   unit_profit: string | null
   margin: string | null
   margin_level: 'negative' | 'low' | 'ok' | null
+  breakeven_price: string | null // минимальная цена калькулятора: без прибыли и без убытка (10.15)
   price_index: PriceIndex | null
   promotions: ProductPromo[]
   last_sale: string | null

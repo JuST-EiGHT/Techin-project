@@ -48,6 +48,7 @@ export type CalculateResponse = {
     profitable: boolean | null
     current: Breakdown | null
     promo: Breakdown | null
+    what_if?: Breakdown[] // «а если поставить …» (10.15) — по ценам запроса
   } | null
   promo_title: string | null
 }

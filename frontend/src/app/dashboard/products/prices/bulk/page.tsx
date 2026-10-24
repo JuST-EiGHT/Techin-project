@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { PricesTabs } from '@/components/prices-tabs'
 import { Badge, pctText, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { downloadPriceErrors, downloadPriceTemplate, type TemplateFormat } from '@/lib/download'
@@ -189,15 +190,13 @@ export default function BulkPrices() {
   return (
     <div className="mx-auto max-w-5xl space-y-5">
       <div>
-        <Link href="/dashboard/products/prices" className="text-sm text-accent hover:underline">
-          ← Цены
-        </Link>
-        <h1 className="mt-1 text-2xl font-semibold">Цены списком</h1>
+        <h1 className="text-2xl font-semibold">Цены</h1>
         <p className="mt-1 text-sm text-muted">
           Поменять цены многих товаров сразу: по стратегии или из Excel. Правила те же, что у одного товара: не больше 20 % за раз,
           не ниже себестоимости с НДС + 5 %, не чаще раза в час — и ничего не уйдёт в Ozon до подтверждения.
         </p>
       </div>
+      <PricesTabs />
 
       <ol className="flex flex-wrap gap-x-4 gap-y-1 text-sm" data-testid="bulk-steps">
         {STEPS.map((title, i) => (

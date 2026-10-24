@@ -77,7 +77,7 @@ async def _products(db: AsyncSession, ctx: Context) -> list[det.Check]:
             ctx.zero_stock.add(r["id"])
         avg = r["avg_daily_sales"]
         if (r["stock"] or 0) > 0 or (r["last_sale"] is not None and r["last_sale"] >= selling_since):
-            margins.append(det.MarginItem(r["id"], r["margin"], r["price"], avg))
+            margins.append(det.MarginItem(r["id"], r["margin"], r["price"], avg, r["breakeven_price"]))
         if r["stock"] is not None:
             stocks.append(det.StockItem(r["id"], r["stock_status"], r["days_of_supply"], r["stock"], avg, r["cost_with_vat"]))
         promos += [det.PromoItem(r["id"], p.id, p.title, p.action_price, p.added_automatically, p.margin_in_promo, p.date_to,

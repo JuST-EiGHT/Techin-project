@@ -160,6 +160,12 @@ def build_row(ctx: Context, p: Product) -> dict:
     params = pc.product_params(p)  # калькулятор цены; не хватает данных — None
     current = calc.breakdown(params, price) if params is not None and price is not None else None
     margin = current.margin if current else None
+    breakeven = None  # минимальная цена калькулятора 4.2 — без прибыли и без убытка
+    if params is not None:
+        try:
+            breakeven = calc.price_for_margin(params, Decimal(0))
+        except calc.PriceUnreachable:
+            pass
     promos = [
         ProductPromo(
             id=promo.id, title=promo.title, action_price=r.action_price,
@@ -181,7 +187,7 @@ def build_row(ctx: Context, p: Product) -> dict:
         "days_of_supply": days_of_supply(stock, avg) if stock is not None else None,
         "stock_status": stock_status(stock, avg, ctx.thresholds) if stock is not None else None,
         "unit_profit": current.profit if current else None,
-        "margin": margin, "margin_level": margin_level(margin, ctx.low_margin),
+        "margin": margin, "margin_level": margin_level(margin, ctx.low_margin), "breakeven_price": breakeven,
         "price_index": engine.price_index_level(snap.price_index) if snap else None,
         "promotions": promos,
         "last_sale": ctx.last_sale.get(p.offer_id),

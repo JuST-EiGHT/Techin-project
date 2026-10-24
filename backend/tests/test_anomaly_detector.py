@@ -331,8 +331,12 @@ def test_texts():
     assert "кабинете Ozon" in t.message and t.link == f"/dashboard/products/{P1}"
     t = describe(det.PRICE_CHANGE, RED, Decimal(1000), Decimal(600), Decimal(30), {"change_pct": -40.0, "via_service": True}, P1)
     assert t.title.startswith("Цена снизилась на 40 %") and t.link == f"/dashboard/products/prices/history?product={P1}"
-    t = describe(det.LOW_MARGIN, RED, None, Decimal("-2.5"), Decimal(10), {"price": "990"}, P1, "6001")
-    assert t.title == "Маржа −2,5 % — каждая продажа в минус"
+    t = describe(det.LOW_MARGIN, RED, None, Decimal("-2.5"), Decimal(10), {"price": "990", "breakeven": "1015.50"}, P1, "6001")
+    assert t.title == "Цена 990 ₽ ниже минимальной 1 015,50 ₽" and "Маржа −2,5 %: каждая продажа" in t.message
+    t = describe(det.LOW_MARGIN, RED, None, Decimal("-2.5"), Decimal(10), {"price": "990"}, P1, "6001")  # до 10.15
+    assert t.title == "Цена ниже минимальной — каждая продажа в минус"
+    t = describe(det.LOW_MARGIN, RED, None, Decimal("4"), Decimal(10), {"price": "990"}, P1, "6001")
+    assert t.title == "Маржа 4 % — ниже порога 10 %"
     t = describe(det.PAYOUT_MISSED, RED, Decimal("15000.5"), None, None, {"day": "2026-10-07"})
     assert t.title == "Выплата Ozon 07.10 не пришла" and "около 15 000,50 ₽" in t.message
     t = describe(det.CASH_GAP, RED, None, Decimal(-2000), Decimal(0), {"first_day": "2026-10-17", "min_day": "2026-10-17"})

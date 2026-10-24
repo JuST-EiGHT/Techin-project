@@ -31,3 +31,4 @@ from app.models.notification import NotificationLog, NotificationSettings  # noq
 from app.models.invite import Invite  # noqa: F401
 from app.models.ozon_category import OzonCategory  # noqa: F401
 from app.models.recommendation import RecommendationHide  # noqa: F401
+from app.models.offer_alias import OfferAlias  # noqa: F401
