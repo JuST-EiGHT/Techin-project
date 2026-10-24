@@ -7,6 +7,9 @@
 Статья относится к поступлениям или платежам по своему виду; операция без статьи — по знаку суммы. Отрицательная сумма
 в статье поступлений (возврат, исправление) уменьшает поступления этой статьи, а не попадает в платежи — так итог по
 статьям всегда сходится с остатками.
+
+Подстатьи (шаг 10.19): строка статьи — её факт вместе с фактом подстатей, подстатьи — строками внутри неё; итоги по
+разделам не меняются (каждая операция считается один раз).
 """
 
 import calendar
@@ -49,6 +52,7 @@ class Row:
     section: str  # income | expense
     values: list[Decimal]  # по периодам
     total: Decimal = ZERO
+    children: list["Row"] = field(default_factory=list)  # подстатьи — их факт уже в values и total
 
 
 @dataclass
@@ -88,8 +92,31 @@ def section(flow: Flow) -> str:
     return "income" if flow.amount > 0 else "expense"
 
 
-def cash_flow(opening: Decimal | None, flows: list[Flow], date_from: date, date_to: date, granularity: str = "month") -> CashFlow:
-    """opening — остаток на начало дня date_from по всем счетам (None — неизвестен). flows — операции окна."""
+def nest(rows: list[Row], parents: dict[str, str]) -> list[Row]:
+    """Подстатьи — внутрь статьи: строка статьи = её факт + факт подстатей; статьи без операций, но с подстатьями,
+    появляются строкой. Порядок — как у строк: поступления, потом платежи, больше по модулю — выше."""
+    top: dict[tuple[str, str | None], Row] = {}
+    width = len(rows[0].values) if rows else 0
+    for r in rows:
+        parent = parents.get(r.category) if r.category else None
+        key = (r.section, parent or r.category)
+        row = top.get(key)
+        if row is None:
+            row = top[key] = Row(key[1], r.section, [ZERO] * width)
+        row.values = [a + b for a, b in zip(row.values, r.values)]
+        row.total += r.total
+        if parent is not None:
+            row.children.append(r)
+    out = sorted(top.values(), key=lambda r: (r.section != "income", -abs(r.total), r.category or "~"))
+    for r in out:
+        r.children.sort(key=lambda c: (-abs(c.total), c.category or "~"))
+    return out
+
+
+def cash_flow(opening: Decimal | None, flows: list[Flow], date_from: date, date_to: date, granularity: str = "month",
+              parents: dict[str, str] | None = None) -> CashFlow:
+    """opening — остаток на начало дня date_from по всем счетам (None — неизвестен). flows — операции окна.
+    parents — подстатья → статья (ключи статей): подстатьи — строками внутри статьи."""
     periods = buckets(date_from, date_to, granularity)
     index = {}
     for i, (a, b) in enumerate(periods):
@@ -131,6 +158,11 @@ def cash_flow(opening: Decimal | None, flows: list[Flow], date_from: date, date_
     for r in ordered:
         r.values = [v.quantize(CENT) for v in r.values]
         r.total = r.total.quantize(CENT)
+    if parents:
+        ordered = nest(ordered, parents)
+        for r in ordered:
+            r.values = [v.quantize(CENT) for v in r.values]
+            r.total = r.total.quantize(CENT)
     total_in = sum(income, ZERO).quantize(CENT)
     total_out = sum(expense, ZERO).quantize(CENT)
     return CashFlow(

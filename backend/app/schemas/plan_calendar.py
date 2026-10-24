@@ -355,6 +355,7 @@ class CashFlowRow(BaseModel):
     section: Literal["income", "expense"]
     values: list[Decimal]  # по периодам
     total: Decimal
+    children: list["CashFlowRow"] = []  # подстатьи — их факт уже входит в values и total статьи
 
 
 class CashFlowOut(BaseModel):

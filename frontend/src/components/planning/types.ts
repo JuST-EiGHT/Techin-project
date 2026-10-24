@@ -41,6 +41,11 @@ export type Category = {
   archived: boolean
   required: boolean
   why: string | null
+  parent_id: string | null // подстатья (шаг 10.19) — статья, в которую она входит; вложенность одна
+  has_children: boolean
+  in_pnl: boolean // расход бизнеса в P&L (используется с шага 10.22)
+  in_budget: boolean // можно задать бюджет (шаг 10.21); в ДДС статья учитывается всегда
+  operations: number // действующих операций со статьёй
 }
 
 export type TemplateCategory = {
@@ -58,7 +63,7 @@ export type Operation = {
   day: string
   amount: string
   account: { id: string; name: string }
-  category: { id: string; name: string; kind: CategoryKind } | null
+  category: { id: string; name: string; kind: CategoryKind; parent_id?: string | null } | null
   counterparty: string | null
   comment: string | null
   source: 'manual' | 'import' | 'ozon_payout' | 'bank'
@@ -268,7 +273,8 @@ export type Overview = {
 }
 
 export type CashFlowPeriod = { date_from: string; date_to: string; opening: string | null; income: string; expense: string; net: string; closing: string | null }
-export type CashFlowRow = { category_id: string | null; name: string; section: 'income' | 'expense'; values: string[]; total: string }
+// children — подстатьи (шаг 10.19): их факт уже входит в values и total статьи
+export type CashFlowRow = { category_id: string | null; name: string; section: 'income' | 'expense'; values: string[]; total: string; children?: CashFlowRow[] }
 export type CashFlow = {
   date_from: string
   date_to: string
@@ -287,3 +293,36 @@ export type CashFlow = {
 /** Операции за период (и статью) — подробности точки графика или строки ДДС. */
 export const opsHref = (from: string, to: string, category?: string | null) =>
   `/dashboard/operations?from=${from}&to=${to}${category ? `&category=${category}` : ''}`
+
+// ---------- «Все операции» — журнал факт + план (шаг 10.19) ----------
+
+export type JournalStatus = 'fact' | 'planned' | 'overdue'
+export type JournalSource = Operation['source'] | 'plan' | 'supplier' | 'tax' | 'ozon_forecast'
+
+export type JournalRow = {
+  id: string // op:<op_id> | plan:<ключ платежа>
+  status: JournalStatus
+  type: 'income' | 'expense' | 'transfer'
+  day: string
+  amount: string | null // у плана сумма может быть ещё неизвестна
+  category: { id: string; name: string; kind: CategoryKind; parent_id: string | null } | null
+  parent: { id: string; name: string } | null // статья, если category — подстатья
+  account: { id: string; name: string } | null
+  counterparty: string | null
+  comment: string | null
+  source: JournalSource
+  operation: Operation | null // у факта
+  plan: { key: string; title: string; plan_id: string | null; estimate: boolean; link: string | null } | null // у плана; у факта — закрытый платёж
+}
+
+type JournalTotals = { income: string; expense: string; net: string }
+
+export type JournalPage = {
+  date_from: string
+  date_to: string
+  total: number
+  items: JournalRow[]
+  totals: { fact: JournalTotals; plan: JournalTotals }
+  counts: Record<JournalStatus, number>
+  plan_note: string | null
+}

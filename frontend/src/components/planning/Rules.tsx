@@ -5,6 +5,7 @@ import { ArrowDown, ArrowUp, Pencil, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { CategoryOptions } from '@/components/planning/Categories'
 import { type Category, type Rule, type RuleDirection, type RulesPage, parseAmount } from '@/components/planning/types'
 import { fmtDay, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
@@ -59,7 +60,6 @@ function RuleForm({ categories, initial, onSaved, onCancel }: { categories: Cate
   const [preview, setPreview] = useState<Preview | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const cats = categories.filter((c) => !c.archived && c.kind === KIND[form.direction])
   const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
   const hasCondition = Boolean(form.counterparty_inn.trim() || form.counterparty.trim() || form.purpose.trim() || form.amount_min.trim() || form.amount_max.trim())
 
@@ -147,11 +147,7 @@ function RuleForm({ categories, initial, onSaved, onCancel }: { categories: Cate
         Статья
         <select value={form.category_id} onChange={set('category_id')} className={input} data-testid="rule-category">
           <option value="">— выберите —</option>
-          {cats.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
+          <CategoryOptions categories={categories} kind={KIND[form.direction]} />
         </select>
       </label>
       {preview && (

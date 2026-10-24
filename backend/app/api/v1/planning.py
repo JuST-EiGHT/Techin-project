@@ -16,12 +16,15 @@ from app.schemas.planning import (
     Account,
     AccountIn,
     AccountPatch,
+    BulkIn,
+    BulkOut,
     Category,
     CategoryIn,
     CategoryPatch,
     ImportCounts,
     ImportResponse,
     ImportRowOut,
+    JournalPage,
     OperationIn,
     OperationPatch,
     OperationSaved,
@@ -34,7 +37,7 @@ from app.schemas.planning import (
     SetupOptions,
     TemplateCodes,
 )
-from app.services import audit, operation_import
+from app.services import audit, journal, operation_import
 from app.services import planning as svc
 from app.services.stores import get_current_store
 from app.services.sync.finance import today_msk
@@ -145,7 +148,7 @@ async def list_categories(user: User = Depends(get_current_store), db: AsyncSess
 @router.post("/categories", response_model=Category, status_code=status.HTTP_201_CREATED)
 async def create_category(data: CategoryIn, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     try:
-        cat = await svc.create_category(db, user.id, data.name, data.kind)
+        cat = await svc.create_category(db, user.id, data.name, data.kind, data.parent_id, data.in_pnl, data.in_budget)
     except svc.PlanningError as exc:
         raise _fail(exc) from exc
     await db.commit()
@@ -168,7 +171,9 @@ async def patch_category(
     category_id: uuid.UUID, data: CategoryPatch, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
 ):
     try:
-        cat = await svc.update_category(db, user.id, category_id, data.name, data.archived)
+        extra = {"parent_id": data.parent_id} if "parent_id" in data.model_fields_set else {}
+        cat = await svc.update_category(db, user.id, category_id, data.name, data.archived, in_pnl=data.in_pnl,
+                                        in_budget=data.in_budget, **extra)
     except svc.PlanningError as exc:
         raise _fail(exc) from exc
     await db.commit()
@@ -201,6 +206,75 @@ async def list_operations(
     await svc.sync_ozon_operations(db, user.id)
     return await svc.list_operations(db, user.id, date_from, date_to, account_id, category_id, search, limit, offset,
                                      uncategorized)
+
+
+class _JournalQuery:
+    def __init__(
+        self,
+        date_from: date | None = Query(None, description="По умолчанию — 30 дней назад"),
+        date_to: date | None = Query(None, description="По умолчанию — сегодня"),
+        status_: Literal["fact", "planned", "overdue"] | None = Query(None, alias="status",
+                                                                        description="Факт, план или просроченные"),
+        type_: Literal["income", "expense", "transfer"] | None = Query(None, alias="type"),
+        account_id: uuid.UUID | None = None,
+        category_id: uuid.UUID | None = Query(None, description="Статья — вместе с подстатьями"),
+        uncategorized: bool = Query(False, description="Только без статьи (переводы не в счёт)"),
+        source: Literal["manual", "import", "ozon_payout", "bank", "plan", "supplier", "tax", "ozon_forecast"] | None = None,
+        search: str | None = Query(None, max_length=100, description="Контрагент, описание, название платежа"),
+        sort: Literal["day", "amount", "category"] = "day",
+        order: Literal["asc", "desc"] = "desc",
+    ):
+        date_to = date_to or today_msk()
+        date_from = date_from or date_to - timedelta(days=29)
+        if date_from > date_to:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Период: дата начала позже даты окончания")
+        if (date_to - date_from).days > 3660:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Период: не больше 10 лет за раз")
+        self.date_from, self.date_to = date_from, date_to
+        self.kw = dict(status=status_, type_=type_, account_id=account_id, category_id=category_id,
+                       uncategorized=uncategorized, source=source, search=search, sort=sort, desc=order == "desc")
+
+
+@router.get("/journal", response_model=JournalPage)
+async def operations_journal(
+    q: _JournalQuery = Depends(),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    user: User = Depends(get_current_store),
+    db: AsyncSession = Depends(get_db),
+):
+    """«Все операции»: факт (операции) и план (неоплаченные платежи календаря) одним списком со статусом и источником."""
+    await svc.sync_ozon_operations(db, user.id)
+    return await journal.journal(db, user.id, q.date_from, q.date_to, limit=limit, offset=offset, **q.kw)
+
+
+@router.get("/journal/export", response_class=Response)
+async def operations_journal_export(q: _JournalQuery = Depends(), user: User = Depends(get_current_store),
+                                    db: AsyncSession = Depends(get_db)):
+    """Тот же список в Excel — все строки по фильтрам."""
+    await svc.sync_ozon_operations(db, user.id)
+    data = await journal.journal(db, user.id, q.date_from, q.date_to, limit=10 ** 9, **q.kw)
+    return attachment(
+        journal.to_xlsx(data), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        f"Операции {q.date_from:%d.%m.%Y}-{q.date_to:%d.%m.%Y}.xlsx", "operations.xlsx",
+    )
+
+
+@router.post("/operations/bulk", response_model=BulkOut)
+async def bulk_operations(data: BulkIn, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
+    """Массовое изменение выбранных операций: статья, счёт, контрагент, описание. Каждой — новая версия; не подходит
+    хоть одна — ничего не меняется, в ответе — какая и почему."""
+    changes = {k: getattr(data, k) for k in ("category_id", "account_id", "counterparty", "comment")
+               if k in data.model_fields_set}
+    if "account_id" in changes and changes["account_id"] is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Выберите счёт")
+    try:
+        changed, unchanged = await journal.bulk_update(db, user.id, data.op_ids, changes)
+    except svc.PlanningError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return BulkOut(changed=changed, unchanged=unchanged)
 
 
 @router.post("/operations", response_model=OperationSaved, status_code=status.HTTP_201_CREATED)

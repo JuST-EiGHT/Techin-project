@@ -280,6 +280,7 @@ ACTIONS: dict[tuple[str, str], Action] = {
     ("PATCH", f"{P}/planning/operations/{{op_id}}"): Action("Изменена операция", "/dashboard/operations", "Операции"),
     ("DELETE", f"{P}/planning/operations/{{op_id}}"): Action("Удалена операция", "/dashboard/operations", "Операции"),
     ("POST", f"{P}/planning/operations/import"): Action("Операции загружены списком", "/dashboard/operations", "Операции"),
+    ("POST", f"{P}/planning/operations/bulk"): Action("Операции изменены списком", "/dashboard/operations", "Операции"),
     ("POST", f"{P}/planning/operations/categorize"): Action("Операциям назначена статья", "/dashboard/operations",
                                                             "Операции"),
     ("POST", f"{P}/planning/plans"): Action("Добавлен плановый платёж", "/dashboard/planning/calendar", "Календарь"),

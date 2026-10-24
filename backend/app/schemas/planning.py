@@ -80,16 +80,29 @@ class Category(BaseModel):
     archived: bool
     required: bool
     why: str | None
+    parent_id: uuid.UUID | None = None  # подстатья этой статьи (10.19)
+    has_children: bool = False
+    in_pnl: bool = False  # прочий расход бизнеса в P&L (10.22)
+    in_budget: bool = True  # статья бюджетов (10.21)
+    operations: int = 0  # действующих операций со статьёй
 
 
 class CategoryIn(BaseModel):
     name: str = Field(..., max_length=100)
     kind: Literal["income", "expense"]
+    parent_id: uuid.UUID | None = None
+    in_pnl: bool | None = None
+    in_budget: bool | None = None
 
 
 class CategoryPatch(BaseModel):
+    """Не переданное поле не меняется; parent_id: null — статья верхнего уровня."""
+
     name: str | None = Field(None, max_length=100)
     archived: bool | None = None
+    parent_id: uuid.UUID | None = None
+    in_pnl: bool | None = None
+    in_budget: bool | None = None
 
 
 class TemplateCodes(BaseModel):
@@ -136,6 +149,7 @@ class Ref(BaseModel):
 
 class CategoryRef(Ref):
     kind: CategoryKind
+    parent_id: uuid.UUID | None = None  # подстатья — статья, в которую она входит
 
 
 class TransferInfo(BaseModel):
@@ -339,6 +353,64 @@ class RulePreview(BaseModel):
 
 class RuleOrder(BaseModel):
     ids: list[uuid.UUID] = Field(..., max_length=300)
+
+
+class JournalPlan(BaseModel):
+    key: str  # ключ платежа календаря — для «Оплачено» (POST /planning/calendar/paid)
+    title: str
+    plan_id: uuid.UUID | None  # свой плановый платёж — правится в «Календаре»
+    estimate: bool  # сумма — оценка
+    link: str | None
+
+
+class JournalRow(BaseModel):
+    """Строка журнала: факт — операция (как в /operations), план — платёж календаря без оплаты."""
+
+    id: str  # op:<op_id> | plan:<ключ>
+    status: Literal["fact", "planned", "overdue"]
+    type: Literal["income", "expense", "transfer"]
+    day: date
+    amount: Decimal | None  # + приход, − расход; у плана сумма может быть ещё неизвестна
+    category: CategoryRef | None
+    parent: Ref | None  # статья, если category — подстатья
+    account: Ref | None
+    counterparty: str | None
+    comment: str | None
+    source: Literal["manual", "import", "ozon_payout", "bank", "plan", "supplier", "tax", "ozon_forecast"]
+    operation: Operation | None  # у факта
+    plan: JournalPlan | None  # у плана; у факта — платёж, который он закрыл
+
+
+class JournalTotals(BaseModel):
+    fact: Totals  # без переводов
+    plan: Totals  # ещё не оплаченное (плановое и просроченное), суммы-оценки — как есть
+
+
+class JournalPage(BaseModel):
+    date_from: date
+    date_to: date
+    total: int
+    limit: int
+    offset: int
+    items: list[JournalRow]
+    totals: JournalTotals
+    counts: dict[str, int]  # fact / planned / overdue — по фильтрам, кроме статуса
+    plan_note: str | None  # почему плановых нет (планирование выключено, период длиннее 400 дней)
+
+
+class BulkIn(BaseModel):
+    """Массовое изменение: передаются только поля, которые меняем. category_id: null — убрать статью."""
+
+    op_ids: list[uuid.UUID] = Field(..., min_length=1, max_length=500)
+    category_id: uuid.UUID | None = None
+    account_id: uuid.UUID | None = None
+    counterparty: str | None = Field(None, max_length=200)
+    comment: str | None = Field(None, max_length=2000)
+
+
+class BulkOut(BaseModel):
+    changed: int  # операций с новой версией
+    unchanged: int  # уже были такими
 
 
 class CategorizeIn(BaseModel):

@@ -1,6 +1,5 @@
 'use client'
-// «Операции → Счета и выписки» и «Статьи» (шаг 3.8; до 10.1 — вкладки «Планирования»).
-import Link from 'next/link'
+// «Операции → Счета и выписки» (шаг 3.8; до 10.1 — вкладка «Планирования»). Статьи — components/planning/Categories.tsx.
 import { useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
@@ -9,9 +8,7 @@ import {
   ACCOUNT_KINDS,
   type Account,
   type AccountKind,
-  type Category,
   type PlanningState,
-  type TemplateCategory,
   kindLabel,
   parseAmount,
 } from '@/components/planning/types'
@@ -180,124 +177,6 @@ export function AccountsTab({
                 {a.name}
                 <button type="button" onClick={() => patch(a.id, { archived: false })} className="text-accent hover:underline">
                   Вернуть
-                </button>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-    </div>
-  )
-}
-
-// ---------- статьи ----------
-
-const KIND_TITLES = { income: 'Поступления', expense: 'Расходы', transfer: 'Переводы' } as const
-
-export function CategoriesTab({ categories, templates, onChanged }: { categories: Category[]; templates: TemplateCategory[]; onChanged: () => void }) {
-  const [name, setName] = useState('')
-  const [kind, setKind] = useState<'income' | 'expense'>('expense')
-  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const have = new Set(categories.filter((c) => !c.archived && c.code).map((c) => c.code))
-  const missing = templates.filter((t) => !have.has(t.code))
-
-  async function run(request: Promise<unknown>) {
-    setError(null)
-    try {
-      await request
-      onChanged()
-      return true
-    } catch (err) {
-      setError(errorMessage(err))
-      return false
-    }
-  }
-
-  return (
-    <div className="space-y-4">
-      <p className="text-sm text-muted">
-        По статьям видно, на что уходят деньги. Удалённая статья уходит в архив: операции с ней остаются. Чтобы операции из банка сами
-        получали статью —{' '}
-        <Link href="/dashboard/operations/rules" className="text-accent hover:underline">
-          правила разнесения
-        </Link>
-        .
-      </p>
-      <FormError message={error} />
-      {(['income', 'expense', 'transfer'] as const).map((k) => {
-        const items = categories.filter((c) => c.kind === k && !c.archived)
-        if (items.length === 0) return null
-        return (
-          <section key={k} className="rounded-xl border border-line bg-card p-4">
-            <h2 className="mb-2 text-sm font-semibold">{KIND_TITLES[k]}</h2>
-            <ul className="divide-y divide-line" data-testid={`cats-${k}`}>
-              {items.map((c) => (
-                <li key={c.id} className="flex flex-wrap items-center gap-2 py-2 text-sm" data-testid="cat-row">
-                  {renaming?.id === c.id ? (
-                    <form
-                      className="flex flex-1 gap-2"
-                      onSubmit={async (e) => {
-                        e.preventDefault()
-                        if (await run(api.patch(`/planning/categories/${c.id}`, { name: renaming.name }))) setRenaming(null)
-                      }}
-                    >
-                      <input value={renaming.name} onChange={(e) => setRenaming({ id: c.id, name: e.target.value })} aria-label="Название статьи" className={input} autoFocus />
-                      <button type="submit" className={button}>
-                        OK
-                      </button>
-                    </form>
-                  ) : (
-                    <span className="min-w-0 flex-1">
-                      {c.name}
-                      {c.required && <span className="ml-1 text-xs text-faint">· нужна сервису</span>}
-                      {c.why && <span className="block text-xs text-muted">{c.why}</span>}
-                    </span>
-                  )}
-                  {renaming?.id !== c.id && (
-                    <button type="button" onClick={() => setRenaming({ id: c.id, name: c.name })} className="text-xs text-muted hover:text-fg">
-                      Переименовать
-                    </button>
-                  )}
-                  {!c.required && (
-                    <button type="button" onClick={() => run(api.patch(`/planning/categories/${c.id}`, { archived: true }))} className="text-xs text-muted hover:text-bad" data-testid="cat-archive">
-                      В архив
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </section>
-        )
-      })}
-      <form
-        className="flex flex-wrap gap-2 rounded-xl border border-line bg-card p-4"
-        onSubmit={async (e) => {
-          e.preventDefault()
-          if (await run(api.post('/planning/categories', { name, kind }))) setName('')
-        }}
-      >
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Новая статья" aria-label="Новая статья" required className={`${input} min-w-0 flex-1`} data-testid="cat-name" />
-        <select value={kind} onChange={(e) => setKind(e.target.value as 'income' | 'expense')} aria-label="Поступление или расход" className={`${input} w-auto`}>
-          <option value="expense">Расход</option>
-          <option value="income">Поступление</option>
-        </select>
-        <button type="submit" className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90" data-testid="cat-add">
-          Добавить
-        </button>
-      </form>
-      {missing.length > 0 && (
-        <details className="rounded-xl border border-line bg-card p-4 text-sm">
-          <summary className="cursor-pointer font-semibold">Ещё из шаблона ({missing.length})</summary>
-          <ul className="mt-2 divide-y divide-line">
-            {missing.map((t) => (
-              <li key={t.code} className="flex items-center gap-3 py-2">
-                <span className="min-w-0 flex-1">
-                  {t.name}
-                  <span className="block text-xs text-muted">{t.why}</span>
-                </span>
-                <button type="button" onClick={() => run(api.post('/planning/categories/from-template', { codes: [t.code] }))} className="text-accent hover:underline">
-                  Добавить
                 </button>
               </li>
             ))}

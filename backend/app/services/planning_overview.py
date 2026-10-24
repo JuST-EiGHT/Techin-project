@@ -93,7 +93,8 @@ async def cash_flow(db: AsyncSession, user_id: uuid.UUID, date_from: date, date_
         )
     elif unknown and opening is not None:
         warnings.append(f"Остаток не указан: {', '.join(unknown)} — остатки без этих счетов.")
-    result = cf.cash_flow(opening, flows, date_from, date_to, granularity)
+    parents = {str(c.id): str(c.parent_id) for c in cats.values() if c.parent_id}
+    result = cf.cash_flow(opening, flows, date_from, date_to, granularity, parents)
     if result.transfers:
         warnings.append(f"Переводов между своими счетами: {result.transfers} — они не приход и не расход, в ДДС не входят.")
 
@@ -114,7 +115,10 @@ async def cash_flow(db: AsyncSession, user_id: uuid.UUID, date_from: date, date_
         ],
         "rows": [
             {"category_id": r.category, "name": name(r.category, r.section), "section": r.section,
-             "values": [_money(v) for v in r.values], "total": _money(r.total)}
+             "values": [_money(v) for v in r.values], "total": _money(r.total),
+             "children": [{"category_id": c.category, "name": name(c.category, c.section), "section": c.section,
+                           "values": [_money(v) for v in c.values], "total": _money(c.total), "children": []}
+                          for c in r.children]}
             for r in result.rows
         ],
         "has_data": bool(result.rows),

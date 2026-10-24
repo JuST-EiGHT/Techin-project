@@ -58,7 +58,11 @@ class MoneyAccountBalance(Base):
 
 
 class CashCategory(Base):
-    """Статья движения денег. `code` — у статей из шаблона (по профилю бизнеса), у своих — None."""
+    """Статья движения денег. `code` — у статей из шаблона (по профилю бизнеса), у своих — None.
+
+    Подстатьи (шаг 10.19): `parent_id` — статья того же вида, один уровень вложенности; факт подстатьи входит в статью.
+    Где учитывается: ДДС — всегда (все деньги); `in_pnl` — в P&L как прочий расход бизнеса (шаг 10.22), `in_budget` — в
+    бюджетах (шаг 10.21)."""
 
     __tablename__ = "cash_categories"
 
@@ -67,6 +71,9 @@ class CashCategory(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     kind: Mapped[str] = mapped_column(String(8), nullable=False)  # income | expense | transfer
     code: Mapped[str | None] = mapped_column(String(32))
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("cash_categories.id", ondelete="SET NULL"))
+    in_pnl: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    in_budget: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now, server_default=func.now())
 

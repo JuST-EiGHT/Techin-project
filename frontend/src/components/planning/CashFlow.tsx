@@ -2,6 +2,7 @@
 // «Планирование → ДДС» (шаг 3.10): движение денег по статьям и периодам — остаток на начало, поступления, платежи,
 // остаток на конец. ДДС — по деньгам; P&L — по начислениям (раздел «Финансы Ozon»): не смешиваем. Переводы между своими
 // счетами — не приход и не расход.
+import { ChevronRight } from 'lucide-react'
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -110,6 +111,7 @@ function FlowChart({ data }: { data: CashFlow }) {
 }
 
 function Table({ data }: { data: CashFlow }) {
+  const [open, setOpen] = useState<Set<string>>(new Set()) // раскрытые статьи с подстатьями
   const income = data.rows.filter((r) => r.section === 'income')
   const expense = data.rows.filter((r) => r.section === 'expense')
   const cell = 'whitespace-nowrap px-3 py-1.5 text-right tabular-nums'
@@ -133,21 +135,63 @@ function Table({ data }: { data: CashFlow }) {
         </td>
         <td colSpan={data.periods.length + 1} />
       </tr>
-      {rows.map((r) => (
-        <tr key={`${r.section}-${r.category_id ?? 'none'}`} className="border-t border-line" data-testid="cf-row">
-          <td className={first}>
-            <Link href={opsHref(data.date_from, data.date_to, r.category_id)} className="hover:text-accent hover:underline">
-              {r.name}
-            </Link>
-          </td>
-          {r.values.map((v, i) => (
-            <td key={i} className={`${cell} ${Number(v) === 0 ? 'text-faint' : ''}`}>
-              {Number(v) === 0 ? '—' : num(v)}
+      {rows.map((r) => {
+        const key = `${r.section}-${r.category_id ?? 'none'}`
+        const kids = r.children ?? []
+        const expanded = open.has(key)
+        return [
+          <tr key={key} className="border-t border-line" data-testid="cf-row">
+            <td className={first}>
+              <span className="inline-flex items-center gap-1">
+                {kids.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setOpen((prev) => {
+                      const next = new Set(prev)
+                      if (next.has(key)) next.delete(key)
+                      else next.add(key)
+                      return next
+                    })}
+                    aria-expanded={expanded}
+                    aria-label={expanded ? 'Скрыть подстатьи' : 'Показать подстатьи'}
+                    title={`Подстатей: ${kids.length} — их суммы уже в статье`}
+                    className="rounded text-muted hover:text-fg"
+                    data-testid="cf-toggle"
+                  >
+                    <ChevronRight className={`h-4 w-4 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+                  </button>
+                )}
+                <Link href={opsHref(data.date_from, data.date_to, r.category_id)} className="hover:text-accent hover:underline">
+                  {r.name}
+                </Link>
+              </span>
             </td>
-          ))}
-          <td className={`${cell} font-medium`}>{num(r.total)}</td>
-        </tr>
-      ))}
+            {r.values.map((v, i) => (
+              <td key={i} className={`${cell} ${Number(v) === 0 ? 'text-faint' : ''}`}>
+                {Number(v) === 0 ? '—' : num(v)}
+              </td>
+            ))}
+            <td className={`${cell} font-medium`}>{num(r.total)}</td>
+          </tr>,
+          ...(expanded
+            ? kids.map((c) => (
+                <tr key={`${key}-${c.category_id}`} className="border-t border-line/60 text-muted" data-testid="cf-child">
+                  <td className={`${first} pl-9`}>
+                    <Link href={opsHref(data.date_from, data.date_to, c.category_id)} className="hover:text-accent hover:underline">
+                      · {c.name}
+                    </Link>
+                  </td>
+                  {c.values.map((v, i) => (
+                    <td key={i} className={`${cell} ${Number(v) === 0 ? 'text-faint' : ''}`}>
+                      {Number(v) === 0 ? '—' : num(v)}
+                    </td>
+                  ))}
+                  <td className={cell}>{num(c.total)}</td>
+                </tr>
+              ))
+            : []),
+        ]
+      })}
     </>
   )
   return (
