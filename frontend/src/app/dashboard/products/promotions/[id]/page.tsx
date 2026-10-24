@@ -1,12 +1,15 @@
 'use client'
 // Страница акции (шаг 4.3): товары по марже — выгодные (от 10 %), невыгодные (0–10 %), убыточные, без маржи — и
 // кандидаты; вход и выход — через окно подтверждения (предпросмотр → Ozon → журнал).
+// 10.16: минимальная и целевая цена для участия у каждого товара (калькулятор цены), «ниже минимальной» — заметно,
+// «весь остаток» — сколько выйдет, если уйдёт весь; результаты акции — во время против такого же периода до.
 import Link from 'next/link'
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
 import { PromoActionModal } from '@/components/promo-action'
+import { PromotionResultsBlock } from '@/components/promo-results'
 import { Badge, pctText, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { MARGIN_TEXT, PROMO_TAB_VALUES, fmtDate, promoTabs, tabOf, type PromoProductRow, type PromoTab, type ProductsResponse } from '@/lib/promotions'
@@ -89,10 +92,23 @@ function PromotionPage() {
           hint={p.no_margin ? `без маржи: ${p.no_margin}` : 'по калькулятору цены'}
           tone={p.avg_margin === null ? '' : Number(p.avg_margin) < 0 ? 'text-bad' : Number(p.avg_margin) < 10 ? 'text-warn' : 'text-ok'}
         />
-        <Stat label="Убыточных" value={String(p.loss)} hint="каждая продажа в минус" tone={p.loss ? 'text-bad' : ''} />
+        <Stat label="Ниже минимальной" value={String(p.loss)} hint="цена в акции — каждая продажа в минус" tone={p.loss ? 'text-bad' : ''} />
         <Stat label="Можно добавить" value={String(p.candidates)} hint="Ozon предлагает" />
       </div>
 
+      {p.loss > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-bad/10 px-3 py-2 text-sm text-bad" data-testid="promo-below-min">
+          <span>
+            <b>Цена в акции ниже минимальной у {p.loss} {p.loss === 1 ? 'товара' : 'товаров'}</b> — каждая продажа в минус. Минимальная цена для
+            участия — в колонке «Мин. для участия»: уберите товар из акции или поднимите себе цену, чтобы скидка не уводила ниже.
+          </span>
+          {tab !== 'negative' && (
+            <button type="button" onClick={() => setTab('negative')} className="font-medium underline">
+              Показать
+            </button>
+          )}
+        </div>
+      )}
       {p.whole_stock_warning && <p className="rounded-lg bg-warn/10 px-3 py-2 text-sm">{p.whole_stock_warning}</p>}
       {frozenText && <p className="rounded-lg bg-line/60 px-3 py-2 text-sm text-muted">{frozenText}</p>}
       {done && (
@@ -126,13 +142,16 @@ function PromotionPage() {
       ) : (
         <section className="overflow-hidden rounded-xl border border-line bg-card">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[46rem] text-[13px]" data-testid="promo-table">
+            <table className="w-full min-w-[54rem] text-[13px]" data-testid="promo-table">
               <thead className="border-b border-line text-left text-xs text-muted">
                 <tr>
                   <th className="px-3 py-2 font-normal">Товар</th>
                   <th className="px-3 py-2 text-right font-normal">{tab === 'candidates' ? 'Цена для входа' : 'Цена в акции'}</th>
-                  <th className="px-3 py-2 text-right font-normal" title="Минимальная цена в Ozon">
-                    Мин. цена
+                  <th className="px-3 py-2 text-right font-normal" title="Калькулятор цены: ниже — каждая продажа в минус; под ней — цена с вашей целевой маржой">
+                    Мин. для участия
+                  </th>
+                  <th className="px-3 py-2 text-right font-normal" title="Минимальная цена, которую вы задали в Ozon: ниже неё Ozon цену в акциях не опустит">
+                    Мин. в Ozon
                   </th>
                   <th className="px-3 py-2 text-right font-normal">Остаток</th>
                   <th className="px-3 py-2 text-right font-normal" title="Калькулятор цены: с логистикой, рекламой и налогами">
@@ -151,9 +170,11 @@ function PromotionPage() {
         </section>
       )}
       {data.margin_note && <p className="text-xs text-faint">{data.margin_note}</p>}
+      <PromotionResultsBlock promotionId={p.id} />
       <p className="text-xs text-faint">
         Выгодные — маржа в акции от {lowPct}, невыгодные — от 0 до {lowPct} (порог — в «Настройках»), убыточные — ниже нуля. У кандидатов маржа — при максимальной цене для
-        участия. Добавить и убрать товар можно только после подтверждения; каждое действие записывается в журнал.
+        участия. Минимальная цена для участия — без прибыли и без убытка (себестоимость, комиссия, логистика, реклама, налоги), целевая — с
+        вашей маржой. Добавить и убрать товар можно только после подтверждения; каждое действие записывается в журнал.
       </p>
 
       {action && (
@@ -188,7 +209,11 @@ function Row({ r, wholeStock, frozen, onAction }: { r: PromoProductRow; wholeSto
   const td = 'whitespace-nowrap px-3 py-2 text-right tabular-nums'
   const price = r.is_active ? r.action_price : r.max_action_price ?? r.action_price
   return (
-    <tr className="border-b border-line last:border-b-0" data-testid="promo-product">
+    <tr
+      className={`border-b border-l-2 border-line last:border-b-0 ${r.below_breakeven ? 'border-l-bad bg-bad/5' : 'border-l-transparent'}`}
+      data-testid="promo-product"
+      data-below={r.below_breakeven ? 'true' : undefined}
+    >
       <td className="max-w-[16rem] px-3 py-2">
         <Link href={`/dashboard/products/${r.product.id}`} className="block truncate font-medium hover:text-accent">
           {r.product.offer_id}
@@ -205,16 +230,30 @@ function Row({ r, wholeStock, frozen, onAction }: { r: PromoProductRow; wholeSto
           {r.discount_pct !== null && r.is_active && ` · −${r.discount_pct} %`}
         </div>
       </td>
+      <td className={`${td} ${r.below_breakeven ? 'font-semibold text-bad' : ''}`} data-testid="promo-breakeven">
+        {r.breakeven_price === null ? <span className="text-muted">нет данных</span> : rub(r.breakeven_price)}
+        {r.below_breakeven && price && r.breakeven_price ? (
+          <div className="text-xs font-normal">ниже на {rub(String(Number(r.breakeven_price) - Number(price)))}</div>
+        ) : (
+          r.target_price && <div className="text-xs text-faint">целевая {rub(r.target_price)}</div>
+        )}
+      </td>
       <td className={`${td} ${r.below_min_price ? 'text-bad' : 'text-muted'}`} title={r.below_min_price ? 'Цена в акции ниже минимальной в Ozon' : undefined}>
         {rub(r.min_price)}
       </td>
       <td className={td}>
         {r.stock_on_hand}
-        {wholeStock && r.is_active && r.stock_on_hand > 0 && <div className="text-xs text-warn">может уйти весь</div>}
+        {wholeStock && r.is_active && r.stock_on_hand > 0 && (
+          <div className={`text-xs ${r.whole_stock_profit !== null && Number(r.whole_stock_profit) < 0 ? 'text-bad' : 'text-warn'}`} data-testid="promo-whole-stock">
+            может уйти весь
+            {r.whole_stock_profit !== null && `: ${Number(r.whole_stock_profit) < 0 ? 'убыток' : 'прибыль'} ${rub(String(Math.abs(Number(r.whole_stock_profit))))}`}
+          </div>
+        )}
         {!wholeStock && r.is_active && r.stock !== null && <div className="text-xs text-faint">в акции {r.stock}</div>}
       </td>
       <td className={`${td} font-medium ${r.margin_level ? MARGIN_TEXT[r.margin_level] : 'text-muted'}`} data-testid="promo-margin">
         {pctText(r.margin_in_promo)}
+        {r.unit_profit !== null && <div className="text-xs font-normal">{rub(r.unit_profit)} с шт.</div>}
       </td>
       <td className="px-3 py-2 text-right">
         {r.is_active ? (

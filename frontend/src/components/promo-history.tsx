@@ -1,9 +1,11 @@
 'use client'
 // История участия в акциях (шаг 4.3): в каких акциях был товар, когда вошёл и вышел, по какой цене.
+// 10.16: результат каждого участия — продажи и прибыль во время против такого же периода до.
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { ResultLine } from '@/components/promo-results'
 import { Badge, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { addDays, todayMsk } from '@/lib/period'
@@ -83,7 +85,7 @@ export function PromoHistory({ productId, onClearProduct }: { productId: string 
       {items.length > 0 && (
         <div className="overflow-hidden rounded-xl border border-line bg-card">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[44rem] text-[13px]" data-testid="history-table">
+            <table className="w-full min-w-[56rem] text-[13px]" data-testid="history-table">
               <thead className="border-b border-line text-left text-xs text-muted">
                 <tr>
                   <th className="px-3 py-2 font-normal">Товар</th>
@@ -91,6 +93,7 @@ export function PromoHistory({ productId, onClearProduct }: { productId: string 
                   <th className="px-3 py-2 font-normal">Участие</th>
                   <th className="px-3 py-2 text-right font-normal">Цена в акции</th>
                   <th className="px-3 py-2 font-normal">Как попал</th>
+                  <th className="px-3 py-2 font-normal">Результат</th>
                 </tr>
               </thead>
               <tbody>
@@ -129,6 +132,9 @@ export function PromoHistory({ productId, onClearProduct }: { productId: string 
                         {i.price && <div className="text-xs text-faint">обычная {rub(i.price)}</div>}
                       </td>
                       <td className="px-3 py-2">{i.added_automatically ? <Badge tone="warn">Ozon автоматически</Badge> : <span className="text-muted">вы</span>}</td>
+                      <td className="min-w-[12rem] px-3 py-2">
+                        <ResultLine r={i.result} />
+                      </td>
                     </tr>
                   )
                 })}
@@ -139,7 +145,8 @@ export function PromoHistory({ productId, onClearProduct }: { productId: string 
       )}
       <p className="text-xs text-faint">
         Даты — по синхронизациям акций (каждые 3 часа) и по вашим действиям в сервисе. История копится с первой синхронизации — прошлого
-        Ozon не отдаёт.
+        Ozon не отдаёт. Результат — продажи и прибыль за дни участия против такого же числа дней до входа; дни без начислений не
+        считаются.
       </p>
     </section>
   )

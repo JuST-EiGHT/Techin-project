@@ -52,7 +52,8 @@ async def stats(db: AsyncSession, user_id: uuid.UUID, product_id: uuid.UUID, dat
     changes = await price_history.history(
         db, user_id, today - timedelta(days=HISTORY_DAYS - 1), today, product_id=product.id, limit=HISTORY_SHOWN,
     )
-    promos = await participation_history(db, user_id, today - timedelta(days=HISTORY_DAYS - 1), today, product.id)
+    promos = await participation_history(db, user_id, today - timedelta(days=HISTORY_DAYS - 1), today, product.id,
+                                         with_results=True, results_limit=HISTORY_SHOWN)
     return {
         "detail": detail,
         "period": period,

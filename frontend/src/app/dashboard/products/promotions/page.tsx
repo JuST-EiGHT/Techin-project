@@ -249,7 +249,7 @@ function PromotionCard({ p }: { p: Promotion }) {
         </span>
         {n(p.profitable, 'text-ok', 'выгодных')}
         {n(p.low_margin, 'text-warn', 'невыгодных')}
-        {n(p.loss, 'text-bad', 'убыточных')}
+        {n(p.loss, 'text-bad', 'ниже минимальной')}
         {n(p.no_margin, 'text-muted', 'без маржи')}
       </div>
       <div className="mt-auto flex flex-wrap items-baseline gap-x-3 pt-3 text-sm">

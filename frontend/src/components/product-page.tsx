@@ -5,6 +5,7 @@
 // GET /products/{id}/stats и готовые запросы аналитики; своих расчётов на странице нет.
 import Link from 'next/link'
 
+import { ResultLine } from '@/components/promo-results'
 import { Badge, fmtDateTime, fmtDay, pctText, rub, rubSigned } from '@/components/reports'
 import { UnitEconomics, signTone } from '@/components/products-pnl'
 import { since } from '@/lib/costs'
@@ -318,6 +319,7 @@ export function PromosBlock({ data, lowMargin }: { data: ProductStats; lowMargin
                 {h.added_automatically && <span className="text-warn">добавил Ozon</span>}
                 {h.margin_in_promo !== null && <span className={marginTone(h.margin_in_promo, lowMargin)}>маржа {pctText(h.margin_in_promo)}</span>}
               </div>
+              <ResultLine r={h.result} />
             </li>
           ))}
         </ul>

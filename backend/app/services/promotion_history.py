@@ -1,5 +1,6 @@
 """История участия в акциях (шаг 4.3, docs/DATA_HISTORY.md): в каких акциях был товар, когда вошёл и вышел, по какой
 цене (со всеми изменениями), добавлен ли автоматически. Копится с первой синхронизации — Ozon прошлого не отдаёт.
+С результатом каждого участия (10.16, `services/promotion_results`): продажи, выручка, прибыль во время против «до».
 """
 import uuid
 from collections import defaultdict
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.product import Product
 from app.models.promotion import Promotion, PromotionPriceSnapshot, PromotionProduct
 from app.schemas.sync import utc
+from app.services import promotion_results
 from app.services.sync.finance import MSK
 
 MAX_DAYS = 366
@@ -25,7 +27,8 @@ def bounds(date_from: date, date_to: date) -> tuple[datetime, datetime]:
 
 
 async def history(
-    db: AsyncSession, user_id: uuid.UUID, date_from: date, date_to: date, product_id: uuid.UUID | None = None
+    db: AsyncSession, user_id: uuid.UUID, date_from: date, date_to: date, product_id: uuid.UUID | None = None,
+    with_results: bool = False, results_limit: int | None = None,
 ) -> list[dict]:
     """Участия, которые пересекаются с периодом: вошёл до его конца и не вышел до начала. Новые — первыми."""
     start, end = bounds(date_from, date_to)
@@ -52,6 +55,8 @@ async def history(
         )
         for s in res.scalars():
             snaps[s.promotion_product_id].append(s)
+    # результат — для всех участий или первых results_limit (на странице товара видны последние 5)
+    results = await promotion_results.results(db, user_id, found[:results_limit]) if with_results else {}
     out = []
     for r, promo, product in found:
         left = utc(r.left_at)
@@ -76,5 +81,6 @@ async def history(
             "prices": prices,
             "added_automatically": r.added_automatically,
             "margin_in_promo": r.margin_in_promo,
+            "result": promotion_results.public(results[r.id]) if r.id in results else None,
         })
     return out
