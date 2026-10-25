@@ -7,6 +7,7 @@ from app.api.v1 import (
     auth,
     bank,
     bank_connections,
+    budgets,
     costs,
     credentials,
     dashboard,
@@ -64,4 +65,5 @@ api_router.include_router(planning.router)
 api_router.include_router(plan_calendar.router)
 api_router.include_router(planning_overview.router)
 api_router.include_router(planning_rules.router)
+api_router.include_router(budgets.router)
 api_router.include_router(bank.router)

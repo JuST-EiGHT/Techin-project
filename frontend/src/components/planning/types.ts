@@ -416,3 +416,52 @@ export type JournalPage = {
   counts: Record<JournalStatus, number>
   plan_note: string | null
 }
+
+// ---------- бюджеты и сценарии (шаг 10.21) ----------
+
+export type BudgetCell = { plan: string | null; fact: string | null; diff: string | null; pct: string | null; worse: boolean | null }
+export type BudgetRow = {
+  category: { id: string; name: string; kind: 'income' | 'expense'; parent_id: string | null; archived: boolean }
+  own: { month: string; plan: string | null }[] // свой план по 12 месяцам (без подстатей)
+  cells: BudgetCell[]
+  total: BudgetCell
+  children: BudgetRow[]
+}
+export type BudgetSection = { rows: BudgetRow[]; other: { cells: BudgetCell[]; total: BudgetCell }; cells: BudgetCell[]; total: BudgetCell }
+export type BudgetPeriod = { key: string; label: string; date_from: string; date_to: string; started: boolean; partial: boolean }
+export type BudgetGranularity = 'month' | 'quarter' | 'year'
+export type BudgetPage = {
+  year: number
+  granularity: BudgetGranularity
+  today: string
+  periods: BudgetPeriod[]
+  income: BudgetSection
+  expense: BudgetSection
+  net: { cells: BudgetCell[]; total: BudgetCell }
+  has_plan: boolean
+}
+export type BudgetVersion = { amount: string | null; source: 'manual' | 'import' | 'last_year' | 'prev_period'; created_at: string; superseded_at: string | null }
+export type BudgetScenario = {
+  key: 'base' | 'optimistic' | 'pessimistic'
+  label: string
+  income_pct: string
+  expense_pct: string
+  income: string
+  expense: string
+  end_balance: string | null
+  min_balance: string | null
+  min_day: string | null
+  first_below_zero: string | null
+  first_below_threshold: string | null
+  days: { day: string; balance: string | null }[]
+}
+export type BudgetForecast = {
+  today: string
+  date_to: string
+  months: number
+  start: string | null
+  unknown: string[]
+  threshold: string | null
+  scenarios: BudgetScenario[]
+  budget_added: { category: string; day: string; amount: string }[]
+}

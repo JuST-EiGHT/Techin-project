@@ -129,6 +129,11 @@ class PlanningSettings(Base):
     gen_taxes: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     supplier_period: Mapped[str] = mapped_column(String(8), nullable=False, default="week", server_default="week")
     supplier_day: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")  # день недели / число
+    # сценарии бюджета (шаг 10.21): на сколько % плановые поступления и платежи больше (+) или меньше (−) базового
+    scen_opt_income: Mapped[Decimal] = mapped_column(Numeric(5, 1), nullable=False, default=Decimal(10), server_default="10")
+    scen_opt_expense: Mapped[Decimal] = mapped_column(Numeric(5, 1), nullable=False, default=Decimal(-5), server_default="-5")
+    scen_pes_income: Mapped[Decimal] = mapped_column(Numeric(5, 1), nullable=False, default=Decimal(-10), server_default="-10")
+    scen_pes_expense: Mapped[Decimal] = mapped_column(Numeric(5, 1), nullable=False, default=Decimal(10), server_default="10")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
@@ -262,3 +267,24 @@ class PlannedOverride(Base):
     paid_day: Mapped[date | None] = mapped_column(Date)
     paid_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now, server_default=func.now())
+
+
+BUDGET_SOURCES = ("manual", "import", "last_year", "prev_period")  # вручную, из файла, как в прошлом году, как прошлый период
+
+
+class BudgetLine(Base):
+    """Бюджет (шаг 10.21): план по статье на месяц — сумма больше или равна 0 (знак — по виду статьи). Квартал и год —
+    суммы месяцев. Изменение — новая строка, прежняя помечается `superseded_at` (правило 12); `amount` пусто — план
+    убрали. Действует строка без `superseded_at`. План статьи с подстатьями = её свой план + планы подстатей."""
+
+    __tablename__ = "budget_lines"
+    __table_args__ = (Index("ix_budget_lines_user_month", "user_id", "month"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    category_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("cash_categories.id", ondelete="CASCADE"), nullable=False)
+    month: Mapped[date] = mapped_column(Date, nullable=False)  # первое число месяца
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    source: Mapped[str] = mapped_column(String(12), nullable=False, default="manual")  # BUDGET_SOURCES
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now, server_default=func.now())
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

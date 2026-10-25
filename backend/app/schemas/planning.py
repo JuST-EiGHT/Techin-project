@@ -630,3 +630,161 @@ class UnrecognizedPage(BaseModel):
     total: int
     items: list[UnrecognizedItem]
     by_account: list[UnrecognizedByAccount]
+
+
+# ---------- бюджеты и сценарии (шаг 10.21) ----------
+
+
+class BudgetCell(BaseModel):
+    plan: Decimal | None  # null — плана нет
+    fact: Decimal | None  # null — период ещё не начался
+    diff: Decimal | None  # факт − план
+    pct: Decimal | None
+    worse: bool | None  # хуже плана: поступлений меньше или расходов больше
+
+
+class BudgetCategory(BaseModel):
+    id: uuid.UUID
+    name: str
+    kind: Literal["income", "expense"]
+    parent_id: uuid.UUID | None
+    archived: bool
+
+
+class BudgetMonth(BaseModel):
+    month: date
+    plan: Decimal | None  # свой план статьи (без подстатей)
+
+
+class BudgetRow(BaseModel):
+    category: BudgetCategory
+    own: list[BudgetMonth]  # 12 месяцев — свой план
+    cells: list[BudgetCell]  # по периодам: статья вместе с подстатьями
+    total: BudgetCell  # за год
+    children: list["BudgetRow"]
+
+
+class BudgetOther(BaseModel):
+    cells: list[BudgetCell]  # факт вне статей бюджета и без статьи
+    total: BudgetCell
+
+
+class BudgetSection(BaseModel):
+    rows: list[BudgetRow]
+    other: BudgetOther
+    cells: list[BudgetCell]  # итог раздела: план — по статьям бюджета, факт — все операции раздела
+    total: BudgetCell
+
+
+class BudgetNet(BaseModel):
+    cells: list[BudgetCell]
+    total: BudgetCell
+
+
+class BudgetPeriod(BaseModel):
+    key: str
+    label: str
+    date_from: date
+    date_to: date
+    started: bool
+    partial: bool  # идёт сейчас — факт неполный
+
+
+class BudgetPage(BaseModel):
+    year: int
+    granularity: Literal["month", "quarter", "year"]
+    today: date
+    periods: list[BudgetPeriod]
+    income: BudgetSection
+    expense: BudgetSection
+    net: BudgetNet  # поступления − расходы
+    has_plan: bool
+
+
+class BudgetSet(BaseModel):
+    category_id: uuid.UUID
+    granularity: Literal["month", "quarter", "year"] = "month"
+    start: date  # любой день периода
+    amount: Decimal | None = Field(None, ge=0, le=10_000_000_000)  # null — убрать план; квартал и год — поровну
+
+
+class BudgetChanged(BaseModel):
+    changed: int  # месяцев с новой версией плана
+
+
+class BudgetVersion(BaseModel):
+    amount: Decimal | None
+    source: Literal["manual", "import", "last_year", "prev_period"]
+    created_at: datetime
+    superseded_at: datetime | None
+
+
+class BudgetFillIn(BaseModel):
+    source: Literal["last_year", "prev_period"]
+    granularity: Literal["month", "quarter", "year"] = "year"
+    start: date
+    overwrite: bool = False  # заменить уже заданный план
+    dry_run: bool = True
+
+
+class BudgetFillExample(BaseModel):
+    category: str
+    month: date
+    before: Decimal | None
+    after: Decimal
+
+
+class BudgetFillOut(BaseModel):
+    changed: int
+    kept: int  # уже есть свой план — не трогали
+    examples: list[BudgetFillExample]
+    date_from: date = Field(alias="from")  # по факту каких месяцев
+    date_to: date = Field(alias="to")
+
+    model_config = {"populate_by_name": True}
+
+
+class ScenarioIn(BaseModel):
+    """На сколько % плановые поступления и платежи сценария больше (+) или меньше (−) базового."""
+
+    scen_opt_income: Decimal | None = Field(None, ge=-90, le=300)
+    scen_opt_expense: Decimal | None = Field(None, ge=-90, le=300)
+    scen_pes_income: Decimal | None = Field(None, ge=-90, le=300)
+    scen_pes_expense: Decimal | None = Field(None, ge=-90, le=300)
+
+
+class ForecastDay(BaseModel):
+    day: date
+    balance: Decimal | None
+
+
+class ScenarioOut(BaseModel):
+    key: Literal["base", "optimistic", "pessimistic"]
+    label: str
+    income_pct: Decimal
+    expense_pct: Decimal
+    income: Decimal  # ожидается поступлений за горизонт
+    expense: Decimal  # платежей (отрицательное)
+    end_balance: Decimal | None
+    min_balance: Decimal | None
+    min_day: date | None
+    first_below_zero: date | None  # кассовый разрыв: с этого дня денег меньше нуля
+    first_below_threshold: date | None
+    days: list[ForecastDay]
+
+
+class BudgetAdded(BaseModel):
+    category: str
+    day: date
+    amount: Decimal  # + поступление, − платёж
+
+
+class ForecastOut(BaseModel):
+    today: date
+    date_to: date
+    months: int
+    start: Decimal | None  # остаток сейчас; null — не указан ни у одного счёта
+    unknown: list[str]  # счета без остатка
+    threshold: Decimal | None
+    scenarios: list[ScenarioOut]
+    budget_added: list[BudgetAdded]  # остаток бюджета, которого нет в календаре и факте, — добавлен в прогноз

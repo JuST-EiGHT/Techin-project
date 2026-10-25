@@ -102,6 +102,7 @@ export const NAV: NavSection[] = [
       { href: '/dashboard/operations', label: 'Все операции', description: 'Что пришло и что ушло: свои расходы, доходы, выплаты Ozon' },
       { href: '/dashboard/operations/categories', label: 'Статьи', description: 'Статьи доходов и расходов' },
       { href: '/dashboard/operations/rules', label: 'Правила разнесения', description: 'Операции из банка сами получают статью' },
+      { href: '/dashboard/operations/budgets', label: 'Бюджеты и сценарии', description: 'План по статьям на месяц, квартал, год, план-факт, сценарии' },
       { href: '/dashboard/operations/accounts', label: 'Счета и выписки', description: 'Счета, карты и наличные, остатки, выписки банков' },
     ],
   },

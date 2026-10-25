@@ -13,6 +13,7 @@ from app.models.pnl_snapshot import PnLSnapshot  # noqa: F401
 from app.models.sales_daily import SalesDaily  # noqa: F401
 from app.models.ozon_balance import OzonBalanceDay, OzonPayoutSettings  # noqa: F401
 from app.models.planning import (  # noqa: F401
+    BudgetLine,
     CashCategory,
     CategorizationRule,
     MoneyAccount,
