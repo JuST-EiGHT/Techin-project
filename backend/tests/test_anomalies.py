@@ -304,6 +304,9 @@ async def test_bank_reconciliation(client, tokens, sessions):
         db.add(OzonBalanceDay(user_id=uid, day=payout_day, accrued=D(0), payments=D(-15000), synced_at=now))
         db.add(BankTransaction(user_id=uid, account_id=account, day=today - timedelta(days=2), amount=D(-500),
                                dedup_key="rent-1", source="file_1c", kind="regular", raw_json={}))
+        # выписка покрывает и дни выплаты (раньше первой выписки — «нет выписки», а не «не пришло», шаг 10.23)
+        db.add(BankTransaction(user_id=uid, account_id=account, day=payout_day - timedelta(days=3), amount=D(-500),
+                               dedup_key="rent-0", source="file_1c", kind="regular", raw_json={}))
         await db.commit()
     await detect(sessions, uid)
     [missing] = await rows(sessions, uid, "bank_missing")

@@ -1,5 +1,6 @@
 'use client'
-// Блоки страницы «Выплаты Ozon» (шаг 3.6): график выплат по неделям, таблицы, настройка графика.
+// Блоки страницы «Выплаты и расчёты с Ozon» (шаги 3.6, 10.23): график выплат по неделям, таблицы, настройка графика;
+// расчёты за период — баланс, начисления по статьям, выплаты и поступления на счёт, расхождения.
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { Bar, CartesianGrid, Cell, ComposedChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -9,7 +10,8 @@ import { type Drill, MoreLink, TipBox, useDrill } from '@/components/charts'
 import { compact, useTokenColors } from '@/components/finance'
 import { Badge, fmtDay, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
-import { parseDay } from '@/lib/period'
+import { saveFile } from '@/lib/download'
+import { addDays as addDaysIso, parseDay } from '@/lib/period'
 
 export type Mode = 'auto' | 'standard' | 'daily' | 'weekly' | 'custom'
 
@@ -577,6 +579,357 @@ export function ScheduleBlock({ schedule, detected, onSaved }: { schedule: Sched
             ))}
           </ul>
         </details>
+      )}
+    </section>
+  )
+}
+
+// ---------- расчёты с Ozon за период (шаг 10.23) ----------
+
+export type SettlementStatus = 'ok' | 'diff' | 'no_bank' | 'waiting' | 'bank_only' | 'no_statements'
+
+export type SettlementPayout = {
+  status: SettlementStatus
+  linked: boolean
+  payout_day: string | null
+  ozon_amount: string | null
+  expected: string | null
+  week_from: string | null
+  week_to: string | null
+  schedule_diff: string | null
+  bank_day: string | null
+  bank_amount: string | null
+  diff: string | null
+  account_id: string | null
+  op_id: string | null
+}
+
+export type SettlementIssue = {
+  kind: 'bank_missing' | 'bank_diff' | 'bank_only' | 'schedule_diff' | 'overdue' | 'ozon_report'
+  severity: 'red' | 'yellow'
+  day: string
+  title: string
+  text: string
+  amount: string | null
+  payout_day: string | null
+  bank_day: string | null
+  week_from: string | null
+  account_id: string | null
+  op_id: string | null
+}
+
+export type Settlement = {
+  date_from: string
+  date_to: string
+  has_balance: boolean
+  balance: {
+    opening: string | null
+    opening_day: string
+    accrued: string
+    paid: string
+    closing: string | null
+    closing_day: string
+    days_total: number
+    missing_days: number
+  } | null
+  accruals: {
+    rows: { key: string; title: string; amount: string; types: { name: string; amount: string }[] }[]
+    total: string
+    data_source: string
+    missing_days: number
+  } | null
+  accrued_diff: string | null
+  schedule: { title: string; reliable: boolean }
+  payouts: SettlementPayout[]
+  totals: { paid: string | null; received: string | null; count: number }
+  has_bank: boolean
+  bank_until: string | null
+  counts: Partial<Record<SettlementStatus, number>>
+  issues: SettlementIssue[]
+  documents: { id: string; period_start: string; period_end: string; file_name: string | null }[]
+}
+
+const STATUS: Record<SettlementStatus, { label: string; tone: 'ok' | 'warn' | 'bad' | 'muted' }> = {
+  ok: { label: 'пришло', tone: 'ok' },
+  diff: { label: 'другая сумма', tone: 'warn' },
+  no_bank: { label: 'не пришло', tone: 'bad' },
+  waiting: { label: 'нет выписки', tone: 'muted' },
+  bank_only: { label: 'нет в данных Ozon', tone: 'warn' },
+  no_statements: { label: 'без банка', tone: 'muted' },
+}
+
+const signed = (v: string | number) => {
+  const n = Number(v)
+  return `${n > 0 ? '+' : n < 0 ? '−' : ''}${rub(String(Math.abs(n)))}`
+}
+
+/** Операция банка — «Все операции» за день поступления на счёте поступления. */
+export const bankOpHref = (day: string, account: string | null) =>
+  `/dashboard/operations?from=${day}&to=${day}${account ? `&account=${account}` : ''}`
+
+const payoutAnchor = (day: string) => `payout-${day}`
+
+/** Баланс у Ozon за период и начисления по статьям: на начало + начислено − выплачено = на конец. */
+export function SettlementSummary({ data }: { data: Settlement }) {
+  const [open, setOpen] = useState<string | null>(null)
+  const b = data.balance
+  const a = data.accruals
+  return (
+    <section className="rounded-xl border border-line bg-card p-4" data-testid="settlement-summary">
+      <h2 className="text-sm font-semibold">Расчёты с Ozon за период</h2>
+      {b === null ? (
+        <p className="mt-2 text-sm text-muted">Баланс у Ozon за эти дни не загружен — нужен ключ Ozon API (обновляется каждые 6 часов).</p>
+      ) : (
+        <>
+          <div className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-4" data-testid="settlement-balance">
+            {(
+              [
+                ['На начало', b.opening, `${fmtDay(b.opening_day)}`, ''],
+                ['Начислено', b.accrued, 'продажи минус удержания', 'text-ok'],
+                ['Выплачено', b.paid === '0.00' ? '0.00' : `-${b.paid}`, 'перечислено на счёт', 'text-bad'],
+                ['На конец', b.closing, `${fmtDay(b.closing_day)}`, ''],
+              ] as const
+            ).map(([label, value, hint, tone]) => (
+              <div key={label} className="bg-card px-3 py-2">
+                <div className="text-[11px] uppercase tracking-wider text-muted">{label}</div>
+                <div className={`mt-0.5 font-semibold tabular-nums ${tone}`}>{value === null ? '—' : label === 'Начислено' || label === 'Выплачено' ? signed(value) : rub(value)}</div>
+                <div className="text-xs text-faint">{hint}</div>
+              </div>
+            ))}
+          </div>
+          {b.missing_days > 0 && (
+            <p className="mt-2 text-xs text-warn">Баланс за {b.missing_days} дн. из {b.days_total} не загружен — суммы за период неполные (это пропуск, а не ноль).</p>
+          )}
+        </>
+      )}
+      <h3 className="mt-4 text-xs font-medium uppercase tracking-wide text-muted">Начисления и удержания по статьям</h3>
+      {a === null ? (
+        <p className="mt-1 text-sm text-muted">
+          Начислений за период нет — загрузите отчёт по начислениям или подключите ключ Ozon API.{' '}
+          <Link href="/dashboard/finance/documents" className="text-accent hover:underline">
+            Отчёты →
+          </Link>
+        </p>
+      ) : (
+        <div className="mt-1 divide-y divide-line/60 text-sm" data-testid="settlement-accruals">
+          {a.rows.map((r) => {
+            const v = Number(r.amount)
+            const many = r.types.length > 1 || (r.types.length === 1 && r.types[0].name !== r.title)
+            return (
+              <div key={r.key} data-testid="accrual-row" data-key={r.key}>
+                <div className="flex items-center gap-2 py-1.5">
+                  {many ? (
+                    <button type="button" onClick={() => setOpen(open === r.key ? null : r.key)} aria-expanded={open === r.key} className="min-w-0 flex-1 truncate text-left hover:text-accent">
+                      <span className="inline-block w-4 text-faint">{open === r.key ? '▾' : '▸'}</span>
+                      {r.title}
+                    </button>
+                  ) : (
+                    <span className="min-w-0 flex-1 truncate pl-4">{r.title}</span>
+                  )}
+                  <span className={`whitespace-nowrap tabular-nums ${v > 0 ? 'text-ok' : v < 0 ? 'text-bad' : ''}`}>{signed(r.amount)}</span>
+                </div>
+                {open === r.key &&
+                  r.types.map((t) => (
+                    <div key={t.name} className="flex gap-2 pb-1 pl-8 text-xs text-muted">
+                      <span className="min-w-0 flex-1 truncate">{t.name}</span>
+                      <span className="whitespace-nowrap tabular-nums">{signed(t.amount)}</span>
+                    </div>
+                  ))}
+              </div>
+            )
+          })}
+          <div className="flex items-center gap-2 py-1.5 font-semibold">
+            <span className="min-w-0 flex-1 pl-4">Начислено к выплате</span>
+            <span className="whitespace-nowrap tabular-nums">{rub(a.total)}</span>
+          </div>
+          {a.missing_days > 0 && <p className="pt-1.5 text-xs text-warn">Нет начислений за {a.missing_days} дн. периода — по статьям неполно.</p>}
+          {data.accrued_diff !== null && Math.abs(Number(data.accrued_diff)) >= 1 && (
+            <p className="pt-1.5 text-xs text-muted" data-testid="accrued-diff">
+              По балансу Ozon начислено на {rub(String(Math.abs(Number(data.accrued_diff))))} {Number(data.accrued_diff) > 0 ? 'больше' : 'меньше'}, чем по
+              статьям: Ozon относит часть начислений к другим дням или учитывает их в балансе позже.
+            </p>
+          )}
+        </div>
+      )}
+      {data.documents.length > 0 && (
+        <div className="mt-4 text-sm" data-testid="settlement-documents">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-muted">Отчёты о взаиморасчётах</h3>
+          <ul className="mt-1 space-y-0.5">
+            {data.documents.map((d) => (
+              <li key={d.id}>
+                <button
+                  type="button"
+                  onClick={() => saveFile(api.get(`/reports/documents/${d.id}/file`, { responseType: 'blob' }), d.file_name ?? 'взаиморасчёты.xlsx')}
+                  className="text-accent hover:underline"
+                >
+                  {fmtDay(d.period_start)} – {fmtDay(d.period_end)} · скачать
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <p className="mt-3 text-xs text-faint">
+        Отчёт о взаиморасчётах для бухгалтерии можно заказать у Ozon —{' '}
+        <Link href="/dashboard/finance/documents?tab=documents" className="text-accent hover:underline">
+          «Отчёты и документы» →
+        </Link>
+      </p>
+    </section>
+  )
+}
+
+/** Выплаты Ozon за период и поступления на счёт: по каждой — пришло, не пришло или пришло другой суммой. */
+export function SettlementTable({ data, week }: { data: Settlement; week?: string | null }) {
+  const rows = data.payouts
+  return (
+    <section className="rounded-xl border border-line bg-card p-4" data-testid="settlement-table">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 className="text-sm font-semibold">Выплаты и поступления на счёт</h2>
+        {data.totals.paid !== null && (
+          <span className="text-xs text-muted">
+            выплатил Ozon {rub(data.totals.paid)} ({data.totals.count})
+            {data.totals.received !== null && ` · пришло на счёт ${rub(data.totals.received)}`}
+          </span>
+        )}
+      </div>
+      <p className="mt-0.5 text-xs text-muted">
+        «По графику» — сколько ожидали: начислено за неделю продаж минус комиссия ({data.schedule.title}). На счёт — поступление от Ozon в
+        выписке за 0–5 дней после выплаты.
+      </p>
+      {!data.has_bank && (
+        <p className="mt-2 rounded-lg border border-line bg-bg px-3 py-2 text-xs text-muted" data-testid="settlement-no-bank">
+          Сверка с банком — после загрузки выписки или подключения банка: сервис найдёт поступление по каждой выплате.{' '}
+          <Link href="/dashboard/operations/accounts" className="text-accent hover:underline">
+            Счета и выписки →
+          </Link>
+        </p>
+      )}
+      {rows.length === 0 ? (
+        <p className="mt-2 text-sm text-muted">За период выплат не было.</p>
+      ) : (
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[34rem] text-sm">
+            <thead className="text-left text-xs text-muted">
+              <tr className="border-b border-line">
+                <th className="py-2 pr-3 font-normal">Выплата</th>
+                <th className="py-2 pr-3 text-right font-normal">Выплатил Ozon</th>
+                <th className="py-2 pr-3 text-right font-normal">По графику</th>
+                <th className="py-2 pr-3 font-normal">На счёт</th>
+                <th className="py-2 font-normal">Сверка</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const day = r.payout_day ?? r.bank_day ?? ''
+                const hit = mondayOf(day) === week
+                const sd = r.schedule_diff === null ? null : Number(r.schedule_diff)
+                const st = STATUS[r.status]
+                return (
+                  <tr key={`${r.payout_day}-${r.bank_day}`} id={r.payout_day ? payoutAnchor(r.payout_day) : undefined} className={`border-b border-line/60 align-top last:border-0 ${rowTone(hit)}`} data-highlight={hit || undefined} data-testid="settlement-row" data-status={r.status}>
+                    <td className="whitespace-nowrap py-2 pr-3">
+                      {r.payout_day ? (
+                        <>
+                          {fmtDay(r.payout_day)} <span className="text-faint">{weekdayShort(r.payout_day)}</span>
+                          {r.week_from && (
+                            <div className="text-xs text-muted">
+                              за продажи <SalesWeek from={r.week_from} to={r.week_to} />
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-muted">—</span>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap py-2 pr-3 text-right font-semibold tabular-nums">{r.ozon_amount === null ? '—' : rub(r.ozon_amount)}</td>
+                    <td className="whitespace-nowrap py-2 pr-3 text-right tabular-nums text-muted">
+                      {r.expected === null ? '—' : rub(r.expected)}
+                      {sd !== null && Math.abs(sd) >= 1 && <div className={`text-xs ${sd < 0 ? 'text-bad' : 'text-ok'}`}>{signed(sd)}</div>}
+                    </td>
+                    <td className="whitespace-nowrap py-2 pr-3">
+                      {r.bank_day && r.bank_amount !== null ? (
+                        <Link href={bankOpHref(r.bank_day, r.account_id)} className="hover:text-accent" data-testid="settlement-bank">
+                          <span className="tabular-nums">{rub(r.bank_amount)}</span> <span className="text-xs text-muted">{dayMonth(r.bank_day)}</span>
+                        </Link>
+                      ) : (
+                        <span className="text-muted">—</span>
+                      )}
+                    </td>
+                    <td className="py-2">
+                      <Badge tone={st.tone}>{st.label}</Badge>
+                      {r.status === 'diff' && r.diff !== null && <div className="mt-0.5 text-xs tabular-nums text-warn">{signed(r.diff)}</div>}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {data.has_bank && data.bank_until && <p className="mt-2 text-xs text-faint">Выписки загружены по {fmtDay(data.bank_until)}.</p>}
+    </section>
+  )
+}
+
+/** Расхождения: что не сошлось, почему и куда перейти — к выплате, операции банка, начислениям недели. */
+export function SettlementIssues({ data }: { data: Settlement }) {
+  const items = data.issues
+  return (
+    <section className="rounded-xl border border-line bg-card" data-testid="settlement-issues">
+      <div className="flex flex-wrap items-baseline gap-x-3 border-b border-line px-4 py-3">
+        <h2 className="font-semibold">Расхождения</h2>
+        {items.length > 0 && <span className="text-sm text-muted">{items.length}</span>}
+      </div>
+      {items.length === 0 ? (
+        <p className="px-4 py-3 text-sm text-muted" data-testid="settlement-issues-empty">
+          {data.payouts.length === 0
+            ? 'За период выплат не было — сверять нечего.'
+            : data.has_bank
+              ? 'Расхождений нет: выплаты пришли на счёт теми же суммами и совпали с графиком.'
+              : 'С графиком выплаты совпали. Сверка с банком — после загрузки выписки.'}
+        </p>
+      ) : (
+        <ul className="divide-y divide-line">
+          {items.map((i, n) => (
+            <li key={`${i.kind}-${i.day}-${n}`} className="flex gap-3 px-4 py-3" data-testid="settlement-issue" data-kind={i.kind} data-severity={i.severity}>
+              <span className={`w-1 shrink-0 rounded-full ${i.severity === 'red' ? 'bg-bad' : 'bg-warn'}`} aria-hidden />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-baseline gap-x-3">
+                  <span className="font-medium">{i.title}</span>
+                  {i.amount !== null && <span className="text-sm tabular-nums text-bad">под вопросом {rub(i.amount)}</span>}
+                </div>
+                <p className="mt-0.5 text-sm text-muted">{i.text}</p>
+                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                  {i.payout_day && i.kind !== 'overdue' && (
+                    <a href={`#${payoutAnchor(i.payout_day)}`} className="text-accent hover:underline" data-testid="issue-payout">
+                      К выплате →
+                    </a>
+                  )}
+                  {i.bank_day && (
+                    <Link href={bankOpHref(i.bank_day, i.account_id)} className="text-accent hover:underline" data-testid="issue-bank">
+                      Операция банка →
+                    </Link>
+                  )}
+                  {i.kind === 'bank_missing' && (
+                    <Link href="/dashboard/operations/accounts" className="text-accent hover:underline">
+                      Выписки →
+                    </Link>
+                  )}
+                  {i.week_from && (
+                    <Link href={salesHref(i.week_from, addDaysIso(i.week_from, 6))} className="text-accent hover:underline" data-testid="issue-week">
+                      Начисления недели продаж →
+                    </Link>
+                  )}
+                  {(i.kind === 'bank_only' || i.kind === 'ozon_report' || i.kind === 'overdue') && (
+                    <Link href="/dashboard?sync=1" className="text-accent hover:underline">
+                      Обновить баланс →
+                    </Link>
+                  )}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
       )}
     </section>
   )
