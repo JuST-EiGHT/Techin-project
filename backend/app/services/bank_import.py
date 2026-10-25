@@ -361,9 +361,10 @@ async def apply(
     from app.services import categorization  # правила разнесения (шаг 3.12)
 
     facts = {id(r): Facts(r.doc.amount, r.doc.counterparty, r.doc.counterparty_inn, r.doc.purpose,
-                          r.doc.counterparty_account)
+                          r.doc.counterparty_account, account_id=str(accounts[r.doc.account].id), source="bank")
              for r in result.rows if r.status == "new" and r.kind == "regular" and not r.payer}
     picker = await categorization.picker(db, user_id, list(facts.values()))
+    logged: list[tuple[MoneyOperation, bool]] = []  # для журнала применения правил (шаг 10.20)
     for row in result.rows:
         if row.status != "new":
             continue
@@ -402,8 +403,10 @@ async def apply(
                 external_key=f"{OZON_BANK_KEY}{doc.day.isoformat()}:{tx.id.hex[:8]}" if row.kind == "ozon" else None,
             )
             db.add(op)
+            logged.append((op, id(row) in facts))
         tx.op_id = op.op_id
         await db.flush()
+    await categorization.log_import(db, user_id, "bank_api" if connection_id else "bank_file", logged)
     await db.commit()
     result.applied = True
     # остаток по выписке и по операциям сервиса на конец периода — сверка

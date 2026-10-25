@@ -18,9 +18,11 @@ from app.models.planning import (  # noqa: F401
     MoneyAccount,
     MoneyAccountBalance,
     MoneyOperation,
+    PlanMatchDismissal,
     PlannedOverride,
     PlannedPayment,
     PlanningSettings,
+    RuleRun,
 )
 from app.models.bank import BankBalance, BankConnection, BankStatement, BankTransaction, MergeDismissal  # noqa: F401
 from app.models.audit import AuditLog  # noqa: F401

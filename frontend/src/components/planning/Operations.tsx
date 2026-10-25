@@ -893,15 +893,18 @@ function PaidForm({ row, accounts, onDone, onCancel }: { row: JournalRow; accoun
 export function OperationsTab({ accounts, categories, onChanged }: { accounts: Account[]; categories: Category[]; onChanged: () => void }) {
   const today = todayMsk()
   const params = useSearchParams()
-  // из графиков и ДДС: ?from=…&to=…&category=… — операции за этот период и статью; без них — месяц назад и месяц вперёд
+  // из графиков и ДДС: ?from=…&to=…&category=… — операции за этот период и статью; без них — месяц назад и месяц вперёд;
+  // из правил (10.20): ?rule=… — операции, которым статью поставило это правило (за год); из счетов: ?account=…
+  const [ruleId, setRuleId] = useState(params.get('rule') ?? '')
   const [range, setRange] = useState(() => {
     const from = params.get('from') ?? ''
     const to = params.get('to') ?? ''
-    return DAY.test(from) && DAY.test(to) && from <= to ? { from, to } : { from: addDays(today, -29), to: addDays(today, 30) }
+    if (DAY.test(from) && DAY.test(to) && from <= to) return { from, to }
+    return params.get('rule') ? { from: addDays(today, -364), to: today } : { from: addDays(today, -29), to: addDays(today, 30) }
   })
   const [status, setStatus] = useState<'' | JournalStatus>('')
   const [type, setType] = useState('')
-  const [accountId, setAccountId] = useState('')
+  const [accountId, setAccountId] = useState(params.get('account') ?? '')
   const [categoryId, setCategoryId] = useState(params.get('category') ?? '')
   const [source, setSource] = useState('')
   const [search, setSearch] = useState('')
@@ -930,9 +933,10 @@ export function OperationsTab({ accounts, categories, onChanged }: { accounts: A
       ...(accountId ? { account_id: accountId } : {}),
       ...(categoryId === NO_CATEGORY ? { uncategorized: true } : categoryId ? { category_id: categoryId } : {}),
       ...(source ? { source } : {}),
+      ...(ruleId ? { rule_id: ruleId } : {}),
       ...(search.trim() ? { search: search.trim() } : {}),
     }
-  }, [range, status, type, accountId, categoryId, source, search, sort])
+  }, [range, status, type, accountId, categoryId, source, search, sort, ruleId])
 
   const load = useCallback(async () => {
     try {
@@ -1052,6 +1056,15 @@ export function OperationsTab({ accounts, categories, onChanged }: { accounts: A
         </div>
       </div>
 
+      {ruleId && (
+        <p className="flex flex-wrap items-center gap-2 text-sm" data-testid="ops-rule-filter">
+          <Badge tone="accent">Операции одного правила разнесения</Badge>
+          <span className="text-muted">статью им поставило правило — за год</span>
+          <button type="button" onClick={() => setRuleId('')} className="text-accent hover:underline">
+            Показать все
+          </button>
+        </p>
+      )}
       <FormError message={error} />
       {suggestion && <SuggestionBanner suggestion={suggestion} onDone={(text) => { setSuggestion(null); setNotice(text); changed() }} onClose={() => setSuggestion(null)} />}
       {notice && <p className="text-sm text-ok" data-testid="ops-notice">{notice}</p>}

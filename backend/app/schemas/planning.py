@@ -280,6 +280,7 @@ class ImportResponse(BaseModel):
 # ---------- правила разнесения (шаг 3.12) ----------
 
 RuleDirection = Literal["in", "out"]
+RuleSource = Literal["bank", "import", "manual"]  # из банка (файл или API), из файла операций, вручную
 
 
 class RuleIn(BaseModel):
@@ -293,6 +294,8 @@ class RuleIn(BaseModel):
     amount_min: Decimal | None = Field(None, ge=0, le=10_000_000_000)
     amount_max: Decimal | None = Field(None, ge=0, le=10_000_000_000)
     enabled: bool = True
+    account_id: uuid.UUID | None = None  # только операции этого счёта
+    source: RuleSource | None = None  # только операции из этого источника
 
 
 class RulePatch(BaseModel):
@@ -304,6 +307,8 @@ class RulePatch(BaseModel):
     amount_min: Decimal | None = Field(None, ge=0, le=10_000_000_000)
     amount_max: Decimal | None = Field(None, ge=0, le=10_000_000_000)
     enabled: bool | None = None
+    account_id: uuid.UUID | None = None  # null — любой счёт
+    source: RuleSource | None = None  # null — любой источник
 
 
 class RuleOut(BaseModel):
@@ -315,9 +320,14 @@ class RuleOut(BaseModel):
     purpose: str | None
     amount_min: Decimal | None
     amount_max: Decimal | None
+    account: Ref | None = None
+    source: RuleSource | None = None
     category: CategoryRef | None
     enabled: bool
     operations: int  # сколько операций сейчас разнесено этим правилом
+    number: int = 0  # место в порядке, с 1
+    matches: int = 0  # операций без ручной разметки подходит под условия (часть может забрать правило выше)
+    problem: str | None = None  # статья в архиве, правило не срабатывает — и что сделать
 
 
 class BuiltinRule(BaseModel):
@@ -353,6 +363,104 @@ class RulePreview(BaseModel):
 
 class RuleOrder(BaseModel):
     ids: list[uuid.UUID] = Field(..., max_length=300)
+
+
+class RuleRef(BaseModel):
+    id: str
+    number: int | None  # место в порядке сейчас; удалено — null
+    text: str  # условия → статья
+
+
+class RunDetail(BaseModel):
+    op_id: str
+    day: date
+    amount: Decimal
+    counterparty: str | None
+    before: str | None  # статья до (null — без статьи)
+    after: str | None
+    by: Literal["rule", "auto", "user", "none"]  # auto — встроенное правило; none — статья снята
+    rule: RuleRef | None
+
+
+class RunProblem(BaseModel):
+    message: str
+    rule: RuleRef | None
+
+
+class RuleRunOut(BaseModel):
+    id: uuid.UUID
+    created_at: datetime
+    trigger: str
+    title: str  # почему был пересчёт
+    rule: RuleRef | None
+    checked: int  # операций без ручной разметки проверено
+    changed: int
+    details: list[RunDetail]  # первые 100
+    problems: list[RunProblem]
+
+
+class RulesDryRun(BaseModel):
+    checked: int
+    changed: int
+    examples: list[RunDetail]
+    problems: list[RunProblem]
+
+
+class RulesApplied(BaseModel):
+    changed: int
+
+
+class PlanFactOp(BaseModel):
+    op_id: uuid.UUID | None  # null — «оплачено» отмечено без операции
+    day: date
+    amount: Decimal
+    category: str | None
+    counterparty: str | None
+    account: str | None
+    comment: str | None
+
+
+class PlanFactSuggestion(BaseModel):
+    op: PlanFactOp
+    reasons: list[str]  # почему похоже: сумма, дата, статья, контрагент
+    category_fix: str | None  # у операции нет статьи — поставим эту
+
+
+class PlanFactRow(BaseModel):
+    key: str
+    title: str
+    source: str  # manual | supplier | tax
+    kind: Literal["income", "expense"]
+    day: date
+    amount: Decimal | None
+    estimate: bool
+    category: str | None
+    counterparty: str | None
+    status: Literal["paid", "overdue", "planned"]
+    how: Literal["marked", "auto", "tax"] | None  # отмечено вручную / по сумме и дате / ЕНП по сроку
+    fact: PlanFactOp | None
+    diff: Decimal | None  # факт − план
+    days_late: int | None  # факт позже плана на … дней (минус — раньше)
+    suggestion: PlanFactSuggestion | None
+
+
+class PlanFactPage(BaseModel):
+    date_from: date
+    date_to: date
+    today: date
+    rows: list[PlanFactRow]
+    counts: dict[str, int]  # paid / overdue / planned / suggestions
+    totals: dict[str, Decimal]  # plan / fact / unpaid
+
+
+class PlanFactIn(BaseModel):
+    key: str = Field(..., max_length=120)
+    op_id: uuid.UUID
+
+
+class PlanFactAccepted(BaseModel):
+    title: str
+    category_set: str | None  # у операции не было статьи — поставили эту
 
 
 class JournalPlan(BaseModel):
@@ -420,3 +528,105 @@ class CategorizeIn(BaseModel):
 
 class CategorizeOut(BaseModel):
     changed: int
+
+
+# ---------- счета: история, сверка, нераспознанные (шаг 10.20) ----------
+
+
+class HistoryRow(BaseModel):
+    op_id: uuid.UUID
+    day: date
+    amount: Decimal
+    type: Literal["income", "expense", "transfer"]
+    category: str | None
+    counterparty: str | None
+    comment: str | None
+    source: Source
+    transfer_account: str | None  # второй счёт перевода
+    balance: Decimal | None  # остаток после операции; до начального остатка — неизвестен
+    before_opening: bool
+
+
+class AccountHistory(BaseModel):
+    account: Ref
+    date_from: date
+    date_to: date
+    opening: Decimal | None  # на начало периода; null — неизвестен
+    closing: Decimal | None
+    opening_as_of: date | None  # с какого дня известен остаток счёта
+    totals: dict[str, Decimal]  # income / expense / transfer_in / transfer_out
+    items: list[HistoryRow]
+
+
+class ReconcileSuspect(BaseModel):
+    op_id: uuid.UUID
+    day: date
+    amount: Decimal
+    source: Source
+    counterparty: str | None
+    comment: str | None
+    category: str | None
+    likely: bool  # сумма = на сколько разошлось в этот день
+
+
+class ReconcileDay(BaseModel):
+    day: date
+    bank: Decimal
+    service: Decimal
+    diff: Decimal
+    point: bool  # остаток из выписки, а не досчитан по операциям банка
+
+
+class ReconcileAccount(BaseModel):
+    id: uuid.UUID
+    name: str
+    number: str | None
+    source: Literal["manual", "bank"]
+
+
+class ReconcileOut(BaseModel):
+    account: ReconcileAccount
+    status: Literal["ok", "diff", "no_bank", "no_opening", "no_overlap"]
+    hint: str
+    day: date | None  # последний день, за который есть остаток банка
+    bank: Decimal | None
+    service: Decimal | None
+    diff: Decimal | None  # сервис − банк
+    since: date | None  # с какого дня расходится
+    matched_until: date | None
+    from_start: bool
+    adjacent: bool  # since — следующий день после matched_until (иначе выписки за промежуток нет)
+    jump: Decimal | None
+    suspects: list[ReconcileSuspect]  # операции сервиса без пары в банке в день расхождения
+    days: list[ReconcileDay]
+
+
+class UnrecognizedRule(BaseModel):
+    direction: RuleDirection
+    counterparty_inn: str | None
+    counterparty: str | None
+
+
+class UnrecognizedItem(BaseModel):
+    op_id: uuid.UUID
+    day: date
+    amount: Decimal
+    type: Literal["income", "expense"]
+    account: Ref
+    source: Source
+    counterparty: str | None
+    inn: str | None
+    purpose: str | None
+    rule: UnrecognizedRule  # заготовка правила для такого контрагента
+
+
+class UnrecognizedByAccount(BaseModel):
+    id: uuid.UUID
+    name: str
+    count: int
+
+
+class UnrecognizedPage(BaseModel):
+    total: int
+    items: list[UnrecognizedItem]
+    by_account: list[UnrecognizedByAccount]

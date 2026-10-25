@@ -537,7 +537,7 @@ async def create_operation(
         from app.engine.categorize import Facts
         from app.services import categorization
 
-        facts = Facts(data.amount, data.counterparty, purpose=data.comment)
+        facts = Facts(data.amount, data.counterparty, purpose=data.comment, account_id=str(data.account_id), source=source)
         hit = (await categorization.picker(db, user_id, [facts])).pick(facts)
         if hit is not None:
             category, by, rule = hit
@@ -696,7 +696,7 @@ async def history(db: AsyncSession, user_id: uuid.UUID, op_id: uuid.UUID) -> lis
 async def list_operations(
     db: AsyncSession, user_id: uuid.UUID, date_from: date, date_to: date, account_id: uuid.UUID | None = None,
     category_id: uuid.UUID | None = None, search: str | None = None, limit: int = 100, offset: int = 0,
-    uncategorized: bool = False,
+    uncategorized: bool = False, rule_id: uuid.UUID | None = None,
 ) -> dict:
     """Действующие операции периода, новые сверху. Перевод — одной строкой (частью «со счёта»), а при выборе счёта —
     частью этого счёта. Итоги — без переводов: они не доход и не расход."""
@@ -707,6 +707,8 @@ async def list_operations(
         q = q.where(MoneyOperation.account_id == account_id)
     if category_id is not None:  # статья — вместе с её подстатьями
         q = q.where(MoneyOperation.category_id.in_(await subcategory_ids(db, user_id, category_id)))
+    if rule_id is not None:  # операции, которым статью поставило это правило (шаг 10.20)
+        q = q.where(MoneyOperation.rule_id == rule_id, MoneyOperation.category_by == "rule")
     if uncategorized:  # «без статьи» — переводы не в счёт: у них своя статья
         q = q.where(MoneyOperation.category_id.is_(None), MoneyOperation.transfer_id.is_(None))
     if search:

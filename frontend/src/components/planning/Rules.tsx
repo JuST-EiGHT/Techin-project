@@ -1,12 +1,16 @@
 'use client'
-// «Операции → Правила разнесения» (шаг 3.12): условия → статья. Встроенные правила — всегда первыми,
+// «Операции → Правила разнесения» (шаги 3.12, 10.20): условия → статья. Встроенные правила — всегда первыми,
 // ваши — по порядку сверху вниз, срабатывает первое подошедшее. Статью, поставленную вручную, правила не меняют.
+// 10.20: условия «счёт» и «источник», операции правила, предупреждения, «Применить ко всем» с проверкой.
 import { ArrowDown, ArrowUp, Pencil, Trash2 } from 'lucide-react'
+import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
 import { CategoryOptions } from '@/components/planning/Categories'
-import { type Category, type Rule, type RuleDirection, type RulesPage, parseAmount } from '@/components/planning/types'
+import { type Account, type Category, type Rule, type RuleDirection, type RuleSource, type RulesDryRun, type RulesPage, parseAmount } from '@/components/planning/types'
+import { Modal } from '@/components/planning/ui'
 import { fmtDay, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 
@@ -14,13 +18,14 @@ const input = 'w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outl
 const button = 'rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent disabled:opacity-60'
 const KIND: Record<RuleDirection, 'income' | 'expense'> = { in: 'income', out: 'expense' }
 
-type Form = { direction: RuleDirection; category_id: string; counterparty_inn: string; counterparty: string; purpose: string; amount_min: string; amount_max: string }
+type Form = { direction: RuleDirection; category_id: string; counterparty_inn: string; counterparty: string; purpose: string; amount_min: string; amount_max: string; account_id: string; source: '' | RuleSource }
 type Preview = { matched: number; examples: { op_id: string; day: string; amount: string; counterparty: string | null; comment: string | null }[] }
 
-const EMPTY: Form = { direction: 'out', category_id: '', counterparty_inn: '', counterparty: '', purpose: '', amount_min: '', amount_max: '' }
+const EMPTY: Form = { direction: 'out', category_id: '', counterparty_inn: '', counterparty: '', purpose: '', amount_min: '', amount_max: '', account_id: '', source: '' }
+export const SOURCE_TEXT: Record<RuleSource, string> = { bank: 'из банка', import: 'из файла операций', manual: 'внесена вручную' }
 
-/** Условия правила одной строкой: «Платёж · ИНН … · «аренд» в назначении · от 1 000 ₽». */
-export function describe(r: Pick<Rule, 'direction' | 'counterparty_inn' | 'counterparty' | 'purpose' | 'amount_min' | 'amount_max'>): string {
+/** Условия правила одной строкой: «Платёж · ИНН … · «аренд» в назначении · от 1 000 ₽ · счёт «Карта»». */
+export function describe(r: Pick<Rule, 'direction' | 'counterparty_inn' | 'counterparty' | 'purpose' | 'amount_min' | 'amount_max' | 'account' | 'source'>): string {
   const parts = [r.direction === 'in' ? 'Поступление' : 'Платёж']
   if (r.counterparty_inn) parts.push(`ИНН ${r.counterparty_inn}`)
   if (r.counterparty) parts.push(`контрагент «${r.counterparty}»`)
@@ -28,6 +33,8 @@ export function describe(r: Pick<Rule, 'direction' | 'counterparty_inn' | 'count
   if (r.amount_min && r.amount_max) parts.push(`${rub(r.amount_min)} — ${rub(r.amount_max)}`)
   else if (r.amount_min) parts.push(`от ${rub(r.amount_min)}`)
   else if (r.amount_max) parts.push(`до ${rub(r.amount_max)}`)
+  if (r.account) parts.push(`счёт «${r.account.name}»`)
+  if (r.source) parts.push(SOURCE_TEXT[r.source])
   return parts.join(' · ')
 }
 
@@ -40,10 +47,26 @@ function body(f: Form) {
     purpose: f.purpose.trim() || null,
     amount_min: f.amount_min.trim() ? parseAmount(f.amount_min) : null,
     amount_max: f.amount_max.trim() ? parseAmount(f.amount_max) : null,
+    account_id: f.account_id || null,
+    source: f.source || null,
   }
 }
 
-function RuleForm({ categories, initial, onSaved, onCancel }: { categories: Category[]; initial?: Rule; onSaved: (applied: number) => void; onCancel?: () => void }) {
+function RuleForm({
+  categories,
+  accounts,
+  initial,
+  prefill,
+  onSaved,
+  onCancel,
+}: {
+  categories: Category[]
+  accounts: Account[]
+  initial?: Rule
+  prefill?: Partial<Form> // из «Нераспознанных»: направление, ИНН или контрагент
+  onSaved: (applied: number) => void
+  onCancel?: () => void
+}) {
   const [form, setForm] = useState<Form>(() =>
     initial
       ? {
@@ -54,14 +77,18 @@ function RuleForm({ categories, initial, onSaved, onCancel }: { categories: Cate
           purpose: initial.purpose ?? '',
           amount_min: initial.amount_min ? initial.amount_min.replace('.', ',') : '',
           amount_max: initial.amount_max ? initial.amount_max.replace('.', ',') : '',
+          account_id: initial.account?.id ?? '',
+          source: initial.source ?? '',
         }
-      : EMPTY,
+      : { ...EMPTY, ...prefill },
   )
   const [preview, setPreview] = useState<Preview | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
-  const hasCondition = Boolean(form.counterparty_inn.trim() || form.counterparty.trim() || form.purpose.trim() || form.amount_min.trim() || form.amount_max.trim())
+  const hasCondition = Boolean(
+    form.counterparty_inn.trim() || form.counterparty.trim() || form.purpose.trim() || form.amount_min.trim() || form.amount_max.trim() || form.account_id || form.source,
+  )
 
   // сколько операций подойдёт — пока заполняют форму
   useEffect(() => {
@@ -84,7 +111,7 @@ function RuleForm({ categories, initial, onSaved, onCancel }: { categories: Cate
     e.preventDefault()
     setError(null)
     if (!form.category_id) return setError('Выберите статью')
-    if (!hasCondition) return setError('Укажите хотя бы одно условие: ИНН, контрагента, слова в назначении или сумму')
+    if (!hasCondition) return setError('Укажите хотя бы одно условие: ИНН, контрагента, слова в назначении, сумму, счёт или источник')
     setSaving(true)
     try {
       const { data } = initial
@@ -142,6 +169,30 @@ function RuleForm({ categories, initial, onSaved, onCancel }: { categories: Cate
           </div>
           <span className={hint}>Необязательно — например, чтобы мелкие платежи шли в другую статью</span>
         </div>
+        <label className="text-sm">
+          Счёт
+          <select value={form.account_id} onChange={set('account_id')} className={input} data-testid="rule-account">
+            <option value="">Любой</option>
+            {accounts
+              .filter((a) => !a.archived || a.id === form.account_id)
+              .map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+          </select>
+          <span className={hint}>Например, все платежи с карты сотрудника — в «Хозяйственные расходы»</span>
+        </label>
+        <label className="text-sm">
+          Источник операции
+          <select value={form.source} onChange={set('source')} className={input} data-testid="rule-source">
+            <option value="">Любой</option>
+            <option value="bank">Из банка — выписка или API</option>
+            <option value="import">Из файла операций</option>
+            <option value="manual">Внесена вручную без статьи</option>
+          </select>
+          <span className={hint}>Чтобы правило не трогало операции из других источников</span>
+        </label>
       </div>
       <label className="block text-sm">
         Статья
@@ -182,11 +233,107 @@ function RuleForm({ categories, initial, onSaved, onCancel }: { categories: Cate
   )
 }
 
-export function RulesSection({ categories, onChanged }: { categories: Category[]; onChanged: () => void }) {
+/** Проверка перед массовым применением: что поменяют правила у всех операций без ручной разметки → «Применить». */
+function ApplyAll({ onDone }: { onDone: (text: string) => void }) {
+  const [check, setCheck] = useState<RulesDryRun | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function run() {
+    setBusy(true)
+    setError(null)
+    try {
+      setCheck((await api.post<RulesDryRun>('/planning/rules/check')).data)
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function apply() {
+    setBusy(true)
+    try {
+      const { data } = await api.post<{ changed: number }>('/planning/rules/apply')
+      setCheck(null)
+      onDone(`Правила применены: статья поменялась у операций — ${data.changed}. Подробности — в «Журнале применения».`)
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <button type="button" onClick={run} disabled={busy} className={button} data-testid="rules-check">
+        {busy && !check ? 'Проверяю…' : 'Применить ко всем операциям…'}
+      </button>
+      <FormError message={error} />
+      {check && (
+        <Modal title="Применить правила ко всем операциям" onClose={() => setCheck(null)}>
+          <div className="space-y-3 text-sm" data-testid="rules-check-result">
+            <p>
+              Проверено операций без ручной разметки: <b>{check.checked}</b>. Статья поменяется у <b>{check.changed}</b>. Операции, где статью ставили вручную,
+              не изменятся.
+            </p>
+            {check.examples.length > 0 && (
+              <ul className="space-y-1 rounded-lg border border-line p-3 text-xs">
+                {check.examples.map((x) => (
+                  <li key={x.op_id} className="flex flex-wrap gap-x-2">
+                    <span className="tabular-nums text-muted">{fmtDay(x.day)}</span>
+                    <span className="tabular-nums">{rub(x.amount)}</span>
+                    <span className="text-muted">{x.counterparty ?? '—'}</span>
+                    <span>
+                      {x.before ?? 'без статьи'} → <b>{x.after ?? 'без статьи'}</b>
+                    </span>
+                  </li>
+                ))}
+                {check.changed > check.examples.length && <li className="text-faint">и ещё {check.changed - check.examples.length}</li>}
+              </ul>
+            )}
+            {check.problems.length > 0 && (
+              <ul className="space-y-1 text-xs text-warn">
+                {check.problems.map((p, i) => (
+                  <li key={i}>
+                    {p.rule?.number ? `Правило №${p.rule.number}: ` : ''}
+                    {p.message}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="flex gap-2">
+              <button type="button" onClick={apply} disabled={busy || check.changed === 0} className="rounded-lg bg-accent px-4 py-2 font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="rules-apply">
+                {check.changed === 0 ? 'Менять нечего' : `Применить (${check.changed})`}
+              </button>
+              <button type="button" onClick={() => setCheck(null)} className={button}>
+                Отмена
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </>
+  )
+}
+
+export function RulesSection({ categories, accounts, onChanged }: { categories: Category[]; accounts: Account[]; onChanged: () => void }) {
+  const params = useSearchParams()
   const [page, setPage] = useState<RulesPage | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // «Создать правило» из нераспознанных операций: ?new=1&direction=out&inn=…&counterparty=…
+  const [prefill] = useState<Partial<Form> | null>(() =>
+    params.get('new')
+      ? {
+          direction: params.get('direction') === 'in' ? 'in' : 'out',
+          counterparty_inn: params.get('inn') ?? '',
+          counterparty: params.get('counterparty') ?? '',
+          account_id: params.get('account') ?? '',
+        }
+      : null,
+  )
 
   const load = useCallback(async () => {
     try {
@@ -228,11 +375,24 @@ export function RulesSection({ categories, onChanged }: { categories: Category[]
 
   return (
     <section className="rounded-xl border border-line bg-card p-4" data-testid="rules">
-      <h2 className="text-sm font-semibold">Правила разнесения</h2>
-      <p className="mt-1 text-sm text-muted">
-        Операции из банка и из файла без статьи разносятся сами — не нужно размечать каждую. Правила проверяются сверху вниз,
-        срабатывает первое подходящее. Статью, которую вы поставили вручную, правила не меняют.
-      </p>
+      <div className="flex flex-wrap items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-sm font-semibold">Правила разнесения</h2>
+          <p className="mt-1 text-sm text-muted">
+            Операции из банка и из файла без статьи разносятся сами — не нужно размечать каждую. Правила проверяются сверху вниз,
+            срабатывает первое подходящее. Статью, которую вы поставили вручную, правила не меняют.
+          </p>
+        </div>
+        {page && page.rules.length > 0 && (
+          <ApplyAll
+            onDone={(text) => {
+              setNotice(text)
+              load()
+              onChanged()
+            }}
+          />
+        )}
+      </div>
       <FormError message={error} />
       {notice && <p className="mt-2 text-sm text-ok" data-testid="rules-notice">{notice}</p>}
       {page && (
@@ -255,7 +415,7 @@ export function RulesSection({ categories, onChanged }: { categories: Category[]
               {page.rules.map((r, i) =>
                 editing === r.id ? (
                   <li key={r.id} className="py-3">
-                    <RuleForm categories={categories} initial={r} onSaved={(n) => done(n, 'Правило сохранено.')} onCancel={() => setEditing(null)} />
+                    <RuleForm categories={categories} accounts={accounts} initial={r} onSaved={(n) => done(n, 'Правило сохранено.')} onCancel={() => setEditing(null)} />
                   </li>
                 ) : (
                   <li key={r.id} className={`flex flex-wrap items-center gap-2 py-2 text-sm ${r.enabled ? '' : 'opacity-60'}`} data-testid="rule-row">
@@ -263,11 +423,25 @@ export function RulesSection({ categories, onChanged }: { categories: Category[]
                     <span className="min-w-0 flex-1">
                       {describe(r)} → <b>{r.category?.name ?? '—'}</b>
                       <span className="block text-xs text-muted">
-                        {r.enabled ? `разнесено операций: ${r.operations}` : 'выключено — его операции остались без статьи'}
+                        {r.enabled ? (
+                          <>
+                            <Link href={`/dashboard/operations?rule=${r.id}`} className="text-accent hover:underline" data-testid="rule-ops">
+                              разнесено операций: {r.operations} →
+                            </Link>
+                            {r.matches !== undefined && r.matches > r.operations && <span> · подходит под условия: {r.matches}</span>}
+                          </>
+                        ) : (
+                          'выключено — его операции остались без статьи'
+                        )}
                       </span>
+                      {r.problem && (
+                        <span className="mt-0.5 block text-xs text-warn" data-testid="rule-problem">
+                          {r.problem}
+                        </span>
+                      )}
                     </span>
                     <span className="flex items-center gap-1 text-muted">
-                      <button type="button" disabled={i === 0} onClick={() => move(i, -1)} className="rounded p-1 hover:text-fg disabled:opacity-30" aria-label="Выше">
+                      <button type="button" disabled={i === 0} onClick={() => move(i, -1)} className="rounded p-1 hover:text-fg disabled:opacity-30" aria-label="Выше" data-testid="rule-up">
                         <ArrowUp className="h-4 w-4" />
                       </button>
                       <button type="button" disabled={i === page.rules.length - 1} onClick={() => move(i, 1)} className="rounded p-1 hover:text-fg disabled:opacity-30" aria-label="Ниже">
@@ -293,10 +467,10 @@ export function RulesSection({ categories, onChanged }: { categories: Category[]
               )}
             </ol>
           )}
-          <details className="mt-3 rounded-lg border border-line p-3" open={page.rules.length === 0} data-testid="rule-add">
+          <details className="mt-3 rounded-lg border border-line p-3" open={page.rules.length === 0 || prefill !== null} data-testid="rule-add">
             <summary className="cursor-pointer text-sm font-medium">Новое правило</summary>
             <div className="mt-3">
-              <RuleForm categories={categories} onSaved={(n) => done(n, 'Правило добавлено.')} />
+              <RuleForm categories={categories} accounts={accounts} prefill={prefill ?? undefined} onSaved={(n) => done(n, 'Правило добавлено.')} />
             </div>
           </details>
         </>

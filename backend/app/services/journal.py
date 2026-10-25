@@ -48,7 +48,7 @@ async def journal(
     db: AsyncSession, user_id: uuid.UUID, date_from: date, date_to: date, *, status: str | None = None,
     type_: str | None = None, account_id: uuid.UUID | None = None, category_id: uuid.UUID | None = None,
     uncategorized: bool = False, source: str | None = None, search: str | None = None, sort: str = "day",
-    desc: bool = True, limit: int = 100, offset: int = 0,
+    desc: bool = True, limit: int = 100, offset: int = 0, rule_id: uuid.UUID | None = None,
 ) -> dict:
     cats = {c.id: c for c in await planning_svc._categories(db, user_id)}
     accounts = {a.id: a for a in await planning_svc._accounts(db, user_id)}
@@ -63,7 +63,7 @@ async def journal(
                 {"id": parent.id, "name": parent.name} if parent else None)
 
     facts = await planning_svc.list_operations(db, user_id, date_from, date_to, account_id, category_id, search,
-                                               limit=10 ** 9, offset=0, uncategorized=uncategorized)
+                                               limit=10 ** 9, offset=0, uncategorized=uncategorized, rule_id=rule_id)
     rows: list[dict] = []
     for op in facts["items"]:
         category, parent = cat_refs(op["category"]["id"] if op["category"] else None)
@@ -76,7 +76,9 @@ async def journal(
 
     plan_note = None
     settings = await planning_svc.get_settings(db, user_id)
-    if settings is None or not settings.enabled:
+    if rule_id is not None:
+        plan_note = None  # операции правила — только факт
+    elif settings is None or not settings.enabled:
         plan_note = "Плановые платежи появятся, когда включено «Планирование»"
     elif (date_to - date_from).days > PLAN_WINDOW_DAYS:
         plan_note = f"Плановые платежи — при периоде до {PLAN_WINDOW_DAYS} дней"
@@ -229,5 +231,5 @@ async def bulk_update(db: AsyncSession, user_id: uuid.UUID, op_ids: list[uuid.UU
         changed += did
         await db.flush()
     if changes.get("category_id", 0) is None:  # статью убрали — пусть разнесут правила, если подходят
-        await categorization.apply_rules(db, user_id, ids)
+        await categorization.apply_rules(db, user_id, ids, trigger="categorize")
     return changed, len(rows) - changed

@@ -76,6 +76,8 @@ export type Operation = {
 
 export type RuleDirection = 'in' | 'out'
 
+export type RuleSource = 'bank' | 'import' | 'manual'
+
 export type Rule = {
   id: string
   priority: number
@@ -85,10 +87,98 @@ export type Rule = {
   purpose: string | null
   amount_min: string | null
   amount_max: string | null
+  account?: { id: string; name: string } | null // условие «счёт» (шаг 10.20)
+  source?: RuleSource | null // условие «источник»
   category: { id: string; name: string; kind: CategoryKind } | null
   enabled: boolean
   operations: number
+  number?: number
+  matches?: number // операций подходит под условия (часть может забрать правило выше)
+  problem?: string | null // статья в архиве, правило не срабатывает — и что сделать
 }
+
+// ---------- журнал применения правил, план-факт (шаг 10.20) ----------
+
+export type RuleRef = { id: string; number: number | null; text: string }
+export type RunDetail = { op_id: string; day: string; amount: string; counterparty: string | null; before: string | null; after: string | null; by: 'rule' | 'auto' | 'user' | 'none'; rule: RuleRef | null }
+export type RunProblem = { message: string; rule: RuleRef | null }
+export type RuleRun = { id: string; created_at: string; trigger: string; title: string; rule: RuleRef | null; checked: number; changed: number; details: RunDetail[]; problems: RunProblem[] }
+export type RulesDryRun = { checked: number; changed: number; examples: RunDetail[]; problems: RunProblem[] }
+
+export type PlanFactOp = { op_id: string | null; day: string; amount: string; category: string | null; counterparty: string | null; account: string | null; comment: string | null }
+export type PlanFactRow = {
+  key: string
+  title: string
+  source: string
+  kind: 'income' | 'expense'
+  day: string
+  amount: string | null
+  estimate: boolean
+  category: string | null
+  counterparty: string | null
+  status: 'paid' | 'overdue' | 'planned'
+  how: 'marked' | 'auto' | 'tax' | null
+  fact: PlanFactOp | null
+  diff: string | null
+  days_late: number | null
+  suggestion: { op: PlanFactOp; reasons: string[]; category_fix: string | null } | null
+}
+export type PlanFactPage = { date_from: string; date_to: string; today: string; rows: PlanFactRow[]; counts: Record<'paid' | 'overdue' | 'planned' | 'suggestions', number>; totals: Record<'plan' | 'fact' | 'unpaid', string> }
+
+// ---------- счета: история, сверка, нераспознанные (шаг 10.20) ----------
+
+export type HistoryRow = {
+  op_id: string
+  day: string
+  amount: string
+  type: 'income' | 'expense' | 'transfer'
+  category: string | null
+  counterparty: string | null
+  comment: string | null
+  source: Operation['source']
+  transfer_account: string | null
+  balance: string | null
+  before_opening: boolean
+}
+export type AccountHistory = {
+  account: { id: string; name: string }
+  date_from: string
+  date_to: string
+  opening: string | null
+  closing: string | null
+  opening_as_of: string | null
+  totals: Record<'income' | 'expense' | 'transfer_in' | 'transfer_out', string>
+  items: HistoryRow[]
+}
+export type Reconcile = {
+  account: { id: string; name: string; number: string | null; source: 'manual' | 'bank' }
+  status: 'ok' | 'diff' | 'no_bank' | 'no_opening' | 'no_overlap'
+  hint: string
+  day: string | null
+  bank: string | null
+  service: string | null
+  diff: string | null
+  since: string | null
+  matched_until: string | null
+  from_start: boolean
+  adjacent: boolean
+  jump: string | null
+  suspects: { op_id: string; day: string; amount: string; source: Operation['source']; counterparty: string | null; comment: string | null; category: string | null; likely: boolean }[]
+  days: { day: string; bank: string; service: string; diff: string; point: boolean }[]
+}
+export type Unrecognized = {
+  op_id: string
+  day: string
+  amount: string
+  type: 'income' | 'expense'
+  account: { id: string; name: string }
+  source: Operation['source']
+  counterparty: string | null
+  inn: string | null
+  purpose: string | null
+  rule: { direction: RuleDirection; counterparty_inn: string | null; counterparty: string | null }
+}
+export type UnrecognizedPage = { total: number; items: Unrecognized[]; by_account: { id: string; name: string; count: number }[] }
 
 export type BuiltinRule = { code: string; title: string; when: string; category: string; why: string }
 export type RulesPage = { builtin: BuiltinRule[]; rules: Rule[] }

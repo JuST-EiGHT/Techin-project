@@ -280,6 +280,12 @@ ACTIONS: dict[tuple[str, str], Action] = {
     ("PATCH", f"{P}/planning/operations/{{op_id}}"): Action("Изменена операция", "/dashboard/operations", "Операции"),
     ("DELETE", f"{P}/planning/operations/{{op_id}}"): Action("Удалена операция", "/dashboard/operations", "Операции"),
     ("POST", f"{P}/planning/operations/import"): Action("Операции загружены списком", "/dashboard/operations", "Операции"),
+    ("POST", f"{P}/planning/plan-fact/accept"): Action("Операция отмечена оплатой планового платежа",
+                                                       "/dashboard/operations/rules?tab=plan-fact", "Правила"),
+    ("POST", f"{P}/planning/plan-fact/dismiss"): Action("Отклонено предложение «это оплата плана»",
+                                                        "/dashboard/operations/rules?tab=plan-fact", "Правила"),
+    ("POST", f"{P}/planning/rules/apply"): Action("Правила применены ко всем операциям", "/dashboard/operations/rules",
+                                                 "Правила"),
     ("POST", f"{P}/planning/operations/bulk"): Action("Операции изменены списком", "/dashboard/operations", "Операции"),
     ("POST", f"{P}/planning/operations/categorize"): Action("Операциям назначена статья", "/dashboard/operations",
                                                             "Операции"),
@@ -335,7 +341,8 @@ IGNORED: set[tuple[str, str]] = {
     ("POST", f"{P}/reports/documents/{{doc_id}}/refresh"),
     ("POST", f"{P}/costs/import/errors"), ("POST", f"{P}/tax-profile/preview"),
     ("POST", f"{P}/planning/operations/import/errors"), ("POST", f"{P}/planning/plans/import/errors"),
-    ("POST", f"{P}/planning/rules/preview"), ("POST", f"{P}/supply/plans/{{plan_id}}/ozon-check"),
+    ("POST", f"{P}/planning/rules/preview"), ("POST", f"{P}/planning/rules/check"),
+    ("POST", f"{P}/supply/plans/{{plan_id}}/ozon-check"),
 }
 COSTS_TEMPLATE = f"{P}/costs/{{offer_id:path}}"
 

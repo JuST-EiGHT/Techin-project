@@ -15,6 +15,7 @@ from app.models.user import User
 from app.schemas.planning import (
     Account,
     AccountIn,
+    AccountHistory,
     AccountPatch,
     BulkIn,
     BulkOut,
@@ -32,12 +33,14 @@ from app.schemas.planning import (
     OperationVersion,
     PlanningSettingsIn,
     PlanningState,
+    ReconcileOut,
     RuleSuggestion,
     SetupIn,
     SetupOptions,
     TemplateCodes,
+    UnrecognizedPage,
 )
-from app.services import audit, journal, operation_import
+from app.services import accounts_view, audit, journal, operation_import
 from app.services import planning as svc
 from app.services.stores import get_current_store
 from app.services.sync.finance import today_msk
@@ -140,6 +143,48 @@ async def patch_account(
 # ---------- статьи ----------
 
 
+@router.get("/accounts/reconcile", response_model=list[ReconcileOut])
+async def reconcile_accounts(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
+    """Сверка расчётного остатка каждого счёта с выпиской банка: сходится ли, на сколько и с какого дня разошлось,
+    какие операции сервиса в этот день без пары в банке."""
+    await svc.sync_ozon_operations(db, user.id)
+    return await accounts_view.reconcile(db, user.id)
+
+
+@router.get("/accounts/{account_id}/history", response_model=AccountHistory)
+async def account_history(
+    account_id: uuid.UUID,
+    date_from: date | None = Query(None, description="По умолчанию — 30 дней назад"),
+    date_to: date | None = Query(None, description="По умолчанию — сегодня"),
+    type_: Literal["income", "expense", "transfer"] | None = Query(None, alias="type"),
+    user: User = Depends(get_current_store),
+    db: AsyncSession = Depends(get_db),
+):
+    """Поступления, списания и переводы по счёту с остатком после каждой операции."""
+    date_to = date_to or today_msk()
+    date_from = date_from or date_to - timedelta(days=29)
+    if date_from > date_to:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Период: дата начала позже даты окончания")
+    if (date_to - date_from).days > 3660:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Период: не больше 10 лет за раз")
+    await svc.sync_ozon_operations(db, user.id)
+    try:
+        return await accounts_view.history(db, user.id, account_id, date_from, date_to, type_)
+    except svc.PlanningError as exc:
+        raise _fail(exc) from exc
+
+
+@router.get("/unrecognized", response_model=UnrecognizedPage)
+async def unrecognized_operations(
+    account_id: uuid.UUID | None = None,
+    limit: int = Query(200, ge=1, le=500),
+    user: User = Depends(get_current_store),
+    db: AsyncSession = Depends(get_db),
+):
+    """Нераспознанные: операции из банка и из файла без статьи — с назначением, ИНН и заготовкой правила."""
+    return await accounts_view.unrecognized(db, user.id, account_id, limit)
+
+
 @router.get("/categories", response_model=list[Category])
 async def list_categories(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     return await svc.categories(db, user.id)
@@ -223,6 +268,7 @@ class _JournalQuery:
         search: str | None = Query(None, max_length=100, description="Контрагент, описание, название платежа"),
         sort: Literal["day", "amount", "category"] = "day",
         order: Literal["asc", "desc"] = "desc",
+        rule_id: uuid.UUID | None = Query(None, description="Операции, которым статью поставило это правило"),
     ):
         date_to = date_to or today_msk()
         date_from = date_from or date_to - timedelta(days=29)
@@ -232,7 +278,8 @@ class _JournalQuery:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Период: не больше 10 лет за раз")
         self.date_from, self.date_to = date_from, date_to
         self.kw = dict(status=status_, type_=type_, account_id=account_id, category_id=category_id,
-                       uncategorized=uncategorized, source=source, search=search, sort=sort, desc=order == "desc")
+                       uncategorized=uncategorized, source=source, search=search, sort=sort, desc=order == "desc",
+                       rule_id=rule_id)
 
 
 @router.get("/journal", response_model=JournalPage)

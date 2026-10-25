@@ -1,13 +1,16 @@
 'use client'
 // «Операции → Счета и выписки» (шаг 3.8; до 10.1 — вкладка «Планирования»). Статьи — components/planning/Categories.tsx.
+// 10.20: история по счёту, сверка с банком, нераспознанные операции — components/planning/AccountTools.tsx.
 import { useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { AccountHistoryPanel, ReconcileSection, UnrecognizedSection } from '@/components/planning/AccountTools'
 import { BankSection } from '@/components/planning/Bank'
 import {
   ACCOUNT_KINDS,
   type Account,
   type AccountKind,
+  type Category,
   type PlanningState,
   kindLabel,
   parseAmount,
@@ -76,15 +79,23 @@ function AccountEditor({ account, onDone }: { account?: Account; onDone: () => v
 
 export function AccountsTab({
   accounts,
+  categories,
   state,
   onChanged,
 }: {
   accounts: Account[]
+  categories: Category[]
   state: PlanningState
   onChanged: () => void
 }) {
   const [editing, setEditing] = useState<string | null>(null) // id или 'new'
+  const [history, setHistory] = useState<string | null>(null) // открыта история счёта
+  const [version, setVersion] = useState(0) // данные поменялись — сверку и нераспознанные перечитать
   const [error, setError] = useState<string | null>(null)
+  const changed = () => {
+    setVersion((v) => v + 1)
+    onChanged()
+  }
   const active = accounts.filter((a) => !a.archived)
   const archived = accounts.filter((a) => a.archived)
 
@@ -148,6 +159,9 @@ export function AccountsTab({
                   <div className="text-xs text-faint">{a.balance === null ? 'укажите остаток — без него не посчитать' : 'сейчас'}</div>
                 </div>
                 <div className="flex gap-2">
+                  <button type="button" onClick={() => setHistory(history === a.id ? null : a.id)} aria-expanded={history === a.id} className={button} data-testid="acc-history">
+                    История
+                  </button>
                   <button type="button" onClick={() => setEditing(a.id)} className={button} data-testid="acc-edit">
                     Изменить
                   </button>
@@ -157,6 +171,7 @@ export function AccountsTab({
                 </div>
               </div>
             )}
+            {history === a.id && editing !== a.id && <AccountHistoryPanel accountId={a.id} />}
           </li>
         ))}
       </ul>
@@ -167,7 +182,9 @@ export function AccountsTab({
           + Добавить счёт, карту или наличные
         </button>
       )}
-      <BankSection onChanged={onChanged} />
+      <ReconcileSection version={version} />
+      <UnrecognizedSection categories={categories} version={version} onChanged={changed} />
+      <BankSection onChanged={changed} />
       {archived.length > 0 && (
         <details className="text-sm text-muted">
           <summary className="cursor-pointer hover:text-fg">В архиве ({archived.length})</summary>

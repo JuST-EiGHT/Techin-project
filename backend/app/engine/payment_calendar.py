@@ -5,6 +5,8 @@
 - `match` — план-факт: платёж закрывает отмеченная операция («оплачено») или подходящая операция (та же сторона,
   сумма ± допуск, дата ± N дней, контрагент и статья, если указаны в плане); прогноз выплаты Ozon закрывает
   фактическая выплата Ozon в тот же день;
+- `suggest` — предложения «это оплата плана …» (шаг 10.20): неоплаченный платёж и операция, которая не подошла под
+  `match` (сумма или дата дальше допуска, у операции нет статьи, контрагент записан иначе), но похожа;
 - `forecast` — остаток по дням = остаток сейчас + плановые поступления − плановые платежи; кассовый разрыв — дни ниже
   нуля или порога. В прогнозе только действующие платежи с сегодняшнего дня: выключенный план не участвует («что
   если»), неоплаченный прошлый платёж — тоже (его показываем отдельно: перенести или отметить).
@@ -20,6 +22,8 @@ CENT = Decimal("0.01")
 STEP_MONTHS = {"month": 1, "quarter": 3, "year": 12}
 MATCH_PCT = Decimal(10)  # сумма операции может отличаться от плана на 10 %
 MATCH_DAYS = 3  # и дата — на 3 дня в любую сторону
+SUGGEST_PCT = Decimal(25)  # предложение «это оплата плана»: сумма — до 25 %
+SUGGEST_DAYS = 10  # и дата — до 10 дней
 
 
 @dataclass(frozen=True)
@@ -200,6 +204,83 @@ def match(
         best = min(candidates, key=lambda op: (abs((op.day - item.day).days), abs(abs(op.amount) - abs(item.amount)), op.op_id))
         item.fact = best
         used.add(best.op_id)
+
+
+@dataclass
+class Suggestion:
+    item: Item
+    op: Op
+    reasons: list[str]
+    score: Decimal
+
+
+def _days_text(n: int) -> str:
+    word = "день" if n % 10 == 1 and n % 100 != 11 else "дня" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "дней"
+    return f"{n} {word}"
+
+
+def suggest(
+    items: list[Item], ops: list[Op], today: date, dismissed: set[tuple[str, str]] = frozenset(),
+    category_of=None, pct: Decimal = SUGGEST_PCT, days: int = SUGGEST_DAYS,
+) -> list[Suggestion]:
+    """Неоплаченный платёж (срок — не позже чем через `days` дней) ↔ операция, не закрывшая ни один платёж: та же
+    сторона, сумма ± `pct` %, дата ± `days` дней, у операции нет другой статьи и есть хоть одно совпадение — статья,
+    контрагент или сумма почти та же (± MATCH_PCT). Пара, от которой отказались (`dismissed`: ключ, op_id), — нет.
+    Каждому платежу — лучшая операция, каждая операция — одному платежу. `category_of` — статья платежа (у налогов
+    и поставщика она по коду, а не в плане); по умолчанию — `item.category_id`. Вызывать после `match`."""
+    category_of = category_of or (lambda i: i.category_id)
+    used = matched_ops(items)
+    free = [op for op in ops if op.op_id and op.op_id not in used and op.source not in ("ozon_payout", "mark")]
+    pairs: list[Suggestion] = []
+    for item in items:
+        if item.fact is not None or item.skipped or not item.enabled or item.source == "ozon":
+            continue
+        if item.day > today + timedelta(days=days):
+            continue
+        cat = category_of(item)
+        for op in free:
+            if (item.key, op.op_id) in dismissed or (op.amount > 0) != (item.kind == "income"):
+                continue
+            shift = (op.day - item.day).days
+            if abs(shift) > days:
+                continue
+            if cat and op.category_id and op.category_id != cat:
+                continue  # у операции другая статья — это не оплата этого платежа
+            same_cat = bool(cat) and op.category_id == cat
+            same_party = bool(item.counterparty) and _same_text(item.counterparty, op.counterparty)
+            reasons: list[str] = []
+            if item.amount is not None and item.amount != 0:
+                gap = abs(abs(op.amount) - abs(item.amount))
+                gap_pct = (gap / abs(item.amount) * 100).quantize(Decimal("0.1"))
+                if gap_pct > pct:
+                    continue
+                close = gap_pct <= MATCH_PCT
+                reasons.append("сумма та же" if gap == 0 else f"сумма отличается на {gap:.2f} ₽ ({gap_pct} %)")
+            else:
+                gap_pct, close = Decimal(0), False
+                reasons.append("сумма в плане неизвестна")
+            if not (same_cat or same_party or close):
+                continue
+            reasons.append("дата та же" if shift == 0 else
+                           f"на {_days_text(abs(shift))} {'позже' if shift > 0 else 'раньше'} срока")
+            if same_cat:
+                reasons.append("та же статья")
+            if same_party:
+                reasons.append("тот же контрагент")
+            if not op.category_id and cat:
+                reasons.append("у операции нет статьи — поставим статью платежа")
+            score = gap_pct + 2 * abs(shift) - (10 if same_cat else 0) - (6 if same_party else 0)
+            pairs.append(Suggestion(item, op, reasons, score))
+    out: list[Suggestion] = []
+    taken_items: set[str] = set()
+    taken_ops: set[str] = set()
+    for sg in sorted(pairs, key=lambda x: (x.score, x.item.day, x.item.key, x.op.op_id)):
+        if sg.item.key in taken_items or sg.op.op_id in taken_ops:
+            continue
+        taken_items.add(sg.item.key)
+        taken_ops.add(sg.op.op_id)
+        out.append(sg)
+    return sorted(out, key=lambda x: (x.item.day, x.item.key))
 
 
 TAX_EARLY_DAYS = 40  # ЕНП платят заранее: платёж за 40 дней до срока ещё относится к нему
