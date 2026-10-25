@@ -101,6 +101,8 @@ export function KeyFigures({ data, taxSet, costLabel, fourth = 'orders', query }
                 : 'налог не задан — без налога'}
           </Hint>
         )}
+        {/* решение 10.22: главная и аналитика — прибыль от продаж на Ozon; с расходами бизнеса — «Финансы» */}
+        {t.profit !== null && !byProducts && <Hint>от продаж на Ozon, без расходов бизнеса</Hint>}
       </Card>
       <Card href={link('margin')} label="Маржинальность" value={formatMetric(t.margin, 'pct')} testid="figure-margin">
         {ch && <Change pct={ch.margin_pp} against={against} unit="п.п." />}
@@ -132,15 +134,17 @@ const CHART_METRICS: { key: MetricKey; label: string }[] = [
   { key: 'sold_qty', label: 'Продажи, шт.' },
 ]
 
-/** Один график с переключением показателя; точка и «Подробнее →» ведут туда же, куда карточка показателя. */
-export function DynamicsChart({ data, query }: { data: Metrics; query?: string }) {
+/** Один график с переключением показателя; точка и «Подробнее →» ведут туда же, куда карточка показателя.
+ * metrics — какие показатели на выбор («Финансы» — только выручка и прибыль). */
+export function DynamicsChart({ data, query, metrics }: { data: Metrics; query?: string; metrics?: MetricKey[] }) {
   const [metric, setMetric] = useState<MetricKey>('revenue')
+  const choices = metrics ? CHART_METRICS.filter((m) => metrics.includes(m.key)) : CHART_METRICS
   const base = METRIC_LINKS[metric]
   const link = base ? (from: string, to: string) => withQuery(base(from, to), query) as string : undefined
   return (
     <div className="space-y-2" data-testid="dynamics">
       <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Показатель на графике">
-        {CHART_METRICS.map((m) => (
+        {choices.map((m) => (
           <button
             key={m.key}
             type="button"

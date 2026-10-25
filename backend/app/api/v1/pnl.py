@@ -13,7 +13,7 @@ from app.core.files import attachment
 from app.models.user_settings import COST_LABELS
 from app.schemas.pnl import PeriodPnL, PnLByDay, PnLPeriods, ProductsPage, Source
 from app.services import pnl_service as svc
-from app.services import analytics, product_pnl
+from app.services import analytics, pnl_statement, product_pnl
 from app.services import reports as reports_svc
 from app.services.stores import get_current_store
 from app.services.user_settings import get_settings, load_low_margin
@@ -54,8 +54,9 @@ async def get_pnl(
     req: svc.PnLRequest = Depends(_request), user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
 ):
     """P&L за период: сколько пришло от Ozon, себестоимость с НДС, налог, остаток, маржа.
-    Какой источник за сколько дней использован и каких дней нет — в coverage и warnings."""
-    return await svc.get_pnl(db, user.id, req)
+    Какой источник за сколько дней использован и каких дней нет — в coverage и warnings. statement — тот же P&L строками
+    отчёта о прибылях и убытках с прочими расходами бизнеса из «Операций» (если включено «Планирование»)."""
+    return await pnl_statement.extend(db, user.id, req, await svc.get_pnl(db, user.id, req))
 
 
 async def _report(db: AsyncSession, user: User, report_id: uuid.UUID | None):

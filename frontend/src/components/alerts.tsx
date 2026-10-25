@@ -260,17 +260,18 @@ export function AlertCard({ anomaly: a, onChange }: { anomaly: Anomaly; onChange
 const ATTENTION_LIMIT = 7
 
 /** «Требует внимания» (главная, шаг 10.5): единый список проблем магазина — аномалии продаж, цен, маржи, остатков, акций,
- * денег и данных. Активные без «Ок»: красные первыми, внутри — больше денег под риском, затем новые; первые 7 и «Все». */
-export function AttentionWidget() {
+ * денег и данных. Активные без «Ок»: красные первыми, внутри — больше денег под риском, затем новые; первые 7 и «Все».
+ * area="finance" — «Финансы → Обзор» (10.22): только финансовые — выплаты, деньги, данные для P&L. */
+export function AttentionWidget({ area }: { area?: 'finance' } = {}) {
   const counts = useAlertCounts()
   const [data, setData] = useState<AnomaliesPage | null>(null)
   const [error, setError] = useState<string | null>(null)
   const load = useCallback(() => {
     api
-      .get<AnomaliesPage>('/anomalies', { params: { status: 'active', acknowledged: false, order: 'severity', limit: ATTENTION_LIMIT } })
+      .get<AnomaliesPage>('/anomalies', { params: { status: 'active', acknowledged: false, order: 'severity', limit: ATTENTION_LIMIT, ...(area ? { area } : {}) } })
       .then(({ data }) => setData(data))
       .catch((err) => setError(errorMessage(err)))
-  }, [])
+  }, [area])
   useEffect(() => {
     load()
   }, [load, counts?.unread, counts?.active])
@@ -280,10 +281,11 @@ export function AttentionWidget() {
   const more = data.total - data.items.length
   const c = data.counts
   return (
-    <section className="rounded-xl border border-line bg-card" data-testid="attention">
+    <section className="rounded-xl border border-line bg-card" data-testid={area ? `attention-${area}` : 'attention'}>
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line px-4 py-3">
-        <h2 className="font-semibold">Требует внимания</h2>
-        {c.unread > 0 && (
+        <h2 className="font-semibold">{area ? 'Финансовые проблемы' : 'Требует внимания'}</h2>
+        {area && data.total > 0 && <span className="text-sm text-muted">{data.total}</span>}
+        {!area && c.unread > 0 && (
           <span className="text-sm" data-testid="attention-counts">
             {c.red > 0 && <span className="text-bad">красных {c.red}</span>}
             {c.red > 0 && c.yellow > 0 && <span className="text-faint"> · </span>}
@@ -296,8 +298,10 @@ export function AttentionWidget() {
       </div>
       {data.items.length === 0 ? (
         <p className="px-4 py-3 text-sm text-muted" data-testid="attention-empty">
-          Всё в порядке: продажи, цены, остатки, деньги и данные — без проблем, которых вы ещё не видели.
-          {c.active > 0 && ` Отмеченных «Ок», но ещё не прошедших: ${c.active}.`}
+          {area
+            ? 'Финансовых проблем нет: выплаты Ozon, деньги на счетах и данные для P&L — без проблем, которых вы ещё не видели.'
+            : 'Всё в порядке: продажи, цены, остатки, деньги и данные — без проблем, которых вы ещё не видели.'}
+          {!area && c.active > 0 && ` Отмеченных «Ок», но ещё не прошедших: ${c.active}.`}
           {data.checked_at ? ` Проверено ${whenText(data.checked_at)}.` : ' Сервис проверяет данные раз в час.'}
         </p>
       ) : (

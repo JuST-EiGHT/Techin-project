@@ -1,4 +1,5 @@
-"""Финансовые начисления из API Ozon. Все ответы помечены data_source="api" и предупреждением."""
+"""«Финансы»: обзор за период (шаг 10.22) и финансовые начисления из API Ozon (у них — data_source="api" и
+предупреждение)."""
 import uuid
 from datetime import date, timedelta
 
@@ -14,15 +15,21 @@ from app.schemas.finance import (
     AccrualsByDayResponse,
     AccrualsResponse,
     DayTotals,
+    FinanceOverview,
     FinanceSyncRequest,
     Money,
     Period,
 )
 from app.schemas.sync import SyncRunResponse
-from app.services.stores import get_current_store
+from app.services import finance_overview
 from app.services.finance import Totals, daily_totals, list_accruals
+from app.services.stores import get_current_store
 from app.services.sync import finance as sync_finance
-from app.services.sync.finance import MAX_PERIOD_DAYS, OZON_MIN_DATE, get_missing_periods
+from app.services.sync.finance import (
+    MAX_PERIOD_DAYS,
+    OZON_MIN_DATE,
+    get_missing_periods,
+)
 
 router = APIRouter(prefix="/finance", tags=["finance"])
 
@@ -42,6 +49,20 @@ def _period(date_from: date | None, date_to: date | None, max_days: int) -> tupl
 
 def _money(t: Totals) -> Money:
     return Money(income=t.income, expense=t.expense, net=t.net)
+
+
+@router.get("/overview", response_model=FinanceOverview)
+async def overview(
+    date_from: date | None = Query(None, description="По умолчанию — начало месяца"),
+    date_to: date | None = Query(None, description="По умолчанию — сегодня (МСК)"),
+    user: User = Depends(get_current_store),
+    db: AsyncSession = Depends(get_db),
+):
+    """Выручка, расходы, прибыль и рентабельность к прошлому такому же периоду и куда ушла выручка — по P&L с прочими
+    расходами бизнеса. Нет данных — null, а не 0."""
+    date_to = date_to or sync_finance.today_msk()
+    date_from, date_to = _period(date_from or date_to.replace(day=1), date_to, MAX_READ_DAYS)
+    return await finance_overview.overview(db, user.id, date_from, date_to)
 
 
 @router.get("/accruals", response_model=AccrualsResponse)

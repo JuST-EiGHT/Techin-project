@@ -207,6 +207,7 @@ class TaxInput:
     days: int = 30  # дней в периоде — для годовых взносов и патента
     ozon_expenses_known: bool = True  # в отчёте о реализации удержаний Ozon нет
     income_note: str = ""  # из чего сложился доход — в пояснение
+    business_expenses: Decimal = ZERO  # прочие расходы бизнеса из «Операций» (статьи «в P&L», шаг 10.22)
 
 
 @dataclass
@@ -322,9 +323,10 @@ def compute_tax(profile: Profile, data: TaxInput, day: date) -> TaxResult:
             base = data.revenue_base
             lines.append(f"Выручка: {rub(base)}")
         else:
-            base = data.payout - data.cost_with_vat
+            base = data.payout - data.cost_with_vat - data.business_expenses
+            business = f" − расходы бизнеса {rub(data.business_expenses)}" if data.business_expenses else ""
             lines.append(
-                f"Прибыль: пришло от Ozon {rub(data.payout)} − себестоимость с НДС {rub(data.cost_with_vat)} = "
+                f"Прибыль: пришло от Ozon {rub(data.payout)} − себестоимость с НДС {rub(data.cost_with_vat)}{business} = "
                 f"{rub(base)}"
             )
         tax = max(base, ZERO) * rate / 100
@@ -368,6 +370,9 @@ def compute_tax(profile: Profile, data: TaxInput, day: date) -> TaxResult:
         else ""
     )
 
+    if data.business_expenses and regime.kind in ("income", "patent"):
+        lines.append(f"Расходы бизнеса {rub(data.business_expenses)} налог не уменьшают: он считается не от прибыли.")
+
     if regime.kind == "patent":
         cost = profile.patent_cost_year or ZERO
         tax = cost * data.days / 365
@@ -399,6 +404,10 @@ def compute_tax(profile: Profile, data: TaxInput, day: date) -> TaxResult:
     if contributions > 0 and profile.regime in ("usn_income_expense", "osn"):
         expenses += contributions
         parts.append(f"{contributions_text} {rub(contributions)}")
+    if data.business_expenses:
+        # НДС в расходах бизнеса к вычету не берём: в операциях его нет — налог чуть выше, оценка с запасом
+        expenses += data.business_expenses
+        parts.append(f"прочие расходы бизнеса {rub(data.business_expenses)}")
     base = income_net - expenses
     lines.append(f"Расходы: {' + '.join(parts)} = {rub(expenses)}")
     lines.append(f"База: {rub(income_net)} − {rub(expenses)} = {rub(base)}")

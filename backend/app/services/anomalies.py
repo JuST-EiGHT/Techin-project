@@ -352,8 +352,11 @@ async def counts(db: AsyncSession, user_id: uuid.UUID) -> dict:
 
 
 def _filtered(user_id: uuid.UUID, *, status: str = "active", severity: str | None = None, group: str | None = None,
-              type_: str | None = None, product_id: uuid.UUID | None = None, acknowledged: bool | None = None):
+              type_: str | None = None, product_id: uuid.UUID | None = None, acknowledged: bool | None = None,
+              area: str | None = None):
     q = select(Anomaly).where(Anomaly.user_id == user_id)
+    if area:
+        q = q.where(Anomaly.type.in_(det.AREAS[area]))
     if status == "active":
         q = q.where(Anomaly.resolved_at.is_(None))
     elif status == "resolved":
@@ -375,13 +378,14 @@ async def list_anomalies(
     db: AsyncSession, user_id: uuid.UUID, *, status: str = "active", severity: str | None = None,
     group: str | None = None, type_: str | None = None, product_id: uuid.UUID | None = None,
     acknowledged: bool | None = None, order: str | None = None, limit: int = 50, offset: int = 0,
+    area: str | None = None,
 ) -> dict:
     """Аномалии по фильтрам. Порядок: severity — красные первыми, внутри — больше денег под риском, затем новые (по
     умолчанию у активных; «Требует внимания» 10.5); new — новые первыми (колокольчик, 7.2); у закрытых по умолчанию — по
     времени закрытия. by_group — сколько по группам при тех же
     фильтрах, кроме группы и типа (числа у фильтров страницы)."""
     q = _filtered(user_id, status=status, severity=severity, group=group, type_=type_, product_id=product_id,
-                  acknowledged=acknowledged)
+                  acknowledged=acknowledged, area=area)
     total = await db.scalar(select(func.count()).select_from(q.subquery()))
     order = order or ("severity" if status == "active" else "resolved")
     by = {
@@ -393,7 +397,8 @@ async def list_anomalies(
     names = {p.id: p for p in (await db.execute(select(Product).where(
         Product.id.in_({a.product_id for a in rows if a.product_id})))).scalars()} if rows else {}
     by_group: dict[str, int] = {}
-    base = _filtered(user_id, status=status, severity=severity, product_id=product_id, acknowledged=acknowledged).subquery()
+    base = _filtered(user_id, status=status, severity=severity, product_id=product_id, acknowledged=acknowledged,
+                     area=area).subquery()
     for type_name, n in await db.execute(select(base.c.type, func.count()).group_by(base.c.type)):
         group_name = det.GROUPS.get(type_name)
         if group_name:

@@ -109,6 +109,7 @@ export function ProfitFigures({ s, costLabel }: { s: ProfitStructure; costLabel:
         <Hint>{s.profit === null ? 'нет данных за период' : (was(p?.profit, 'rub') ?? 'выручка − расходы')}</Hint>
         {s.net !== null && <Hint>после налога — {formatMetric(s.net, 'rub')}</Hint>}
         {!store && s.profit !== null && <Hint>по товарам — без начислений, не относящихся к товару</Hint>}
+        {store && s.profit !== null && <Hint>от продаж на Ozon, без расходов бизнеса — они в «Финансах»</Hint>}
       </Card>
       <Card href={store ? pnl : null} label="Маржинальность" value={formatMetric(s.margin, 'pct')} testid="figure-margin">
         <Change pct={marginPp} against={against} unit="п.п." />

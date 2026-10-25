@@ -32,12 +32,11 @@ ID = "3f2b8c1e-5d4a-4e6b-9c7d-1a2b3c4d5e6f"
 
 # старый адрес → (новый адрес, навсегда ли); параметры вкладок и фильтров переносятся
 OLD_TO_NEW = {
-    # «Финансы» до шага 10.22 открываются с P&L — временно: потом на /dashboard/finance будет «Обзор финансов»
-    "/dashboard/finance": ("/dashboard/finance/pnl", False),
-    "/dashboard/finance?tab=products": ("/dashboard/finance/pnl?tab=products", False),
+    # старые ссылки P&L (3.3 жил на /dashboard/finance): с параметрами P&L — в P&L; без них — «Обзор финансов» (10.22)
+    "/dashboard/finance?tab=products": ("/dashboard/finance/pnl?tab=products", True),
     "/dashboard/finance?period=custom&from=2026-10-01&to=2026-10-07&tab=products":
-        ("/dashboard/finance/pnl?period=custom&from=2026-10-01&to=2026-10-07&tab=products", False),
-    f"/dashboard/finance?report={ID}": (f"/dashboard/finance/pnl?report={ID}", False),
+        ("/dashboard/finance/pnl?period=custom&from=2026-10-01&to=2026-10-07&tab=products", True),
+    f"/dashboard/finance?report={ID}": (f"/dashboard/finance/pnl?report={ID}", True),
     "/dashboard/payouts": ("/dashboard/finance/payouts", True),
     "/dashboard/payouts?week=2026-10-06": ("/dashboard/finance/payouts?week=2026-10-06", True),
     "/dashboard/reports": ("/dashboard/analytics/reports", True),
@@ -87,13 +86,14 @@ OLD_TO_NEW = {
 STAYS = [
     "/dashboard", "/dashboard?period=week", "/dashboard/planning", "/dashboard/products", "/dashboard/products?filter=no_cost", f"/dashboard/products/{ID}",
     "/dashboard/products/prices", "/dashboard/pricesx", "/dashboard/reportsx/1", "/dashboard/finance/pnl",
+    "/dashboard/finance", "/dashboard/finance?period=week",
     "/dashboard/settings/notifications", "/dashboard/settings", "/dashboard/alerts", "/dashboard/warehouses/withdrawal",
 ]
 
 # старые адреса в исходниках: только в таблице переадресации
 OLD_IN_SOURCE = re.compile(
     r"/dashboard/(payouts|reports|costs|prices|promotions|supply)\b|/dashboard/planning\?tab|"
-    r"/dashboard/settings/(stores|api-keys|banks)\b|/dashboard/finance(?![/\w-])|/dashboard/products\?product="
+    r"/dashboard/settings/(stores|api-keys|banks)\b|/dashboard/finance\?(report|tab)=|/dashboard/products\?product="
 )
 
 SCRIPT = """
@@ -158,9 +158,10 @@ def test_current_addresses_are_not_redirected(site):
 
 
 def test_old_pages_moved_not_duplicated(site):
-    # старая страница не осталась рядом с новой (кроме /dashboard/planning — там остался «Обзор», уходят только вкладки)
+    # старая страница не осталась рядом с новой (кроме /dashboard/planning — там остался «Обзор», уходят только вкладки;
+    # и /dashboard/finance — там «Обзор финансов», уходят только ссылки с параметрами P&L)
     for rule in site["rules"]:
-        if "tab" in rule or "param" in rule:  # вкладка или параметр — сама страница остаётся
+        if "tab" in rule or "param" in rule or "query" in rule:  # вкладка или параметр — сама страница остаётся
             continue
         assert not page_exists(rule["from"]), rule["from"]
         assert page_exists(rule["to"]), rule["to"]

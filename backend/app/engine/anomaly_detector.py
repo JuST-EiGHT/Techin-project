@@ -66,6 +66,9 @@ GROUPS = {
     SYNC_PROBLEM: "data", ACCRUAL_GAPS: "data", REPORT_ERROR: "data", MISSING_COST: "data",
 }
 TYPES = tuple(GROUPS)
+# финансовые проблемы — «Финансы → Обзор» (10.22): деньги (выплаты, банк, разрыв, операции без статьи) и данные, без
+# которых P&L неверен (пропуски начислений, отчёт с ошибкой, продажи без себестоимости)
+AREAS = {"finance": (*(t for t, g in GROUPS.items() if g == "money"), ACCRUAL_GAPS, REPORT_ERROR, MISSING_COST)}
 
 SHOP = "shop"
 RECENT_DAYS, BASE_DAYS, FACTOR_DAYS = 3, 7, 28  # 3 дня против 7 предыдущих; выходные — по 4 неделям

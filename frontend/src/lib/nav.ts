@@ -109,7 +109,8 @@ export const NAV: NavSection[] = [
   {
     label: 'Финансы',
     items: [
-      { href: '/dashboard/finance/pnl', label: 'P&L — прибыль', description: 'Выручка, расходы Ozon, налог и остаток за период' },
+      { href: '/dashboard/finance', label: 'Обзор финансов', description: 'Выручка, расходы, прибыль, деньги на Ozon и на счетах, риски' },
+      { href: '/dashboard/finance/pnl', label: 'P&L — прибыль', description: 'Выручка, расходы Ozon и бизнеса, налог и чистая прибыль' },
       { href: '/dashboard/finance/pnl?tab=products', label: 'Прибыль по товарам', description: 'Маржа каждого товара, комиссия, логистика' },
       { href: '/dashboard/finance/payouts', label: 'Выплаты Ozon', description: 'Когда и сколько придёт, баланс у Ozon, график выплат' },
       { href: '/dashboard/finance/documents', label: 'Отчёты и документы', description: 'Отчёты Ozon о начислениях и реализации, загрузка' },

@@ -132,6 +132,8 @@ export type FiguresData = {
   costSales: string | null // себестоимость без НДС
   missingCostCount: number
   pnl: PnL
+  /** P&L периода с прочими расходами бизнеса (10.22): налог, прибыль, остаток и маржа в цифрах — с ними. */
+  final?: Pick<PnL, 'tax' | 'vat' | 'net' | 'margin' | 'profit_before_tax'> & { business: string }
 }
 
 export const vatPctText = (multiplier: string) => {
@@ -146,7 +148,7 @@ const effectiveVat = (owed: string, costSales: string | null, fallback: string) 
 /** Полоса из пяти цифр: продано, получено от Ozon, себестоимость с НДС, налог, остаток и маржа (самый заметный блок). */
 export function PnLFigures({ data }: { data: FiguresData }) {
   const costLabel = useCostLabel()
-  const { pnl } = data
+  const pnl = data.final ? { ...data.pnl, ...data.final } : data.pnl
   const taxSet = pnl.tax !== null
   const net = pnl.net === null ? null : Number(pnl.net)
   const resultTone = net === null ? '' : net < 0 ? 'bg-bad/10' : 'bg-ok/10'
@@ -200,6 +202,11 @@ export function PnLFigures({ data }: { data: FiguresData }) {
           <div className={`text-sm font-semibold ${net === null ? 'text-muted' : net < 0 ? 'text-bad' : 'text-ok'}`}>
             {taxSet ? `Маржа ${pctText(pnl.margin)}` : `до налога ${rub(pnl.profit_before_tax)}`}
           </div>
+          {data.final && (
+            <div className="text-xs text-muted" data-testid="figure-net-business">
+              с расходами бизнеса {rub(data.final.business)}
+            </div>
+          )}
         </div>
       </div>
     </div>

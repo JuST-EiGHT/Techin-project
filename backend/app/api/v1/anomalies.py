@@ -36,6 +36,7 @@ async def list_anomalies(
     type_: str | None = Query(None, alias="type", description="Тип: sales_drop, price_change …"),
     product_id: uuid.UUID | None = Query(None),
     acknowledged: bool | None = Query(None, description="false — только без «Ок»"),
+    area: Literal["finance"] | None = Query(None, description="finance — только финансовые: деньги и данные для P&L"),
     order: Literal["severity", "new", "resolved"] | None = Query(
         None, description="severity — красные первыми (по умолчанию у активных), new — новые первыми, resolved — по закрытию"),
     limit: int = Query(50, ge=1, le=200),
@@ -50,7 +51,7 @@ async def list_anomalies(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Тип аномалии: недопустимое значение")
     page = await svc.list_anomalies(
         db, user.id, status=status_, severity=severity, group=group, type_=type_, product_id=product_id,
-        acknowledged=acknowledged, order=order, limit=limit, offset=offset,
+        acknowledged=acknowledged, order=order, limit=limit, offset=offset, area=area,
     )
     run = await latest_run(db, user.id, "anomalies", status=SUCCESS)
     return {**page, "counts": await svc.counts(db, user.id), "checked_at": utc(run.finished_at) if run else None}

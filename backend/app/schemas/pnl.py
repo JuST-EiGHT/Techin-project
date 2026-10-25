@@ -1,4 +1,4 @@
-"""P&L за период (шаг 3.2): ответы /api/v1/pnl, /pnl/by-day, /pnl/periods."""
+"""P&L за период (шаг 3.2): ответы /api/v1/pnl, /pnl/by-day, /pnl/periods; строки P&L с расходами бизнеса — 10.22."""
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
@@ -37,6 +37,68 @@ class PeriodReport(BaseModel):
     manual_total_applied: bool  # его ручная сумма «сколько пришло» учтена
 
 
+class BusinessCategory(BaseModel):
+    """Статья расходов бизнеса: потрачено за период (возвраты денег по статье его уменьшают); подстатьи — внутри."""
+
+    id: uuid.UUID
+    name: str
+    amount: Decimal
+    children: list["BusinessCategory"] = []
+
+
+class BusinessLeftOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    amount: Decimal
+
+
+class Uncategorized(BaseModel):
+    count: int
+    amount: Decimal
+
+
+class BusinessExpenses(BaseModel):
+    """Прочие расходы бизнеса за период — операции по статьям «в P&L» (10.19). Что не вошло — excluded и uncategorized."""
+
+    total: Decimal
+    operations: int
+    categories: list[BusinessCategory]
+    excluded: list[BusinessLeftOut]  # расходы по статьям без отметки «в P&L»: закупка, налоги, кредиты …
+    uncategorized: Uncategorized  # расходы без статьи — в P&L не вошли
+
+
+class StatementType(BaseModel):
+    name: str
+    amount: Decimal
+
+
+class StatementRow(BaseModel):
+    key: str  # revenue, returns, adjustments, commission, logistics, storage, ads, other, manual, ozon_total, cost,
+    # profit_ozon, business, profit_before_tax, tax, vat, net
+    title: str
+    amount: Decimal | None  # + доход, − расход; null — не посчитать (налог не задан)
+    kind: Literal["line", "subtotal", "total"]
+    pct: Decimal | None  # % от выручки
+    types: list[StatementType]  # статьи начислений Ozon в строке
+    categories: list[BusinessCategory]  # статьи расходов бизнеса
+
+
+class Statement(BaseModel):
+    """P&L как отчёт о прибылях и убытках: строки сверху вниз и итоги."""
+
+    rows: list[StatementRow]
+    revenue: Decimal
+    profit_ozon: Decimal  # прибыль от продаж на Ozon до налога — P&L 3.1
+    business: Decimal | None  # расходы бизнеса; null — не учитываются (планирование выключено)
+    profit_before_tax: Decimal  # с расходами бизнеса
+    tax: Decimal | None
+    vat: Decimal | None
+    net: Decimal | None  # чистая прибыль; null — налог не задан
+    margin: Decimal | None  # рентабельность: чистая прибыль / выручка, %
+    tax_title: str | None
+    tax_lines: list[str]
+
+
 class PeriodPnL(BaseModel):
     date_from: date
     date_to: date
@@ -53,6 +115,8 @@ class PeriodPnL(BaseModel):
     warnings: list[str]
     calculated_at: datetime
     from_snapshot: bool  # из сохранённого итога закрытого месяца
+    business: BusinessExpenses | None = None  # null — «Планирование» выключено: своих расходов в P&L нет
+    statement: Statement | None = None  # null — данных Ozon за период нет
 
 
 class DayPnL(BaseModel):
