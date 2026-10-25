@@ -303,6 +303,16 @@ class SeriesDay(BaseModel):
     fact: dict[str, Decimal] | None  # сегодня: что уже пришло и ушло (ozon, income, expense)
 
 
+class SeriesOut(BaseModel):
+    """Ряд графика «Остаток и движение денег» за выбранный период (прошлое, будущее или всё вместе)."""
+
+    today: date
+    date_from: date
+    date_to: date
+    threshold: Decimal | None
+    series: list[SeriesDay]
+
+
 class Suggestion(BaseModel):
     code: str
     name: str

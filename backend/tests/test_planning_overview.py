@@ -133,6 +133,60 @@ async def test_overview_forecast_gap_fact_and_plan(client, tokens):
     assert body["upcoming"][0]["status"] == "paid" and body["first_below_zero"] == iso(5)
 
 
+async def test_overview_series_any_period(client, tokens):
+    """График за любой период: 5 дней назад и 5 вперёд, только прошлое, только будущее — остатки как в обзоре."""
+    cats, accounts = await setup(client, tokens)
+    acc = accounts["Расчётный счёт"]
+    await call(client, tokens, "POST", "/operations", 201, json={
+        "type": "income", "amount": "15000", "day": iso(-30), "account_id": acc})
+    await call(client, tokens, "POST", "/operations", 201, json={
+        "type": "expense", "amount": "20000", "day": iso(-3), "account_id": acc, "category_id": cats["rent"]})
+    await call(client, tokens, "POST", "/plans", 201, json={
+        "kind": "expense", "title": "Аренда", "amount": "30000", "start_date": iso(2), "period": "month",
+        "category_id": cats["rent"]})
+    await call(client, tokens, "PUT", "/settings", json={"threshold": "20000"})
+    overview = {d["day"]: d for d in (await call(client, tokens, "GET", "/overview", params={"horizon_days": 28}))["series"]}
+
+    # 5 дней назад и 5 вперёд: факт слева, план справа, остатки — те же, что в обзоре
+    body = await call(client, tokens, "GET", "/overview/series", params={"date_from": iso(-5), "date_to": iso(5)})
+    assert (body["today"], body["date_from"], body["date_to"], body["threshold"]) == (iso(0), iso(-5), iso(5), "20000.00")
+    days = body["series"]
+    assert [d["day"] for d in days] == [iso(n) for n in range(-5, 6)]
+    assert [d["kind"] for d in days] == ["fact"] * 5 + ["plan"] * 6
+    assert all(d == overview[d["day"]] for d in days)
+    assert days[0]["balance"] == "120000.00" and days[2]["expense"] == "-20000.00"  # −3: аренда
+    assert (days[7]["expense"], days[7]["balance"]) == ("-30000.00", "70000.00")  # +2: аренда по плану
+
+    # только прошлое, дальше двух недель обзора: остаток назад по операциям, плана нет
+    body = await call(client, tokens, "GET", "/overview/series", params={"date_from": iso(-40), "date_to": iso(-1)})
+    days = {d["day"]: d for d in body["series"]}
+    assert len(days) == 40 and all(d["kind"] == "fact" and d["fact"] is None for d in days.values())
+    assert days[iso(-40)]["balance"] == "105000.00"  # 100 000 − (15 000 − 20 000)
+    assert (days[iso(-30)]["income"], days[iso(-30)]["balance"]) == ("15000.00", "120000.00")
+    assert days[iso(-1)]["balance"] == "100000.00"
+
+    # только будущее, с завтрашнего дня: прогноз от сегодняшнего остатка
+    body = await call(client, tokens, "GET", "/overview/series", params={"date_from": iso(1), "date_to": iso(40)})
+    days = {d["day"]: d for d in body["series"]}
+    assert len(days) == 40 and all(d["kind"] == "plan" for d in days.values())
+    assert days[iso(1)]["balance"] == "100000.00" and days[iso(2)]["balance"] == "70000.00"
+    nxt = (TODAY + timedelta(days=2)).replace(month=TODAY.month + 1).isoformat()  # аренда через месяц
+    assert (days[nxt]["expense"], days[nxt]["balance"]) == ("-30000.00", "40000.00")
+
+
+
+@pytest.mark.parametrize("params, text", [
+    ({"date_from": "2026-10-10", "date_to": "2026-10-01"}, "дата начала позже"),
+    ({"date_from": "2025-01-01", "date_to": "2026-10-01"}, "не больше года"),
+    ({"date_from": "2026-10-14", "date_to": "2027-05-01"}, "не дальше 180 дней"),
+])
+async def test_overview_series_bad_period(client, tokens, params, text):
+    await setup(client, tokens)
+    r = await client.get(f"{URL}/overview/series", params=params,
+                         headers={"Authorization": f"Bearer {tokens['access_token']}"})
+    assert r.status_code == 400 and text in r.json()["detail"]
+
+
 async def test_overview_ozon_payouts_fact_and_forecast(client, tokens, sessions, monkeypatch):
     from app.services import ozon_payouts
 

@@ -1,9 +1,10 @@
 'use client'
 // «Планирование → Обзор» (шаг 3.10) — дашборд раздела, не главная: деньги сейчас, ближайшая выплата Ozon, кассовый
-// разрыв или «денег хватит до …», что ожидается за горизонт; график — слева от «сегодня» факт, справа план; ближайшие
-// платежи на 14 дней с отметкой «оплачено». Нет данных — «нет данных», а не 0.
+// разрыв или «денег хватит до …», что ожидается за горизонт; график — слева от «сегодня» факт, справа план, период —
+// с какого по какое число (прошлое, будущее или всё вместе); ближайшие платежи на 14 дней с отметкой «оплачено». Нет
+// данных — «нет данных», а не 0.
 import Link from 'next/link'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Bar, CartesianGrid, Cell, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { FormError } from '@/components/AuthForm'
@@ -11,7 +12,7 @@ import { type Drill, MoreLink, TipBox, useDrill } from '@/components/charts'
 import { compact, useTokenColors } from '@/components/finance'
 import { GapBanner, LineAmount, LineDetails, SOURCE_TONE, STATUS, dayTitle, signed } from '@/components/planning/Calendar'
 import { Modal } from '@/components/planning/Operations'
-import { type Account, type CalendarLine, type Overview, type SeriesDay, SOURCE_LABELS, opsHref } from '@/components/planning/types'
+import { type Account, type CalendarLine, type Overview, type SeriesDay, type SeriesOut, SOURCE_LABELS, opsHref } from '@/components/planning/types'
 import { Badge, fmtDay, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { addDays } from '@/lib/period'
@@ -132,35 +133,122 @@ function ChartTip({ active, payload, drill, today }: { active?: boolean; payload
   )
 }
 
-function OverviewChart({ data }: { data: Overview }) {
+// ---------- период графика: с какого по какое число ----------
+
+/** Период графика — сдвиги от сегодня в днях: «с 5 дней назад по 5 дней вперёд» завтра останется таким же. */
+type ChartPeriod = { from: number; to: number }
+
+const MAX_AHEAD = 180 // прогноз — не дальше полугода
+const PERIOD_KEY = 'planning-chart-period'
+const field = 'rounded-md border border-line bg-bg px-2 py-1 text-sm text-fg outline-none focus:border-accent'
+const dayDiff = (a: string, b: string) => Math.round((Date.parse(a) - Date.parse(b)) / 86400000)
+
+function storedPeriod(): ChartPeriod | null {
+  try {
+    const p = JSON.parse(window.localStorage.getItem(PERIOD_KEY) ?? 'null') as ChartPeriod | null
+    return p && Number.isInteger(p.from) && Number.isInteger(p.to) && p.from <= p.to ? p : null
+  } catch {
+    return null
+  }
+}
+
+function storePeriod(p: ChartPeriod) {
+  try {
+    window.localStorage.setItem(PERIOD_KEY, JSON.stringify(p))
+  } catch {
+    // приватное окно — выбор просто не запомнится
+  }
+}
+
+function PeriodControl({ from, to, today, onChange }: { from: string; to: string; today: string; onChange: (from: string, to: string) => void }) {
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-2 text-xs text-muted" data-testid="ov-period">
+      <span>Период графика:</span>
+      <label className="flex items-center gap-1.5">
+        с
+        <input type="date" value={from} max={to} onChange={(e) => e.target.value && onChange(e.target.value, to)} className={field} aria-label="Начало периода графика" data-testid="ov-period-from" />
+      </label>
+      <label className="flex items-center gap-1.5">
+        по
+        <input type="date" value={to} min={from} max={addDays(today, MAX_AHEAD)} onChange={(e) => e.target.value && onChange(from, e.target.value)} className={field} aria-label="Конец периода графика" data-testid="ov-period-to" />
+      </label>
+      <span className="text-faint">до сегодня — факт по операциям, с сегодня — план и прогноз (не дальше 180 дней)</span>
+    </div>
+  )
+}
+
+function OverviewChart({ data, horizon }: { data: Overview; horizon: number }) {
   const colors = useTokenColors()
   const drill = useDrill<Row>((r) => (r.kind === 'fact' ? opsHref(r.day, r.day) : `/dashboard/planning/calendar?day=${r.day}`))
-  if (!colors) return null
   const today = data.today
-  const rows: Row[] = data.series.map((s) => {
-    const b = s.balance === null ? null : Number(s.balance)
-    return {
-      day: s.day,
-      label: short(s.day),
-      kind: s.kind,
-      ozon: Number(s.ozon),
-      income: Number(s.income),
-      expense: Number(s.expense),
-      fact: s.day <= today ? b : null,
-      plan: s.day >= today ? b : null,
-      src: s,
+  // пока период не выбирали — две недели назад и горизонт обзора вперёд, как раньше
+  const [chosen, setChosen] = useState<ChartPeriod | null>(null)
+  const [ready, setReady] = useState(false) // выбор прочитан из браузера — тогда и загружаем ряд
+  useEffect(() => {
+    setChosen(storedPeriod())
+    setReady(true)
+  }, [])
+  const from = addDays(today, chosen ? chosen.from : -14)
+  const to = addDays(today, chosen ? chosen.to : horizon)
+  const [series, setSeries] = useState<SeriesOut | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!ready) return
+    let cancelled = false
+    api
+      .get<SeriesOut>('/planning/overview/series', { params: { date_from: from, date_to: to } })
+      .then(({ data: body }) => {
+        if (cancelled) return
+        setSeries(body)
+        setError(null)
+      })
+      .catch((err) => !cancelled && setError(errorMessage(err)))
+    return () => {
+      cancelled = true
     }
-  })
+  }, [ready, from, to, data]) // data — обзор перезагрузили (отметили оплату) — ряд тоже
+
+  const change = (f: string, t: string) => {
+    const p = { from: dayDiff(f, today), to: dayDiff(t, today) }
+    setChosen(p)
+    storePeriod(p)
+  }
+  const rows: Row[] = useMemo(
+    () =>
+      (series?.series ?? []).map((s) => {
+        const b = s.balance === null ? null : Number(s.balance)
+        return {
+          day: s.day,
+          label: short(s.day),
+          kind: s.kind,
+          ozon: Number(s.ozon),
+          income: Number(s.income),
+          expense: Number(s.expense),
+          fact: s.day <= today ? b : null,
+          plan: s.day >= today ? b : null,
+          src: s,
+        }
+      }),
+    [series, today],
+  )
+  if (!colors) return null
   const limit = data.threshold === null ? 0 : Math.max(Number(data.threshold), 0)
   const factValues = rows.flatMap((r) => (r.fact === null ? [] : [r.fact]))
   const planValues = rows.flatMap((r) => (r.plan === null ? [] : [r.plan]))
-  // линия остатка: ниже порога (или нуля) — красным; ровная линия градиент не держит — тогда одним цветом
+  // линия остатка: ниже порога (или нуля) — красным; вся по одну сторону порога — одним цветом (иначе низ линии у
+  // градиента по рамке окрашивается, хотя порог не пересечён; ровная линия градиент и вовсе не держит)
   const stroke = (id: string, values: number[]) => {
-    if (values.length === 0) return colors.fg
-    if (Math.max(...values) === Math.min(...values)) return values[0] < limit ? colors.bad : colors.fg
+    if (values.length === 0 || Math.min(...values) >= limit) return colors.fg
+    if (Math.max(...values) < limit) return colors.bad
     return `url(#${id})`
   }
   const todayLabel = short(today)
+  const shown = series ? { from: series.date_from, to: series.date_to } : { from, to }
+  const hasToday = shown.from <= today && today <= shown.to
+  // «Подробнее →»: прошлое — операции за период, иначе — календарь платежей
+  const more = shown.to <= today ? opsHref(shown.from, shown.to) : '/dashboard/planning/calendar'
+  const side = shown.to <= today ? 'факт по операциям' : shown.from >= today ? 'план и прогноз (бледнее)' : 'слева — факт, справа — план (бледнее)'
   return (
     <section className="rounded-xl border border-line bg-card p-4" data-testid="ov-chart">
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
@@ -177,9 +265,11 @@ function OverviewChart({ data }: { data: Overview }) {
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-2.5 w-2.5 rounded-sm bg-bad" /> платежи
         </span>
-        <span>слева — факт, справа — план (бледнее)</span>
-        <MoreLink href="/dashboard/planning/calendar" />
+        <span data-testid="ov-chart-side">{side}</span>
+        <MoreLink href={more} />
       </div>
+      <PeriodControl from={from} to={to} today={today} onChange={change} />
+      <FormError message={error} />
       <div className={`h-64 ${drill.boxProps.className}`} onPointerDown={drill.boxProps.onPointerDown}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={rows} margin={{ top: 12, right: 4, bottom: 0, left: 0 }} stackOffset="sign" onClick={drill.onClick}>
@@ -198,7 +288,7 @@ function OverviewChart({ data }: { data: Overview }) {
             <YAxis tick={{ fill: colors.muted, fontSize: 11 }} tickFormatter={compact} tickLine={false} axisLine={false} width={64} />
             <ReferenceLine y={0} stroke={colors.bad} strokeDasharray="4 3" />
             {data.threshold !== null && <ReferenceLine y={Number(data.threshold)} stroke={colors.warn} strokeDasharray="4 3" />}
-            <ReferenceLine x={todayLabel} stroke={colors.faint} label={{ value: 'сегодня', position: 'top', fill: colors.muted, fontSize: 11 }} />
+            {hasToday && <ReferenceLine x={todayLabel} stroke={colors.faint} label={{ value: 'сегодня', position: 'top', fill: colors.muted, fontSize: 11 }} />}
             <Tooltip content={<ChartTip drill={drill} today={today} />} cursor={{ fill: colors.line, fillOpacity: 0.4 }} {...drill.tooltipProps} />
             {(['ozon', 'income', 'expense'] as const).map((key) => (
               <Bar key={key} dataKey={key} stackId="flow" fill={key === 'ozon' ? colors.accent : key === 'income' ? colors.ok : colors.bad} isAnimationActive={false} maxBarSize={18}>
@@ -403,7 +493,7 @@ export function OverviewTab({ accounts, horizonDays, onChanged }: { accounts: Ac
               ))}
             </ul>
           )}
-          <OverviewChart data={data} />
+          <OverviewChart data={data} horizon={horizon} />
           <Upcoming data={data} accounts={accounts} onChanged={changed} />
         </>
       )}

@@ -135,25 +135,27 @@ def _kind_of(item: cal.Item) -> str:
     return "income" if item.kind == "income" else "expense"
 
 
-async def overview(db: AsyncSession, user_id: uuid.UUID, horizon_days: int) -> dict:
-    today = today_msk()
-    date_from, date_to = today - timedelta(days=PAST_DAYS), today + timedelta(days=horizon_days - 1)
-    snap = await plan_calendar.snapshot(db, user_id, date_from, date_to)
-    ctx = snap.ctx
-
-    # факт слева от сегодня: операции и остаток по ним (переводы не меняют общий остаток)
-    rows, _ = await _flows(db, user_id, date_from, today)
-    opening, _ = await opening_at(db, user_id, date_from)
+async def _series(
+    db: AsyncSession, user_id: uuid.UUID, snap: plan_calendar.Snapshot, date_from: date, date_to: date,
+) -> list[dict]:
+    """Ряд по дням окна: до сегодня — факт (операции и остаток по ним), с сегодня — план (платежи календаря) и прогноз
+    остатка. Окно может быть целиком в прошлом (только факт) или в будущем (только план)."""
+    today = snap.ctx.today
+    # факт до сегодня: операции и остаток по ним (переводы не меняют общий остаток); сегодня — что уже пришло и ушло
     fact: dict[date, dict[str, Decimal]] = {}
-    for r in rows:
-        if r.transfer_id is not None:
-            continue
-        key = "ozon" if r.source == "ozon_payout" else ("income" if r.amount > 0 else "expense")
-        bucket = fact.setdefault(r.day, {"ozon": ZERO, "income": ZERO, "expense": ZERO})
-        bucket[key] += Decimal(r.amount)
+    opening = None
+    if date_from <= today:
+        rows, _ = await _flows(db, user_id, date_from, min(date_to, today))
+        opening, _ = await opening_at(db, user_id, date_from)
+        for r in rows:
+            if r.transfer_id is not None:
+                continue
+            key = "ozon" if r.source == "ozon_payout" else ("income" if r.amount > 0 else "expense")
+            bucket = fact.setdefault(r.day, {"ozon": ZERO, "income": ZERO, "expense": ZERO})
+            bucket[key] += Decimal(r.amount)
     plan: dict[date, dict[str, Decimal]] = {}
     for item in snap.visible:
-        if cal.in_forecast(item, today) and item.day >= today:
+        if cal.in_forecast(item, today) and max(today, date_from) <= item.day <= date_to:
             bucket = plan.setdefault(item.day, {"ozon": ZERO, "income": ZERO, "expense": ZERO})
             bucket[_kind_of(item)] += item.amount
     forecast = {d.day: d.balance for d in snap.forecast.days} if snap.forecast else {}
@@ -177,6 +179,26 @@ async def overview(db: AsyncSession, user_id: uuid.UUID, horizon_days: int) -> d
             "ozon": _money(flows["ozon"]), "income": _money(flows["income"]), "expense": _money(flows["expense"]),
             "fact": {k: _money(v) for k, v in f.items()} if f and not past else None,  # сегодня: уже пришло и ушло
         })
+    return series
+
+
+async def series(db: AsyncSession, user_id: uuid.UUID, date_from: date, date_to: date) -> dict:
+    """Ряд для графика за любой период: прошлое, будущее или всё вместе. Платежи календаря и прогноз — как в обзоре
+    (календарь от двух недель назад), чтобы остаток в одни и те же дни совпадал."""
+    today = today_msk()
+    snap = await plan_calendar.snapshot(db, user_id, today - timedelta(days=PAST_DAYS), max(date_to, today))
+    return {
+        "today": _d(today), "date_from": _d(date_from), "date_to": _d(date_to), "threshold": _money(snap.threshold),
+        "series": await _series(db, user_id, snap, date_from, date_to),
+    }
+
+
+async def overview(db: AsyncSession, user_id: uuid.UUID, horizon_days: int) -> dict:
+    today = today_msk()
+    date_from, date_to = today - timedelta(days=PAST_DAYS), today + timedelta(days=horizon_days - 1)
+    snap = await plan_calendar.snapshot(db, user_id, date_from, date_to)
+    ctx = snap.ctx
+    series = await _series(db, user_id, snap, date_from, date_to)
 
     ahead = [i for i in snap.visible if cal.in_forecast(i, today) and today <= i.day <= date_to]
     expected = {k: sum((i.amount for i in ahead if _kind_of(i) == k), ZERO) for k in ("ozon", "income", "expense")}

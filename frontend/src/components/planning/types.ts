@@ -339,6 +339,15 @@ export type SeriesDay = {
   fact: Record<'ozon' | 'income' | 'expense', string> | null // сегодня: уже пришло и ушло
 }
 
+/** Ряд графика «Остаток и движение денег» за выбранный период — GET /planning/overview/series. */
+export type SeriesOut = {
+  today: string
+  date_from: string
+  date_to: string
+  threshold: string | null
+  series: SeriesDay[]
+}
+
 export type Overview = {
   today: string
   date_from: string
