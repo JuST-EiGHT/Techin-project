@@ -62,6 +62,10 @@ class UserSettings(Base):
     supply_target_days: Mapped[int | None] = mapped_column(Integer)
     supply_lead_time_days: Mapped[int | None] = mapped_column(Integer)
     supply_safety_days: Mapped[int | None] = mapped_column(Integer)  # страховой запас, дней (10.18); нет — 0
+    # период планирования поставок (10.26): спрос — по заказам за столько дней; нет — 30
+    supply_demand_days: Mapped[int | None] = mapped_column(Integer)
+    # минимальная допустимая прибыль с продажи, ₽ (10.26): в расчёте цены — «цена с минимальной прибылью»; нет — 0
+    min_profit_rub: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     # порог «низкой маржи», % (шаг 7.1): акции, страница товаров, прибыль по товарам и аномалия «маржа ниже порога»;
     # пусто — 10 % (engine/anomaly_detector.Thresholds)
     low_margin_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))

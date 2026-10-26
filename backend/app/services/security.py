@@ -28,7 +28,7 @@ def verify_password(password: str, hashed: str) -> bool:
         return False
 
 
-def _create_token(user_id: uuid.UUID, token_type: str, lifetime: timedelta) -> tuple[str, str, int]:
+def _create_token(user_id: uuid.UUID, token_type: str, lifetime: timedelta, sid: uuid.UUID | None = None) -> tuple[str, str, int]:
     now = datetime.now(timezone.utc)
     exp = now + lifetime
     jti = uuid.uuid4().hex
@@ -36,15 +36,17 @@ def _create_token(user_id: uuid.UUID, token_type: str, lifetime: timedelta) -> t
         "sub": str(user_id), "type": token_type, "jti": jti, "iat": int(now.timestamp()), "exp": int(exp.timestamp()),
         "iat_ms": int(now.timestamp() * 1000),  # точнее iat: отсечь токены, выпущенные до смены пароля
     }
+    if sid is not None:
+        payload["sid"] = str(sid)  # сеанс входа (шаг 10.26): завершённый — токен не принимается
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM), jti, int(exp.timestamp())
 
 
-def create_access_token(user_id: uuid.UUID) -> str:
-    return _create_token(user_id, ACCESS, timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))[0]
+def create_access_token(user_id: uuid.UUID, sid: uuid.UUID | None = None) -> str:
+    return _create_token(user_id, ACCESS, timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES), sid)[0]
 
 
-def create_refresh_token(user_id: uuid.UUID) -> str:
-    return _create_token(user_id, REFRESH, timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS))[0]
+def create_refresh_token(user_id: uuid.UUID, sid: uuid.UUID | None = None) -> str:
+    return _create_token(user_id, REFRESH, timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS), sid)[0]
 
 
 def decode_token(token: str, expected_type: str | None = None) -> dict:

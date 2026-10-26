@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.user import User
 from app.schemas.user import UserCreate, UserUpdate
 from app.services.security import hash_password
+from app.services.account import split_name
 
 
 async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
@@ -22,6 +23,8 @@ async def create_user(db: AsyncSession, data: UserCreate) -> User:
         email=data.email.lower(),
         hashed_password=hash_password(data.password),
         full_name=data.full_name,
+        first_name=split_name(data.full_name)[0],
+        last_name=split_name(data.full_name)[1],
     )
     db.add(user)
     await db.commit()

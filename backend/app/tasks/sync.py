@@ -246,3 +246,20 @@ FOR_USER_TASKS = {
     "supplies": sync_supplies_for_user,
     "anomalies": detect_anomalies_for_user,
 }
+
+
+async def _purge_deleted_accounts() -> list[str]:
+    from app.services.account import purge_due
+
+    async with task_sessions() as sessions, sessions() as db:
+        return [str(i) for i in await purge_due(db)]
+
+
+@celery_app.task(name="tasks.purge_deleted_accounts")
+def purge_deleted_accounts() -> list[str]:
+    """Аккаунты, удаление которых запросили 30 дней назад и не отменили (шаг 10.26): удалить аккаунт и данные всех его
+    магазинов."""
+    ids = asyncio.run(_purge_deleted_accounts())
+    if ids:
+        log.info("Удалены аккаунты по запросу: %s", ", ".join(ids))
+    return ids

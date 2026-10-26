@@ -62,10 +62,29 @@ const BANKS: { code: Connection['provider']; title: string; steps: React.ReactNo
 ]
 
 function ConnectionRow({ conn, onChanged, onRemoved }: { conn: Connection; onChanged: () => void; onRemoved: (id: string) => void }) {
-  const [busy, setBusy] = useState<'sync' | 'verify' | 'delete' | null>(null)
+  const [busy, setBusy] = useState<'sync' | 'verify' | 'delete' | 'renew' | null>(null)
   const [confirming, setConfirming] = useState(false)
+  const [renewing, setRenewing] = useState(false) // «Обновить доступ» (шаг 10.26): новый токен того же банка
+  const [token, setToken] = useState('')
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  async function renew(e: React.FormEvent) {
+    e.preventDefault()
+    setBusy('renew')
+    setResult(null)
+    try {
+      await api.post('/bank/connections', { provider: conn.provider, token: token.trim() })
+      setResult({ ok: true, text: 'Доступ обновлён — банк принял новый токен, обновление продолжится с ним.' })
+      setRenewing(false)
+      setToken('')
+      onChanged()
+    } catch (err) {
+      setResult({ ok: false, text: errorMessage(err) })
+    } finally {
+      setBusy(null)
+    }
+  }
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current)
   }, [])
@@ -157,6 +176,24 @@ function ConnectionRow({ conn, onChanged, onRemoved }: { conn: Connection; onCha
             </div>
           )}
           {result && <div className={`mt-2 text-sm ${result.ok ? 'text-ok' : 'text-bad'}`} data-testid="bank-result">{result.text}</div>}
+          {renewing && (
+            <form onSubmit={renew} className="mt-3 flex flex-wrap items-end gap-2" data-testid="bank-renew-form">
+              <label className="block text-sm">
+                <span className="text-muted">Новый токен {conn.title}</span>
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  className="mt-1 block w-72 max-w-full rounded-lg border border-line bg-bg px-3 py-1.5 text-sm outline-none focus:border-accent"
+                />
+              </label>
+              <button type="submit" disabled={busy !== null || !token.trim()} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60">
+                {busy === 'renew' ? 'Проверяю в банке…' : 'Проверить и заменить'}
+              </button>
+              <span className="w-full text-xs text-faint">Токен истёк или его отозвали — выпустите новый в интернет-банке. Подключение обновится, загруженная история сохранится.</span>
+            </form>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           {confirming ? (
@@ -175,8 +212,11 @@ function ConnectionRow({ conn, onChanged, onRemoved }: { conn: Connection; onCha
                 <RefreshCw className={`mr-1 inline h-3.5 w-3.5 ${busy === 'sync' ? 'animate-spin' : ''}`} />
                 {busy === 'sync' ? 'Обновляю…' : 'Обновить'}
               </button>
-              <button onClick={verify} disabled={busy !== null} className={btn}>
-                {busy === 'verify' ? 'Проверяю…' : 'Проверить доступ'}
+              <button onClick={verify} disabled={busy !== null} className={btn} data-testid="bank-verify">
+                {busy === 'verify' ? 'Проверяю…' : 'Проверить соединение'}
+              </button>
+              <button onClick={() => setRenewing((v) => !v)} disabled={busy !== null} className={btn} data-testid="bank-renew">
+                Обновить доступ
               </button>
               <button onClick={() => setConfirming(true)} disabled={busy !== null} className="rounded-lg border border-line px-3 py-1.5 text-sm hover:border-bad hover:text-bad disabled:opacity-60">
                 Отключить

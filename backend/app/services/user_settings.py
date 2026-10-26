@@ -77,6 +77,19 @@ def supply_params(s: UserSettings) -> tuple[int, int]:
     return target, lead
 
 
+DEFAULT_DEMAND_DAYS = 30
+
+
+def supply_demand_days(s: UserSettings) -> int:
+    """Период планирования поставок (шаг 10.26): спрос — по заказам за столько дней; не задан — 30."""
+    return DEFAULT_DEMAND_DAYS if s.supply_demand_days is None else s.supply_demand_days
+
+
+def min_profit(s: UserSettings) -> Decimal:
+    """Минимальная допустимая прибыль с продажи, ₽ (шаг 10.26); не задана — 0 (минимальная цена — без убытка)."""
+    return Decimal(0) if s.min_profit_rub is None else Decimal(s.min_profit_rub)
+
+
 def supply_safety_days(s: UserSettings) -> int:
     """Страховой запас для поставок (шаг 10.18), дней; не задан — 0."""
     return DEFAULT_SAFETY_DAYS if s.supply_safety_days is None else s.supply_safety_days

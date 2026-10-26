@@ -24,8 +24,10 @@ export type UserSettings = {
   supply_target_days: number
   supply_lead_time_days: number
   supply_safety_days: number // страховой запас сверх цели, дней (10.18)
+  supply_demand_days: number // период планирования (10.26): продажи в день — по заказам за столько дней
   // порог «низкой маржи», % (шаг 7.1): акции, товары, прибыль по товарам, цены, аномалия «маржа ниже порога»
   low_margin_pct: string
+  min_profit_rub: string // минимальная допустимая прибыль с продажи, ₽ (10.26): калькулятор — floor_price
   // пороги аномалий (шаг 7.1, BUSINESS_LOGIC §7); дни запаса — пороги остатков выше
   anomaly_sales_drop_pct: number
   anomaly_sales_drop_red_pct: number

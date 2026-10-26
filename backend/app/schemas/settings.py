@@ -27,6 +27,8 @@ class SettingsResponse(BaseModel):
     supply_target_days: int
     supply_lead_time_days: int
     supply_safety_days: int = 0  # страховой запас сверх цели, дней (10.18)
+    supply_demand_days: int = 30  # период планирования (10.26): спрос — по заказам за столько дней
+    min_profit_rub: Decimal = Decimal(0)  # минимальная допустимая прибыль с продажи, ₽ (10.26); 0 — без убытка
     # порог «низкой маржи», % (шаг 7.1): акции, страница товаров, прибыль по товарам, аномалия «маржа ниже порога»
     low_margin_pct: Decimal
     # пороги аномалий (шаг 7.1, BUSINESS_LOGIC §7); дни запаса — пороги остатков выше
@@ -61,6 +63,8 @@ class SettingsUpdate(BaseModel):
     supply_target_days: int | None = Field(None, ge=1, le=365)
     supply_lead_time_days: int | None = Field(None, ge=0, le=180)
     supply_safety_days: int | None = Field(None, ge=0, le=180)
+    supply_demand_days: int | None = Field(None, ge=7, le=90)
+    min_profit_rub: Decimal | None = Field(None, ge=0, le=1_000_000, decimal_places=2)
     low_margin_pct: Decimal | None = Field(None, ge=0, le=90, decimal_places=2)
     anomaly_sales_drop_pct: int | None = Field(None, ge=1, le=99)
     anomaly_sales_drop_red_pct: int | None = Field(None, ge=1, le=99)

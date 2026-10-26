@@ -9,11 +9,14 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.tax import FORMS, REGIMES, default_rate, pct, rub, vat_rates, vat_rules
+from app.models.planning import PlanningSettings
+from app.models.pnl_snapshot import PnLSnapshot
 from app.models.product_cost import BEGINNING
+from app.models.report import Report
 from app.models.tax_profile import TaxProfile
 from app.services.sync.finance import today_msk
 from app.services.templates.values import VAT_RATES
@@ -176,3 +179,35 @@ def profile_title(p: "TaxProfile | ProfileData") -> str:
         parts.append(f"{regime.title} {pct(p.rate_pct)}")
     parts.append("без НДС" if p.vat_mode == "none" else f"НДС {pct(p.vat_rate_pct)}")
     return " · ".join(parts)
+
+
+async def impact(db: AsyncSession, user_id: uuid.UUID, day: date, today: date) -> list[str]:
+    """Что изменится, если сохранить профиль с даты `day` (шаг 10.26) — предупреждение до сохранения: P&L и налог с этой
+    даты (сколько закрытых месяцев и загруженных отчётов пересчитается), цены и маржа, налоги в «Планировании»."""
+    since = day.strftime("%d.%m.%Y")
+    if day <= BEGINNING:  # первый профиль — на всю историю
+        out = ["P&L, налог и чистая прибыль за любой период посчитаются по этому профилю (пока профиля нет — налог не "
+               "считается)."]
+    else:
+        out = [f"P&L, налог и чистая прибыль за любой период с {since} посчитаются по новому профилю; до {since} — как "
+               "раньше."]
+    months = await db.scalar(select(func.count()).select_from(PnLSnapshot).where(
+        PnLSnapshot.user_id == user_id, PnLSnapshot.date_to >= day))
+    if months:
+        out.append(f"Сохранённые итоги закрытых периодов с этой даты ({months}) пересчитаются при следующем открытии.")
+    reports = await db.scalar(select(func.count()).select_from(Report).where(
+        Report.user_id == user_id, Report.deleted_at.is_(None), Report.period_end.is_not(None), Report.period_end >= day))
+    if reports:
+        scope = "" if day <= BEGINNING else f" с периодом после {since}"
+        out.append(f"Загруженные отчёты Ozon{scope} ({reports}) покажут налог по новому профилю — кроме отчётов, где "
+                   "налог задан вручную.")
+    if day <= today:
+        out.append("Минимальная и целевая цена, маржа в акциях, на страницах товаров и в «Ценах» — сразу по новым "
+                   "условиям (налог с выручки и НДС входят в расчёт цены).")
+    else:
+        out.append(f"Цены и маржа на страницах — по прежним условиям до {since}, потом — по новым.")
+    planning = await db.get(PlanningSettings, user_id)
+    if planning is not None and planning.enabled and planning.gen_taxes:
+        out.append("Налоги и взносы в платёжном календаре — по срокам и суммам нового профиля"
+                   + ("; про уже прошедшие платежи спросим при сохранении." if day < today else "."))
+    return out

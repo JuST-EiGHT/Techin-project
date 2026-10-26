@@ -49,6 +49,9 @@ export type CalculateResponse = {
     current: Breakdown | null
     promo: Breakdown | null
     what_if?: Breakdown[] // «а если поставить …» (10.15) — по ценам запроса
+    floor_price?: string | null // цена с минимальной допустимой прибылью (настройка 10.26); не задана — null
+    floor_ok?: boolean | null // текущая цена не ниже неё
+    min_profit?: string | null // сама настройка, ₽ с продажи
   } | null
   promo_title: string | null
 }

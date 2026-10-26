@@ -27,7 +27,13 @@ from app.schemas.sync import utc
 from app.services.stocks import latest_stocks
 from app.services.sync.finance import MSK, today_msk
 from app.services.sync.postings import is_cancelled
-from app.services.user_settings import get_settings, load_thresholds, supply_params, supply_safety_days
+from app.services.user_settings import (
+    get_settings,
+    load_thresholds,
+    supply_demand_days,
+    supply_params,
+    supply_safety_days,
+)
 from app.services.xlsx_export import Col, table_xlsx
 
 WINDOW_DAYS = 30
@@ -80,12 +86,13 @@ class Coverage:
         }
 
 
-def coverage(state: PostingSync, today: date) -> Coverage | None:
-    """Окно расчёта: 30 полных дней до сегодня — но с первого загруженного дня и до последнего полного дня перед
-    синхронизацией (день синхронизации загружен не целиком)."""
+def coverage(state: PostingSync, today: date, window: int = WINDOW_DAYS) -> Coverage | None:
+    """Окно расчёта: `window` полных дней до сегодня (период планирования — настройка, 30 по умолчанию, шаг 10.26) — но
+    с первого загруженного дня и до последнего полного дня перед синхронизацией (день синхронизации загружен не
+    целиком). `days_30` — дней в окне (имя — с шага 5.2, когда окно было всегда 30 дней)."""
     synced_day = utc(state.synced_at).astimezone(MSK).date()
     end = min(today - timedelta(days=1), synced_day - timedelta(days=1))
-    start = max(end - timedelta(days=WINDOW_DAYS - 1), state.loaded_from)
+    start = max(end - timedelta(days=window - 1), state.loaded_from)
     if end < start:
         return None
     trend_from = max(end - timedelta(days=TREND_DAYS - 1), start)
@@ -171,7 +178,8 @@ async def report(db: AsyncSession, user_id: uuid.UUID, params: engine.Params) ->
         "by_offer": {p.offer_id: p.id for p in products.values()},
     }
     states = {s.scheme: s for s in (await db.execute(select(PostingSync).where(PostingSync.user_id == user_id))).scalars()}
-    covs = {scheme: coverage(state, today) for scheme, state in states.items()}
+    window = supply_demand_days(await get_settings(db, user_id))
+    covs = {scheme: coverage(state, today, window) for scheme, state in states.items()}
     clusters, own = await _destinations(db, user_id)
 
     points: list[engine.Point] = []

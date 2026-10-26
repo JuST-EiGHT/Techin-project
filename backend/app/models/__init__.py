@@ -37,3 +37,4 @@ from app.models.recommendation import RecommendationHide  # noqa: F401
 from app.models.offer_alias import OfferAlias  # noqa: F401
 from app.models.withdrawal import WithdrawalDecision  # noqa: F401
 from app.models.supply import SupplyDraft, SupplyOrder, SupplyOrderEvent, SupplyOrderItem, SupplyPlan, SupplyPlanItem  # noqa: F401
+from app.models.user_session import UserSession  # noqa: F401

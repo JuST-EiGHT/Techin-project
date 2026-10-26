@@ -28,7 +28,7 @@ from app.services.pnl_service import PnLRequest
 from app.services.sync.finance import today_msk
 from app.services.sync.products import latest_prices
 from app.services.tax_profile import load_profiles, profile_on, supplier_vat_multiplier
-from app.services.user_settings import get_settings, price_settings
+from app.services.user_settings import get_settings, min_profit, price_settings
 
 WINDOWS = (30, 90)  # дней продаж для логистики на штуку
 CENT = Decimal("0.01")
@@ -103,6 +103,7 @@ class PricingContext:
     prices: dict[uuid.UUID, ProductPrice]
     logistics: dict[str, Logistics]
     shop: Logistics
+    min_profit: Decimal = Decimal(0)  # минимальная допустимая прибыль с продажи, ₽ (настройка, шаг 10.26)
 
     def logistics_for(self, offer_id: str) -> Logistics:
         return self.logistics.get(offer_id) or self.shop
@@ -186,13 +187,15 @@ async def load(db: AsyncSession, user_id: uuid.UUID, products: list[Product] | N
         products = list((await db.execute(select(Product).where(Product.user_id == user_id))).scalars())
     today = today_msk()
     row = profile_on(await load_profiles(db, user_id), today)
-    ad, margin = price_settings(await get_settings(db, user_id))
+    s = await get_settings(db, user_id)
+    ad, margin = price_settings(s)
     by_offer, shop = await load_logistics(db, user_id, {p.offer_id for p in products}, today)
     return PricingContext(
         today=today, ad_pct=ad, target_margin_pct=margin,
         tax=calc.unit_tax(row.to_engine() if row else None, today),
         default_vat=await supplier_vat_multiplier(db, user_id, today), history=await load_cost_history(db, user_id),
         prices=await latest_prices(db, [p.id for p in products]), logistics=by_offer, shop=shop,
+        min_profit=min_profit(s),
     )
 
 
@@ -230,10 +233,11 @@ def calculate(ctx: PricingContext, product: Product, ov: Overrides | None = None
     promo = ov.promo_price if ov and ov.promo_price is not None else promo_price
     result = None
     if params is not None:
-        r = calc.calculate(params, inputs.price, promo)
+        r = calc.calculate(params, inputs.price, promo, ctx.min_profit)
         result = {
             "min_price": r.min_price, "min_error": r.min_error, "target_price": r.target_price,
             "target_error": r.target_error, "profitable": r.profitable,
+            "floor_price": r.floor_price, "floor_ok": r.floor_ok, "min_profit": ctx.min_profit or None,
             "current": _breakdown(r.current), "promo": _breakdown(r.promo),
             "what_if": [_breakdown(calc.breakdown(params, p)) for p in (what_if or [])],
         }

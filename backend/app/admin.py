@@ -33,7 +33,8 @@ from app.models.audit import OK
 from app.models.invite import Invite
 from app.models.user import User
 from app.schemas.user import UserCreate
-from app.services import login_limit, registration
+from app.models.user_session import ENDED_ALL, PASSWORD
+from app.services import account, login_limit, registration
 from app.services.audit import record
 from app.services.security import hash_password
 
@@ -105,6 +106,7 @@ async def reset_password(db: AsyncSession, args, out, ask) -> None:
     user.tokens_valid_after = registration.utcnow()  # выход на всех устройствах
     _audit(db, user, "reset_password")
     await db.commit()
+    await account.end_all(db, user.id, PASSWORD)  # и в списке «Активные сеансы» (шаг 10.26)
     await login_limit.reset_login(user.email)
     out(f"Пароль {user.email} изменён, все его сессии завершены, блокировка входа снята.")
     if show:
@@ -196,6 +198,8 @@ async def _set_active(db: AsyncSession, args, out, active: bool) -> None:
         user.tokens_valid_after = registration.utcnow()
     _audit(db, user, "activate" if active else "deactivate")
     await db.commit()
+    if not active:
+        await account.end_all(db, user.id, ENDED_ALL)
     out(f"{user.email}: доступ {'возвращён' if active else 'закрыт, сессии завершены; данные сохранены'}.")
 
 

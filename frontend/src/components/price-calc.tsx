@@ -186,6 +186,13 @@ export function PriceCalcBlock({ productId, refreshKey }: { productId: string; r
                       : `остаётся ${rub(shown!.profit)} с штуки, маржа ${pctText(shown!.margin)}`}
                   </p>
                 )}
+                {r.floor_price && Number(r.min_profit ?? 0) > 0 && (
+                  // минимальная допустимая прибыль («Настройки → Прибыльность», 10.26)
+                  <p className={`text-sm ${r.floor_ok === false ? 'text-warn' : 'text-muted'}`} data-testid="calc-floor">
+                    Чтобы оставалось не меньше {rub(r.min_profit!)} с продажи — цена от {rub(r.floor_price)}
+                    {r.floor_ok === false ? ': текущая ниже' : ''}
+                  </p>
+                )}
                 {r.promo && (
                   <p className={`text-sm ${Number(r.promo.profit) < 0 ? 'text-bad' : 'text-muted'}`} data-testid="calc-promo">
                     В акции{data.promo_title ? ` «${data.promo_title}»` : ''} за {rub(r.promo.price)}: маржа {pctText(r.promo.margin)} (

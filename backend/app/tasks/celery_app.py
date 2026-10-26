@@ -37,6 +37,8 @@ celery_app.conf.update(
         "detect-anomalies-hourly": {"task": "tasks.detect_anomalies_all", "schedule": crontab(minute=57)},
         # уведомления в Telegram, отложенные тихими часами или сбоем (шаг 7.3): каждые 5 минут
         "send-notifications-every-5-min": {"task": "tasks.send_notifications", "schedule": crontab(minute="*/5")},
+        # удаление аккаунтов, у которых кончилась отсрочка (шаг 10.26): раз в сутки, ночью
+        "purge-deleted-accounts-daily": {"task": "tasks.purge_deleted_accounts", "schedule": crontab(minute=13, hour=3)},
     },
 )
 

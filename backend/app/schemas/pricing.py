@@ -74,6 +74,9 @@ class CalcResult(BaseModel):
     target_price: Decimal | None
     target_error: str | None
     profitable: bool | None  # текущая цена не ниже минимальной
+    floor_price: Decimal | None = None  # цена с минимальной допустимой прибылью (настройка 10.26; не задана — null)
+    floor_ok: bool | None = None  # текущая цена не ниже неё
+    min_profit: Decimal | None = None  # сама настройка, ₽ с продажи
     current: Breakdown | None
     promo: Breakdown | None
     what_if: list[Breakdown] = []  # по ценам из запроса, в том же порядке

@@ -13,6 +13,7 @@ from app.core.monitoring import scrub
 from app.models.audit import AuditLog
 from app.models.invite import Invite
 from app.models.user import User
+from app.models.user_session import UserSession
 from app.services import registration
 from tests.conftest import USER
 
@@ -223,6 +224,10 @@ async def test_admin_reset_password_ends_sessions_and_unblocks(client, tokens, s
     async with sessions() as db:
         actions = (await db.scalars(select(AuditLog.action).where(AuditLog.action.like("admin.%")))).all()
         assert actions == ["admin.reset_password"]
+        # и в списке «Активные сеансы» прежних входов нет — только вход с новым паролем (шаг 10.26)
+        rows = (await db.scalars(select(UserSession))).all()
+        assert [x.end_reason for x in rows if x.ended_at is not None] == ["password"]
+        assert len([x for x in rows if x.ended_at is None]) == 1
 
     code, text = await run_admin(sessions, "reset-password", "nobody@example.com")
     assert code == 1 and "не найден" in text
