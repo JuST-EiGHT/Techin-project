@@ -4,9 +4,10 @@ from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.engine import abc
 from app.engine import anomaly_detector as anomalies
 from app.engine.stocks import DEFAULT_THRESHOLDS, Thresholds
-from app.engine.supply_planner import DEFAULT_LEAD_TIME_DAYS, DEFAULT_TARGET_DAYS
+from app.engine.supply_planner import DEFAULT_LEAD_TIME_DAYS, DEFAULT_SAFETY_DAYS, DEFAULT_TARGET_DAYS
 from app.models.user_settings import (
     DEFAULT_AD_PCT,
     DEFAULT_SUPPLIER_PAYMENT,
@@ -46,11 +47,52 @@ async def load_thresholds(db: AsyncSession, user_id: uuid.UUID) -> Thresholds:
     return stock_thresholds(await get_settings(db, user_id))
 
 
+DEFAULT_HIDE_DAYS = 7
+
+
+def recommendation_hide_days(s: UserSettings) -> int:
+    """«Скрыть» рекомендацию — на сколько дней (шаг 10.6); не задано — 7."""
+    return DEFAULT_HIDE_DAYS if s.recommendation_hide_days is None else s.recommendation_hide_days
+
+
+def abc_bounds(s: UserSettings) -> abc.Bounds:
+    """Границы ABC-групп, % накопленной доли (шаг 10.10); не заданы — 80 и 95."""
+    return abc.Bounds(abc.DEFAULT_A if s.abc_a_pct is None else Decimal(s.abc_a_pct),
+                      abc.DEFAULT_B if s.abc_b_pct is None else Decimal(s.abc_b_pct))
+
+
+def check_abc_bounds(current: UserSettings, changes: dict) -> None:
+    a = changes.get("abc_a_pct", current.abc_a_pct)
+    b = changes.get("abc_b_pct", current.abc_b_pct)
+    a = abc.DEFAULT_A if a is None else Decimal(a)
+    b = abc.DEFAULT_B if b is None else Decimal(b)
+    if a >= b:
+        raise SettingsError("Граница группы A должна быть меньше границы группы B: например, 80 и 95 %")
+
+
 def supply_params(s: UserSettings) -> tuple[int, int]:
     """Поставки (шаг 5.2): запас после поставки и дней в пути; не заданы — 45 и 7 (engine/supply_planner)."""
     target = DEFAULT_TARGET_DAYS if s.supply_target_days is None else s.supply_target_days
     lead = DEFAULT_LEAD_TIME_DAYS if s.supply_lead_time_days is None else s.supply_lead_time_days
     return target, lead
+
+
+DEFAULT_DEMAND_DAYS = 30
+
+
+def supply_demand_days(s: UserSettings) -> int:
+    """Период планирования поставок (шаг 10.26): спрос — по заказам за столько дней; не задан — 30."""
+    return DEFAULT_DEMAND_DAYS if s.supply_demand_days is None else s.supply_demand_days
+
+
+def min_profit(s: UserSettings) -> Decimal:
+    """Минимальная допустимая прибыль с продажи, ₽ (шаг 10.26); не задана — 0 (минимальная цена — без убытка)."""
+    return Decimal(0) if s.min_profit_rub is None else Decimal(s.min_profit_rub)
+
+
+def supply_safety_days(s: UserSettings) -> int:
+    """Страховой запас для поставок (шаг 10.18), дней; не задан — 0."""
+    return DEFAULT_SAFETY_DAYS if s.supply_safety_days is None else s.supply_safety_days
 
 
 # пороги аномалий (шаг 7.1): поле настроек → поле engine/anomaly_detector.Thresholds
@@ -59,6 +101,7 @@ ANOMALY_FIELDS = {
     "anomaly_sales_growth_pct": "sales_growth", "anomaly_price_pct": "price", "anomaly_price_red_pct": "price_red",
     "anomaly_commission_pp": "commission_pp", "low_margin_pct": "low_margin", "anomaly_payout_diff_pct": "payout_diff",
     "anomaly_cash_gap_days": "cash_gap_days", "anomaly_uncategorized_days": "uncategorized_days",
+    "anomaly_sync_stale_hours": "sync_stale_hours", "anomaly_data_gap_days": "data_gap_days",
 }
 
 
@@ -84,7 +127,7 @@ def anomaly_thresholds(s: UserSettings) -> anomalies.Thresholds:
     values["commission_pp"] = _plain(values["commission_pp"])
     values["low_margin"] = _plain(values["low_margin"])
     stock = stock_thresholds(s)
-    return anomalies.Thresholds(**values, stock_critical=stock.critical, stock_low=stock.low)
+    return anomalies.Thresholds(**values, stock_critical=stock.critical, stock_low=stock.low, stock_excess=stock.excess)
 
 
 class SettingsError(Exception):
@@ -129,6 +172,8 @@ async def update_settings(db: AsyncSession, user_id: uuid.UUID, changes: dict) -
         check_thresholds(current or defaults(user_id), changes)
     if ANOMALY_FIELDS.keys() & changes.keys():
         check_anomaly_thresholds(current or defaults(user_id), changes)
+    if {"abc_a_pct", "abc_b_pct"} & changes.keys():
+        check_abc_bounds(current or defaults(user_id), changes)
     if current is None:
         current = defaults(user_id)
         db.add(current)

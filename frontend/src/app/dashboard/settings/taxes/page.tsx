@@ -60,7 +60,7 @@ type Example = {
   lines: string[]
   warnings: string[]
 }
-type Preview = { title: string; how: string[]; example: Example; report_example: Example | null }
+type Preview = { title: string; how: string[]; example: Example; report_example: Example | null; impact?: string[] } // impact — что изменится (10.26)
 type From = 'beginning' | 'year' | 'quarter' | 'date'
 
 const BEGINNING = '2000-01-01'
@@ -556,6 +556,18 @@ export default function TaxesPage() {
                       Загрузите отчёт Ozon — покажем расчёт и на ваших цифрах.
                     </p>
                   )}
+                </div>
+              )}
+              {preview?.impact && preview.impact.length > 0 && (
+                // до сохранения (шаг 10.26): что пересчитается в отчётах и расчётах
+                <div className="rounded-lg border border-warn/40 bg-warn/10 p-4 text-sm" data-testid="tax-impact">
+                  <p className="font-semibold">Что изменится, если сохранить</p>
+                  <ul className="mt-1 list-disc space-y-1 pl-5 text-muted">
+                    {preview.impact.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-xs text-faint">Исходные данные (начисления, отчёты, себестоимость) не меняются — пересчитываются только итоги; прежний профиль остаётся в истории ниже.</p>
                 </div>
               )}
               <div className="flex flex-wrap items-center gap-3 pt-1">

@@ -6,7 +6,9 @@ from typing import Literal
 from pydantic import BaseModel
 
 Severity = Literal["yellow", "red"]
-Group = Literal["sales", "price", "margin", "stock", "promo", "money"]
+Group = Literal["sales", "price", "margin", "stock", "promo", "money", "data"]
+# разделы уведомлений по карте сервиса (10.25, engine/notifications.SECTIONS)
+Section = Literal["sales", "margin", "stock", "cash", "payouts", "auto_promo", "prices", "data", "automation"]
 
 
 class AnomalyProduct(BaseModel):
@@ -19,7 +21,9 @@ class AnomalyItem(BaseModel):
     id: uuid.UUID
     type: str  # sales_drop, price_change … (engine/anomaly_detector)
     type_title: str  # «Падение продаж»
-    group: Group | None  # sales | price | margin | stock | promo | money
+    group: Group | None  # sales | price | margin | stock | promo | money | data (10.5)
+    section: Section | None = None  # раздел уведомлений (10.25)
+    muted: bool = False  # раздел выключен в настройках уведомлений — не тревожит, видно только на странице
     severity: Severity
     title: str  # «Продажи упали на 62 %»
     message: str  # что случилось и что сделать
@@ -30,6 +34,7 @@ class AnomalyItem(BaseModel):
     threshold: Decimal | None  # какой порог пройден
     unit: str | None  # шт./день, ₽, %, дн., шт.
     details: dict
+    money_at_risk: Decimal | None = None  # деньги под риском, ₽ — оценка по последней проверке (10.5); оценить нельзя — null
     detected_at: datetime
     last_seen_at: datetime  # последняя проверка, на которой аномалия ещё была
     resolved_at: datetime | None
@@ -54,6 +59,7 @@ class AnomaliesPage(BaseModel):
     offset: int
     counts: AnomalyCounts
     by_group: dict[str, int]  # сколько по группам при тех же фильтрах, кроме группы и типа (числа у фильтров)
+    by_section: dict[str, int] = {}  # так же по разделам уведомлений (10.25)
     checked_at: datetime | None  # последняя проверка (раз в час); null — ещё не было
 
 
@@ -62,6 +68,7 @@ class AcknowledgeAll(BaseModel):
 
     severity: Severity | None = None
     group: Group | None = None
+    section: Section | None = None
     type: str | None = None
     product_id: uuid.UUID | None = None
 

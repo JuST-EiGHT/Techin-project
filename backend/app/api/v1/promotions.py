@@ -1,4 +1,6 @@
-"""Акции Ozon: список, товары акции, товары, добавленные автоматически."""
+"""Акции Ozon: список, товары акции, товары, добавленные автоматически. 10.16: минимальная и целевая цена для участия у
+каждого товара и кандидата (калькулятор 4.2), «весь остаток» — сколько выйдет, если уйдёт весь; результаты акции и
+каждого участия — GET /promotions/{id}/results, результат в истории участия."""
 import uuid
 from collections import defaultdict
 from collections.abc import Callable
@@ -10,6 +12,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.engine import price_calculator as calc
 from app.engine.price_calculator import margin_at
 from app.engine.products import positive
 from app.engine.promotions import LOW, NEGATIVE, OK, margin_level
@@ -20,6 +23,7 @@ from app.schemas.promotion import (
     NO_COST_NOTE,
     ActionResponse,
     HistoryResponse,
+    PromotionResults,
     JoinRequest,
     LeaveRequest,
     WHOLE_STOCK_WARNING,
@@ -31,7 +35,7 @@ from app.schemas.promotion import (
     PromotionResponse,
 )
 from app.schemas.sync import utc
-from app.services import audit, pricing
+from app.services import audit, pricing, promotion_results
 from app.services import promotion_actions as actions
 from app.services.promotion_history import MAX_DAYS
 from app.services.promotion_history import history as participation_history
@@ -48,10 +52,11 @@ MarginOf = Callable[[PromotionProduct], Decimal | None]
 
 
 class Margins:
-    """Маржа в акции на момент запроса и порог «низкой маржи» пользователя (шаг 7.1)."""
+    """Маржа в акции на момент запроса и порог «низкой маржи» пользователя (шаг 7.1); params — данные калькулятора
+    товара (для минимальной и целевой цены участия, 10.16)."""
 
-    def __init__(self, of: MarginOf, low: Decimal):
-        self.of, self.low = of, low
+    def __init__(self, of: MarginOf, low: Decimal, params: Callable[[uuid.UUID], object | None] = lambda _: None):
+        self.of, self.low, self.params = of, low, params
 
     def __call__(self, r: PromotionProduct) -> Decimal | None:
         return self.of(r)
@@ -71,16 +76,44 @@ async def _margins(db: AsyncSession, user_id: uuid.UUID) -> Margins:
     ctx = await pricing.load(db, user_id, list(products.values()))
     params: dict[uuid.UUID, object] = {}
 
-    def margin_of(r: PromotionProduct) -> Decimal | None:
-        if r.product_id not in params:
-            product = products.get(r.product_id)
-            params[r.product_id] = ctx.product_params(product) if product else None
-        p = params[r.product_id]
-        # кандидат — по цене, с которой его добавит вход по умолчанию: максимальная для участия, иначе подсказка Ozon
-        price = r.action_price if r.is_active else (positive(r.max_action_price) or r.action_price)
-        return margin_at(p, price) if p is not None else None
+    def params_of(product_id: uuid.UUID):
+        if product_id not in params:
+            product = products.get(product_id)
+            params[product_id] = ctx.product_params(product) if product else None
+        return params[product_id]
 
-    return Margins(margin_of, await load_low_margin(db, user_id))
+    def margin_of(r: PromotionProduct) -> Decimal | None:
+        p = params_of(r.product_id)
+        return margin_at(p, promo_price(r)) if p is not None else None
+
+    return Margins(margin_of, await load_low_margin(db, user_id), params_of)
+
+
+def promo_price(r: PromotionProduct) -> Decimal | None:
+    """Цена в акции; у кандидата — с которой его добавит вход по умолчанию: максимальная для участия, иначе подсказка Ozon."""
+    return r.action_price if r.is_active else (positive(r.max_action_price) or r.action_price)
+
+
+def participation_prices(params, price: Decimal | None, on_hand: int, whole_stock: bool) -> dict:
+    """Минимальная цена для участия (маржа 0) и целевая (ваша маржа) — калькулятор 4.2; прибыль с 1 шт. при цене в
+    акции; «весь остаток» (BUSINESS_LOGIC §9) — сколько выйдет, если по этой цене уйдёт весь остаток."""
+    out = {"breakeven_price": None, "target_price": None, "below_breakeven": False, "unit_profit": None,
+           "whole_stock_profit": None}
+    if params is None:
+        return out
+    for key, margin in (("breakeven_price", Decimal(0)), ("target_price", params.target_margin_pct)):
+        try:
+            out[key] = calc.price_for_margin(params, margin)
+        except calc.PriceUnreachable:
+            pass
+    price = positive(price)
+    if price is not None:
+        profit = calc.breakdown(params, price).profit
+        out["unit_profit"] = profit
+        out["below_breakeven"] = out["breakeven_price"] is not None and price < out["breakeven_price"]
+        if whole_stock and on_hand > 0:
+            out["whole_stock_profit"] = (profit * on_hand).quantize(Decimal("0.01"))
+    return out
 
 
 def is_urgent(freeze: datetime | None, now: datetime) -> bool:
@@ -110,7 +143,8 @@ def _promotion(p: Promotion, rows: list[PromotionProduct], margin_of: Margins) -
     )
 
 
-def _product_row(r: PromotionProduct, product: Product, on_hand: int, margin: Decimal | None, low: Decimal) -> dict:
+def _product_row(r: PromotionProduct, product: Product, on_hand: int, margin: Decimal | None, low: Decimal,
+                 prices: dict | None = None) -> dict:
     discount = None
     if r.price and r.action_price is not None and r.price > 0:
         discount = ((r.price - r.action_price) / r.price * 100).quantize(Decimal("0.1"))
@@ -121,7 +155,7 @@ def _product_row(r: PromotionProduct, product: Product, on_hand: int, margin: De
         below_min_price=bool(r.min_price and r.action_price is not None and r.action_price < r.min_price),
         stock=r.stock, stock_on_hand=on_hand, is_active=r.is_active, added_automatically=r.added_automatically,
         add_mode=r.add_mode, margin_in_promo=margin, margin_level=margin_level(margin, low),
-        first_seen_at=utc(r.first_seen_at),
+        first_seen_at=utc(r.first_seen_at), **(prices or {}),
     )
 
 
@@ -210,7 +244,7 @@ async def promotion_history(
         product = await db.get(Product, product_id)
         if product is None or product.user_id != user.id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Товар не найден")
-    items = await participation_history(db, user.id, start, end, product_id)
+    items = await participation_history(db, user.id, start, end, product_id, with_results=True)
     return {"date_from": start, "date_to": end, "items": items}
 
 
@@ -244,7 +278,10 @@ async def promotion_products(
     on_hand = await _on_hand(db, user.id)
     margin_of = await _margins(db, user.id)
     items = [
-        PromotionProductResponse(**_product_row(r, product, on_hand.get(product.id, 0), margin_of(r), margin_of.low))
+        PromotionProductResponse(**_product_row(
+            r, product, on_hand.get(product.id, 0), margin_of(r), margin_of.low,
+            participation_prices(margin_of.params(product.id), promo_price(r), on_hand.get(product.id, 0), promo.whole_stock),
+        ))
         for r, product in pairs
         if participating is None or r.is_active == participating
     ]
@@ -253,6 +290,43 @@ async def promotion_products(
     return PromotionProductsResponse(
         promotion=_promotion(promo, all_rows, margin_of), margin_note=_margin_note(all_rows, margin_of), items=items
     )
+
+
+RESULTS_NOTE = (
+    "Продажи, выручка и прибыль товара за время участия — против такого же числа дней до входа в акцию (длинное участие — "
+    f"по первым {promotion_results.engine.MAX_DAYS} дням). Дни без начислений — пропуск, а не ноль: сравниваем средние за "
+    "день с данными. Прибыль — до налога, как в «Прибыли по товарам»; без себестоимости её нет. Вход — по синхронизациям "
+    "акций и вашим действиям в сервисе."
+)
+
+
+@router.get("/{promotion_id}/results", response_model=PromotionResults)
+async def promotion_results_page(
+    promotion_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
+):
+    """Результаты акции: по каждому участию — во время против такого же периода до; по акции в целом — сумма товаров,
+    у которых данные есть в обоих окнах."""
+    promo = await db.get(Promotion, promotion_id)
+    if promo is None or promo.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, _NOT_FOUND)
+    found = (await db.execute(
+        select(PromotionProduct, Product)
+        .join(Product, Product.id == PromotionProduct.product_id)
+        .where(PromotionProduct.promotion_id == promo.id, PromotionProduct.is_active.is_(True))
+        .order_by(Product.offer_id, PromotionProduct.first_seen_at)
+    )).all()
+    computed = await promotion_results.results(db, user.id, [(r, promo, product) for r, product in found])
+    items = [
+        {"participation_id": r.id, "product": PromoProduct(id=p.id, offer_id=p.offer_id, name=p.name, ozon_sku=p.ozon_sku),
+         "entered_at": utc(r.first_seen_at), "left_at": utc(r.left_at), "is_current": r.left_at is None,
+         "result": promotion_results.public(computed[r.id])}
+        for r, p in found
+    ]
+    # с данными — первыми, внутри — больше выручки во время акции
+    items.sort(key=lambda i: (not i["result"]["known"], -i["result"]["during"]["revenue"], i["product"].offer_id))
+    rows = await _rows_by_promotion(db, [promo.id])
+    return {"promotion": _promotion(promo, rows[promo.id], await _margins(db, user.id)),
+            "totals": promotion_results.overall(computed), "items": items, "note": RESULTS_NOTE}
 
 
 @router.post("/{promotion_id}/products/{product_id}/join", response_model=ActionResponse)

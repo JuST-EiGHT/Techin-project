@@ -11,7 +11,7 @@ import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Uuid, func
+from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -58,7 +58,11 @@ class MoneyAccountBalance(Base):
 
 
 class CashCategory(Base):
-    """Статья движения денег. `code` — у статей из шаблона (по профилю бизнеса), у своих — None."""
+    """Статья движения денег. `code` — у статей из шаблона (по профилю бизнеса), у своих — None.
+
+    Подстатьи (шаг 10.19): `parent_id` — статья того же вида, один уровень вложенности; факт подстатьи входит в статью.
+    Где учитывается: ДДС — всегда (все деньги); `in_pnl` — в P&L как прочий расход бизнеса (шаг 10.22), `in_budget` — в
+    бюджетах (шаг 10.21)."""
 
     __tablename__ = "cash_categories"
 
@@ -67,6 +71,9 @@ class CashCategory(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     kind: Mapped[str] = mapped_column(String(8), nullable=False)  # income | expense | transfer
     code: Mapped[str | None] = mapped_column(String(32))
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("cash_categories.id", ondelete="SET NULL"))
+    in_pnl: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    in_budget: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now, server_default=func.now())
 
@@ -122,17 +129,24 @@ class PlanningSettings(Base):
     gen_taxes: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     supplier_period: Mapped[str] = mapped_column(String(8), nullable=False, default="week", server_default="week")
     supplier_day: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")  # день недели / число
+    # сценарии бюджета (шаг 10.21): на сколько % плановые поступления и платежи больше (+) или меньше (−) базового
+    scen_opt_income: Mapped[Decimal] = mapped_column(Numeric(5, 1), nullable=False, default=Decimal(10), server_default="10")
+    scen_opt_expense: Mapped[Decimal] = mapped_column(Numeric(5, 1), nullable=False, default=Decimal(-5), server_default="-5")
+    scen_pes_income: Mapped[Decimal] = mapped_column(Numeric(5, 1), nullable=False, default=Decimal(-10), server_default="-10")
+    scen_pes_expense: Mapped[Decimal] = mapped_column(Numeric(5, 1), nullable=False, default=Decimal(10), server_default="10")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
 
 RULE_DIRECTIONS = ("in", "out")  # поступление | платёж
+RULE_SOURCES = ("bank", "import", "manual")  # условие «источник»: из банка (файл или API), из файла операций, вручную
 
 
 class CategorizationRule(Base):
     """Правило разнесения (шаг 3.12): условия → статья. Условия складываются (все указанные должны совпасть):
-    ИНН контрагента, слова в названии контрагента, слова в назначении (через запятую — любое), направление, сумма от / до.
+    ИНН контрагента, слова в названии контрагента, слова в назначении (через запятую — любое), направление, сумма от / до,
+    счёт и источник операции (шаг 10.20).
     Порядок — `priority` (меньше — раньше), срабатывает первое подошедшее. Ручная разметка важнее правил. Правило —
     настройка, а не исходные данные: меняется на месте, удаление — `deleted_at` (операции помнят `rule_id`)."""
 
@@ -148,11 +162,48 @@ class CategorizationRule(Base):
     purpose: Mapped[str | None] = mapped_column(String(500))  # слова в назначении платежа, через запятую — любое
     amount_min: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     amount_max: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    account_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("money_accounts.id", ondelete="SET NULL"))
+    source: Mapped[str | None] = mapped_column(String(8))  # RULE_SOURCES; None — любой
     category_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("cash_categories.id", ondelete="CASCADE"), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now, server_default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+RUN_TRIGGERS = ("rule_created", "rule_changed", "rule_deleted", "reorder", "manual", "categorize", "bank_file", "bank_api")
+
+
+class RuleRun(Base):
+    """Журнал применения правил (шаг 10.20): когда и почему правила пересчитали статьи, сколько операций проверили и
+    изменили, какие именно (`details`, первые 100), ошибки и предупреждения (`problems`: статья правила в архиве,
+    правило не срабатывает — его операции забирает правило выше). Только добавление (правило 12)."""
+
+    __tablename__ = "rule_runs"
+    __table_args__ = (Index("ix_rule_runs_user", "user_id", "created_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    trigger: Mapped[str] = mapped_column(String(16), nullable=False)  # RUN_TRIGGERS
+    rule_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)  # правило, из-за которого пересчёт (создано, изменено …)
+    checked: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # операций без ручной разметки проверено
+    changed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    details: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    problems: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now, server_default=func.now())
+
+
+class PlanMatchDismissal(Base):
+    """План-факт (шаг 10.20): «это не оплата этого платежа» — предложение больше не показываем. Не удаляется."""
+
+    __tablename__ = "plan_match_dismissals"
+    __table_args__ = (Index("ix_plan_match_dismissals_user", "user_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    key: Mapped[str] = mapped_column(String(120), nullable=False)  # ключ платежа календаря
+    op_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now, server_default=func.now())
 
 
 PLAN_KINDS = ("income", "expense")
@@ -216,3 +267,24 @@ class PlannedOverride(Base):
     paid_day: Mapped[date | None] = mapped_column(Date)
     paid_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now, server_default=func.now())
+
+
+BUDGET_SOURCES = ("manual", "import", "last_year", "prev_period")  # вручную, из файла, как в прошлом году, как прошлый период
+
+
+class BudgetLine(Base):
+    """Бюджет (шаг 10.21): план по статье на месяц — сумма больше или равна 0 (знак — по виду статьи). Квартал и год —
+    суммы месяцев. Изменение — новая строка, прежняя помечается `superseded_at` (правило 12); `amount` пусто — план
+    убрали. Действует строка без `superseded_at`. План статьи с подстатьями = её свой план + планы подстатей."""
+
+    __tablename__ = "budget_lines"
+    __table_args__ = (Index("ix_budget_lines_user_month", "user_id", "month"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    category_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("cash_categories.id", ondelete="CASCADE"), nullable=False)
+    month: Mapped[date] = mapped_column(Date, nullable=False)  # первое число месяца
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    source: Mapped[str] = mapped_column(String(12), nullable=False, default="manual")  # BUDGET_SOURCES
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now, server_default=func.now())
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -1,0 +1,12 @@
+{
+  "skus_defects": [{"defect_reasons": ["Повреждена упаковка"], "sku": 900001001}],
+  "supply_acts": [
+    {"act_id": 1, "type": "UNSPECIFIED", "unidentified_quantity": 0, "items": [
+      {"approved_quantity": 18, "declared_quantity": 20, "fact_quantity": 18,
+       "sku_info": {"sku": 900001001, "offer_id": "6001-2RS.C3.SRL.NAC.TH", "name": "Подшипник тестовый 1"}},
+      {"approved_quantity": 5, "declared_quantity": 5, "fact_quantity": 5,
+       "sku_info": {"sku": 900001002, "offer_id": "ACB305523.NAC.JP", "name": "Подшипник тестовый 2"}}
+    ]}
+  ],
+  "supply_id": 7001
+}

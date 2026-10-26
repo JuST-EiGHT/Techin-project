@@ -5,7 +5,9 @@ import { useAuth } from '@/contexts/AuthContext'
 import { api } from '@/lib/api'
 
 export type Severity = 'red' | 'yellow'
-export type AlertGroup = 'sales' | 'price' | 'margin' | 'stock' | 'promo' | 'money'
+export type AlertGroup = 'sales' | 'price' | 'margin' | 'stock' | 'promo' | 'money' | 'data'
+// разделы уведомлений по карте сервиса (10.25): каждая аномалия — ровно в одном
+export type AlertSection = 'sales' | 'margin' | 'stock' | 'cash' | 'payouts' | 'auto_promo' | 'prices' | 'data' | 'automation'
 export type AlertStatus = 'active' | 'resolved' | 'all'
 
 export type Anomaly = {
@@ -13,6 +15,8 @@ export type Anomaly = {
   type: string
   type_title: string // «Падение продаж»
   group: AlertGroup | null
+  section: AlertSection | null // раздел уведомлений (10.25)
+  muted: boolean // раздел выключен в настройках — не тревожит, видно только на странице «Уведомления»
   severity: Severity
   title: string // «Продажи упали на 62 %»
   message: string // что случилось и что сделать
@@ -23,6 +27,7 @@ export type Anomaly = {
   threshold: string | null
   unit: string | null
   details: Record<string, unknown>
+  money_at_risk: string | null // деньги под риском, ₽ — где можно оценить (10.5)
   detected_at: string
   last_seen_at: string
   resolved_at: string | null
@@ -41,6 +46,7 @@ export type AnomaliesPage = {
   offset: number
   counts: AlertCounts
   by_group: Partial<Record<AlertGroup, number>>
+  by_section: Partial<Record<AlertSection, number>>
   checked_at: string | null
 }
 
@@ -48,10 +54,26 @@ export const GROUPS: { value: AlertGroup; label: string; hint: string }[] = [
   { value: 'sales', label: 'Продажи', hint: 'упали или резко выросли — по магазину и по товарам' },
   { value: 'price', label: 'Цены', hint: 'цена или комиссия Ozon изменились за 7 дней' },
   { value: 'margin', label: 'Маржа', hint: 'маржа при текущей цене ниже вашего порога' },
-  { value: 'stock', label: 'Остатки', hint: 'запаса меньше порога «Мало» или «Критично»' },
+  { value: 'stock', label: 'Остатки', hint: 'запаса меньше порога «Мало» или «Критично» или больше порога «Избыток»' },
   { value: 'promo', label: 'Акции', hint: 'Ozon сам добавил товар в акцию или в акции маржа ниже нуля' },
   { value: 'money', label: 'Деньги', hint: 'выплаты Ozon, сверка с банком, кассовый разрыв, операции без статьи' },
+  { value: 'data', label: 'Данные', hint: 'синхронизация, пропуски в начислениях, отчёты с ошибкой, продажи без себестоимости' },
 ]
+
+/** Разделы «Уведомлений» в порядке карты сервиса (SITEMAP п. 9); «Автоматизация» — с шагов 9.x. */
+export const SECTIONS: { value: AlertSection; label: string; hint: string; soon?: boolean }[] = [
+  { value: 'sales', label: 'Продажи', hint: 'продажи магазина или товара упали или резко выросли' },
+  { value: 'margin', label: 'Низкая маржа', hint: 'маржа ниже порога или ниже нуля, убыток в акции' },
+  { value: 'stock', label: 'Остатки', hint: 'заканчиваются — пора везти; лишний запас' },
+  { value: 'cash', label: 'Кассовый разрыв', hint: 'прогноз остатка на счетах ниже нуля или порога; операции без статьи' },
+  { value: 'payouts', label: 'Выплаты Ozon и банк', hint: 'выплата не пришла, разошлась с прогнозом, не дошла до счёта' },
+  { value: 'auto_promo', label: 'Автодобавление в акцию', hint: 'Ozon сам добавил товар в акцию' },
+  { value: 'prices', label: 'Изменения цен', hint: 'цена или комиссия Ozon изменились за 7 дней' },
+  { value: 'data', label: 'Синхронизация и отчёты', hint: 'ключ не принят, данные не обновляются, пропуски, отчёты с ошибкой' },
+  { value: 'automation', label: 'Автоматизация', hint: 'появится с автоматическими правилами цен, акций и поставок', soon: true },
+]
+export const SECTION_LABEL = Object.fromEntries(SECTIONS.map((s) => [s.value, s.label])) as Record<AlertSection, string>
+export const NOTIFY_SETTINGS = '/dashboard/settings/notifications'
 
 export const SEVERITY: Record<Severity, { label: string; dot: string; text: string; stripe: string }> = {
   red: { label: 'красная', dot: 'bg-bad', text: 'text-bad', stripe: 'border-l-bad' },
@@ -149,7 +171,7 @@ export async function acknowledge(id: string): Promise<Anomaly> {
 }
 
 /** «Отметить все прочитанными» — по фильтрам (пусто — все активные). */
-export async function acknowledgeAll(filters: { severity?: Severity; group?: AlertGroup } = {}): Promise<number> {
+export async function acknowledgeAll(filters: { severity?: Severity; group?: AlertGroup; section?: AlertSection } = {}): Promise<number> {
   const { data } = await api.post<{ acknowledged: number; counts: AlertCounts }>('/anomalies/acknowledge-all', filters)
   setAlertCounts(data.counts)
   return data.acknowledged

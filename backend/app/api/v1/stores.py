@@ -19,7 +19,7 @@ from app.services.sync.runner import SyncAlreadyRunning
 
 router = APIRouter(prefix="/stores", tags=["stores"])
 
-FIRST_LOAD = ("products", "stocks", "promotions", "finance", "balance", "postings")
+FIRST_LOAD = ("products", "stocks", "promotions", "finance", "balance", "postings", "supplies")
 
 
 def _fail(exc: svc.StoreError) -> HTTPException:

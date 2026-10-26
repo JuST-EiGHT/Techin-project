@@ -127,6 +127,21 @@ class ProductPnL:
 CostLookup = Callable[[str, date], tuple[Decimal, Decimal | None] | None]
 
 
+def attribute(offer_id: str | None, posting_number: str | None,
+              posting_offers: dict[str, set[str]]) -> tuple[str | None, bool, bool]:
+    """Чья строка: (артикул или None — «Не распределено», отнесена по номеру отправления, отправление с несколькими
+    товарами). Детализация «Аналитики прибыльности» (10.9) относит строки так же."""
+    if offer_id:
+        return offer_id, False, False
+    if posting_number:
+        offers = posting_offers.get(posting_number, set())
+        if len(offers) == 1:
+            return next(iter(offers)), True, False
+        if len(offers) > 1:
+            return None, False, True
+    return None, False, False
+
+
 def compute(
     lines: list[LineIn],
     posting_offers: dict[str, set[str]],
@@ -142,13 +157,9 @@ def compute(
 
     for ln in lines:
         period_total += ln.amount
-        offer, via_posting = ln.offer_id, False
-        if not offer and ln.posting_number:
-            offers = posting_offers.get(ln.posting_number, set())
-            if len(offers) == 1:
-                offer, via_posting = next(iter(offers)), True
-            elif len(offers) > 1:
-                unallocated.multi_product += ln.amount
+        offer, via_posting, multi = attribute(ln.offer_id, ln.posting_number, posting_offers)
+        if multi:
+            unallocated.multi_product += ln.amount
         if not offer:
             unallocated.total += ln.amount
             unallocated.lines += 1

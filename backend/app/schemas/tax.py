@@ -96,3 +96,4 @@ class TaxPreview(BaseModel):
     how: list[str]  # как считаем при этом профиле — для подсказки «?»
     example: TaxExample  # на понятных цифрах: продажа на 10 000 ₽
     report_example: TaxExample | None  # на последнем загруженном отчёте
+    impact: list[str] = []  # что изменится в отчётах и расчётах, если сохранить (шаг 10.26) — до сохранения

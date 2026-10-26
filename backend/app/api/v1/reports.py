@@ -1,4 +1,6 @@
-"""Отчёты Ozon (XLSX): разбор без сохранения, загрузка и история загруженных отчётов."""
+"""Отчёты Ozon: разбор XLSX без сохранения, загрузка и история; через API (10.12) — отчёт о реализации за месяц и
+документы файлом (взаиморасчёты, компенсации, декомпенсации); какие отчёты бывают и как их получить; полнота данных по
+неделям и месяцам."""
 
 import posixpath
 import uuid
@@ -14,7 +16,13 @@ from app.db.session import get_db
 from app.integrations.xlsx import CostProvider, ReportParseError
 from app.models.report import Report
 from app.models.user import User
+from app.core.files import attachment
 from app.schemas.report import (
+    CoverageOut,
+    DocumentOut,
+    DocumentRequest,
+    FetchRequest,
+    ReportKindOut,
     NormalizedReportData,
     ParsedReport,
     PnLOut,
@@ -25,6 +33,7 @@ from app.schemas.report import (
     ReportUpdate,
 )
 from app.services import audit
+from app.services import ozon_reports
 from app.services import reports as svc
 from app.services import bank as bank_svc
 from app.services.stores import get_current_store
@@ -94,6 +103,7 @@ def _item(r: Report, ctx: PnLContext) -> dict:
         tax_base=r.tax_base,
         tax_rate=_q(r.tax_rate, "0.0001"),
         rows_count=s["rows_count"],
+        source=r.source,
         missing_cost_count=len(s["missing_cost"]),
         warnings_count=len(s["warnings"]),
         pnl=_pnl(NormalizedReportData.model_validate(s), ctx, r),
@@ -147,23 +157,105 @@ async def upload_report(
     except ReportParseError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     except svc.ReportConflict as exc:
-        conflicts = [
-            ReportConflictItem(
-                id=c.report.id,
-                filename=c.report.filename,
-                period=c.report.period,
-                period_start=c.report.period_start,
-                period_end=c.report.period_end,
-                uploaded_at=c.report.uploaded_at,
-                same_file=c.same_file,
-            ).model_dump(mode="json")
-            for c in exc.conflicts
-        ]
-        return JSONResponse(
-            {"detail": str(exc), "code": status.HTTP_409_CONFLICT, "conflicts": conflicts},
-            status_code=status.HTTP_409_CONFLICT,
-        )
+        return _conflict(exc)
     return await _detail(db, report)
+
+
+def _conflict(exc: svc.ReportConflict) -> JSONResponse:
+    """409: за этот период отчёт уже есть — выбор пользователя (заменить или оставить оба)."""
+    conflicts = [
+        ReportConflictItem(
+            id=c.report.id,
+            filename=c.report.filename,
+            period=c.report.period,
+            period_start=c.report.period_start,
+            period_end=c.report.period_end,
+            uploaded_at=c.report.uploaded_at,
+            same_file=c.same_file,
+        ).model_dump(mode="json")
+        for c in exc.conflicts
+    ]
+    return JSONResponse(
+        {"detail": str(exc), "code": status.HTTP_409_CONFLICT, "conflicts": conflicts},
+        status_code=status.HTTP_409_CONFLICT,
+    )
+
+
+@router.post("/fetch", response_model=ReportDetail, status_code=status.HTTP_201_CREATED)
+async def fetch_report(
+    data: FetchRequest,
+    user: User = Depends(get_current_store),
+    db: AsyncSession = Depends(get_db),
+    costs: CostProvider = Depends(get_cost_provider),
+):
+    """Получить отчёт о реализации за закончившийся месяц через Ozon API и сохранить как отчёт (исходный ответ —
+    тоже). За этот месяц отчёт уже есть — 409 с выбором, как при загрузке файла."""
+    try:
+        report = await ozon_reports.fetch_realization(db, user.id, data.year, data.month, costs, data.on_conflict)
+    except ozon_reports.OzonReportsError as exc:
+        raise HTTPException(exc.code, exc.message) from None
+    except ReportParseError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except svc.ReportConflict as exc:
+        return _conflict(exc)
+    return await _detail(db, report)
+
+
+@router.get("/catalog", response_model=list[ReportKindOut])
+async def report_catalog(scope: Literal["analytics", "finance"] = Query("analytics"),
+                         user: User = Depends(get_current_store)):
+    """Какие отчёты и документы бывают у Ozon, где они в кабинете, как их получить и что с ними делает сервис.
+    finance — только финансовые документы («Финансы → Отчёты и документы»)."""
+    return ozon_reports.catalog_out(scope == "finance")
+
+
+@router.get("/coverage", response_model=CoverageOut)
+async def report_coverage(months: int = Query(6, ge=1, le=24), user: User = Depends(get_current_store),
+                          db: AsyncSession = Depends(get_db)):
+    """Полнота данных по неделям и месяцам: дни из файла или API, дыры, отчёт о реализации за месяц."""
+    return await ozon_reports.coverage(db, user.id, months)
+
+
+@router.get("/documents", response_model=list[DocumentOut])
+async def list_documents(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
+    """Документы Ozon, полученные через API файлом; ждущие ответа Ozon заодно проверяются."""
+    return [ozon_reports.document_out(d) for d in await ozon_reports.list_documents(db, user.id)]
+
+
+@router.post("/documents", response_model=DocumentOut, status_code=status.HTTP_201_CREATED)
+async def request_document(data: DocumentRequest, user: User = Depends(get_current_store),
+                           db: AsyncSession = Depends(get_db)):
+    """Запросить документ за месяц: Ozon сформирует его за минуту-другую, файл появится в списке."""
+    try:
+        return ozon_reports.document_out(
+            await ozon_reports.request_document(db, user.id, data.doc_type, data.year, data.month))
+    except ozon_reports.OzonReportsError as exc:
+        raise HTTPException(exc.code, exc.message) from None
+
+
+@router.post("/documents/{doc_id}/refresh", response_model=DocumentOut, dependencies=[Depends(audit.read_only)])
+async def refresh_document(doc_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
+    """Спросить Ozon, готов ли документ (готов — скачать файл)."""
+    try:
+        doc = await ozon_reports.get_document(db, user.id, doc_id)
+        return ozon_reports.document_out(await ozon_reports.refresh_document(db, doc, force=True))
+    except ozon_reports.OzonReportsError as exc:
+        raise HTTPException(exc.code, exc.message) from None
+
+
+@router.get("/documents/{doc_id}/file", response_class=Response)
+async def document_file(doc_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
+    """Файл документа, как его отдал Ozon."""
+    try:
+        doc = await ozon_reports.get_document(db, user.id, doc_id)
+    except ozon_reports.OzonReportsError as exc:
+        raise HTTPException(exc.code, exc.message) from None
+    if doc.content is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Файл ещё не получен — дождитесь, пока Ozon его сформирует")
+    name = doc.file_name or "document.xlsx"
+    kind = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" if name.endswith(".xlsx") else \
+        "text/csv; charset=utf-8" if name.endswith(".csv") else "application/octet-stream"
+    return attachment(doc.content, kind, name, f"{doc.doc_type}{name[name.rfind('.'):] if '.' in name else ''}")
 
 
 @router.get("", response_model=ReportsPage)

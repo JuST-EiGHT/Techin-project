@@ -1,11 +1,13 @@
 'use client'
-// Вкладка «По товарам» на странице P&L (шаг 3.4): прибыль и маржа каждого товара за период или по отчёту.
+// Вкладка «По товарам» на странице P&L (шаг 3.4): прибыль и маржа каждого товара за период или по отчёту. Она же —
+// таблица «Аналитики прибыльности» (10.9): быстрые фильтры (убыток, низкая маржа, нет себестоимости), товары фильтра
+// «Аналитики», в карточке товара — исходные строки начислений (ProductLines) и переход к правке себестоимости.
 import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
 import { type Coverage, type DataSource, SourceNote } from '@/components/finance'
-import { Warnings, pctText, rub } from '@/components/reports'
+import { Warnings, fmtDay, pctText, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
 import { marginTone } from '@/lib/products'
@@ -76,16 +78,39 @@ type ProductsPage = {
   period_total: string
   period_by_type: Record<string, string> // все начисления периода по статьям, удержания — первыми
   warnings: string[]
+  filter_counts: Record<Quick, number> // all, loss, low_margin, no_cost — числа у быстрых фильтров (10.9)
+  low_margin: string | null
 }
 
 type Sort = 'revenue' | 'profit' | 'margin' | 'qty'
+type Quick = 'all' | 'loss' | 'low_margin' | 'no_cost'
+const QUICK: { value: Quick; label: string; title: string }[] = [
+  { value: 'all', label: 'Все', title: 'Все товары с начислениями за период' },
+  { value: 'loss', label: 'Убыток', title: 'Прибыль до налога меньше нуля' },
+  { value: 'low_margin', label: 'Низкая маржа', title: 'Маржа ниже порога «низкой маржи» из «Настроек → Аномалии», и в минус тоже' },
+  { value: 'no_cost', label: 'Нет себестоимости', title: 'Продажи есть, себестоимость не указана — прибыль не посчитать' },
+]
 const PAGE = 50
-const signTone = (v: string) => (Number(v) < 0 ? 'text-bad' : Number(v) > 0 ? 'text-ok' : 'text-muted')
+export const signTone = (v: string) => (Number(v) < 0 ? 'text-bad' : Number(v) > 0 ? 'text-ok' : 'text-muted')
 
-/** Прибыль по товарам: таблица с сортировкой, поиском, страницами, экспортом CSV и карточкой товара. */
-export function ProductsView({ query, showSource, pnlHref }: { query: Record<string, string>; showSource: boolean; pnlHref: string }) {
+/** Прибыль по товарам: таблица с сортировкой, поиском, страницами, экспортом CSV и карточкой товара. quick — быстрые
+ * фильтры «Аналитики прибыльности»; moneyWent={false} — без «На что ушли деньги» (у страницы своя структура расходов). */
+export function ProductsView({
+  query,
+  showSource,
+  pnlHref,
+  quick: withQuick = false,
+  moneyWent = true,
+}: {
+  query: Record<string, string>
+  showSource: boolean
+  pnlHref: string
+  quick?: boolean
+  moneyWent?: boolean
+}) {
   const costLabel = useCostLabel()
   const low = useLowMargin()
+  const [quick, setQuick] = useState<Quick>('all')
   const [unit, setUnit] = useState(false) // «На 1 шт.» — юнит-экономика
   const [sort, setSort] = useState<Sort>('revenue')
   const [order, setOrder] = useState<'asc' | 'desc'>('desc')
@@ -111,7 +136,9 @@ export function ProductsView({ query, showSource, pnlHref }: { query: Record<str
     const id = ++seq.current
     setBusy(true)
     api
-      .get<ProductsPage>('/pnl/by-product', { params: { ...query, sort, order, limit: PAGE, offset, ...(search ? { search } : {}) } })
+      .get<ProductsPage>('/pnl/by-product', {
+        params: { ...query, sort, order, limit: PAGE, offset, ...(search ? { search } : {}), ...(quick !== 'all' ? { filter: quick } : {}) },
+      })
       .then((r) => {
         if (id !== seq.current) return
         setData(r.data)
@@ -121,7 +148,7 @@ export function ProductsView({ query, showSource, pnlHref }: { query: Record<str
       .finally(() => id === seq.current && setBusy(false))
     // query сравниваем по содержимому (key), а не по ссылке
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, sort, order, offset, search])
+  }, [key, sort, order, offset, search, quick])
 
   function sortBy(s: Sort) {
     if (s === sort) setOrder(order === 'desc' ? 'asc' : 'desc')
@@ -135,7 +162,10 @@ export function ProductsView({ query, showSource, pnlHref }: { query: Record<str
   async function exportCsv() {
     try {
       await saveFile(
-        api.get('/pnl/by-product/export', { params: { ...query, sort, order, ...(search ? { search } : {}) }, responseType: 'blob' }),
+        api.get('/pnl/by-product/export', {
+          params: { ...query, sort, order, ...(search ? { search } : {}), ...(quick !== 'all' ? { filter: quick } : {}) },
+          responseType: 'blob',
+        }),
         'products-pnl.csv',
       )
     } catch (err) {
@@ -185,6 +215,27 @@ export function ProductsView({ query, showSource, pnlHref }: { query: Record<str
             </button>
           </div>
 
+          {withQuick && (
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Быстрые фильтры" data-testid="profit-quick">
+              {QUICK.map((f) => (
+                <button
+                  key={f.value}
+                  type="button"
+                  title={f.title}
+                  aria-pressed={quick === f.value}
+                  onClick={() => {
+                    setQuick(f.value)
+                    setOffset(0)
+                  }}
+                  className={`rounded-lg border px-2.5 py-1 text-xs ${quick === f.value ? 'border-accent bg-accent/10 text-accent' : 'border-line text-muted hover:text-fg'}`}
+                  data-testid={`profit-quick-${f.value}`}
+                >
+                  {f.value === 'low_margin' ? `Маржа < ${String(data.low_margin === null ? low : Number(data.low_margin)).replace('.', ',')} %` : f.label}{' '}
+                  <span className="text-faint">{data.filter_counts?.[f.value] ?? ''}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-3">
             <input
               value={searchText}
@@ -195,7 +246,7 @@ export function ProductsView({ query, showSource, pnlHref }: { query: Record<str
               data-testid="products-search"
             />
             <span className="text-xs text-muted">
-              {search ? `найдено ${data.total}` : `${data.total} товаров`}
+              {search || quick !== 'all' ? `найдено ${data.total}` : `${data.total} товаров`}
               {t.missing_cost > 0 && (
                 <>
                   {' · '}
@@ -327,6 +378,13 @@ export function ProductsView({ query, showSource, pnlHref }: { query: Record<str
                       </tr>
                     )
                   })}
+                  {data.items.length === 0 && (
+                    <tr>
+                      <td colSpan={10} className="px-3 py-4 text-center text-sm text-muted" data-testid="products-none">
+                        Нет товаров по этому фильтру
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
                 <tfoot className="border-t border-line text-sm">
                   {unit ? (
@@ -406,11 +464,19 @@ export function ProductsView({ query, showSource, pnlHref }: { query: Record<str
             Прибыль по товару — до налога: всё, что Ozon начислил по товару, минус {costTitle.charAt(0).toLowerCase() + costTitle.slice(1)} проданного. Налог и НДС
             считаются на весь период — вкладка «P&amp;L». Маржа: красным — в минус, жёлтым — ниже {String(low).replace('.', ',')} % (порог — в «Настройках»), зелёным — выше.
           </p>
-          <MoneyWent data={data} costTitle={costTitle} pnlHref={pnlHref} />
+          {moneyWent && <MoneyWent data={data} costTitle={costTitle} pnlHref={pnlHref} />}
           <Warnings items={data.warnings} />
         </>
       )}
-      {selected && <ProductCard data={data} row={selected} costTitle={costTitle} onClose={() => setSelected(null)} />}
+      {selected && (
+        <ProductCard
+          data={data}
+          row={selected}
+          costTitle={costTitle}
+          period={query.date_from && query.date_to ? { from: query.date_from, to: query.date_to } : null}
+          onClose={() => setSelected(null)}
+        />
+      )}
     </div>
   )
 }
@@ -504,11 +570,14 @@ function ProductCard({
   data,
   row,
   costTitle,
+  period,
   onClose,
 }: {
   data: ProductsPage
   row: ProductRow | 'unallocated'
   costTitle: string
+  /** Период (не отчёт) — в карточке исходные строки начислений товара. */
+  period: { from: string; to: string } | null
   onClose: () => void
 }) {
   const low = useLowMargin()
@@ -582,8 +651,15 @@ function ProductCard({
         {!un && row.cost_missing && (
           <p className="mt-3 rounded-lg bg-warn/10 px-3 py-2 text-sm">
             Себестоимость не указана — прибыль не считаем, чтобы не показать завышенную.{' '}
-            <Link href="/dashboard/products/costs?missing=1" className="text-accent hover:underline">
+            <Link href={`/dashboard/products/costs?missing=1&search=${encodeURIComponent(row.offer_id)}`} className="text-accent hover:underline">
               Указать себестоимость →
+            </Link>
+          </p>
+        )}
+        {!un && !row.cost_missing && (
+          <p className="mt-3 text-sm">
+            <Link href={`/dashboard/products/costs?search=${encodeURIComponent(row.offer_id)}`} className="text-accent hover:underline" data-testid="card-cost-edit">
+              Изменить себестоимость →
             </Link>
           </p>
         )}
@@ -612,13 +688,19 @@ function ProductCard({
             Из них {rub(row.by_posting)} — строки без артикула, отнесены к товару по номеру отправления (в нём только этот товар).
           </p>
         )}
+        {!un && period && (
+          <>
+            <h3 className="mt-5 text-xs uppercase tracking-wider text-muted">Исходные начисления</h3>
+            <ProductLines offerId={row.offer_id} from={period.from} to={period.to} />
+          </>
+        )}
       </div>
     </div>
   )
 }
 
 /** Юнит-экономика товара: из чего складывается цена одной проданной штуки. */
-function UnitEconomics({ u, costTitle }: { u: PerUnit; costTitle: string }) {
+export function UnitEconomics({ u, costTitle }: { u: PerUnit; costTitle: string }) {
   const line = (label: string, v: string | null, pct: string | null, opts: { strong?: boolean; tone?: string; testid?: string } = {}) => (
     <tr className={`border-b border-line last:border-b-0 ${opts.strong ? 'font-semibold' : ''}`} data-testid={opts.testid}>
       <td className="py-1.5 pr-3">{label}</td>
@@ -646,5 +728,99 @@ function UnitEconomics({ u, costTitle }: { u: PerUnit; costTitle: string }) {
       </table>
       <p className="mt-1 text-xs text-faint">Суммы за период, делённые на проданные штуки; справа — доля от цены.</p>
     </>
+  )
+}
+
+type AccrualLine = {
+  day: string
+  type_name: string
+  group: string
+  amount: string
+  quantity: number | null
+  posting_number: string | null
+  via_posting: boolean
+  source: 'api' | 'xlsx' | null
+  report: { id: string; filename: string; period: string } | null
+}
+type AccrualLines = { offer_id: string; total: string; count: number; lines: AccrualLine[] }
+
+const LINES_SHOWN = 30
+
+/** Исходные строки начислений товара за период (10.9): дата, статья, сумма, ID начисления, источник — Ozon API или
+ * отчёт со ссылкой на него. group — только строки этой группы расходов («Аналитика прибыльности»), с переключением на
+ * все строки товара. Итог всех строк = «Начислено Ozon» товара. */
+export function ProductLines({ offerId, from, to, group, groupTitle }: { offerId: string; from: string; to: string; group?: string; groupTitle?: string }) {
+  const [data, setData] = useState<AccrualLines | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [onlyGroup, setOnlyGroup] = useState(Boolean(group))
+  const [all, setAll] = useState(false)
+  useEffect(() => {
+    let alive = true
+    api
+      .get<AccrualLines>('/analytics/profit/lines', { params: { date_from: from, date_to: to, offer_id: offerId } })
+      .then((r) => alive && setData(r.data))
+      .catch((err) => alive && setError(errorMessage(err)))
+    return () => {
+      alive = false
+    }
+  }, [offerId, from, to])
+  if (error) return <FormError message={error} />
+  if (!data) return <p className="py-2 text-xs text-muted">Загрузка строк…</p>
+  const lines = onlyGroup && group ? data.lines.filter((l) => l.group === group) : data.lines
+  const shown = all ? lines : lines.slice(0, LINES_SHOWN)
+  return (
+    <div className="text-sm" data-testid="accrual-lines">
+      {data.count === 0 ? (
+        <p className="py-2 text-xs text-muted">За период начислений по товару нет.</p>
+      ) : (
+        <ul className="divide-y divide-line">
+          {shown.map((l, i) => (
+            <li key={`${l.day}-${l.posting_number}-${l.type_name}-${i}`} className="py-1.5" data-testid="accrual-line">
+              <div className="flex items-baseline gap-3">
+                <span className="w-11 shrink-0 tabular-nums text-muted">{fmtDay(l.day).slice(0, 5)}</span>
+                <span className="min-w-0 flex-1 truncate" title={l.type_name}>
+                  {l.type_name}
+                  {l.quantity ? <span className="text-faint"> · {l.quantity} шт.</span> : null}
+                </span>
+                <span className={`whitespace-nowrap tabular-nums ${signTone(l.amount)}`}>{rub(l.amount)}</span>
+              </div>
+              <div className="ml-14 flex flex-wrap gap-x-3 text-xs text-faint">
+                {l.posting_number && (
+                  <span title={l.via_posting ? 'Артикула в строке нет — товар определён по номеру отправления' : 'ID начисления / номер отправления Ozon'}>
+                    № {l.posting_number}
+                    {l.via_posting && ' · по отправлению'}
+                  </span>
+                )}
+                {l.report ? (
+                  <Link href={`/dashboard/analytics/reports/${l.report.id}`} className="text-accent hover:underline" data-testid="accrual-line-report">
+                    отчёт {l.report.period || l.report.filename} →
+                  </Link>
+                ) : (
+                  <span>{l.source === 'api' ? 'Ozon API' : 'отчёт'}</span>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+        {lines.length > LINES_SHOWN && (
+          <button type="button" onClick={() => setAll(!all)} className="text-accent hover:underline" data-testid="accrual-lines-all">
+            {all ? 'Свернуть' : `Показать все ${lines.length}`}
+          </button>
+        )}
+        {group && (
+          <button type="button" onClick={() => setOnlyGroup(!onlyGroup)} className="text-accent hover:underline" data-testid="accrual-lines-scope">
+            {onlyGroup ? `Все строки товара (${data.count})` : `Только «${groupTitle ?? 'группа'}»`}
+          </button>
+        )}
+        {!onlyGroup && data.count > 0 && (
+          <span className="ml-auto">
+            Итого начислено Ozon: <span className={`tabular-nums ${signTone(data.total)}`}>{rub(data.total)}</span>
+          </span>
+        )}
+        {data.count > data.lines.length && <span>показаны первые {data.lines.length} из {data.count}</span>}
+      </div>
+    </div>
   )
 }

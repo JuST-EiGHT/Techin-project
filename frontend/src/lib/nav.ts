@@ -18,6 +18,31 @@ export const NAV: NavSection[] = [
     label: 'Аналитика',
     items: [
       {
+        href: '/dashboard/analytics',
+        label: 'Обзор бизнеса',
+        description: 'Выручка, прибыль, маржа и продажи к прошлому периоду, лучшие и худшие товары',
+      },
+      {
+        href: '/dashboard/analytics/sales',
+        label: 'Аналитика продаж',
+        description: 'Заказы, продажи, возвраты и средняя цена по дням, товарам и с событиями — цена, акции, остатки',
+      },
+      {
+        href: '/dashboard/analytics/profit',
+        label: 'Аналитика прибыльности',
+        description: 'Выручка, расходы и прибыль, на что ушли деньги, товары в минус и с низкой маржой — до начислений Ozon',
+      },
+      {
+        href: '/dashboard/analytics/abc',
+        label: 'ABC-анализ',
+        description: 'Какие товары дают основную выручку, прибыль или продажи — группы A, B, C и их сравнение',
+      },
+      {
+        href: '/dashboard/analytics/events',
+        label: 'История событий',
+        description: 'Цены, акции, остатки, аномалии, ваши действия и ошибки загрузки — одной лентой',
+      },
+      {
         href: '/dashboard/analytics/reports',
         label: 'Отчёты Ozon и загрузка',
         description: 'Недельные и месячные отчёты Ozon: загрузить XLSX, история, P&L по отчёту',
@@ -55,17 +80,17 @@ export const NAV: NavSection[] = [
       {
         href: '/dashboard/warehouses',
         label: 'Остатки',
-        description: 'Что заканчивается и что лежит: склады FBO по кластерам, FBS и rFBS',
+        description: 'По товарам, складам и кластерам: что заканчивается, что лежит, сколько денег в запасе',
       },
       {
         href: '/dashboard/warehouses/supply',
         label: 'Поставки',
-        description: 'Что, в какой кластер и сколько везти — срочные первыми, Excel для логиста',
+        description: 'Что и куда везти, планы поставок, заявки Ozon со статусами и календарь',
       },
       {
         href: '/dashboard/warehouses/withdrawal',
         label: 'На вывоз',
-        description: 'Что, откуда и сколько забрать со складов Ozon — Excel для логиста',
+        description: 'Что, откуда и сколько забрать со складов Ozon, сколько денег заморожено — решения и Excel',
       },
     ],
   },
@@ -77,15 +102,17 @@ export const NAV: NavSection[] = [
       { href: '/dashboard/operations', label: 'Все операции', description: 'Что пришло и что ушло: свои расходы, доходы, выплаты Ozon' },
       { href: '/dashboard/operations/categories', label: 'Статьи', description: 'Статьи доходов и расходов' },
       { href: '/dashboard/operations/rules', label: 'Правила разнесения', description: 'Операции из банка сами получают статью' },
+      { href: '/dashboard/operations/budgets', label: 'Бюджеты и сценарии', description: 'План по статьям на месяц, квартал, год, план-факт, сценарии' },
       { href: '/dashboard/operations/accounts', label: 'Счета и выписки', description: 'Счета, карты и наличные, остатки, выписки банков' },
     ],
   },
   {
     label: 'Финансы',
     items: [
-      { href: '/dashboard/finance/pnl', label: 'P&L — прибыль', description: 'Выручка, расходы Ozon, налог и остаток за период' },
+      { href: '/dashboard/finance', label: 'Обзор финансов', description: 'Выручка, расходы, прибыль, деньги на Ozon и на счетах, риски' },
+      { href: '/dashboard/finance/pnl', label: 'P&L — прибыль', description: 'Выручка, расходы Ozon и бизнеса, налог и чистая прибыль' },
       { href: '/dashboard/finance/pnl?tab=products', label: 'Прибыль по товарам', description: 'Маржа каждого товара, комиссия, логистика' },
-      { href: '/dashboard/finance/payouts', label: 'Выплаты Ozon', description: 'Когда и сколько придёт, баланс у Ozon, график выплат' },
+      { href: '/dashboard/finance/payouts', label: 'Выплаты и расчёты', description: 'Когда и сколько придёт, начисления, сверка с банком, расхождения' },
       { href: '/dashboard/finance/documents', label: 'Отчёты и документы', description: 'Отчёты Ozon о начислениях и реализации, загрузка' },
     ],
   },

@@ -9,7 +9,8 @@ from pydantic import BaseModel, Field
 PlanKind = Literal["income", "expense"]
 Period = Literal["once", "week", "month", "quarter", "year"]
 LineSource = Literal["ozon", "manual", "supplier", "tax"]
-Status = Literal["planned", "overdue", "paid", "skipped", "disabled"]
+# запланирован, ожидается (срок сегодня или прошёл ≤ 3 дней), просрочен, оплачен, частично оплачен (шаг 10.24)
+Status = Literal["planned", "expected", "overdue", "paid", "partial", "skipped", "disabled"]
 
 
 class Ref(BaseModel):
@@ -161,6 +162,7 @@ class Line(BaseModel):
     skipped: bool
     fact: Fact | None
     diff: Decimal | None  # факт − план, если разошлись
+    remaining: Decimal | None = None  # частично оплачен — сколько осталось (со знаком плана), в прогнозе до 3 дней
     shared_fact: bool = False  # один платёж ЕНП закрыл несколько налогов с этим сроком (шаг 3.12)
     plan_id: uuid.UUID | None
     category: Ref | None
@@ -222,6 +224,26 @@ class Hint(BaseModel):
     why: str
 
 
+class CauseRef(BaseModel):
+    key: str
+    title: str
+    source: str
+    day: date
+    amount: Decimal | None
+
+
+class GapCauses(BaseModel):
+    """Кассовый разрыв: с какого дня, нехватка (сколько не хватит до нуля или порога) и почему."""
+
+    day: date
+    below_zero: bool
+    min_balance: Decimal
+    min_day: date
+    shortfall: Decimal
+    expenses: list[CauseRef]  # крупнейшие платежи с сегодня по день разрыва
+    missing_income: list[CauseRef]  # поступления, которые не пришли (просрочены)
+
+
 class CalendarOut(BaseModel):
     date_from: date
     date_to: date
@@ -243,6 +265,7 @@ class CalendarOut(BaseModel):
     min_balance: Decimal | None
     end_balance: Decimal | None
     overdue: int
+    causes: "GapCauses | None" = None  # кассовый разрыв: день, нехватка, причины (шаг 10.24)
     warnings: list[str]
 
 
@@ -303,6 +326,16 @@ class SeriesDay(BaseModel):
     fact: dict[str, Decimal] | None  # сегодня: что уже пришло и ушло (ozon, income, expense)
 
 
+class SeriesOut(BaseModel):
+    """Ряд графика «Остаток и движение денег» за выбранный период (прошлое, будущее или всё вместе)."""
+
+    today: date
+    date_from: date
+    date_to: date
+    threshold: Decimal | None
+    series: list[SeriesDay]
+
+
 class Suggestion(BaseModel):
     code: str
     name: str
@@ -334,39 +367,80 @@ class OverviewOut(BaseModel):
     gaps: list[Gap]
     expected: Expected
     series: list[SeriesDay]
-    upcoming: list[Line]  # на 14 дней и неотмеченные прошлые
+    upcoming: list[Line]  # на 14 дней с сегодня
+    to_confirm: list[Line] = []  # просроченные, частично оплаченные и «ожидается» со сроком сегодня и раньше (10.24)
+    ozon_balance: "OzonBalanceNow | None" = None  # на балансе у Ozon — последний загруженный день
+    plan_fact: "PlanFactSummary | None" = None  # за две недели до сегодня
+    causes: GapCauses | None = None  # кассовый разрыв: день, нехватка, причины
     empty: EmptyState
     warnings: list[str]
+
+
+class OzonBalanceNow(BaseModel):
+    amount: Decimal | None
+    day: date
+
+
+class PlanFactSummary(BaseModel):
+    """Платежи календаря со сроком за две недели до сегодня: сколько оплачено, частично, ждём, просрочено; план и факт."""
+
+    date_from: date
+    paid: int
+    partial: int
+    expected: int
+    overdue: int
+    plan: Decimal  # сумма по плану (+ поступления, − платежи)
+    fact: Decimal  # пришло и ушло по ним
 
 
 class CashFlowPeriod(BaseModel):
     date_from: date
     date_to: date
+    kind: Literal["past", "current", "future"]  # прошёл / идёт / впереди
     opening: Decimal | None
-    income: Decimal
+    income: Decimal  # факт
     expense: Decimal
     net: Decimal
-    closing: Decimal | None
+    forecast_income: Decimal  # оставшиеся плановые поступления (с сегодня)
+    forecast_expense: Decimal
+    plan_income: Decimal  # план периода по календарю — для план-факта
+    plan_expense: Decimal
+    closing: Decimal | None  # с прогнозом: факт + оставшийся план
 
 
 class CashFlowRow(BaseModel):
-    category_id: uuid.UUID | None  # null — без статьи
+    category_id: uuid.UUID | None  # null — без статьи (или переводы)
+    transfer: bool = False  # переводы со своими счетами — при выбранном счёте
     name: str
     section: Literal["income", "expense"]
-    values: list[Decimal]  # по периодам
+    values: list[Decimal]  # факт по периодам
     total: Decimal
+    forecast: list[Decimal] = []  # оставшийся план по периодам
+    forecast_total: Decimal = Decimal(0)
+    plan: list[Decimal] = []  # план периода по календарю
+    plan_total: Decimal = Decimal(0)
+    children: list["CashFlowRow"] = []  # подстатьи — их факт и план уже входят в статью
 
 
 class CashFlowOut(BaseModel):
     date_from: date
     date_to: date
     granularity: Literal["week", "month"]
+    today: date
+    account_id: uuid.UUID | None  # ДДС одного счёта; null — все счета
     opening: Decimal | None  # null — остаток на начало неизвестен
-    closing: Decimal | None
+    closing: Decimal | None  # с прогнозом
     income: Decimal
     expense: Decimal
     net: Decimal
+    forecast_income: Decimal
+    forecast_expense: Decimal
+    plan_income: Decimal
+    plan_expense: Decimal
     periods: list[CashFlowPeriod]
     rows: list[CashFlowRow]
     has_data: bool
+    has_plan: bool
+    plan_note: str | None  # почему плана нет
+    causes: GapCauses | None  # кассовый разрыв в периоде: день, нехватка, причины
     warnings: list[str]

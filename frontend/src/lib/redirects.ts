@@ -7,22 +7,29 @@ export type Redirect = {
   from: string
   /** Только с этим ?tab= (вкладки «Планирования»); параметр tab в новый адрес не переносится. */
   tab?: string
+  /** Только с этим параметром: его значение становится частью пути (/from?product=X → /to/X), сам параметр не переносится. */
+  param?: string
   to: string
   /** Подстраницы тоже: /from/x → /to/x. */
   prefix?: boolean
+  /** Только если в адресе есть один из этих параметров (адрес без них — уже другая страница); параметры переносятся. */
+  query?: string[]
   /** Временная (307): адрес ещё понадобится новой странице. */
   temporary?: boolean
 }
 
 export const REDIRECTS: Redirect[] = [
-  // до шага 10.22 «Финансы» открываются с P&L; потом здесь будет «Обзор финансов» — переадресация временная
-  { from: '/dashboard/finance', to: '/dashboard/finance/pnl', temporary: true },
+  // P&L до 10.1 жил на /dashboard/finance (?report=, ?tab=products); с 10.22 там «Обзор финансов» — старые ссылки P&L
+  // с параметрами P&L по-прежнему ведут в P&L, адрес без них — обзор
+  { from: '/dashboard/finance', query: ['report', 'tab'], to: '/dashboard/finance/pnl' },
   { from: '/dashboard/payouts', to: '/dashboard/finance/payouts' },
   { from: '/dashboard/reports', to: '/dashboard/analytics/reports', prefix: true },
   { from: '/dashboard/costs', to: '/dashboard/products/costs' },
   { from: '/dashboard/prices', to: '/dashboard/products/prices', prefix: true },
   { from: '/dashboard/promotions', to: '/dashboard/products/promotions', prefix: true },
   { from: '/dashboard/supply', to: '/dashboard/warehouses/supply' },
+  // панель товара на «Всех товарах» (4.1) стала страницей «Статистика товара» (10.14) — ссылки уведомлений и Telegram
+  { from: '/dashboard/products', param: 'product', to: '/dashboard/products' },
   // вкладки «Планирования» стали страницами: операции, статьи и счета — раздел «Операции», календарь и ДДС — свои страницы
   { from: '/dashboard/planning', tab: 'overview', to: '/dashboard/planning' },
   { from: '/dashboard/planning', tab: 'operations', to: '/dashboard/operations' },
@@ -44,13 +51,17 @@ export function resolveRedirect(pathname: string, search: string): { to: string;
     const sub = r.prefix && pathname.startsWith(`${r.from}/`)
     if (!exact && !sub) continue
     if (r.tab !== undefined && params.get('tab') !== r.tab) continue
+    if (r.query !== undefined && !r.query.some((q) => params.has(q))) continue
+    const segment = r.param !== undefined ? params.get(r.param) : null
+    if (r.param !== undefined && !segment) continue
     const [path, query] = r.to.split('?')
     const out = new URLSearchParams(query)
     params.forEach((value, key) => {
       if (r.tab !== undefined && key === 'tab') return
+      if (r.param !== undefined && key === r.param) return
       if (!out.has(key)) out.append(key, value)
     })
-    const rest = sub ? pathname.slice(r.from.length) : ''
+    const rest = segment ? `/${encodeURIComponent(segment)}` : sub ? pathname.slice(r.from.length) : ''
     const q = out.toString()
     return { to: `${path}${rest}${q ? `?${q}` : ''}`, permanent: !r.temporary }
   }

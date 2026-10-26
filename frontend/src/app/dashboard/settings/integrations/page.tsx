@@ -1,11 +1,13 @@
 'use client'
 // Меню аккаунта → «Интеграции» (шаг 10.1): одна страница вместо «Магазинов», «API-ключей Ozon» и «Банков»; Telegram —
 // подключение бота (что присылать — в «Уведомлениях»). Вкладка — в адресе (?tab=banks), старые адреса переадресуются
-// (lib/redirects.ts). Доработка — шаг 10.26: статус, время последнего обмена, «Проверить соединение».
+// (lib/redirects.ts). Шаг 10.26: сводка — состояние, последний успешный обмен и ошибки по Ozon, банкам и Telegram;
+// у ключа Ozon и банка — «Проверить соединение», «Обновить доступ» (новый ключ или токен), «Отключить».
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
 
 import { BanksPanel } from '@/components/settings/Banks'
+import { IntegrationsSummary } from '@/components/settings/IntegrationsSummary'
 import { OzonKeysPanel } from '@/components/settings/OzonKeys'
 import { StoresPanel } from '@/components/settings/OzonStores'
 import { TelegramPanel } from '@/components/settings/Telegram'
@@ -30,6 +32,7 @@ function Integrations() {
   const router = useRouter()
   const raw = params.get('tab')
   const tab: Tab = TABS.some((t) => t.value === raw) ? (raw as Tab) : 'ozon'
+  const open = (t: Tab) => router.replace(t === 'ozon' ? '/dashboard/settings/integrations' : `/dashboard/settings/integrations?tab=${t}`, { scroll: false })
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -40,6 +43,7 @@ function Integrations() {
           сохранения не показываются.
         </p>
       </div>
+      <IntegrationsSummary onOpen={open} />
       <div className="flex gap-1 overflow-x-auto border-b border-line" role="tablist" aria-label="Интеграции">
         {TABS.map((t) => (
           <button
@@ -48,7 +52,7 @@ function Integrations() {
             role="tab"
             aria-selected={tab === t.value}
             title={t.hint}
-            onClick={() => router.replace(t.value === 'ozon' ? '/dashboard/settings/integrations' : `/dashboard/settings/integrations?tab=${t.value}`, { scroll: false })}
+            onClick={() => open(t.value)}
             className={`-mb-px whitespace-nowrap border-b-2 px-4 py-2 text-sm ${tab === t.value ? 'border-accent font-medium text-fg' : 'border-transparent text-muted hover:text-fg'}`}
             data-testid={`tab-${t.value}`}
           >

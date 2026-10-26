@@ -236,4 +236,6 @@ async def preview_tax(body: TaxProfileIn, user: User = Depends(get_current_store
         how=engine.how(profile, day),
         example=_example(heading, sample, engine.compute_tax(profile, sample, day)),
         report_example=await _report_example(db, user, data),
+        impact=await svc.impact(db, user.id, body.effective_from or (
+            today_msk() if await svc.load_profiles(db, user.id) else BEGINNING), today_msk()),  # с какой даты — как при сохранении
     )

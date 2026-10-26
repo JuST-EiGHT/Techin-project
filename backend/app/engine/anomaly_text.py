@@ -25,12 +25,27 @@ TYPE_TITLES = {
     det.BANK_DIFF: "На счёт пришло другое",
     det.CASH_GAP: "Кассовый разрыв",
     det.UNCATEGORIZED: "Операции без статьи",
+    det.EXCESS_STOCK: "Избыток запаса",
+    det.SYNC_PROBLEM: "Данные не загружаются",
+    det.ACCRUAL_GAPS: "Пропуски в начислениях",
+    det.REPORT_ERROR: "Отчёт с ошибкой",
+    det.MISSING_COST: "Продажи без себестоимости",
 }
 UNITS = {
     det.SALES_DROP: "шт./день", det.SALES_GROWTH: "шт./день", det.PRICE_CHANGE: "₽", det.COMMISSION_CHANGE: "%",
     det.LOW_MARGIN: "%", det.LOW_STOCK: "дн.", det.PROMO_AUTO_ADDED: "%", det.PROMO_LOSS: "%", det.PAYOUT_MISSED: "₽",
     det.PAYOUT_DIFF: "₽", det.BANK_MISSING: "₽", det.BANK_DIFF: "₽", det.CASH_GAP: "₽", det.UNCATEGORIZED: "шт.",
+    det.EXCESS_STOCK: "дн.", det.ACCRUAL_GAPS: "дн.",
 }
+SYNC_WINDOW = "/dashboard?sync=1"  # открывает окно «Синхронизация» (10.2)
+
+
+def below_min(price: Decimal | str | None, breakeven: Decimal | str | None) -> str:
+    """«Цена ниже минимальной» — одна формулировка для «Цен», «Всех товаров», страницы товара и «Требует внимания»
+    (шаг 10.15). Минимальная — цена без прибыли и без убытка по калькулятору 4.2."""
+    if price is None or breakeven is None:
+        return "Цена ниже минимальной — каждая продажа в минус"
+    return f"Цена {rub(price)} ниже минимальной {rub(breakeven)}"
 
 
 @dataclass(frozen=True)
@@ -66,13 +81,32 @@ def _pct(v) -> str:
     return f"{num(abs(Decimal(str(v))), 1)} %"
 
 
+def plural(n: int, one: str, few: str, many: str) -> str:
+    """1 товар, 2 товара, 5 товаров."""
+    n = abs(int(n))
+    if n % 10 == 1 and n % 100 != 11:
+        return one
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return few
+    return many
+
+
+def _span(r: list[str]) -> str:
+    return _day(r[0]) if r[0] == r[1] else f"{_day(r[0])}–{_day(r[1])}"
+
+
+def _payout_link(day) -> str:
+    """Выплата в «Выплатах и расчётах с Ozon» (10.23): строка сверки этой выплаты — с поступлением на счёт."""
+    return f"/dashboard/finance/payouts#payout-{day}" if day else "/dashboard/finance/payouts"
+
+
 def describe(
     type_: str, severity: str, before: Decimal | None, after: Decimal | None, threshold: Decimal | None,
     details: dict | None, product_id=None, product_name: str | None = None, today: date | None = None,
 ) -> Text:
     d = details or {}
     what = f"«{product_name}»" if product_name else "товара"
-    product_link = f"/dashboard/products?product={product_id}" if product_id else None
+    product_link = f"/dashboard/products/{product_id}" if product_id else None
 
     if type_ in (det.SALES_DROP, det.SALES_GROWTH):
         shop = product_id is None
@@ -87,7 +121,7 @@ def describe(
                    "Посмотрите, у каких товаров упали продажи, — «Прибыль по товарам».")
         else:
             tip = "Проверьте цену: не слишком ли низкая, не попал ли товар в акцию."
-        return Text(title, f"{base} {tip}", product_link or "/dashboard/finance/pnl?tab=products")
+        return Text(title, f"{base} {tip}", product_link or "/dashboard/analytics/sales")
 
     if type_ == det.PRICE_CHANGE:
         up = after is not None and before is not None and after > before
@@ -105,11 +139,15 @@ def describe(
                            "в разделе «Цены».", product_link)
 
     if type_ == det.LOW_MARGIN:
-        loss = after is not None and after < 0
-        title = f"Маржа {num(after)} % — {'каждая продажа в минус' if loss else f'ниже порога {num(threshold)} %'}"
+        if after is not None and after < 0:  # маржа в минус = цена ниже минимальной (10.15): та же проверка, без дублей
+            return Text(below_min(d.get("price"), d.get("breakeven")),
+                        f"Маржа {num(after)} %: каждая продажа {what} в минус. Минимальная цена — без прибыли и без "
+                        "убытка: себестоимость, комиссия, логистика, реклама и налоги. Поднимите цену или проверьте "
+                        "расходы — расчёт по шагам и «Изменить цену» на странице товара.", product_link)
+        title = f"Маржа {num(after)} % — ниже порога {num(threshold)} %"
         price = f" {rub(d['price'])}" if d.get("price") else ""
         return Text(title, f"При текущей цене{price} у {what} остаётся меньше, чем вы считаете нормой. Минимальная и "
-                           "целевая цена — в разделе «Цены», порог — в «Настройках».", product_link)
+                           "целевая цена — в разделе «Цены», порог — в «Уведомлениях».", product_link)
 
     if type_ == det.LOW_STOCK:
         if after is not None and after <= 0:
@@ -146,18 +184,18 @@ def describe(
         week = f" (начисления недели продаж с {_day(d.get('week_from'))})" if d.get("week_from") else ""
         return Text(f"Выплата {_day(d.get('day'))} {'больше' if more else 'меньше'} прогноза на {_pct(d.get('change_pct', 0))}",
                     f"Пришло {rub(after)}, по графику ожидали {rub(before)}{week}. Посмотрите начисления за ту неделю: "
-                    "возвраты, удержания, хранение.", "/dashboard/finance/payouts")
+                    "возвраты, удержания, хранение.", _payout_link(d.get("day")))
 
     if type_ == det.BANK_MISSING:
         return Text(f"Выплата Ozon {_day(d.get('day'))} не дошла до счёта",
                     f"Ozon выплатил {rub(before)}, а в выписке банка поступления нет, хотя выписка за эти дни загружена. "
-                    "Проверьте реквизиты для выплат в кабинете Ozon и выписку.", "/dashboard/operations/accounts")
+                    "Проверьте реквизиты для выплат в кабинете Ozon и выписку.", _payout_link(d.get("day")))
 
     if type_ == det.BANK_DIFF:
         diff = (Decimal(after) - Decimal(before)) if after is not None and before is not None else None
         return Text(f"Выплата Ozon {_day(d.get('day'))}: на счёт пришло {rub(after)}",
                     f"Ozon выплатил {rub(before)}, в банке {_day(d.get('bank_day'))} — {rub(after)} (разница {rub(diff)}).",
-                    "/dashboard/operations/accounts")
+                    _payout_link(d.get("day")))
 
     if type_ == det.CASH_GAP:
         if severity == det.RED:
@@ -167,7 +205,8 @@ def describe(
             title = f"Остаток ниже порога с {_day(d.get('first_day'))}"
             text = f"По прогнозу остаток опустится ниже вашего порога {rub(threshold)} {_day(d.get('first_day'), True)}"
         return Text(title, f"{text}; минимум — {rub(after)} {_day(d.get('min_day'))}. Перенесите платежи или "
-                           "запланируйте поступления — «Календарь».", "/dashboard/planning/calendar")
+                           "запланируйте поступления — «Календарь».",
+                    f"/dashboard/planning/calendar?day={d['first_day']}" if d.get("first_day") else "/dashboard/planning/calendar")
 
     if type_ == det.UNCATEGORIZED:
         frm = d.get("oldest_day")
@@ -176,5 +215,60 @@ def describe(
         return Text(f"Операций без статьи: {num(after, 0)}",
                     f"Они без статьи дольше {num(threshold, 0)} дн. — ДДС по статьям и прогноз неточны. Разметьте их или "
                     "задайте правило разнесения.", link)
+
+    if type_ == det.EXCESS_STOCK:
+        qty, cost = d.get("excess_qty") or 0, d.get("cost")
+        avg = d.get("avg_daily")
+        selling = avg is not None and Decimal(avg) > 0
+        title = f"Избыток: запаса на {num(after, 0)} дн." if selling and after is not None else f"Лежит без продаж: {d.get('available', 0)} шт."
+        sales = f"продаётся {num(avg, 2)} шт. в день" if selling else "продаж за 30 дней не было"
+        frozen = (f" Лишнее — около {qty} шт. на {rub(Decimal(cost) * qty)} по себестоимости: деньги заморожены, а Ozon "
+                  "берёт за хранение." if cost is not None and qty else
+                  f" Лишнее — около {qty} шт.; укажите себестоимость, чтобы видеть, сколько в нём денег." if qty else "")
+        return Text(title, f"На складах {d.get('available', 0)} шт. {what}, {sales} — запаса больше порога «Избыток» "
+                           f"({num(threshold, 0)} дн.).{frozen} Снизьте цену, добавьте товар в акцию или вывезите "
+                           "лишнее — «На вывоз».", "/dashboard/warehouses/withdrawal")
+
+    if type_ == det.SYNC_PROBLEM:
+        titles = d.get("titles") or []
+        problem = d.get("problem") or "данные не загружаются"
+        hint = d.get("hint") or "Откройте окно «Синхронизация» и нажмите «Обновить»."
+        short = problem.split(":")[0]  # «Ozon не принял ключ: он истёк…» — до двоеточия, подробности — в пояснении
+        if d.get("all_ozon"):
+            title = f"{short} — данные Ozon не обновляются"
+        elif len(titles) > 1:
+            title = f"{short} — не обновляются {', '.join(t.lower() for t in titles)}"
+        else:
+            lower = problem if problem.startswith("Ozon") else problem[:1].lower() + problem[1:]  # «Ozon» — с заглавной
+            title = f"{titles[0] if titles else 'Данные'}: {lower}"
+        last = d.get("last_success_at")
+        tail = (f" Данные — на {_day(last, True)}: пока они не обновятся, цифры в разделах не меняются." if last
+                else " Данные ещё не загружались — разделы с ними пустые.")
+        why = f"{problem}. " if len(titles) > 1 and ":" in problem else ""
+        return Text(title, why + hint + tail, d.get("href") or SYNC_WINDOW)
+
+    if type_ == det.ACCRUAL_GAPS:
+        n = d.get("count") or int(after or 0)
+        spans = ", ".join(_span(r) for r in d.get("ranges") or [])
+        more = f" и ещё {d['more_ranges']}" if d.get("more_ranges") else ""
+        return Text(f"Нет начислений за {n} {plural(n, 'день', 'дня', 'дней')}",
+                    f"Между загруженными днями нет данных Ozon: {spans}{more}. Выручка, прибыль и P&L за эти дни неполные "
+                    "(это пропуск, а не ноль). Загрузите отчёт по начислениям за эти дни или обновите начисления в окне "
+                    "«Синхронизация».", "/dashboard/analytics/reports")
+
+    if type_ == det.REPORT_ERROR:
+        error = f": {d['error'].rstrip('.')}" if d.get("error") else ""
+        period = f" за {d['period']}" if d.get("period") else ""
+        return Text(f"Отчёт не перечитался: {d.get('filename') or 'отчёт Ozon'}",
+                    f"Отчёт{period} не удалось перечитать{error}. В P&L — итоги прошлого разбора. Перечитайте отчёт ещё "
+                    "раз или загрузите файл заново — «Отчёты Ozon».", "/dashboard/analytics/reports")
+
+    if type_ == det.MISSING_COST:
+        n = d.get("count") or int(after or 0)
+        top = ", ".join(f"{x.get('offer_id')} ({rub(x.get('revenue'))})" for x in d.get("top") or [])
+        return Text(f"Продажи без себестоимости: {n} {plural(n, 'товар', 'товара', 'товаров')}",
+                    f"За 30 дней продано на {rub(d.get('revenue'))} без себестоимости — прибыль по этим продажам не "
+                    f"посчитана (не ноль). Больше всего: {top}. Укажите себестоимость — можно шаблоном Excel.",
+                    "/dashboard/products/costs?missing=1")
 
     return Text(TYPE_TITLES.get(type_, type_), "", None)

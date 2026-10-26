@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.pnl import PnLEngine, PnLParams
-from app.engine.tax import Profile, pct
+from app.engine.tax import Profile, TaxInput, pct, report_tax_input
 from app.models.accrual import SOURCE_API, SOURCE_XLSX, AccrualDay
 from app.models.pnl_snapshot import PnLSnapshot
 from app.models.report import Report
@@ -101,6 +101,31 @@ def coverage_warnings(cov: pnl_data.Coverage) -> list[str]:
     return warnings
 
 
+def tax_profile(req: PnLRequest, row) -> tuple[Profile | None, str | None]:
+    """Налог периода: профиль на начало периода или свой процент из параметров расчёта; профиля нет — (None, None)."""
+    profile, title = (row.to_engine(), profile_title(row)) if row else (None, None)
+    if req.tax_rate is not None:
+        rate = (req.tax_rate * 100).quantize(Decimal("0.01"))
+        base = req.tax_base or "profit"
+        profile = Profile("custom", row.legal_form if row else None, rate_pct=rate, custom_base=base)
+        title = f"Свой процент: {pct(rate)} {'от дохода' if base == 'revenue' else 'от прибыли'} — параметр расчёта"
+    return profile, title
+
+
+def tax_input_out(t: TaxInput) -> dict:
+    """Суммы для налога — в ответе (и кэше): по ним налог пересчитывается с расходами бизнеса (шаг 10.22)."""
+    return {
+        "income": str(t.income), "ozon_expenses": str(t.ozon_expenses), "cost_sales": str(t.cost_sales),
+        "cost_with_vat": str(t.cost_with_vat), "payout": str(t.payout), "revenue_base": str(t.revenue_base),
+        "days": t.days, "ozon_expenses_known": t.ozon_expenses_known, "income_note": t.income_note,
+    }
+
+
+def tax_input_in(d: dict) -> TaxInput:
+    money = {k: Decimal(d[k]) for k in ("income", "ozon_expenses", "cost_sales", "cost_with_vat", "payout", "revenue_base")}
+    return TaxInput(**money, days=d["days"], ozon_expenses_known=d["ozon_expenses_known"], income_note=d["income_note"])
+
+
 def coverage_out(cov: pnl_data.Coverage) -> dict:
     return {
         "days_total": len(cov.days),
@@ -125,12 +150,7 @@ async def compute(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest) -> dict
     period = pnl_data.build(lines, req.date_from, req.date_to, costs, supplier)
     data = period.data
 
-    profile, title = (row.to_engine(), profile_title(row)) if row else (None, None)
-    if req.tax_rate is not None:
-        rate = (req.tax_rate * 100).quantize(Decimal("0.01"))
-        base = req.tax_base or "profit"
-        profile = Profile("custom", row.legal_form if row else None, rate_pct=rate, custom_base=base)
-        title = f"Свой процент: {pct(rate)} {'от дохода' if base == 'revenue' else 'от прибыли'} — параметр расчёта"
+    profile, title = tax_profile(req, row)
 
     warnings: list[str] = []
     delta, adjusted = pnl_data.manual_adjustment(cov)
@@ -149,7 +169,7 @@ async def compute(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest) -> dict
         )
 
     has_data = cov.data_source != "none"
-    pnl = None
+    pnl = tax_input = None
     if has_data:
         params = PnLParams(
             tax_profile=profile, supplier_vat=supplier, article_vat=period.article_vat, manual_total=manual,
@@ -157,6 +177,8 @@ async def compute(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest) -> dict
         )
         result = ENGINE.compute(data, params)
         pnl = to_out(ReportPnL(result, title, supplier.quantize(Decimal("0.001")))).model_dump(mode="json")
+        effective = manual if manual is not None else data.auto_total  # как в движке P&L — без округления
+        tax_input = tax_input_out(report_tax_input(data, ENGINE.owed(data, params), effective))
     else:
         warnings.append(
             "За период нет данных — загрузите отчёт по начислениям из личного кабинета Ozon или подключите ключ "
@@ -182,6 +204,7 @@ async def compute(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest) -> dict
         "by_type": {k: str(v) for k, v in data.by_type.items()},
         "missing_cost": [m.model_dump() for m in data.missing_cost],
         "pnl": pnl,
+        "tax_input": tax_input,  # внутреннее: налог с расходами бизнеса (pnl_statement), в ответ API не попадает
         "warnings": warnings + (pnl["warnings"] if pnl else []),
         "calculated_at": datetime.now(timezone.utc).isoformat(),
         "from_snapshot": False,
@@ -203,7 +226,8 @@ async def get_pnl(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest) -> dict
             )
         )
         snapshot = res.scalar_one_or_none()
-        if snapshot is not None and not snapshot.stale:
+        # снимок до шага 10.22 — без сумм для налога с расходами бизнеса: пересчитываем
+        if snapshot is not None and not snapshot.stale and "tax_input" in snapshot.data_json:
             value = {**snapshot.data_json, "from_snapshot": True}
             await cache.set(user_id, "pnl", params, value)
             return value

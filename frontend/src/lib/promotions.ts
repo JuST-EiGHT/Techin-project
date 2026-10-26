@@ -1,4 +1,5 @@
 // Акции Ozon (шаги 1.5, 4.3): типы ответов /promotions и подписи — общие для списка, страницы акции и истории.
+// 10.16: минимальная цена для участия, результаты акций и участий.
 
 export type Promotion = {
   id: string
@@ -44,6 +45,12 @@ export type PromoProductRow = {
   margin_in_promo: string | null
   margin_level: MarginLevel | null
   first_seen_at: string
+  // минимальная цена для участия (10.16) — калькулятор цены: без прибыли и без убытка; целевая — с вашей маржой
+  breakeven_price: string | null
+  target_price: string | null
+  below_breakeven: boolean // цена в акции (у кандидата — цена входа) ниже минимальной
+  unit_profit: string | null // остаётся с 1 шт. при цене в акции
+  whole_stock_profit: string | null // «весь остаток»: если по цене в акции уйдёт весь остаток
 }
 
 export type ProductsResponse = { promotion: Promotion; margin_note: string | null; items: PromoProductRow[] }
@@ -62,6 +69,45 @@ export type HistoryItem = {
   prices: { at: string; action_price: string | null; stock: number | null }[]
   added_automatically: boolean
   margin_in_promo: string | null
+  result: ParticipationResult | null // результат участия (10.16)
+}
+
+// ── результаты акций (10.16): во время участия против такого же периода до; дни без данных — пропуск ──
+export type ResultWindow = {
+  date_from: string
+  date_to: string
+  days: number
+  days_with_data: number
+  qty: number
+  revenue: string
+  profit: string | null
+}
+export type ParticipationResult = {
+  during: ResultWindow
+  before: ResultWindow
+  base: ResultWindow | null // «до», приведённое к дням с данными «во время»
+  known: boolean
+  qty_change_pct: string | null
+  revenue_change_pct: string | null
+  profit_change: string | null
+}
+export type PromotionTotals = {
+  products: number
+  qty: number | null
+  qty_before: number | null
+  revenue: string | null
+  revenue_before: string | null
+  profit: string | null
+  profit_before: string | null
+  qty_change_pct: string | null
+  revenue_change_pct: string | null
+  profit_change: string | null
+}
+export type PromotionResults = {
+  promotion: Promotion
+  totals: PromotionTotals
+  items: { participation_id: string; product: PromoProductRow['product']; entered_at: string; left_at: string | null; is_current: boolean; result: ParticipationResult }[]
+  note: string
 }
 
 export type HistoryResponse = { date_from: string; date_to: string; items: HistoryItem[] }

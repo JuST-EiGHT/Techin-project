@@ -26,6 +26,7 @@ export type ReportItem = {
   tax_base: 'profit' | 'revenue' | null
   tax_rate: string | null
   rows_count: number
+  source: 'file' | 'api' // загружен файлом или получен через Ozon API (10.12)
   missing_cost_count: number
   warnings_count: number
   pnl: PnL
@@ -131,6 +132,8 @@ export type FiguresData = {
   costSales: string | null // себестоимость без НДС
   missingCostCount: number
   pnl: PnL
+  /** P&L периода с прочими расходами бизнеса (10.22): налог, прибыль, остаток и маржа в цифрах — с ними. */
+  final?: Pick<PnL, 'tax' | 'vat' | 'net' | 'margin' | 'profit_before_tax'> & { business: string }
 }
 
 export const vatPctText = (multiplier: string) => {
@@ -145,7 +148,7 @@ const effectiveVat = (owed: string, costSales: string | null, fallback: string) 
 /** Полоса из пяти цифр: продано, получено от Ozon, себестоимость с НДС, налог, остаток и маржа (самый заметный блок). */
 export function PnLFigures({ data }: { data: FiguresData }) {
   const costLabel = useCostLabel()
-  const { pnl } = data
+  const pnl = data.final ? { ...data.pnl, ...data.final } : data.pnl
   const taxSet = pnl.tax !== null
   const net = pnl.net === null ? null : Number(pnl.net)
   const resultTone = net === null ? '' : net < 0 ? 'bg-bad/10' : 'bg-ok/10'
@@ -199,6 +202,11 @@ export function PnLFigures({ data }: { data: FiguresData }) {
           <div className={`text-sm font-semibold ${net === null ? 'text-muted' : net < 0 ? 'text-bad' : 'text-ok'}`}>
             {taxSet ? `Маржа ${pctText(pnl.margin)}` : `до налога ${rub(pnl.profit_before_tax)}`}
           </div>
+          {data.final && (
+            <div className="text-xs text-muted" data-testid="figure-net-business">
+              с расходами бизнеса {rub(data.final.business)}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -396,7 +404,7 @@ export function ReportHeading({ report, link }: { report: ReportItem; link?: boo
     <div>
       <h2 className="text-lg font-semibold">{link ? <Link href={`/dashboard/analytics/reports/${report.id}`} className="hover:text-accent">{title}</Link> : title}</h2>
       <p className="text-xs text-muted">
-        {report.filename} · загружен {fmtDateTime(report.uploaded_at)}
+        {report.source === 'api' ? `получен через API Ozon ${fmtDateTime(report.uploaded_at)}` : `${report.filename} · загружен ${fmtDateTime(report.uploaded_at)}`}
       </p>
     </div>
   )
@@ -520,5 +528,43 @@ export function PnLTable({ byType, pnl, revenue, manual }: {
         />
       </div>
     </section>
+  )
+}
+
+/** Отчёт за этот период уже есть (409): заменить, оставить оба или отменить — при загрузке файла и получении через API. */
+export function ConflictDialog({ detail, conflicts, onCancel, onKeep, onReplace }: {
+  detail: string
+  conflicts: Conflict[]
+  onCancel: () => void
+  onKeep: () => void
+  onReplace: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true">
+      <div className="w-full max-w-lg rounded-xl border border-line bg-card p-6" data-testid="conflict-dialog">
+        <h2 className="text-lg font-semibold">Отчёт за этот период уже есть</h2>
+        <p className="mt-2 text-sm text-fg">{detail}</p>
+        <ul className="mt-3 space-y-1 text-sm text-muted">
+          {conflicts.map((c) => (
+            <li key={c.id}>
+              {c.filename} · {periodLabel(c)} · загружен {fmtDateTime(c.uploaded_at)}
+              {c.same_file && ' · тот же файл'}
+            </li>
+          ))}
+        </ul>
+        <p className="mt-3 text-xs text-faint">Заменённый отчёт пропадёт из списка и расчётов, но не удалится — его можно будет вернуть.</p>
+        <div className="mt-5 flex flex-wrap justify-end gap-3">
+          <button onClick={onCancel} className="rounded-lg border border-line px-4 py-2 text-sm hover:border-muted">
+            Отмена
+          </button>
+          <button onClick={onKeep} className="rounded-lg border border-line px-4 py-2 text-sm hover:border-accent hover:text-accent">
+            Оставить оба
+          </button>
+          <button onClick={onReplace} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90" data-testid="conflict-replace">
+            Заменить
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }

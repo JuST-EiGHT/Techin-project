@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
@@ -34,7 +34,25 @@ class UserLogin(BaseModel):
 
 
 class ProfileUpdate(BaseModel):
+    """Не переданное поле не меняется. full_name — прежнее одно поле (до 10.26): делится на имя и фамилию."""
+
     full_name: str | None = Field(default=None, max_length=255)
+    first_name: str | None = Field(default=None, max_length=100)
+    last_name: str | None = Field(default=None, max_length=100)
+    phone: str | None = Field(default=None, max_length=32)
+
+
+class PasswordConfirm(BaseModel):
+    password: str = Field(min_length=1, max_length=128)
+
+
+class SessionOut(BaseModel):
+    id: uuid.UUID
+    device: str  # «Chrome · Windows»
+    ip: str | None
+    created_at: datetime  # вход
+    last_seen_at: datetime  # последняя активность (вход или обновление токена)
+    current: bool  # этот сеанс
 
 
 class PasswordChange(BaseModel):
@@ -53,9 +71,18 @@ class UserResponse(BaseModel):
     id: uuid.UUID
     email: EmailStr
     full_name: str | None
+    first_name: str | None = None
+    last_name: str | None = None
+    phone: str | None = None
     is_active: bool
     is_verified: bool
     created_at: datetime
+    deletion_due_at: datetime | None = None  # удаление запрошено — когда удалится (до этого можно отменить)
+
+    @field_validator("deletion_due_at")
+    @classmethod
+    def _utc(cls, v: datetime | None) -> datetime | None:
+        return v if v is None or v.tzinfo else v.replace(tzinfo=timezone.utc)  # SQLite тестов — без пояса
 
 
 class Token(BaseModel):

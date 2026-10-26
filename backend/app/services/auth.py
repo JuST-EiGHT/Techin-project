@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.crud import user as crud_user
 from app.db.session import get_db
 from app.models.user import User
+from app.models.user_session import UserSession
 from app.services.security import (  # noqa: F401 — реэкспорт
     ACCESS,
     REFRESH,
@@ -25,6 +26,7 @@ _bearer = HTTPBearer(auto_error=False)
 
 _UNAUTHORIZED = {"WWW-Authenticate": "Bearer"}
 SESSION_ENDED = "Пароль изменён — войдите снова с новым паролем"
+SESSION_CLOSED = "Сеанс завершён — войдите снова"
 
 
 async def get_current_token_payload(
@@ -67,4 +69,8 @@ async def get_current_user(
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Аккаунт деактивирован")
     if issued_before_revocation(user, payload):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, SESSION_ENDED, headers=_UNAUTHORIZED)
+    if payload.get("sid"):  # сеанс завершили на другом устройстве (шаг 10.26) — токен больше не действует
+        session = await db.get(UserSession, uuid.UUID(payload["sid"]))
+        if session is None or session.ended_at is not None:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, SESSION_CLOSED, headers=_UNAUTHORIZED)
     return user

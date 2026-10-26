@@ -60,6 +60,7 @@ class DashboardPayouts(BaseModel):
     balance: Decimal | None
     last_day: date | None
     next_payout: ForecastOut | None
+    upcoming: list[ForecastOut] = []  # выплаты по прогнозу на ближайшие 14 дней — блок «Деньги» на главной (шаг 10.4)
     schedule_title: str
     weeks: list[WeekBar]  # 8 недель назад и 4 вперёд: факт и прогноз
 

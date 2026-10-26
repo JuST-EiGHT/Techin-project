@@ -121,6 +121,10 @@ class Line:
     sku: str
     name: str
     posting_number: str | None = None
+    # откуда строка — для детализации до исходной операции («Аналитика прибыльности», 10.9)
+    accrual_id: uuid.UUID | None = None
+    source: str | None = None  # api | xlsx
+    report_id: uuid.UUID | None = None
 
 
 async def load_lines(db: AsyncSession, user_id: uuid.UUID, cov: Coverage) -> list[Line]:
@@ -182,6 +186,7 @@ def _line(a: Accrual, type_name: str, offer_id: str | None, name: str) -> Line:
     return Line(
         day=a.accrual_date, type_name=type_name, amount=Decimal(a.amount), quantity=a.quantity,
         offer_id=offer_id or None, sku=str(a.sku) if a.sku else "", name=name, posting_number=a.posting_number or None,
+        accrual_id=a.id, source=a.source, report_id=a.report_id,
     )
 
 

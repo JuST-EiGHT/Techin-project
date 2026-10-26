@@ -26,11 +26,15 @@ def _response(s: UserSettings, theme: str) -> SettingsResponse:
         cost_label=COST_LABELS[s.supplier_payment], price_ad_pct=ad, price_target_margin_pct=margin,
         price_defaults=s.price_ad_pct is None and s.price_target_margin_pct is None,
         stock_critical_days=t.critical, stock_low_days=t.low, stock_excess_days=t.excess,
-        supply_target_days=target, supply_lead_time_days=lead,
+        supply_target_days=target, supply_lead_time_days=lead, supply_safety_days=svc.supply_safety_days(s),
+        supply_demand_days=svc.supply_demand_days(s), min_profit_rub=svc.min_profit(s),
         low_margin_pct=a.low_margin, anomaly_sales_drop_pct=a.sales_drop, anomaly_sales_drop_red_pct=a.sales_drop_red,
         anomaly_sales_growth_pct=a.sales_growth, anomaly_price_pct=a.price, anomaly_price_red_pct=a.price_red,
         anomaly_commission_pp=a.commission_pp, anomaly_payout_diff_pct=a.payout_diff,
         anomaly_cash_gap_days=a.cash_gap_days, anomaly_uncategorized_days=a.uncategorized_days,
+        anomaly_sync_stale_hours=a.sync_stale_hours, anomaly_data_gap_days=a.data_gap_days,
+        recommendation_hide_days=svc.recommendation_hide_days(s),
+        abc_a_pct=int(svc.abc_bounds(s).a), abc_b_pct=int(svc.abc_bounds(s).b),
         anomaly_defaults=all(getattr(a, f) == getattr(DEFAULT_THRESHOLDS, f) for f in svc.ANOMALY_FIELDS.values()),
     )
 

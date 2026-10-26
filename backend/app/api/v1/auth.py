@@ -7,12 +7,15 @@ from app.core.config import settings
 from app.crud import user as crud_user
 from app.db.session import get_db
 from app.models.user import User
+from app.models.user_session import ENDED, ENDED_ALL, LOGOUT, PASSWORD
 from app.schemas.user import (
     LogoutRequest,
     PasswordChange,
+    PasswordConfirm,
     ProfileUpdate,
     RefreshRequest,
     RegistrationInfo,
+    SessionOut,
     Token,
     UserCreate,
     UserLogin,
@@ -20,6 +23,7 @@ from app.schemas.user import (
 )
 from app.services.auth import (
     REFRESH,
+    SESSION_CLOSED,
     SESSION_ENDED,
     InvalidTokenError,
     create_access_token,
@@ -32,17 +36,18 @@ from app.services.auth import (
     utcnow,
     verify_password,
 )
-from app.services import login_limit, registration
+from app.services import account, login_limit, registration
 from app.services.audit import client_info
 from app.services.token_blacklist import blacklist
+from app.schemas.sync import utc
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-def _issue_tokens(user_id: uuid.UUID) -> Token:
+def _issue_tokens(user_id: uuid.UUID, sid: uuid.UUID | None = None) -> Token:
     return Token(
-        access_token=create_access_token(user_id),
-        refresh_token=create_refresh_token(user_id),
+        access_token=create_access_token(user_id, sid),
+        refresh_token=create_refresh_token(user_id, sid),
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
 
@@ -96,11 +101,13 @@ async def login(data: UserLogin, request: Request, db: AsyncSession = Depends(ge
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Аккаунт деактивирован")
     await login_limit.login_succeeded(data.email, ip)
-    return _issue_tokens(user.id)
+    _, agent = client_info(request)
+    session = await account.start(db, user.id, ip, agent)  # сеанс входа (шаг 10.26)
+    return _issue_tokens(user.id, session.id)
 
 
 @router.post("/refresh", response_model=Token)
-async def refresh(data: RefreshRequest, db: AsyncSession = Depends(get_db)):
+async def refresh(data: RefreshRequest, request: Request, db: AsyncSession = Depends(get_db)):
     try:
         payload = decode_token(data.refresh_token, expected_type=REFRESH)
     except InvalidTokenError as e:
@@ -115,15 +122,28 @@ async def refresh(data: RefreshRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Аккаунт деактивирован")
     if issued_before_revocation(user, payload):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, SESSION_ENDED)
+    ip, agent = client_info(request)
+    session = await account.get(db, payload.get("sid"))
+    if payload.get("sid") and (session is None or session.ended_at is not None or session.user_id != user.id):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, SESSION_CLOSED)
 
     # Ротация: старый refresh больше не работает
     await blacklist.revoke(payload["jti"], payload["exp"])
-    return _issue_tokens(user.id)
+    if session is None:  # токен до шага 10.26 — без сеанса: заводим
+        session = await account.start(db, user.id, ip, agent)
+    else:
+        await account.touch(db, session, ip, agent)
+    return _issue_tokens(user.id, session.id)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(data: LogoutRequest | None = None, access_payload: dict = Depends(get_current_token_payload)):
+async def logout(data: LogoutRequest | None = None, access_payload: dict = Depends(get_current_token_payload),
+                 db: AsyncSession = Depends(get_db)):
     await blacklist.revoke(access_payload["jti"], access_payload["exp"])
+    session = await account.get(db, access_payload.get("sid"))
+    if session is not None and session.ended_at is None and str(session.user_id) == access_payload["sub"]:
+        session.ended_at, session.end_reason = utcnow(), LOGOUT
+        await db.commit()
     if data and data.refresh_token:
         try:
             p = decode_token(data.refresh_token, expected_type=REFRESH)
@@ -140,8 +160,22 @@ async def me(user: User = Depends(get_current_user)):
 
 @router.patch("/me", response_model=UserResponse)
 async def update_me(data: ProfileUpdate, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    if "full_name" in data.model_fields_set:
-        user.full_name = (data.full_name or "").strip() or None
+    """Имя, фамилия, телефон (шаг 10.26). Прежнее одно поле full_name делится на имя и фамилию. E-mail меняется после
+    подключения почты (шаг 8.3a): новый адрес нужно подтвердить."""
+    fields = data.model_fields_set
+    if "full_name" in fields and not {"first_name", "last_name"} & fields:
+        user.first_name, user.last_name = account.split_name(data.full_name)
+    if "first_name" in fields:
+        user.first_name = (data.first_name or "").strip() or None
+    if "last_name" in fields:
+        user.last_name = (data.last_name or "").strip() or None
+    if "phone" in fields:
+        try:
+            user.phone = account.clean_phone(data.phone)
+        except account.AccountError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    if fields & {"full_name", "first_name", "last_name"}:
+        user.full_name = account.full_name(user.first_name, user.last_name)
     await db.commit()
     await db.refresh(user)
     return user
@@ -162,4 +196,55 @@ async def change_password(
     user.hashed_password = hash_password(data.new_password)
     user.tokens_valid_after = utcnow()
     await db.commit()
+    await account.end_all(db, user.id, PASSWORD)
     await blacklist.revoke(payload["jti"], payload["exp"])
+
+
+# ── сеансы (шаг 10.26) ──
+def _sid(payload: dict) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(payload["sid"]) if payload.get("sid") else None
+    except ValueError:
+        return None
+
+
+@router.get("/sessions", response_model=list[SessionOut])
+async def list_sessions(payload: dict = Depends(get_current_token_payload), user: User = Depends(get_current_user),
+                        db: AsyncSession = Depends(get_db)):
+    """Активные сеансы аккаунта: устройство, адрес, вход, последняя активность; этот — первым."""
+    current = _sid(payload)
+    rows = await account.active(db, user.id)
+    rows.sort(key=lambda s: s.id != current)
+    return [SessionOut(id=s.id, device=account.device_label(s.user_agent), ip=s.ip, created_at=utc(s.created_at),
+                       last_seen_at=utc(s.last_seen_at), current=s.id == current) for s in rows]
+
+
+@router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def end_session(session_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Завершить сеанс: на том устройстве нужно войти снова (этот — тоже выход)."""
+    try:
+        await account.end(db, user.id, session_id, ENDED)
+    except account.AccountError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+
+@router.post("/sessions/end-others")
+async def end_other_sessions(payload: dict = Depends(get_current_token_payload), user: User = Depends(get_current_user),
+                             db: AsyncSession = Depends(get_db)) -> dict:
+    """Завершить все сеансы, кроме этого."""
+    return {"ended": await account.end_all(db, user.id, ENDED_ALL, keep=_sid(payload))}
+
+
+# ── удаление аккаунта (шаг 10.26) ──
+@router.post("/account/delete", response_model=UserResponse)
+async def request_deletion(data: PasswordConfirm, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Удалить аккаунт: через 30 дней удалятся аккаунт и данные всех его магазинов; до этого всё работает и удаление
+    можно отменить."""
+    if not verify_password(data.password, user.hashed_password):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Пароль указан неверно")
+    return await account.request_deletion(db, user)
+
+
+@router.post("/account/cancel-deletion", response_model=UserResponse)
+async def cancel_deletion(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    return await account.cancel_deletion(db, user)

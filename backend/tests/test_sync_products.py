@@ -44,10 +44,16 @@ class FakeOzon:
         self.prices = load("product_prices")
         self.price_pages: dict[str, dict] | None = None  # cursor → ответ, для теста пагинации
         self.list_error: httpx.Response | None = None  # если задан — список товаров отвечает ошибкой
-        self.calls: dict[str, list[dict]] = {"list": [], "info": [], "prices": []}
+        self.calls: dict[str, list[dict]] = {"list": [], "info": [], "prices": [], "tree": []}
+        self.tree = load("description_category_tree")  # справочник категорий (шаг 10.3)
+        mock.post("/v1/description-category/tree").mock(side_effect=self._tree)
         mock.post("/v3/product/list").mock(side_effect=self._list)
         mock.post("/v3/product/info/list").mock(side_effect=self._info)
         mock.post("/v5/product/info/prices").mock(side_effect=self._prices)
+
+    def _tree(self, request: httpx.Request) -> httpx.Response:
+        self.calls["tree"].append(json.loads(request.content))
+        return httpx.Response(200, json=self.tree)
 
     def _list(self, request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
@@ -375,7 +381,9 @@ async def test_api_sync_without_key(client, tokens, enqueued):
     empty = {"last_run": None, "last_success_at": None}
     assert status == {"has_active_key": False, "products": empty, "stocks": empty, "finance": empty, "promotions": empty,
                       "balance": empty, "has_bank": False, "bank": empty,  # банк по API — шаг 3.12
-                      "postings": empty}  # отправления — шаг 5.2
+                      "postings": empty,  # отправления — шаг 5.2
+                      "supplies": empty,  # заявки на поставку — шаг 10.18
+                      "state": "no_source", "oldest_kind": None, "oldest_success_at": None, "kinds": []}  # шаг 10.2
 
 
 async def test_api_manual_sync_flow(sessions, client, tokens, enqueued, ozon):

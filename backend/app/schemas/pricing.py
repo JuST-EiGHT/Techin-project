@@ -1,5 +1,6 @@
 import uuid
 from decimal import Decimal
+from typing import Annotated
 
 from pydantic import BaseModel, Field
 
@@ -19,6 +20,8 @@ class CalculateRequest(BaseModel):
     target_margin_pct: Decimal | None = Field(None, ge=0, le=90)
     price: Decimal | None = Field(None, gt=0, le=100_000_000)  # проверить другую цену
     promo_price: Decimal | None = Field(None, gt=0, le=100_000_000)
+    # «а если поставить …» (10.15): маржа, прибыль и расходы при этих ценах — тем же расчётом
+    what_if: list[Annotated[Decimal, Field(gt=0, le=100_000_000)]] = Field(default_factory=list, max_length=8)
 
 
 class CalcInputs(BaseModel):
@@ -71,8 +74,12 @@ class CalcResult(BaseModel):
     target_price: Decimal | None
     target_error: str | None
     profitable: bool | None  # текущая цена не ниже минимальной
+    floor_price: Decimal | None = None  # цена с минимальной допустимой прибылью (настройка 10.26; не задана — null)
+    floor_ok: bool | None = None  # текущая цена не ниже неё
+    min_profit: Decimal | None = None  # сама настройка, ₽ с продажи
     current: Breakdown | None
     promo: Breakdown | None
+    what_if: list[Breakdown] = []  # по ценам из запроса, в том же порядке
 
 
 class CalcProduct(BaseModel):

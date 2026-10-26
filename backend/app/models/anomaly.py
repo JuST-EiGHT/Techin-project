@@ -47,6 +47,9 @@ class Anomaly(Base):
     metric_after: Mapped[Decimal | None] = mapped_column(Numeric(18, 3))  # стало
     threshold: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))  # какой порог пройден
     details: Mapped[dict | None] = mapped_column(JSONData)  # подробности для текста: акция, даты, штуки …
+    # деньги под риском, ₽ (шаг 10.5): убыток в акции, недополученная выплата, стоимость лишнего запаса — где можно
+    # оценить; оценка «сейчас» — обновляется каждой проверкой, пока аномалия активна
+    money_at_risk: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)  # последняя проверка: ещё есть
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

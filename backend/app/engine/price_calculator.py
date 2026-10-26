@@ -138,6 +138,18 @@ def price_for_margin(p: PriceParams, margin_pct: Decimal) -> Decimal:
     return max((beta / denominator).quantize(CENT, ROUND_CEILING), ZERO)
 
 
+def price_for_profit(p: PriceParams, profit: Decimal) -> Decimal:
+    """Цена, при которой с одной штуки остаётся profit ₽ (до налога на прибыль): π(P) = α × P − β = profit. Округление
+    вверх до копейки (шаг 10.26: «минимальная допустимая прибыль»)."""
+    alpha, beta = coefficients(p)
+    if alpha <= 0:
+        raise PriceUnreachable(
+            f"Цена недостижима: комиссия, эквайринг, реклама и налоги с выручки забирают {_taken_pct(alpha)} цены — "
+            "при любой цене товар в минус."
+        )
+    return max(((beta + profit) / alpha).quantize(CENT, ROUND_CEILING), ZERO)
+
+
 @dataclass
 class Breakdown:
     """Из чего складывается цена одной штуки: суммы в рублях, расходы — положительные."""
@@ -199,9 +211,12 @@ class PriceResult:
     current: Breakdown | None  # при текущей цене
     promo: Breakdown | None  # при цене в акции
     profitable: bool | None  # текущая цена не ниже минимальной; цены нет — None
+    floor_price: Decimal | None = None  # цена с минимальной допустимой прибылью (настройка; 0 — не задана)
+    floor_ok: bool | None = None  # текущая цена не ниже неё
 
 
-def calculate(p: PriceParams, price: Decimal | None = None, promo_price: Decimal | None = None) -> PriceResult:
+def calculate(p: PriceParams, price: Decimal | None = None, promo_price: Decimal | None = None,
+              min_profit: Decimal = ZERO) -> PriceResult:
     try:
         min_price, min_error = price_for_margin(p, ZERO), None
     except PriceUnreachable as exc:
@@ -214,7 +229,14 @@ def calculate(p: PriceParams, price: Decimal | None = None, promo_price: Decimal
             target_error = str(exc)
     current = breakdown(p, price) if price is not None and price > 0 else None
     promo = breakdown(p, promo_price) if promo_price is not None and promo_price > 0 else None
+    floor = None
+    if min_profit > 0:
+        try:
+            floor = price_for_profit(p, min_profit)
+        except PriceUnreachable:
+            floor = None  # недостижима — как и минимальная: её ошибка уже в min_error
     return PriceResult(
         min_price=min_price, min_error=min_error, target_price=target_price, target_error=target_error,
         current=current, promo=promo, profitable=None if current is None else current.profit >= 0,
+        floor_price=floor, floor_ok=None if floor is None or current is None else current.profit >= min_profit,
     )

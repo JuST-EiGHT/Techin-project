@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { type BusinessExpenses, type Statement, StatementTable } from '@/components/pnl-statement'
 import { ProductsView } from '@/components/products-pnl'
 import {
   type CalcParams,
@@ -50,6 +51,8 @@ type PeriodPnL = {
   warnings: string[]
   calculated_at: string
   from_snapshot: boolean
+  business: BusinessExpenses | null // null — «Планирование» выключено: своих расходов в P&L нет
+  statement: Statement | null // P&L строками с расходами бизнеса (10.22)
 }
 
 type PeriodsReport = { id: string; report_type: ReportType; period: string; period_start: string; period_end: string }
@@ -125,8 +128,8 @@ function Finance() {
       <div>
         <h1 className="text-2xl font-semibold">P&amp;L — прибыль и убытки</h1>
         <p className="mt-1 text-sm text-muted">
-          По начислениям Ozon — за что и когда заработано, а не когда деньги пришли на счёт. Деньги на счетах (ДДС) —
-          отдельный раздел{' '}
+          По начислениям Ozon — за что и когда заработано, а не когда деньги пришли на счёт; прочие расходы бизнеса (аренда,
+          зарплата …) — из «Операций», статьи с отметкой «в P&amp;L». Деньги на счетах (ДДС) — отдельный раздел{' '}
           <Link href="/dashboard/planning/cashflow" className="text-accent hover:underline">
             «Планирование»
           </Link>
@@ -217,11 +220,21 @@ function Finance() {
           </>
         ) : (
           <>
-            <div className="text-sm">
-              <span className="font-semibold" data-testid="range-label">
-                {fmtDay(range.from)} – {fmtDay(range.to)}
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
+              <span>
+                <span className="font-semibold" data-testid="range-label">
+                  {fmtDay(range.from)} – {fmtDay(range.to)}
+                </span>
+                <span className="text-muted"> · {daysWord(daysCount(range))}</span>
               </span>
-              <span className="text-muted"> · {daysWord(daysCount(range))}</span>
+              <Link
+                href={`/dashboard/analytics/profit?period=custom&from=${range.from}&to=${range.to}`}
+                className="ml-auto text-accent hover:underline"
+                data-testid="products-analytics-link"
+                title="Структура расходов, товары в минус и с низкой маржой, исходные строки начислений"
+              >
+                Аналитика прибыльности →
+              </Link>
             </div>
             <ProductsView
               key={`${range.from}:${range.to}`}
@@ -310,6 +323,7 @@ function PnLBody({
   missing,
   busy,
   productsHref,
+  statement,
 }: {
   figures: FiguresData
   manual: boolean
@@ -322,6 +336,8 @@ function PnLBody({
   missing: ReportSummary['missing_cost']
   busy: boolean
   productsHref: string
+  /** P&L строками (период, 10.22); тогда «Начисления по типам» — раскрываются под ним. */
+  statement?: React.ReactNode
 }) {
   return (
     <div className={`space-y-5 transition-opacity ${busy ? 'opacity-60' : ''}`} aria-busy={busy}>
@@ -329,7 +345,19 @@ function PnLBody({
       <Warnings items={shown(warnings)} />
       {manualBlock}
       {paramsBlock}
-      <PnLTable byType={byType} pnl={figures.pnl} revenue={revenue} manual={manual} />
+      {statement ? (
+        <>
+          {statement}
+          <details className="rounded-xl border border-line bg-card" data-testid="by-type-details">
+            <summary className="cursor-pointer px-4 py-2 text-sm text-muted hover:text-fg">Начисления Ozon по типам — % внутри доходов и расходов, как в отчёте</summary>
+            <div className="border-t border-line">
+              <PnLTable byType={byType} pnl={figures.pnl} revenue={revenue} manual={manual} />
+            </div>
+          </details>
+        </>
+      ) : (
+        <PnLTable byType={byType} pnl={figures.pnl} revenue={revenue} manual={manual} />
+      )}
       {days && <DayChart days={days} dayHref={dayProductsHref} moreHref={productsHref} />}
       <MissingCostTable items={missing} />
     </div>
@@ -382,6 +410,12 @@ function PeriodView({
       .catch(() => setDays(null))
   }, [range.from, range.to, calc.vat_multiplier])
 
+  const st = data?.statement ?? null
+  // расходы бизнеса есть — налог, чистая прибыль и рентабельность в цифрах — с ними (как последняя строка P&L)
+  const final =
+    st && st.business !== null && Number(st.business) !== 0
+      ? { tax: st.tax, vat: st.vat, net: st.net, margin: st.margin, profit_before_tax: st.profit_before_tax, business: st.business }
+      : undefined
   const pnl = data?.pnl ?? null
   const applied = data?.reports.filter((r) => r.manual_total_applied) ?? []
   return (
@@ -414,7 +448,9 @@ function PeriodView({
             costSales: data.cost_sales,
             missingCostCount: data.missing_cost.length,
             pnl,
+            final,
           }}
+          statement={st && <StatementTable statement={st} business={data.business} range={range} />}
           manual={manual !== null}
           byType={data.by_type}
           revenue={data.revenue_base}

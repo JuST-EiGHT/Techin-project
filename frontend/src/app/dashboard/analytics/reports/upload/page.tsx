@@ -9,13 +9,12 @@ import {
   ByTypeTable,
   pnlWarnings,
   type Conflict,
+  ConflictDialog,
   MissingCostTable,
   ReportFigures,
   ReportHeading,
   type ReportDetail,
   Warnings,
-  fmtDateTime,
-  periodLabel,
 } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 
@@ -134,34 +133,13 @@ export default function UploadReportPage() {
       <FormError message={error} />
 
       {conflict && (
-        <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true">
-          <div className="w-full max-w-lg rounded-xl border border-line bg-card p-6" data-testid="conflict-dialog">
-            <h2 className="text-lg font-semibold">Отчёт за этот период уже есть</h2>
-            <p className="mt-2 text-sm text-fg">{conflict.detail}</p>
-            <ul className="mt-3 space-y-1 text-sm text-muted">
-              {conflict.conflicts.map((c) => (
-                <li key={c.id}>
-                  {c.filename} · {periodLabel(c)} · загружен {fmtDateTime(c.uploaded_at)}
-                  {c.same_file && ' · тот же файл'}
-                </li>
-              ))}
-            </ul>
-            <p className="mt-3 text-xs text-faint">
-              Заменённый отчёт пропадёт из списка и расчётов, но не удалится — его можно будет вернуть.
-            </p>
-            <div className="mt-5 flex flex-wrap justify-end gap-3">
-              <button onClick={() => setConflict(null)} className="rounded-lg border border-line px-4 py-2 text-sm hover:border-muted">
-                Отмена
-              </button>
-              <button onClick={() => send(conflict.file, 'keep')} className="rounded-lg border border-line px-4 py-2 text-sm hover:border-accent hover:text-accent">
-                Оставить оба
-              </button>
-              <button onClick={() => send(conflict.file, 'replace')} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90">
-                Заменить
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConflictDialog
+          detail={conflict.detail}
+          conflicts={conflict.conflicts}
+          onCancel={() => setConflict(null)}
+          onKeep={() => send(conflict.file, 'keep')}
+          onReplace={() => send(conflict.file, 'replace')}
+        />
       )}
 
       {report && (

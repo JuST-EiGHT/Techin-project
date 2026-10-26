@@ -85,3 +85,63 @@ class FinanceSyncRequest(BaseModel):
         if (self.date_from is None) != (self.date_to is None):
             raise ValueError("укажите обе даты периода или ни одной")
         return self
+
+
+# ---------- «Финансы → Обзор» (шаг 10.22) ----------
+
+
+class FigureChange(BaseModel):
+    value: Decimal | None  # null — данных за период нет
+    previous: Decimal | None  # null — в прошлом периоде данных нет
+    change_pct: Decimal | None = None  # изменение к прошлому периоду, %
+    change_pp: Decimal | None = None  # у рентабельности — в процентных пунктах
+
+
+class OverviewFigures(BaseModel):
+    revenue: FigureChange
+    expenses: FigureChange  # выручка − прибыль: Ozon, себестоимость, расходы бизнеса, налог
+    profit: FigureChange
+    margin: FigureChange  # прибыль / выручка, %
+
+
+class OverviewPrevious(BaseModel):
+    date_from: date
+    date_to: date
+    has_data: bool
+
+
+class OverviewBusinessLoose(BaseModel):
+    count: int
+    amount: Decimal
+
+
+class OverviewBusiness(BaseModel):
+    total: Decimal
+    operations: int
+    uncategorized: OverviewBusinessLoose
+
+
+class StructureItem(BaseModel):
+    key: str  # строка P&L Ozon (returns, adjustments, commission …), cost, business:<id статьи>, tax
+    title: str
+    kind: Literal["ozon", "cost", "business", "tax"]
+    amount: Decimal  # больше нуля — расход; меньше — доплаты Ozon (баллы за скидки, компенсации): уменьшают расходы
+    share: Decimal | None  # % выручки
+    category_id: uuid.UUID | None  # статья расходов бизнеса — для перехода к её операциям
+
+
+class FinanceOverview(BaseModel):
+    date_from: date
+    date_to: date
+    previous: OverviewPrevious
+    data_source: Literal["xlsx", "api", "mixed", "none"]
+    coverage: dict
+    has_data: bool
+    profit_kind: Literal["net", "before_tax"] | None  # net — после налога и расходов бизнеса; before_tax — налог не задан
+    tax_set: bool
+    figures: OverviewFigures
+    profit_ozon: Decimal | None  # прибыль от продаж на Ozon до налога — без расходов бизнеса
+    business: OverviewBusiness | None  # null — «Планирование» выключено: своих расходов нет
+    structure: list[StructureItem]
+    missing_cost: int
+    warnings: list[str]

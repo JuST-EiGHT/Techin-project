@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { backendFetch, clearTokenCookies, errorResponse, passThrough, setTokenCookies, type Tokens } from '@/lib/server/backend'
+import { backendFetch, clearTokenCookies, clientHeaders, errorResponse, passThrough, setTokenCookies, type Tokens } from '@/lib/server/backend'
 import { REFRESH_COOKIE } from '@/lib/session'
 
 // Обновление токенов по refresh-cookie. Refresh одноразовый (ротация на бэкенде),
@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
 
   const res = await backendFetch('/auth/refresh', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { ...clientHeaders(req), 'content-type': 'application/json' }, // устройство и адрес — в сеанс (10.26)
     body: JSON.stringify({ refresh_token: refresh }),
   })
   if (res instanceof NextResponse) return res

@@ -1,15 +1,15 @@
 'use client'
-// История изменений цен и откат (шаг 6.4): окно подтверждения отката и виджет «Последние изменения цен» на главной.
+// История изменений цен и откат (шаг 6.4): окно подтверждения отката. Виджет «Последние изменения цен» с главной убран
+// в шаге 10.4 — все изменения на странице «Цены → История цен».
 // Откат — тот же путь, что изменение одного товара (6.2): предпросмотр (в Ozon ничего не меняется) → «Откатить» по
 // preview_id. Без часовой паузы и лимита 20 %, только к прежней цене и не старше 7 дней (BUSINESS_LOGIC §8).
-import Link from 'next/link'
 import { useEffect, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
 import { Modal } from '@/components/planning/Operations'
-import { Badge, fmtDateTime, pctText, rub } from '@/components/reports'
+import { fmtDateTime, pctText, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
-import { CHANGE_STATUS_TONE, type PriceApplyResult, type PriceHistoryItem, type PriceHistoryPage, type PricePreview } from '@/lib/pricing'
+import { type PriceApplyResult, type PriceHistoryItem, type PricePreview } from '@/lib/pricing'
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
 export const signedPct = (v: string | null) => (v === null ? '' : `${Number(v) > 0 ? '+' : ''}${pctText(v)}`)
@@ -113,60 +113,5 @@ export function RollbackModal({ change, onClose, onDone }: { change: PriceHistor
         </div>
       </div>
     </Modal>
-  )
-}
-
-/** Главная: последние изменения цен через сервис (шаг 6.4). */
-export function RecentPriceChanges() {
-  const [data, setData] = useState<PriceHistoryPage | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  useEffect(() => {
-    api
-      .get<PriceHistoryPage>('/prices/history', { params: { limit: 5 } })
-      .then((r) => setData(r.data))
-      .catch((err) => setError(errorMessage(err)))
-  }, [])
-  if (error) return <FormError message={error} />
-  if (!data) return null
-  return (
-    <section className="rounded-xl border border-line bg-card" data-testid="recent-prices">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line px-4 py-3">
-        <h2 className="font-semibold">Последние изменения цен</h2>
-        <span className="text-sm text-muted">за 30 дней: {data.counts.applied} применено</span>
-        <Link href="/dashboard/products/prices/history" className="ml-auto text-sm text-accent hover:underline">
-          Вся история →
-        </Link>
-      </div>
-      {data.items.length === 0 ? (
-        <p className="px-4 py-3 text-sm text-muted" data-testid="recent-prices-none">
-          За 30 дней цены через сервис не меняли. Изменить цену — в карточке товара или на странице{' '}
-          <Link href="/dashboard/products/prices/bulk" className="text-accent hover:underline">
-            «Цены списком»
-          </Link>
-          .
-        </p>
-      ) : (
-        <ul className="divide-y divide-line">
-          {data.items.map((i) => (
-            <li key={i.id} className={`flex items-start gap-3 px-4 py-2 text-sm ${i.status === 'applied' || i.status === 'unknown' ? '' : 'text-muted'}`} data-testid="recent-price">
-              <span className="min-w-0 flex-1">
-                <Link href={`/dashboard/products?product=${i.product.id}`} className="block truncate font-medium hover:underline">
-                  {i.product.offer_id}
-                </Link>
-                <span className="block text-xs text-faint">
-                  {fmtDateTime(i.created_at)} · {i.kind_title.toLowerCase()}
-                </span>
-              </span>
-              <span className="shrink-0 text-right">
-                <span className="block tabular-nums">
-                  {rub(i.price_before)} → <b className={i.kind === 'rollback' ? 'text-accent' : ''}>{rub(i.price_after)}</b>
-                </span>
-                <Badge tone={CHANGE_STATUS_TONE[i.status]}>{i.status_title}</Badge>
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
   )
 }

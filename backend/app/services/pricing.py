@@ -21,13 +21,14 @@ from app.engine import price_calculator as calc
 from app.engine.products import acquiring_pct, positive
 from app.models.product import Product, ProductPrice
 from app.models.promotion import Promotion, PromotionProduct
+from app.schemas.sync import utc
 from app.services import product_pnl
 from app.services.costs import CostHistory, load_cost_history
 from app.services.pnl_service import PnLRequest
 from app.services.sync.finance import today_msk
 from app.services.sync.products import latest_prices
 from app.services.tax_profile import load_profiles, profile_on, supplier_vat_multiplier
-from app.services.user_settings import get_settings, price_settings
+from app.services.user_settings import get_settings, min_profit, price_settings
 
 WINDOWS = (30, 90)  # дней продаж для логистики на штуку
 CENT = Decimal("0.01")
@@ -102,6 +103,7 @@ class PricingContext:
     prices: dict[uuid.UUID, ProductPrice]
     logistics: dict[str, Logistics]
     shop: Logistics
+    min_profit: Decimal = Decimal(0)  # минимальная допустимая прибыль с продажи, ₽ (настройка, шаг 10.26)
 
     def logistics_for(self, offer_id: str) -> Logistics:
         return self.logistics.get(offer_id) or self.shop
@@ -185,13 +187,15 @@ async def load(db: AsyncSession, user_id: uuid.UUID, products: list[Product] | N
         products = list((await db.execute(select(Product).where(Product.user_id == user_id))).scalars())
     today = today_msk()
     row = profile_on(await load_profiles(db, user_id), today)
-    ad, margin = price_settings(await get_settings(db, user_id))
+    s = await get_settings(db, user_id)
+    ad, margin = price_settings(s)
     by_offer, shop = await load_logistics(db, user_id, {p.offer_id for p in products}, today)
     return PricingContext(
         today=today, ad_pct=ad, target_margin_pct=margin,
         tax=calc.unit_tax(row.to_engine() if row else None, today),
         default_vat=await supplier_vat_multiplier(db, user_id, today), history=await load_cost_history(db, user_id),
         prices=await latest_prices(db, [p.id for p in products]), logistics=by_offer, shop=shop,
+        min_profit=min_profit(s),
     )
 
 
@@ -221,17 +225,21 @@ def _breakdown(b: calc.Breakdown | None) -> dict | None:
     return None if b is None else vars(b).copy()
 
 
-def calculate(ctx: PricingContext, product: Product, ov: Overrides | None = None, promo_price: Decimal | None = None) -> dict:
+def calculate(ctx: PricingContext, product: Product, ov: Overrides | None = None, promo_price: Decimal | None = None,
+              what_if: list[Decimal] | None = None) -> dict:
+    """Расчёт товара; what_if — «а если поставить …» (10.15): разбор цены при каждой из этих цен."""
     inputs = ctx.inputs(product, ov)
     params = ctx.params(inputs)
     promo = ov.promo_price if ov and ov.promo_price is not None else promo_price
     result = None
     if params is not None:
-        r = calc.calculate(params, inputs.price, promo)
+        r = calc.calculate(params, inputs.price, promo, ctx.min_profit)
         result = {
             "min_price": r.min_price, "min_error": r.min_error, "target_price": r.target_price,
             "target_error": r.target_error, "profitable": r.profitable,
+            "floor_price": r.floor_price, "floor_ok": r.floor_ok, "min_profit": ctx.min_profit or None,
             "current": _breakdown(r.current), "promo": _breakdown(r.promo),
+            "what_if": [_breakdown(calc.breakdown(params, p)) for p in (what_if or [])],
         }
     return {
         "inputs": {
@@ -284,8 +292,9 @@ def table_row(ctx: PricingContext, product: Product, promos: list[tuple[Promotio
         "gap_pct": None if price is None or min_price is None or min_price <= 0
         else ((price - min_price) / min_price * 100).quantize(Decimal("0.1"), ROUND_HALF_UP),
         "promo": None if worst is None else {
-            "title": worst[1].title, "action_price": worst[0].action_price, "margin": promo_margin,
+            "id": worst[1].id, "title": worst[1].title, "action_price": worst[0].action_price, "margin": promo_margin,
             "count": len(promo_rows), "added_automatically": worst[0].added_automatically,
+            "date_to": utc(worst[1].date_to),
         },
         "logistics": inputs.logistics.per_unit, "logistics_source": inputs.logistics.source,
         "missing": inputs.missing, "errors": errors,

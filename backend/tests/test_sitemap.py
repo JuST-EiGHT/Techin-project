@@ -32,12 +32,11 @@ ID = "3f2b8c1e-5d4a-4e6b-9c7d-1a2b3c4d5e6f"
 
 # старый адрес → (новый адрес, навсегда ли); параметры вкладок и фильтров переносятся
 OLD_TO_NEW = {
-    # «Финансы» до шага 10.22 открываются с P&L — временно: потом на /dashboard/finance будет «Обзор финансов»
-    "/dashboard/finance": ("/dashboard/finance/pnl", False),
-    "/dashboard/finance?tab=products": ("/dashboard/finance/pnl?tab=products", False),
+    # старые ссылки P&L (3.3 жил на /dashboard/finance): с параметрами P&L — в P&L; без них — «Обзор финансов» (10.22)
+    "/dashboard/finance?tab=products": ("/dashboard/finance/pnl?tab=products", True),
     "/dashboard/finance?period=custom&from=2026-10-01&to=2026-10-07&tab=products":
-        ("/dashboard/finance/pnl?period=custom&from=2026-10-01&to=2026-10-07&tab=products", False),
-    f"/dashboard/finance?report={ID}": (f"/dashboard/finance/pnl?report={ID}", False),
+        ("/dashboard/finance/pnl?period=custom&from=2026-10-01&to=2026-10-07&tab=products", True),
+    f"/dashboard/finance?report={ID}": (f"/dashboard/finance/pnl?report={ID}", True),
     "/dashboard/payouts": ("/dashboard/finance/payouts", True),
     "/dashboard/payouts?week=2026-10-06": ("/dashboard/finance/payouts?week=2026-10-06", True),
     "/dashboard/reports": ("/dashboard/analytics/reports", True),
@@ -56,6 +55,9 @@ OLD_TO_NEW = {
     f"/dashboard/promotions?tab=history&product={ID}": (f"/dashboard/products/promotions?tab=history&product={ID}", True),
     "/dashboard/promotions/1234567": ("/dashboard/products/promotions/1234567", True),
     "/dashboard/supply": ("/dashboard/warehouses/supply", True),
+    # панель товара (4.1) → страница «Статистика товара» (10.14); фильтры списка не переносятся в путь
+    f"/dashboard/products?product={ID}": (f"/dashboard/products/{ID}", True),
+    f"/dashboard/products?filter=no_cost&product={ID}&store={ID}": (f"/dashboard/products/{ID}?filter=no_cost&store={ID}", True),
     # вкладки «Планирования» — страницы: tab вкладки в новый адрес не переносится, фильтры — переносятся
     "/dashboard/planning?tab=overview": ("/dashboard/planning", True),
     "/dashboard/planning?tab=operations": ("/dashboard/operations", True),
@@ -82,15 +84,16 @@ OLD_TO_NEW = {
 
 # эти адреса — на своём месте: переадресации нет
 STAYS = [
-    "/dashboard", "/dashboard?period=week", "/dashboard/planning", "/dashboard/products", f"/dashboard/products?product={ID}",
+    "/dashboard", "/dashboard?period=week", "/dashboard/planning", "/dashboard/products", "/dashboard/products?filter=no_cost", f"/dashboard/products/{ID}",
     "/dashboard/products/prices", "/dashboard/pricesx", "/dashboard/reportsx/1", "/dashboard/finance/pnl",
+    "/dashboard/finance", "/dashboard/finance?period=week",
     "/dashboard/settings/notifications", "/dashboard/settings", "/dashboard/alerts", "/dashboard/warehouses/withdrawal",
 ]
 
 # старые адреса в исходниках: только в таблице переадресации
 OLD_IN_SOURCE = re.compile(
     r"/dashboard/(payouts|reports|costs|prices|promotions|supply)\b|/dashboard/planning\?tab|"
-    r"/dashboard/settings/(stores|api-keys|banks)\b|/dashboard/finance(?![/\w-])"
+    r"/dashboard/settings/(stores|api-keys|banks)\b|/dashboard/finance\?(report|tab)=|/dashboard/products\?product="
 )
 
 SCRIPT = """
@@ -124,7 +127,7 @@ def run_node(urls: list[str]) -> dict:
 def page_exists(url: str) -> bool:
     """Есть страница Next по адресу: каталоги app/…/page.tsx, вместо сегмента — [параметр]."""
     here = APP
-    for part in url.split("?")[0].strip("/").split("/"):
+    for part in url.split("#")[0].split("?")[0].strip("/").split("/"):
         if (here / part).is_dir():
             here = here / part
             continue
@@ -155,9 +158,10 @@ def test_current_addresses_are_not_redirected(site):
 
 
 def test_old_pages_moved_not_duplicated(site):
-    # старая страница не осталась рядом с новой (кроме /dashboard/planning — там остался «Обзор», уходят только вкладки)
+    # старая страница не осталась рядом с новой (кроме /dashboard/planning — там остался «Обзор», уходят только вкладки;
+    # и /dashboard/finance — там «Обзор финансов», уходят только ссылки с параметрами P&L)
     for rule in site["rules"]:
-        if "tab" in rule:
+        if "tab" in rule or "param" in rule or "query" in rule:  # вкладка или параметр — сама страница остаётся
             continue
         assert not page_exists(rule["from"]), rule["from"]
         assert page_exists(rule["to"]), rule["to"]
@@ -192,6 +196,14 @@ def anomaly_links() -> tuple[dict[str, str | None], set[str]]:
         "cash_gap": (det.CASH_GAP, det.RED, None, {"first_day": "2026-10-17", "min_day": "2026-10-20"}),
         "uncategorized": (det.UNCATEGORIZED, det.YELLOW, None, {"oldest_day": "2026-09-01"}),
         "uncategorized_no_day": (det.UNCATEGORIZED, det.YELLOW, None, {}),
+        # шаг 10.5: избыток и проверки данных
+        "excess_stock": (det.EXCESS_STOCK, det.YELLOW, pid, {"available": 300, "avg_daily": "2", "excess_qty": 180}),
+        "sync_key": (det.SYNC_PROBLEM, det.RED, None, {"titles": ["Остатки"], "problem": "Ozon не принял ключ",
+                                                       "href": "/dashboard/settings/integrations"}),
+        "sync_stale": (det.SYNC_PROBLEM, det.YELLOW, None, {"titles": ["Остатки"], "problem": "Давно не обновлялись"}),
+        "accrual_gaps": (det.ACCRUAL_GAPS, det.YELLOW, None, {"count": 2, "ranges": [["2026-10-05", "2026-10-06"]]}),
+        "report_error": (det.REPORT_ERROR, det.YELLOW, None, {"filename": "sept.xlsx"}),
+        "missing_cost": (det.MISSING_COST, det.YELLOW, None, {"count": 1, "revenue": "500", "top": []}),
     }
     links = {
         name: describe(t, sev, Decimal(100), Decimal(50), Decimal(10), d, pid_, "Подшипник 6001", today).link
@@ -202,16 +214,25 @@ def anomaly_links() -> tuple[dict[str, str | None], set[str]]:
 
 def test_anomaly_links_lead_to_new_pages():
     links, types = anomaly_links()
-    assert types == set(det.TYPES)  # все 14 проверок
-    assert links["sales_shop"] == "/dashboard/finance/pnl?tab=products"
+    assert types == set(det.TYPES)  # все 19 проверок (14 — шаг 7.1, 5 — шаг 10.5)
+    assert links["sales_shop"] == "/dashboard/analytics/sales"  # 10.25: продажи магазина — «Аналитика продаж»
     assert links["price_service"] == f"/dashboard/products/prices/history?product={ID}"
     assert links["promo_auto"] == "/dashboard/products/promotions/1234567"
     assert links["promo_auto_no_id"] == "/dashboard/products/promotions"
-    assert links["payout_missed"] == links["payout_diff"] == "/dashboard/finance/payouts"
-    assert links["bank_missing"] == links["bank_diff"] == "/dashboard/operations/accounts"
-    assert links["cash_gap"] == "/dashboard/planning/calendar"
+    # 10.25: прямо к выплате — строка сверки в «Выплатах и расчётах» (10.23); разрыв — день в календаре (10.24)
+    assert links["payout_missed"] == "/dashboard/finance/payouts"
+    assert links["payout_diff"] == "/dashboard/finance/payouts#payout-2026-10-07"
+    assert links["bank_missing"] == links["bank_diff"] == "/dashboard/finance/payouts#payout-2026-10-07"
+    assert links["cash_gap"] == "/dashboard/planning/calendar?day=2026-10-17"
     assert links["uncategorized"] == "/dashboard/operations?category=none&from=2026-09-01&to=2026-10-15"
     assert links["uncategorized_no_day"] == "/dashboard/operations"
+    assert links["excess_stock"] == "/dashboard/warehouses/withdrawal"
+    assert links["sync_key"] == "/dashboard/settings/integrations"
+    assert links["sync_stale"] == "/dashboard?sync=1"  # открывает окно «Синхронизация»
+    assert links["accrual_gaps"] == links["report_error"] == "/dashboard/analytics/reports"
+    assert links["missing_cost"] == "/dashboard/products/costs?missing=1"
+    # товар — страница «Статистика товара» (10.14), а не панель
+    assert links["low_stock"] == links["sales_product"] == links["low_margin"] == f"/dashboard/products/{ID}"
 
     urls = [u for u in links.values() if u]
     resolved = run_node(urls)["resolved"]

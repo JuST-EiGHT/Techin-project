@@ -72,7 +72,7 @@ async def test_new_store_has_own_data(client, tokens, sessions, ozon, no_celery)
     assert (store["name"], store["is_main"], store["keys"], store["active_keys"]) == ("Второй магазин", False, 1, 1)
     assert store["client_id_masked"].endswith("4321") and SECOND_CLIENT not in store["client_id_masked"]
     assert sorted(kind for kind, user_id, *_ in no_celery if user_id == sid) == sorted(
-        ["products", "stocks", "promotions", "finance", "balance", "postings"])
+        ["products", "stocks", "promotions", "finance", "balance", "postings", "supplies"])
 
     assert await offers(client, tokens) == ["6000-ZZ", "6001-2RS.C3", "ACB305523"]
     assert await offers(client, tokens, sid) == []  # каталог второго магазина пуст — товары первого не видны
@@ -227,6 +227,6 @@ async def test_admin_resync_queues_every_store(client, tokens, sessions, ozon, n
     assert code == 0 and "«Основной магазин»: в очереди" in out
     queued = {(kind, str(user_id)) for kind, user_id, *_ in no_celery}
     for sid in (str(await user_id_of(client, tokens)), store["id"]):
-        assert {k for k, s in queued if s == sid} == {"products", "stocks", "promotions", "postings", "finance", "balance"}
+        assert {k for k, s in queued if s == sid} == {"products", "stocks", "promotions", "postings", "supplies", "finance", "balance"}
     finance = next(args for args in no_celery if args[0] == "finance")
     assert finance[3]["date_to"] == (datetime.fromisoformat(finance[3]["date_from"]) + timedelta(days=89)).date().isoformat()

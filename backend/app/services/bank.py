@@ -11,13 +11,12 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.engine.settlement import Payout
 from app.models.bank import BankBalance, BankStatement, BankTransaction
-from app.models.ozon_balance import OzonBalanceDay
 from app.models.planning import MoneyOperation
 from app.models.report import Report
-from app.services import ozon_payouts
+from app.services import ozon_payouts, settlement
 from app.services import planning as planning_svc
-from app.services.bank_import import OZON_DAYS
 from app.services.planning import OZON_KEY, _current
 
 CENT = Decimal("0.01")
@@ -86,53 +85,20 @@ async def statements(db: AsyncSession, user_id: uuid.UUID) -> list[dict]:
 async def ozon_check(db: AsyncSession, user_id: uuid.UUID, date_from: date, date_to: date) -> dict:
     """По каждой выплате и каждому поступлению от Ozon: ok — совпали; diff — сумма разошлась; no_bank — выплата есть, а в
     выписке поступления нет (выписка за эти дни загружена); waiting — выписки за эти дни ещё нет; bank_only —
-    поступление есть, а в данных Ozon выплаты нет (например, ключ Ozon API не подключён)."""
-    txs = list((await db.execute(select(BankTransaction).where(
-        BankTransaction.user_id == user_id, BankTransaction.kind == "ozon",
-        BankTransaction.day >= date_from, BankTransaction.day <= date_to + timedelta(days=OZON_DAYS),
-    ))).scalars())
-    if not txs and not (await db.scalar(select(func.count()).select_from(BankTransaction).where(
-            BankTransaction.user_id == user_id))):
+    поступление есть, а в данных Ozon выплаты нет (например, ключ Ozon API не подключён). Сверка — общая с «Выплатами и
+    расчётами с Ozon» (`settlement.reconcile`, шаг 10.23)."""
+    days = await ozon_payouts.load_days(db, user_id, date_from, date_to)
+    payouts = [Payout(d, -Decimal(r.payments)) for d, r in sorted(days.items()) if r.payments]
+    rows, has_bank, _ = await settlement.reconcile(db, user_id, date_from, date_to, payouts)
+    if not has_bank:
         return {"has_bank": False, "rows": [], "counts": {}}
-    days = {}
-    for r in (await db.execute(select(OzonBalanceDay).where(
-        OzonBalanceDay.user_id == user_id, OzonBalanceDay.day >= date_from, OzonBalanceDay.day <= date_to,
-    ).order_by(OzonBalanceDay.day, OzonBalanceDay.synced_at))).scalars():
-        days[r.day] = r
-    payouts = {d: -Decimal(r.payments) for d, r in days.items() if r.payments}
-    ops = {o.op_id: o for o in (await db.execute(_current(select(MoneyOperation).where(
-        MoneyOperation.user_id == user_id, MoneyOperation.op_id.in_([t.op_id for t in txs if t.op_id]),
-    )))).scalars()}
-    tx_by_payout: dict[date, BankTransaction] = {}
-    unmatched = []
-    for t in txs:
-        op = ops.get(t.op_id)
-        key = op.external_key if op is not None else None
-        if key and key.startswith(OZON_KEY):
-            tx_by_payout[date.fromisoformat(key[len(OZON_KEY):])] = t
-        else:
-            unmatched.append(t)
-    covered = (await db.scalar(select(func.max(BankTransaction.day)).where(BankTransaction.user_id == user_id)))
-    rows = []
-    for d, amount in sorted(payouts.items()):
-        t = tx_by_payout.pop(d, None)
-        if t is not None:
-            diff = (Decimal(t.amount) - amount).quantize(CENT)
-            rows.append({"payout_day": d, "ozon_amount": _q(amount), "bank_day": t.day, "bank_amount": _q(t.amount),
-                         "diff": diff, "status": "ok" if diff == 0 else "diff"})
-        else:
-            status = "no_bank" if covered and covered >= d + timedelta(days=OZON_DAYS) else "waiting"
-            rows.append({"payout_day": d, "ozon_amount": _q(amount), "bank_day": None, "bank_amount": None,
-                         "diff": None, "status": status})
-    for t in [*unmatched, *tx_by_payout.values()]:
-        if t.day <= date_to:
-            rows.append({"payout_day": None, "ozon_amount": None, "bank_day": t.day, "bank_amount": _q(t.amount),
-                         "diff": None, "status": "bank_only"})
-    rows.sort(key=lambda r: r["payout_day"] or r["bank_day"], reverse=True)
+    out = [{"payout_day": r.payout.day if r.payout else None, "ozon_amount": _q(r.payout.amount) if r.payout else None,
+            "bank_day": r.receipt.day if r.receipt else None, "bank_amount": _q(r.receipt.amount) if r.receipt else None,
+            "diff": r.diff, "status": r.status} for r in rows]
     counts: dict[str, int] = {}
-    for r in rows:
+    for r in out:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
-    return {"has_bank": True, "rows": rows, "counts": counts}
+    return {"has_bank": True, "rows": out, "counts": counts}
 
 
 # ---------- подсказка для отчёта Ozon: сколько реально пришло ----------

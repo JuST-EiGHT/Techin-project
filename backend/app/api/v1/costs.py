@@ -1,10 +1,13 @@
 """Справочник себестоимости: список артикулов, правка с историей, импорт CSV/XLSX (шаг 2.3),
-шаблоны «скачал → заполнил → загрузил» и файл строк с ошибками (шаг 2.4)."""
+шаблоны «скачал → заполнил → загрузил» и файл строк с ошибками (шаг 2.4); привязки артикулов файла к товарам Ozon и
+полнота — товары с продажами без себестоимости (шаг 10.15)."""
 
+import uuid
 from decimal import Decimal
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.files import attachment
@@ -12,6 +15,9 @@ from app.db.session import get_db
 from app.models.product_cost import ProductCost
 from app.models.user import User
 from app.schemas.costs import (
+    AliasIn,
+    AliasOut,
+    CostCoverage,
     CostRecord,
     CostRow,
     CostSaved,
@@ -20,8 +26,10 @@ from app.schemas.costs import (
     ImportCounts,
     ImportResponse,
     ImportRowOut,
+    SelectedTemplate,
 )
-from app.services import audit
+from app.models.product import Product
+from app.services import audit, cost_page
 from app.services import costs as svc
 from app.services.stores import get_current_store
 from app.services.cost_import import TEMPLATE_NAMES, CostImportError, cost_template, error_file, import_costs
@@ -54,6 +62,43 @@ def _row(info: svc.ArticleInfo, history: svc.CostHistory) -> CostRow:
         in_catalog=info.in_catalog,
         report_qty=info.report_qty,
     )
+
+
+# ── полнота и привязки (10.15) — до путей с артикулом ──
+@router.get("/coverage", response_model=CostCoverage)
+async def cost_coverage(
+    days: int = Query(cost_page.COVERAGE_DAYS, ge=7, le=365, description="За сколько дней продажи"),
+    user: User = Depends(get_current_store),
+    db: AsyncSession = Depends(get_db),
+):
+    """Полнота себестоимости: сколько товаров с продажами без неё, какая доля выручки, список «заполнить» — больше
+    выручки первыми. Нет начислений за период — продажи неизвестны (доля null, а не 0)."""
+    return await cost_page.coverage(db, user.id, days)
+
+
+@router.get("/aliases", response_model=list[AliasOut])
+async def list_aliases(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
+    """Привязки «артикул в файле → товар Ozon»: по ним следующие файлы сопоставляются сами."""
+    return await cost_page.list_aliases(db, user.id)
+
+
+@router.post("/aliases", response_model=AliasOut, status_code=status.HTTP_201_CREATED)
+async def add_alias(data: AliasIn, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
+    """Привязать артикул из файла к товару Ozon (прежняя привязка того же артикула снимается)."""
+    try:
+        record = await cost_page.bind(db, user.id, data.alias, data.offer_id)
+    except CostImportError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    names = {a["id"]: a for a in await cost_page.list_aliases(db, user.id)}
+    return names[record.id]
+
+
+@router.delete("/aliases/{alias_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_alias(alias_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
+    """Отвязать: запись остаётся с отметкой, следующие файлы этот артикул сопоставлять не будут."""
+    if not await cost_page.unbind(db, user.id, alias_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Привязка не найдена")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("", response_model=CostsPage)
@@ -92,6 +137,19 @@ async def download_template(
     """Шаблон себестоимости с товарами пользователя: скачал → заполнил → загрузил в /import."""
     content = await cost_template(db, user.id, rows, fmt)
     return _file(content, fmt, f"Себестоимость — {TEMPLATE_NAMES[rows]} {today_msk():%d.%m.%Y}", "costs")
+
+
+@router.post("/template/selected", response_class=Response, dependencies=[Depends(audit.read_only)])
+async def selected_template(data: SelectedTemplate, user: User = Depends(get_current_store),
+                            db: AsyncSession = Depends(get_db)):
+    """Шаблон себестоимости только по выбранным товарам («Все товары» → «Заполнить себестоимость», шаг 10.13):
+    скачал → заполнил → загрузил в /import, как обычный шаблон."""
+    offers = set((await db.execute(select(Product.offer_id).where(
+        Product.user_id == user.id, Product.id.in_(data.product_ids)))).scalars())
+    if not offers:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Выбранных товаров нет в этом магазине")
+    content = await cost_template(db, user.id, "all", data.format, offers)
+    return _file(content, data.format, f"Себестоимость — выбранные товары {today_msk():%d.%m.%Y}", "costs")
 
 
 @router.put("/{offer_id:path}", response_model=CostSaved)

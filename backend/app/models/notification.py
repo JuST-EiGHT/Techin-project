@@ -5,6 +5,7 @@ from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.models.audit import JSONData
 
 DEFAULT_TIMEZONE = "Europe/Moscow"
 
@@ -16,10 +17,11 @@ ANOMALY, TEST = "anomaly", "test"
 
 
 class NotificationSettings(Base):
-    """Уведомления в Telegram (шаг 7.3): к какому чату привязан аккаунт и что присылать. Нет строки — не подключено,
-    настройки по умолчанию. Категории не пересекаются: «Деньги» — проверки денег (выплаты Ozon, банк, кассовый разрыв,
-    операции без статьи) любой важности; «Автоакции» — Ozon сам добавил товар в акцию; остальное — по важности: красные,
-    жёлтые. Тихие часы — в часовом поясе пользователя: уведомления не приходят, а уходят одним сообщением после.
+    """Уведомления аккаунта (шаги 7.3, 10.25): к какому чату Telegram привязан аккаунт и что присылать. Нет строки — не
+    подключено, настройки по умолчанию. С 10.25 — по разделам карты (`sections`: включён ли раздел, Telegram, важность,
+    сразу или сводкой раз в день — engine/notifications); пока по разделам не сохраняли (`sections` пусто), разделы
+    читаются из прежних категорий `notify_*` (7.3): красные, жёлтые, автоакции, деньги, данные — выбор не теряется.
+    Тихие часы — в часовом поясе пользователя: уведомления не приходят, а уходят одним сообщением после.
     Код привязки — только хэш, живёт 10 минут, одноразовый."""
 
     __tablename__ = "notification_settings"
@@ -40,6 +42,11 @@ class NotificationSettings(Base):
     notify_yellow: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     notify_auto_promo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     notify_money: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    # проблемы с данными (шаг 10.5): синхронизация, пропуски начислений, отчёты, себестоимость — по умолчанию не шлём
+    notify_data: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # разделы (10.25): {"sales": {"on": true, "telegram": true, "severity": "all", "daily": false}, …}; пусто — из notify_*
+    sections: Mapped[dict | None] = mapped_column(JSONData)
+    digest_at: Mapped[int] = mapped_column(Integer, nullable=False, default=9 * 60, server_default=str(9 * 60))  # сводка, мин.
     quiet_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     quiet_from: Mapped[int] = mapped_column(Integer, nullable=False, default=23 * 60, server_default=str(23 * 60))  # минуты
     quiet_to: Mapped[int] = mapped_column(Integer, nullable=False, default=8 * 60, server_default=str(8 * 60))

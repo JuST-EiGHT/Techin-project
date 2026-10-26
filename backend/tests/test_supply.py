@@ -149,7 +149,7 @@ async def test_requires_auth(client):
 
 async def test_recommendations(client, tokens, seller):
     data = (await client.get(URL, headers=auth(tokens))).json()
-    assert data["params"] == {"target_days": 45, "lead_time_days": 7} == data["saved"] and data["is_saved"] is True
+    assert data["params"] == {"target_days": 45, "lead_time_days": 7, "safety_days": 0} == data["saved"] and data["is_saved"] is True
     assert data["postings_known"] is True and data["fbo"]["days"] == 30 and data["fbo"]["enough"] is True
     assert data["fbo"]["window_to"] == (today_msk() - timedelta(days=1)).isoformat()
     assert rows(data) == [
@@ -179,7 +179,7 @@ async def test_parameters_override_and_save(client, tokens, seller):
                            headers=auth(tokens))
     assert (r.json()["supply_target_days"], r.json()["supply_lead_time_days"]) == (30, 0)
     data = (await client.get(URL, headers=auth(tokens))).json()
-    assert data["is_saved"] is True and data["params"] == {"target_days": 30, "lead_time_days": 0}
+    assert data["is_saved"] is True and data["params"] == {"target_days": 30, "lead_time_days": 0, "safety_days": 0}
     # срочность — по порогам остатков пользователя (5.1)
     await client.patch("/api/v1/settings", json={"stock_critical_days": 2, "stock_low_days": 5}, headers=auth(tokens))
     data = (await client.get(URL, headers=auth(tokens))).json()

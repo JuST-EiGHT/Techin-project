@@ -1,11 +1,13 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    analytics,
     anomalies,
     audit,
     auth,
     bank,
     bank_connections,
+    budgets,
     costs,
     credentials,
     dashboard,
@@ -21,6 +23,7 @@ from app.api.v1 import (
     prices,
     products,
     promotions,
+    recommendations,
     reports,
     sales,
     settings,
@@ -36,6 +39,7 @@ api_router.include_router(auth.router)
 api_router.include_router(stores.router)
 api_router.include_router(credentials.router)
 api_router.include_router(sync.router)
+api_router.include_router(analytics.router)
 api_router.include_router(bank_connections.router)
 api_router.include_router(stocks.warehouses_router)
 api_router.include_router(stocks.stocks_router)
@@ -47,6 +51,7 @@ api_router.include_router(prices.router)
 api_router.include_router(promotions.router)
 api_router.include_router(audit.router)
 api_router.include_router(anomalies.router)
+api_router.include_router(recommendations.router)
 api_router.include_router(notifications.router)
 api_router.include_router(reports.router)
 api_router.include_router(settings.router)
@@ -60,4 +65,5 @@ api_router.include_router(planning.router)
 api_router.include_router(plan_calendar.router)
 api_router.include_router(planning_overview.router)
 api_router.include_router(planning_rules.router)
+api_router.include_router(budgets.router)
 api_router.include_router(bank.router)

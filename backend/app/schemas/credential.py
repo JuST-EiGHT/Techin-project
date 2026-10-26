@@ -81,3 +81,10 @@ class VerifyResponse(BaseModel):
     ok: bool
     message: str
     credential: CredentialResponse
+
+
+class CredentialReplace(BaseModel):
+    """«Обновить доступ» (шаг 10.26): новый Api-Key того же кабинета (Client-Id не меняется) — вместо старого ключа."""
+
+    api_key: SecretStr = Field(min_length=1, max_length=200)
+    expires_at: datetime | None = None

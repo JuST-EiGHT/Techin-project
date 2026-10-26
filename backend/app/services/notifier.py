@@ -1,7 +1,10 @@
-"""Уведомления в Telegram (шаг 7.3): привязка чата, что присылать, очередь с тихими часами, отправка.
+"""Уведомления в Telegram (шаги 7.3, 10.25): привязка чата, что присылать по разделам, очередь с тихими часами и
+сводкой раз в день, отправка.
 
 Новая аномалия (services/anomalies.detect → `after_detect`) — запись в журнале `notification_log` (pending), если чат
-подключён и категория включена (engine/notifications.wanted); в тихие часы — с отправкой после их конца. `send_due` —
+подключён и раздел с Telegram включён (engine/notifications.wanted); в тихие часы — с отправкой после их конца; раздел
+«сводкой раз в день» — в ближайшую сводку (`digest_at`). Выключенный раздел не тревожит и на сайте — `muted_types`
+(колокольчик, «Требует внимания»). `send_due` —
 всё, что пора отправить пользователю: одна аномалия — подробное сообщение, несколько — одно сообщение-сводка. Перед
 отправкой ещё раз: аномалия не закрылась и не отмечена «Ок», категория не выключена — иначе не шлём (outdated). Ошибки
 Telegram: бот заблокирован — failed и отметка в настройках; лимит Telegram — повтор через указанное время; сеть — повтор
@@ -55,8 +58,8 @@ class NotifyError(Exception):
 async def get_settings(db: AsyncSession, user_id: uuid.UUID) -> NotificationSettings:
     """Для чтения: строки нет — значения по умолчанию (в сессию не добавляется)."""
     return await db.get(NotificationSettings, user_id) or NotificationSettings(
-        user_id=user_id, notify_red=True, notify_yellow=False, notify_auto_promo=True, notify_money=True,
-        quiet_enabled=False, quiet_from=23 * 60, quiet_to=8 * 60, timezone="Europe/Moscow",
+        user_id=user_id, notify_red=True, notify_yellow=False, notify_auto_promo=True, notify_money=True, notify_data=False,
+        sections=None, digest_at=9 * 60, quiet_enabled=False, quiet_from=23 * 60, quiet_to=8 * 60, timezone="Europe/Moscow",
     )
 
 
@@ -68,13 +71,38 @@ async def _row(db: AsyncSession, user_id: uuid.UUID) -> NotificationSettings:
     return row
 
 
+def sections(s: NotificationSettings) -> dict[str, engine.SectionPrefs]:
+    """Разделы аккаунта; по разделам ещё не сохраняли — из прежних категорий Telegram (7.3), без потери выбора."""
+    legacy = engine.legacy_sections(
+        s.notify_red is not False, bool(s.notify_yellow), s.notify_auto_promo is not False, s.notify_money is not False,
+        bool(s.notify_data))
+    return engine.parse_sections(s.sections, legacy)
+
+
 def prefs(s: NotificationSettings) -> engine.Prefs:
-    return engine.Prefs(s.notify_red, s.notify_yellow, s.notify_auto_promo, s.notify_money, s.quiet_enabled,
-                        s.quiet_from, s.quiet_to, s.timezone)
+    return engine.Prefs(sections(s), s.quiet_enabled, s.quiet_from, s.quiet_to, s.timezone,
+                        9 * 60 if s.digest_at is None else s.digest_at)
 
 
-FIELDS = ("notify_red", "notify_yellow", "notify_auto_promo", "notify_money", "quiet_enabled", "quiet_from", "quiet_to",
-          "timezone")
+FIELDS = ("quiet_enabled", "quiet_from", "quiet_to", "timezone", "digest_at")
+SECTION_FIELDS = ("on", "telegram", "severity", "daily")
+
+
+def merge_sections(current: dict[str, engine.SectionPrefs], changes: dict) -> dict:
+    """Изменения разделов {раздел: {on, telegram, severity, daily}} поверх текущих → полный JSON для сохранения."""
+    out = {k: v.as_dict() for k, v in current.items()}
+    for key, patch in (changes or {}).items():
+        if key not in engine.BY_KEY:
+            raise NotifyError("Раздел уведомлений: выберите из списка")
+        if engine.BY_KEY[key].soon:
+            raise NotifyError(f"Раздел «{engine.BY_KEY[key].title}» появится позже — настроить его пока нельзя")
+        for f, v in (patch or {}).items():
+            if f not in SECTION_FIELDS or v is None:
+                continue
+            if f == "severity" and v not in (engine.ALL, engine.RED_ONLY):
+                raise NotifyError("Важность: «все» или «только красные»")
+            out[key][f] = v
+    return out
 
 
 async def update_settings(db: AsyncSession, user_id: uuid.UUID, changes: dict) -> NotificationSettings:
@@ -84,17 +112,27 @@ async def update_settings(db: AsyncSession, user_id: uuid.UUID, changes: dict) -
         raise NotifyError("Часовой пояс: выберите из списка")
     if after["quiet_enabled"] and after["quiet_from"] == after["quiet_to"]:
         raise NotifyError("Тихие часы: начало и конец совпадают — укажите разное время")
+    if "sections" in changes:
+        row.sections = merge_sections(sections(row), changes["sections"])
     for f in FIELDS:
         setattr(row, f, after[f])
-    # тихие часы изменили — ждущие их конца сообщения перепланировать (повтор после сбоя — как был)
+    # тихие часы, сводку или разделы изменили — ждущие сообщения перепланировать (повтор после сбоя — как был)
     now = _now()
-    until = engine.quiet_until(prefs(row), now) or now
-    for r in (await db.execute(select(NotificationLog).where(
-        NotificationLog.user_id == user_id, NotificationLog.status == PENDING, NotificationLog.attempts == 0,
-    ))).scalars():
-        r.send_after = until
+    p = prefs(row)
+    waiting = list((await db.execute(select(NotificationLog, Anomaly.type).join(
+        Anomaly, Anomaly.id == NotificationLog.anomaly_id).where(
+        NotificationLog.user_id.in_(await stores.store_ids(db, user_id)), NotificationLog.status == PENDING,
+        NotificationLog.attempts == 0,
+    ))).all())
+    for r, type_ in waiting:
+        r.send_after = engine.send_after(p, type_, now)
     await db.commit()
     return row
+
+
+async def muted_types(db: AsyncSession, store_id: uuid.UUID) -> set[str]:
+    """Аномалии выключенных разделов аккаунта (владельца магазина) — на сайте не тревожат."""
+    return prefs(await get_settings(db, await stores.account_id(db, store_id))).muted_types()
 
 
 # ── привязка чата ──
@@ -170,7 +208,6 @@ async def queue(db: AsyncSession, user_id: uuid.UUID, anomaly_ids: list, now: da
         return 0
     now = now or _now()
     p = prefs(s)
-    send_after = engine.quiet_until(p, now) or now
     ids = [uuid.UUID(str(i)) for i in anomaly_ids]
     already = set((await db.execute(select(NotificationLog.anomaly_id).where(NotificationLog.anomaly_id.in_(ids)))).scalars())
     added = 0
@@ -178,7 +215,7 @@ async def queue(db: AsyncSession, user_id: uuid.UUID, anomaly_ids: list, now: da
         if a.id in already or not engine.wanted(p, a.type, a.severity):
             continue
         db.add(NotificationLog(user_id=user_id, anomaly_id=a.id, kind=ANOMALY, status=PENDING, created_at=now,
-                               send_after=send_after))
+                               send_after=engine.send_after(p, a.type, now)))
         added += 1
     try:
         await db.commit()
@@ -203,7 +240,8 @@ async def _items(db: AsyncSession, rows: list[NotificationLog], store_names: dic
         text = describe(a.type, a.severity, a.metric_before, a.metric_after, a.threshold, a.details, a.product_id, name, today)
         label = f"{product.offer_id} · {product.name}" if product and product.name else (product.offer_id if product else None)
         store = (store_names or {}).get(a.user_id)
-        out[a.id] = (a, engine.Item(a.severity, text, label, store, str(a.user_id) if store else None))
+        out[a.id] = (a, engine.Item(a.severity, text, label, store, str(a.user_id) if store else None,
+                                    engine.section_of(a.type)))
     return out
 
 
@@ -229,17 +267,20 @@ async def _deliver(db: AsyncSession, tg: telegram.TelegramSender, s: Notificatio
     names = await stores.names(db, s.user_id)
     found = await _items(db, rows, names if len(names) > 1 else None)
     ready = []
+    daily = True  # всё — из разделов «сводкой раз в день» — сообщение «Сводка за день»
     for r in rows:
         a, item = found.get(r.anomaly_id, (None, None))
         if a is None or a.resolved_at is not None or a.is_acknowledged or not engine.wanted(p, a.type, a.severity):
-            r.status, r.error = OUTDATED, "Закрылась, отмечена «Ок» или категория выключена до отправки"
+            r.status, r.error = OUTDATED, "Закрылась, отмечена «Ок» или раздел выключен до отправки"
             stats["outdated"] += 1
         else:
             ready.append((r, item))
+            daily = daily and engine.daily(p, a.type)
     if not ready:
         return stats
     site = settings.SITE_URL
-    text = engine.render_one(ready[0][1], site) if len(ready) == 1 else engine.render_digest([i for _, i in ready], site)
+    text = (engine.render_one(ready[0][1], site) if len(ready) == 1 and not daily
+            else engine.render_digest([i for _, i in ready], site, daily_digest=daily))
     try:
         await tg.send(s.chat_id, text)
     except telegram.SendError as err:

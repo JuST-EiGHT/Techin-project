@@ -244,6 +244,9 @@ async def summary(db: AsyncSession, user_id: uuid.UUID) -> dict:
         })
     stocked = [i for i in view.products.values() if any(not _is_empty(s) for s, _ in i.places)]
     ending, idle = running_out(view), lying(view)
+    from app.services import stock_table  # себестоимость с НДС — там же, где стоимость запаса (10.17)
+
+    missing = stock_table.no_cost(view, await stock_table.unit_costs(db, user_id, view.today))
     return {
         "thresholds": {"critical": view.thresholds.critical, "low": view.thresholds.low, "excess": view.thresholds.excess},
         "sales_known": view.sales_known, "stocks_known": bool(warehouses), "synced_at": view.synced_at,
@@ -258,6 +261,8 @@ async def summary(db: AsyncSession, user_id: uuid.UUID) -> dict:
         "running_out_total": len(ending),
         "lying": [product_out(i) for i in idle[:ATTENTION_LIMIT]],
         "lying_total": len(idle),
+        "no_cost": [product_out(i) for i in missing[:ATTENTION_LIMIT]],
+        "no_cost_total": len(missing),
     }
 
 

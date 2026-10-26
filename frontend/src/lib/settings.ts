@@ -23,8 +23,11 @@ export type UserSettings = {
   // планирование поставок (шаг 5.2): запас после поставки, дней, и сколько дней поставка в пути
   supply_target_days: number
   supply_lead_time_days: number
+  supply_safety_days: number // страховой запас сверх цели, дней (10.18)
+  supply_demand_days: number // период планирования (10.26): продажи в день — по заказам за столько дней
   // порог «низкой маржи», % (шаг 7.1): акции, товары, прибыль по товарам, цены, аномалия «маржа ниже порога»
   low_margin_pct: string
+  min_profit_rub: string // минимальная допустимая прибыль с продажи, ₽ (10.26): калькулятор — floor_price
   // пороги аномалий (шаг 7.1, BUSINESS_LOGIC §7); дни запаса — пороги остатков выше
   anomaly_sales_drop_pct: number
   anomaly_sales_drop_red_pct: number
@@ -35,6 +38,11 @@ export type UserSettings = {
   anomaly_payout_diff_pct: number
   anomaly_cash_gap_days: number
   anomaly_uncategorized_days: number
+  anomaly_sync_stale_hours: number // данные не обновлялись дольше, ч (10.5)
+  anomaly_data_gap_days: number // дней без начислений между загруженными (10.5)
+  recommendation_hide_days: number // «Скрыть» рекомендацию — на сколько дней (10.6)
+  abc_a_pct: number // ABC-анализ (10.10): граница группы A, % накопленной доли
+  abc_b_pct: number // граница группы B
   anomaly_defaults: boolean // пороги аномалий и маржи — по умолчанию
 }
 

@@ -1,11 +1,24 @@
 'use client'
-// «Операции → Все операции» (шаг 3.8): быстрый ввод, список с фильтрами, история исправлений, загрузка списком.
-import { Download, History, Pencil, Trash2, Upload } from 'lucide-react'
+// «Операции → Все операции» (шаги 3.8, 3.12, 10.19): быстрое добавление, журнал факт + план (платежи календаря) с фильтрами,
+// сортировкой и Excel, «Оплачено», массовое изменение, история исправлений, загрузка списком.
+import { Check, Download, History, Pencil, Trash2, Upload } from 'lucide-react'
 import { useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
-import { type Account, type Category, type Operation, type OperationsPage, type RuleSuggestion, parseAmount } from '@/components/planning/types'
+import { CategoryOptions, CategoryPicker } from '@/components/planning/Categories'
+import { Modal, input } from '@/components/planning/ui'
+import {
+  type Account,
+  type Category,
+  type JournalPage,
+  type JournalRow,
+  type JournalSource,
+  type JournalStatus,
+  type Operation,
+  type RuleSuggestion,
+  parseAmount,
+} from '@/components/planning/types'
 import { Badge, fmtDateTime, fmtDay, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
@@ -17,7 +30,7 @@ const TYPES: { value: OpType; label: string }[] = [
   { value: 'income', label: 'Приход' },
   { value: 'transfer', label: 'Перевод' },
 ]
-export const input = 'w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent'
+export { Modal, input } // окно и поле ввода — общие для раздела (components/planning/ui.tsx)
 const DAY = /^\d{4}-\d{2}-\d{2}$/
 const SOURCE: Record<Operation['source'], string | null> = { manual: null, import: 'из файла', ozon_payout: 'Ozon', bank: 'банк' }
 
@@ -50,12 +63,14 @@ function OperationForm({
   initial,
   onSaved,
   onCancel,
+  onCategoryCreated,
 }: {
   accounts: Account[]
   categories: Category[]
   initial?: Operation
   onSaved: (suggestion?: RuleSuggestion | null) => void // статью поставили вручную — можно сделать правилом (шаг 3.12)
   onCancel?: () => void
+  onCategoryCreated?: () => void // «+» у статьи добавил новую — обновить список статей страницы
 }) {
   const today = todayMsk()
   const active = useMemo(() => accounts.filter((a) => !a.archived), [accounts])
@@ -66,8 +81,7 @@ function OperationForm({
   const [day, setDay] = useState(initial?.day ?? today)
   const [account, setAccount] = useState(initial?.account.id ?? active[0]?.id ?? '')
   const [toAccount, setToAccount] = useState(active.find((a) => a.id !== account)?.id ?? '')
-  const [categoryText, setCategoryText] = useState(initial?.category?.name ?? '') // выбрать из списка или вписать новую
-  const [typed, setTyped] = useState(false) // вписали руками, а не выбрали из списка
+  const [categoryId, setCategoryId] = useState(initial?.category?.id ?? '') // из списка; новая — «+» рядом (шаг 10.19)
   const [notice, setNotice] = useState<string | null>(null)
   const [counterparty, setCounterparty] = useState(initial?.counterparty ?? '')
   const [comment, setComment] = useState(initial?.comment ?? '')
@@ -81,10 +95,7 @@ function OperationForm({
       setToAccount(active.find((a) => a.id !== account)?.id ?? '')
     }
   }, [active, account, toAccount, initial])
-  const cats = categories.filter((c) => (!c.archived && c.kind === type) || c.id === initial?.category?.id)
-  const match = categoryText.trim() ? cats.find((c) => sameName(c.name, categoryText)) : undefined
-  // статья: из списка — по id; вписана новая — по названию, сервис сохранит её в список (такая уже есть — возьмёт её)
-  const categoryBody = () => (match ? { category_id: match.id } : categoryText.trim() ? { category_name: categoryText.trim() } : { category_id: null })
+  const categoryBody = () => ({ category_id: categoryId || null })
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -119,13 +130,7 @@ function OperationForm({
         setAmount('')
         setCounterparty('')
         setComment('')
-        setNotice(
-          data.category_note === 'created'
-            ? `Добавлено. Новая статья «${data.category?.name}» сохранена — дальше её можно выбрать из списка.`
-            : data.category_note === 'restored'
-              ? `Добавлено. Статья «${data.category?.name}» возвращена из архива.`
-              : 'Добавлено.',
-        )
+        setNotice(data.category_note === 'restored' ? `Добавлено. Статья «${data.category?.name}» возвращена из архива.` : 'Добавлено.')
       }
       onSaved()
     } catch (err) {
@@ -148,7 +153,7 @@ function OperationForm({
               aria-pressed={type === t.value}
               onClick={() => {
                 setType(t.value)
-                setCategoryText('')
+                setCategoryId('')
                 setNotice(null)
               }}
               className={`flex-1 rounded-md px-3 py-1.5 text-sm ${type === t.value ? (t.value === 'income' ? 'bg-ok text-white' : t.value === 'expense' ? 'bg-bad text-white' : 'bg-accent text-white') : 'text-muted hover:text-fg'}`}
@@ -202,30 +207,21 @@ function OperationForm({
           </label>
         ) : (
           !initial?.transfer && (
-            <label className="block text-sm">
+            <div className="block text-sm">
               <span className="text-muted">Статья</span>
-              <input
-                value={categoryText}
-                list={`op-cats-${initial?.op_id ?? 'new'}`}
-                onChange={(e) => {
-                  // из списка браузер вставляет значение целиком (insertReplacementText) — это выбор, а не ввод
-                  const kind = (e.nativeEvent as InputEvent).inputType
-                  setTyped(kind !== undefined && kind !== 'insertReplacementText')
-                  setCategoryText(e.target.value)
+              <CategoryPicker
+                categories={categories}
+                kind={type === 'income' ? 'income' : 'expense'}
+                value={categoryId}
+                keepId={initial?.category?.id}
+                onChange={(id) => {
+                  setCategoryId(id)
                   setNotice(null)
                 }}
-                onBlur={() => match && setCategoryText(match.name)} // такая уже есть — ставим её название
-                placeholder="Выберите или впишите новую"
-                className={`${input} mt-1`}
-                data-testid="op-category"
+                onCreated={onCategoryCreated}
+                className="mt-1"
               />
-              <datalist id={`op-cats-${initial?.op_id ?? 'new'}`}>
-                {cats.map((c) => (
-                  <option key={c.id} value={c.name} />
-                ))}
-              </datalist>
-              <CategoryHint text={categoryText} match={match} typed={typed} />
-            </label>
+            </div>
           )
         )}
       </div>
@@ -325,33 +321,6 @@ function OperationCard({ op, onEdit, onHistory, onDelete }: { op: Operation; onE
             Удалить
           </button>
         )}
-      </div>
-    </div>
-  )
-}
-
-export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-bg/70 sm:items-center sm:p-4" onClick={onClose}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        onClick={(e) => e.stopPropagation()}
-        className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-t-xl border border-line bg-card p-5 shadow-xl sm:rounded-xl"
-      >
-        <div className="mb-3 flex items-start gap-3">
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <button type="button" onClick={onClose} className="ml-auto rounded-md px-2 py-1 text-muted hover:text-fg" aria-label="Закрыть">
-            ✕
-          </button>
-        </div>
-        {children}
       </div>
     </div>
   )
@@ -530,8 +499,6 @@ export function ImportPanel({
   )
 }
 
-// ---------- вкладка ----------
-
 // ---------- правила и массовая разметка (шаг 3.12) ----------
 
 const NO_CATEGORY = 'none' // фильтр «Без статьи»
@@ -582,23 +549,42 @@ function SuggestionBanner({ suggestion, onDone, onClose }: { suggestion: RuleSug
   )
 }
 
-/** Выбрано несколько операций — поставить статью разом (вручную: правила её потом не меняют). */
-function BulkBar({ ops, categories, onClear, onDone }: { ops: Operation[]; categories: Category[]; onClear: () => void; onDone: (text: string) => void }) {
-  const [categoryId, setCategoryId] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
+type BulkField = 'category' | 'account' | 'counterparty' | 'comment'
+const BULK_FIELDS: { value: BulkField; label: string }[] = [
+  { value: 'category', label: 'Статья' },
+  { value: 'account', label: 'Счёт' },
+  { value: 'counterparty', label: 'Контрагент' },
+  { value: 'comment', label: 'Описание' },
+]
+
+/** Выбрано несколько операций — изменить разом статью, счёт, контрагента или описание. Каждой — новая версия; не подходит
+ * хоть одна — ничего не меняется, сервис назовёт какая. Статья, поставленная так, — вручную: правила её не меняют. */
+function BulkBar({ ops, accounts, categories, onClear, onDone }: { ops: Operation[]; accounts: Account[]; categories: Category[]; onClear: () => void; onDone: (text: string) => void }) {
   const income = ops.every((op) => Number(op.amount) > 0)
   const expense = ops.every((op) => Number(op.amount) < 0)
   const kind = income ? 'income' : expense ? 'expense' : null
-  const cats = categories.filter((c) => !c.archived && c.kind === kind)
+  const [field, setField] = useState<BulkField>(kind ? 'category' : 'account')
+  const [value, setValue] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  // выбор поменялся: статья другого вида не подойдёт, а поступления вместе с платежами — без статьи
+  useEffect(() => {
+    if (field !== 'category') return
+    setValue('')
+    if (!kind) setField('account')
+  }, [kind]) // eslint-disable-line react-hooks/exhaustive-deps
+  const control = 'min-w-0 basis-full rounded-lg border border-line bg-bg px-3 py-1.5 text-sm outline-none focus:border-accent sm:basis-auto'
 
   async function apply() {
-    if (!categoryId) return setError('Выберите статью')
+    if (field === 'category' && !value) return setError('Выберите статью')
+    if (field === 'account' && !value) return setError('Выберите счёт')
     setBusy(true)
     setError(null)
     try {
-      const { data } = await api.post<{ changed: number }>('/planning/operations/categorize', { op_ids: ops.map((op) => op.op_id), category_id: categoryId })
-      onDone(`Статья поставлена у операций: ${data.changed}.`)
+      const body = { category: { category_id: value }, account: { account_id: value }, counterparty: { counterparty: value }, comment: { comment: value } }[field]
+      const { data } = await api.post<{ changed: number; unchanged: number }>('/planning/operations/bulk', { op_ids: ops.map((op) => op.op_id), ...body })
+      const what = BULK_FIELDS.find((f) => f.value === field)?.label.toLowerCase()
+      onDone(`Изменено операций: ${data.changed}${data.unchanged ? `, уже были такими: ${data.unchanged}` : ''} (${what}).`)
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -609,23 +595,48 @@ function BulkBar({ ops, categories, onClear, onDone }: { ops: Operation[]; categ
   return (
     <div className="sticky top-2 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-accent/40 bg-card p-3 text-sm shadow-sm" data-testid="ops-bulk">
       <span className="font-medium">Выбрано: {ops.length}</span>
-      {kind ? (
-        <>
-          <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} aria-label="Статья для выбранных" className="min-w-0 basis-full rounded-lg border border-line bg-bg px-3 py-1.5 text-sm outline-none focus:border-accent sm:basis-auto" data-testid="ops-bulk-category">
-            <option value="">— статья —</option>
-            {cats.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
+      <select
+        value={field}
+        onChange={(e) => {
+          setField(e.target.value as BulkField)
+          setValue('')
+          setError(null)
+        }}
+        aria-label="Что изменить"
+        className={control}
+        data-testid="ops-bulk-field"
+      >
+        {BULK_FIELDS.map((f) => (
+          <option key={f.value} value={f.value} disabled={f.value === 'category' && !kind}>
+            {f.label}
+          </option>
+        ))}
+      </select>
+      {field === 'category' && kind && (
+        <select value={value} onChange={(e) => setValue(e.target.value)} aria-label="Статья для выбранных" className={control} data-testid="ops-bulk-category">
+          <option value="">— статья —</option>
+          <CategoryOptions categories={categories} kind={kind} />
+        </select>
+      )}
+      {field === 'account' && (
+        <select value={value} onChange={(e) => setValue(e.target.value)} aria-label="Счёт для выбранных" className={control} data-testid="ops-bulk-account">
+          <option value="">— счёт —</option>
+          {accounts
+            .filter((a) => !a.archived)
+            .map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
               </option>
             ))}
-          </select>
-          <button type="button" onClick={apply} disabled={busy} className="rounded-lg bg-accent px-3 py-1.5 font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="ops-bulk-apply">
-            {busy ? 'Ставлю…' : 'Поставить статью'}
-          </button>
-        </>
-      ) : (
-        <span className="text-warn">Выбраны и поступления, и платежи — статью ставьте отдельно</span>
+        </select>
       )}
+      {(field === 'counterparty' || field === 'comment') && (
+        <input value={value} onChange={(e) => setValue(e.target.value)} placeholder={field === 'comment' ? 'Описание — пусто: убрать' : 'Контрагент — пусто: убрать'} aria-label="Новое значение" className={control} data-testid="ops-bulk-text" />
+      )}
+      <button type="button" onClick={apply} disabled={busy} className="rounded-lg bg-accent px-3 py-1.5 font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="ops-bulk-apply">
+        {busy ? 'Меняю…' : 'Изменить у выбранных'}
+      </button>
+      {!kind && <span className="basis-full text-xs text-warn sm:basis-auto">Выбраны и поступления, и платежи — статью ставьте отдельно</span>}
       <button type="button" onClick={onClear} className="text-muted hover:text-fg">
         Снять выбор
       </button>
@@ -634,46 +645,311 @@ function BulkBar({ ops, categories, onClear, onDone }: { ops: Operation[]; categ
   )
 }
 
+// ---------- быстрое добавление ----------
+
+/** Короткая форма: приход или расход — сумма, статья (с «+»), счёт, дата. Перевод, контрагент и описание — «Подробно». */
+function QuickAdd({ accounts, categories, onSaved, onCategoryCreated, onMore }: { accounts: Account[]; categories: Category[]; onSaved: () => void; onCategoryCreated: () => void; onMore: () => void }) {
+  const today = todayMsk()
+  const active = useMemo(() => accounts.filter((a) => !a.archived), [accounts])
+  const [type, setType] = useState<'expense' | 'income'>('expense')
+  const [amount, setAmount] = useState('')
+  const [categoryId, setCategoryId] = useState('')
+  const [account, setAccount] = useState(active[0]?.id ?? '')
+  const [day, setDay] = useState(today)
+  const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  useEffect(() => {
+    if (!active.some((a) => a.id === account) && active[0]) setAccount(active[0].id)
+  }, [active, account])
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    setError(null)
+    setNotice(null)
+    const value = parseAmount(amount)
+    if (value === null || Number(value) <= 0) return setError('Сумма — числом больше нуля, например 12 000,50')
+    setSaving(true)
+    try {
+      await api.post('/planning/operations', { type, amount: value, day, account_id: account, category_id: categoryId || null })
+      setAmount('')
+      setNotice(`Добавлено: ${type === 'income' ? '+' : '−'}${rub(value)}`)
+      onSaved()
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="rounded-xl border border-line bg-card p-4" data-testid="quick-add">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <h2 className="text-sm font-semibold">Быстро добавить</h2>
+        <div className="flex gap-1 rounded-lg border border-line bg-bg p-1" role="group" aria-label="Приход или расход">
+          {(['expense', 'income'] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              aria-pressed={type === t}
+              onClick={() => {
+                setType(t)
+                setCategoryId('')
+              }}
+              className={`rounded-md px-3 py-1 text-sm ${type === t ? (t === 'income' ? 'bg-ok text-white' : 'bg-bad text-white') : 'text-muted hover:text-fg'}`}
+              data-testid={`quick-type-${t}`}
+            >
+              {t === 'income' ? 'Приход' : 'Расход'}
+            </button>
+          ))}
+        </div>
+        <button type="button" onClick={onMore} className="ml-auto text-sm text-accent hover:underline" data-testid="op-more">
+          Подробно: перевод, контрагент, описание
+        </button>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[8rem_minmax(0,1fr)_minmax(0,12rem)_10rem_auto] lg:items-end">
+        <label className="block text-sm">
+          <span className="text-muted">Сумма, ₽</span>
+          <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" required className={`${input} mt-1`} data-testid="quick-amount" />
+        </label>
+        <div className="block text-sm">
+          <span className="text-muted">Статья</span>
+          <CategoryPicker categories={categories} kind={type} value={categoryId} onChange={setCategoryId} onCreated={onCategoryCreated} testid="quick-category" className="mt-1" />
+        </div>
+        <label className="block text-sm">
+          <span className="text-muted">Счёт</span>
+          <select value={account} onChange={(e) => setAccount(e.target.value)} className={`${input} mt-1`} data-testid="quick-account">
+            {active.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-sm">
+          <span className="text-muted">Дата</span>
+          <input type="date" value={day} max={today} onChange={(e) => setDay(e.target.value)} required className={`${input} mt-1`} data-testid="quick-day" />
+        </label>
+        <button type="submit" disabled={saving || active.length === 0} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="quick-save">
+          {saving ? 'Сохраняем…' : 'Добавить'}
+        </button>
+      </div>
+      <FormError message={error} />
+      {notice && (
+        <p className="mt-2 text-sm text-ok" data-testid="quick-notice">
+          {notice}
+        </p>
+      )}
+    </form>
+  )
+}
+
+// ---------- журнал: факт и план ----------
+
+const STATUS_FILTERS: { value: '' | JournalStatus; label: string }[] = [
+  { value: '', label: 'Все' },
+  { value: 'fact', label: 'Факт' },
+  { value: 'planned', label: 'План' },
+  { value: 'expected', label: 'Ожидается' },
+  { value: 'overdue', label: 'Просрочено' },
+]
+const SOURCES: { value: JournalSource; label: string }[] = [
+  { value: 'manual', label: 'Вручную' },
+  { value: 'import', label: 'Из файла' },
+  { value: 'bank', label: 'Банк' },
+  { value: 'ozon_payout', label: 'Выплаты Ozon' },
+  { value: 'plan', label: 'Плановые платежи' },
+  { value: 'supplier', label: 'Поставщик (план)' },
+  { value: 'tax', label: 'Налоги (план)' },
+  { value: 'ozon_forecast', label: 'Ozon (прогноз)' },
+]
+const SORTS = [
+  { value: 'day:desc', label: 'Сначала новые' },
+  { value: 'day:asc', label: 'Сначала старые' },
+  { value: 'amount:desc', label: 'Сумма: больше' },
+  { value: 'amount:asc', label: 'Сумма: меньше' },
+  { value: 'category:asc', label: 'Статья: А–Я' },
+] as const
+const PLAN_SOURCE_TITLE: Partial<Record<JournalSource, string>> = { plan: 'плановый платёж', supplier: 'оплата поставщику по плану', tax: 'налог по сроку', ozon_forecast: 'выплата Ozon — прогноз' }
+const LIMIT = 500
+
+function CategoryName({ row }: { row: JournalRow }) {
+  if (row.type === 'transfer') return <>Перевод</>
+  if (!row.category) return <span className="text-warn">Без статьи</span>
+  return (
+    <>
+      {row.parent && <span className="font-normal text-muted">{row.parent.name} / </span>}
+      {row.category.name}
+    </>
+  )
+}
+
+const signed = (amount: string | null, transfer = false) =>
+  amount === null ? 'сумма уточняется' : transfer ? rub(String(Math.abs(Number(amount)))) : `${Number(amount) > 0 ? '+' : ''}${rub(amount)}`
+
+/** Плановый платёж в журнале: откуда, когда, сколько; «Оплачено» — станет операцией с датой и суммой. */
+function PlanCard({ row, onPaid }: { row: JournalRow; onPaid: () => void }) {
+  const line = (label: string, value: React.ReactNode) => (
+    <div className="grid grid-cols-[8rem_minmax(0,1fr)] gap-3 border-b border-line py-2 last:border-b-0">
+      <dt className="text-muted">{label}</dt>
+      <dd className="min-w-0 break-words">{value}</dd>
+    </div>
+  )
+  return (
+    <div className="space-y-4" data-testid="plan-card">
+      <div>
+        <div className={`text-2xl font-bold tabular-nums ${row.type === 'income' ? 'text-ok' : 'text-bad'}`}>{signed(row.amount)}</div>
+        <div className="text-sm text-muted">
+          {row.status === 'overdue' ? 'Просрочен: срок прошёл больше 3 дней назад, оплаты нет' : row.status === 'expected' ? 'Ожидается: срок подошёл, оплаты пока нет' : 'По плану'} · {fmtDay(row.day)}
+          {row.plan?.estimate && ' · сумма — оценка'}
+        </div>
+      </div>
+      <dl className="text-sm">
+        {line('Платёж', row.plan?.title ?? '—')}
+        {line('Статья', <CategoryName row={row} />)}
+        {line('Счёт', row.account?.name ?? <span className="text-faint">выберете при оплате</span>)}
+        {row.counterparty && line('Контрагент', row.counterparty)}
+        {line('Откуда', PLAN_SOURCE_TITLE[row.source] ?? 'план')}
+      </dl>
+      <div className="flex flex-wrap gap-2">
+        {row.source !== 'ozon_forecast' ? (
+          <button type="button" onClick={onPaid} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90" data-testid="plan-card-paid">
+            Оплачено
+          </button>
+        ) : (
+          <p className="text-sm text-muted">Выплата Ozon станет фактом сама, когда придёт по данным Ozon.</p>
+        )}
+        <a href="/dashboard/planning/calendar" className="rounded-lg border border-line px-4 py-2 text-sm hover:border-accent hover:text-accent">
+          Открыть в календаре
+        </a>
+      </div>
+    </div>
+  )
+}
+
+/** Плановая → фактическая: дата и сумма оплаты (как «Оплачено» в календаре) — появится операция. */
+function PaidForm({ row, accounts, onDone, onCancel }: { row: JournalRow; accounts: Account[]; onDone: () => void; onCancel: () => void }) {
+  const today = todayMsk()
+  const active = accounts.filter((a) => !a.archived)
+  const [day, setDay] = useState(row.day < today ? row.day : today)
+  const [amount, setAmount] = useState(row.amount === null ? '' : String(Math.abs(Number(row.amount))).replace('.', ','))
+  const [account, setAccount] = useState(row.account?.id ?? active[0]?.id ?? '')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    const value = parseAmount(amount)
+    if (value === null || Number(value) <= 0) return setError('Сумма — числом больше нуля')
+    setBusy(true)
+    setError(null)
+    try {
+      await api.post('/planning/calendar/paid', { key: row.plan?.key, day, amount: value, account_id: account || null })
+      onDone()
+    } catch (err) {
+      setError(errorMessage(err))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-3 text-sm" data-testid="paid-form">
+      <p className="text-muted">
+        «{row.plan?.title}» по плану {fmtDay(row.day)} на {signed(row.amount)}. Укажите, когда и сколько оплатили, — появится операция, а платёж в календаре
+        отметится оплаченным.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <label className="block">
+          <span className="text-muted">Дата оплаты</span>
+          <input type="date" value={day} max={today} onChange={(e) => setDay(e.target.value)} required className={`${input} mt-1`} data-testid="paid-day" />
+        </label>
+        <label className="block">
+          <span className="text-muted">Сумма, ₽</span>
+          <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" required className={`${input} mt-1`} data-testid="paid-amount" />
+        </label>
+        <label className="block">
+          <span className="text-muted">Счёт</span>
+          <select value={account} onChange={(e) => setAccount(e.target.value)} className={`${input} mt-1`} data-testid="paid-account">
+            {active.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <FormError message={error} />
+      <div className="flex gap-2">
+        <button type="submit" disabled={busy} className="rounded-lg bg-accent px-4 py-2 font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="paid-save">
+          {busy ? 'Сохраняем…' : 'Оплачено'}
+        </button>
+        <button type="button" onClick={onCancel} className="rounded-lg border border-line px-4 py-2 text-muted hover:text-fg">
+          Отмена
+        </button>
+      </div>
+    </form>
+  )
+}
+
 export function OperationsTab({ accounts, categories, onChanged }: { accounts: Account[]; categories: Category[]; onChanged: () => void }) {
   const today = todayMsk()
   const params = useSearchParams()
-  // из графиков и ДДС: ?from=…&to=…&category=… — операции за этот период и статью
+  // из графиков и ДДС: ?from=…&to=…&category=… — операции за этот период и статью; без них — месяц назад и месяц вперёд;
+  // из правил (10.20): ?rule=… — операции, которым статью поставило это правило (за год); из счетов: ?account=…
+  const [ruleId, setRuleId] = useState(params.get('rule') ?? '')
   const [range, setRange] = useState(() => {
     const from = params.get('from') ?? ''
     const to = params.get('to') ?? ''
-    return DAY.test(from) && DAY.test(to) && from <= to ? { from, to: to > today ? today : to } : { from: addDays(today, -29), to: today }
+    if (DAY.test(from) && DAY.test(to) && from <= to) return { from, to }
+    return params.get('rule') ? { from: addDays(today, -364), to: today } : { from: addDays(today, -29), to: addDays(today, 30) }
   })
-  const [accountId, setAccountId] = useState('')
+  const [status, setStatus] = useState<'' | JournalStatus>('')
+  const [type, setType] = useState('')
+  const [accountId, setAccountId] = useState(params.get('account') ?? '')
   const [categoryId, setCategoryId] = useState(params.get('category') ?? '')
+  const [source, setSource] = useState('')
   const [search, setSearch] = useState('')
-  const [page, setPage] = useState<OperationsPage | null>(null)
+  const [sort, setSort] = useState<(typeof SORTS)[number]['value']>('day:desc')
+  const [page, setPage] = useState<JournalPage | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [viewing, setViewing] = useState<Operation | null>(null) // карточка операции
   const [editing, setEditing] = useState<Operation | null>(null)
+  const [adding, setAdding] = useState(false) // подробная форма
   const [historyOf, setHistoryOf] = useState<Operation | null>(null)
-  const [selected, setSelected] = useState<Set<string>>(new Set()) // массовая разметка (шаг 3.12)
+  const [plan, setPlan] = useState<JournalRow | null>(null) // карточка планового платежа
+  const [paying, setPaying] = useState<JournalRow | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set()) // массовое изменение (шаги 3.12, 10.19)
   const [suggestion, setSuggestion] = useState<RuleSuggestion | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
+  const query = useMemo(() => {
+    const [by, order] = sort.split(':')
+    return {
+      date_from: range.from,
+      date_to: range.to,
+      sort: by,
+      order,
+      ...(status ? { status } : {}),
+      ...(type ? { type } : {}),
+      ...(accountId ? { account_id: accountId } : {}),
+      ...(categoryId === NO_CATEGORY ? { uncategorized: true } : categoryId ? { category_id: categoryId } : {}),
+      ...(source ? { source } : {}),
+      ...(ruleId ? { rule_id: ruleId } : {}),
+      ...(search.trim() ? { search: search.trim() } : {}),
+    }
+  }, [range, status, type, accountId, categoryId, source, search, sort, ruleId])
+
   const load = useCallback(async () => {
     try {
-      const { data } = await api.get<OperationsPage>('/planning/operations', {
-        params: {
-          date_from: range.from,
-          date_to: range.to,
-          limit: 500,
-          ...(accountId ? { account_id: accountId } : {}),
-          ...(categoryId === NO_CATEGORY ? { uncategorized: true } : categoryId ? { category_id: categoryId } : {}),
-          ...(search.trim() ? { search: search.trim() } : {}),
-        },
-      })
+      const { data } = await api.get<JournalPage>('/planning/journal', { params: { ...query, limit: LIMIT } })
       setPage(data)
-      setSelected((prev) => new Set(data.items.filter((op) => prev.has(op.op_id)).map((op) => op.op_id)))
+      const ids = new Set(data.items.map((r) => r.operation?.op_id).filter(Boolean))
+      setSelected((prev) => new Set(Array.from(prev).filter((id) => ids.has(id))))
       setError(null)
     } catch (err) {
       setError(errorMessage(err))
     }
-  }, [range, accountId, categoryId, search])
+  }, [query])
 
   useEffect(() => {
     const t = setTimeout(load, 250)
@@ -695,44 +971,108 @@ export function OperationsTab({ accounts, categories, onChanged }: { accounts: A
     }
   }
 
+  async function exportXlsx() {
+    setError(null)
+    try {
+      await saveFile(api.get('/planning/journal/export', { params: query, responseType: 'blob' }), 'operations.xlsx')
+    } catch (err) {
+      setError(errorMessage(err, 'Не удалось скачать файл'))
+    }
+  }
+
+  const facts = page?.items.flatMap((r) => (r.operation && !r.operation.transfer ? [r.operation] : [])) ?? []
+  const toggle = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   const select = 'rounded-lg border border-line bg-card px-3 py-2 text-sm outline-none focus:border-accent'
+  const cellLabel = 'text-[11px] uppercase tracking-wider text-muted'
   return (
     <div className="space-y-4">
-      <section className="rounded-xl border border-line bg-card p-4">
-        <h2 className="mb-3 text-sm font-semibold">Новая операция</h2>
-        <OperationForm accounts={accounts} categories={categories} onSaved={changed} />
-      </section>
+      <QuickAdd accounts={accounts} categories={categories} onSaved={changed} onCategoryCreated={onChanged} onMore={() => setAdding(true)} />
 
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <input type="date" value={range.from} max={range.to} onChange={(e) => e.target.value && setRange({ ...range, from: e.target.value })} className={select} aria-label="С" data-testid="ops-from" />
-        <span className="text-muted">—</span>
-        <input type="date" value={range.to} min={range.from} max={today} onChange={(e) => e.target.value && setRange({ ...range, to: e.target.value })} className={select} aria-label="По" data-testid="ops-to" />
-        <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className={select} aria-label="Счёт" data-testid="ops-account">
-          <option value="">Все счета</option>
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
-        <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={select} aria-label="Статья" data-testid="ops-category">
-          <option value="">Все статьи</option>
-          <option value={NO_CATEGORY}>Без статьи</option>
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Контрагент или описание" aria-label="Поиск" className={`${select} w-full min-w-0 sm:w-auto sm:flex-1`} />
+      <div className="space-y-2 text-sm" data-testid="ops-filters">
+        <div className="flex flex-wrap items-center gap-2">
+          <input type="date" value={range.from} max={range.to} onChange={(e) => e.target.value && setRange({ ...range, from: e.target.value })} className={select} aria-label="С" data-testid="ops-from" />
+          <span className="text-muted">—</span>
+          <input type="date" value={range.to} min={range.from} onChange={(e) => e.target.value && setRange({ ...range, to: e.target.value })} className={select} aria-label="По" data-testid="ops-to" />
+          <div className="flex flex-wrap gap-1 rounded-lg border border-line bg-card p-1" role="group" aria-label="Факт или план" data-testid="ops-status">
+            {STATUS_FILTERS.map((f) => (
+              <button
+                key={f.value}
+                type="button"
+                aria-pressed={status === f.value}
+                onClick={() => setStatus(f.value)}
+                className={`rounded-md px-2.5 py-1 ${status === f.value ? 'bg-accent text-white' : f.value === 'overdue' && page?.counts.overdue ? 'text-bad hover:text-fg' : 'text-muted hover:text-fg'}`}
+                data-testid={`ops-status-${f.value || 'all'}`}
+              >
+                {f.label}
+                {page && f.value && <span className="ml-1 tabular-nums opacity-80">{page.counts[f.value]}</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+          <select value={type} onChange={(e) => setType(e.target.value)} className={select} aria-label="Тип" data-testid="ops-type">
+            <option value="">Все типы</option>
+            <option value="income">Поступления</option>
+            <option value="expense">Платежи</option>
+            <option value="transfer">Переводы</option>
+          </select>
+          <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={select} aria-label="Статья" data-testid="ops-category">
+            <option value="">Все статьи</option>
+            <option value={NO_CATEGORY}>Без статьи</option>
+            <CategoryOptions categories={categories} keepId={categoryId || null} />
+          </select>
+          <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className={select} aria-label="Счёт" data-testid="ops-account">
+            <option value="">Все счета</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+          <select value={source} onChange={(e) => setSource(e.target.value)} className={select} aria-label="Источник" data-testid="ops-source">
+            <option value="">Все источники</option>
+            {SOURCES.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+          <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className={select} aria-label="Сортировка" data-testid="ops-sort">
+            {SORTS.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+          <button type="button" onClick={exportXlsx} className={`${select} inline-flex items-center justify-center gap-1.5 hover:border-accent hover:text-accent`} data-testid="ops-export">
+            <Download className="h-4 w-4" /> Excel
+          </button>
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Контрагент, описание, платёж" aria-label="Поиск" className={`${select} col-span-2 min-w-0 sm:flex-1`} data-testid="ops-search" />
+        </div>
       </div>
 
+      {ruleId && (
+        <p className="flex flex-wrap items-center gap-2 text-sm" data-testid="ops-rule-filter">
+          <Badge tone="accent">Операции одного правила разнесения</Badge>
+          <span className="text-muted">статью им поставило правило — за год</span>
+          <button type="button" onClick={() => setRuleId('')} className="text-accent hover:underline">
+            Показать все
+          </button>
+        </p>
+      )}
       <FormError message={error} />
       {suggestion && <SuggestionBanner suggestion={suggestion} onDone={(text) => { setSuggestion(null); setNotice(text); changed() }} onClose={() => setSuggestion(null)} />}
       {notice && <p className="text-sm text-ok" data-testid="ops-notice">{notice}</p>}
       {page && selected.size > 0 && (
         <BulkBar
-          ops={page.items.filter((op) => selected.has(op.op_id))}
+          ops={facts.filter((op) => selected.has(op.op_id))}
+          accounts={accounts}
           categories={categories}
           onClear={() => setSelected(new Set())}
           onDone={(text) => {
@@ -742,95 +1082,131 @@ export function OperationsTab({ accounts, categories, onChanged }: { accounts: A
           }}
         />
       )}
-      {page && categoryId === NO_CATEGORY && page.items.length > 0 && selected.size === 0 && (
-        <button type="button" onClick={() => setSelected(new Set(page.items.filter((op) => !op.transfer).map((op) => op.op_id)))} className="text-sm text-accent hover:underline" data-testid="ops-select-all">
-          Выбрать все без статьи ({page.items.length}) — и поставить статью разом
+      {page && facts.length > 0 && selected.size === 0 && (
+        <button type="button" onClick={() => setSelected(new Set(facts.map((op) => op.op_id)))} className="text-sm text-accent hover:underline" data-testid="ops-select-all">
+          {categoryId === NO_CATEGORY ? `Выбрать все без статьи (${facts.length}) — и поставить статью разом` : `Выбрать все операции в списке (${facts.length}) — изменить разом`}
         </button>
       )}
       {page && (
         <section className="overflow-hidden rounded-xl border border-line bg-card" data-testid="ops-list">
           <div className="grid grid-cols-3 gap-px border-b border-line bg-line text-sm" data-testid="ops-totals">
-            <div className="bg-card px-4 py-2">
-              <div className="text-[11px] uppercase tracking-wider text-muted">Пришло</div>
-              <div className="font-semibold tabular-nums text-ok">{rub(page.totals.income)}</div>
+            <div className="min-w-0 bg-card px-2.5 py-2 sm:px-4">
+              <div className={cellLabel}>Пришло</div>
+              <div className="whitespace-nowrap text-[13px] font-semibold tabular-nums sm:text-sm text-ok">{rub(page.totals.fact.income)}</div>
             </div>
-            <div className="bg-card px-4 py-2">
-              <div className="text-[11px] uppercase tracking-wider text-muted">Ушло</div>
-              <div className="font-semibold tabular-nums text-bad">{rub(page.totals.expense)}</div>
+            <div className="min-w-0 bg-card px-2.5 py-2 sm:px-4">
+              <div className={cellLabel}>Ушло</div>
+              <div className="whitespace-nowrap text-[13px] font-semibold tabular-nums sm:text-sm text-bad">{rub(page.totals.fact.expense)}</div>
             </div>
-            <div className="bg-card px-4 py-2">
-              <div className="text-[11px] uppercase tracking-wider text-muted">Итого</div>
-              <div className={`font-semibold tabular-nums ${Number(page.totals.net) < 0 ? 'text-bad' : 'text-ok'}`}>{rub(page.totals.net)}</div>
+            <div className="min-w-0 bg-card px-2.5 py-2 sm:px-4">
+              <div className={cellLabel}>Итого факт</div>
+              <div className={`whitespace-nowrap text-[13px] font-semibold tabular-nums sm:text-sm ${Number(page.totals.fact.net) < 0 ? 'text-bad' : 'text-ok'}`}>{rub(page.totals.fact.net)}</div>
             </div>
+            {page.counts.planned + page.counts.overdue > 0 && status !== 'fact' && (
+              <>
+                <div className="min-w-0 bg-card px-2.5 py-2 sm:px-4" data-testid="ops-plan-totals">
+                  <div className={cellLabel}>Ожидается</div>
+                  <div className="whitespace-nowrap text-[13px] font-semibold tabular-nums sm:text-sm text-ok/80">{rub(page.totals.plan.income)}</div>
+                </div>
+                <div className="min-w-0 bg-card px-2.5 py-2 sm:px-4">
+                  <div className={cellLabel}>К оплате</div>
+                  <div className="whitespace-nowrap text-[13px] font-semibold tabular-nums sm:text-sm text-bad/80">{rub(page.totals.plan.expense)}</div>
+                </div>
+                <div className="min-w-0 bg-card px-2.5 py-2 sm:px-4">
+                  <div className={cellLabel}>Итого план</div>
+                  <div className="whitespace-nowrap text-[13px] font-semibold tabular-nums sm:text-sm text-muted">{rub(page.totals.plan.net)}</div>
+                </div>
+              </>
+            )}
           </div>
           {page.items.length === 0 ? (
-            <p className="p-4 text-sm text-muted">За период операций нет. Добавьте первую выше — или загрузите списком из Excel.</p>
+            <p className="p-4 text-sm text-muted">За период ничего нет. Добавьте операцию выше — или загрузите списком из Excel.</p>
           ) : (
             <ul className="divide-y divide-line">
-              {page.items.map((op) => {
-                const amount = Number(op.amount)
-                const title = op.transfer
+              {page.items.map((row) => {
+                const op = row.operation
+                const isPlan = row.status !== 'fact'
+                const transfer = row.type === 'transfer'
+                const amount = row.amount === null ? null : Number(row.amount)
+                const tone = transfer || amount === null ? 'text-muted' : amount > 0 ? 'text-ok' : 'text-bad'
+                const title = op?.transfer
                   ? `Перевод: ${op.transfer.direction === 'out' ? `${op.account.name} → ${op.transfer.account?.name ?? '—'}` : `${op.transfer.account?.name ?? '—'} → ${op.account.name}`}`
-                  : (op.category?.name ?? 'Без статьи')
+                  : null
+                const description = isPlan ? (row.comment && row.comment !== row.plan?.title ? row.comment : null) : row.comment
                 return (
                   <li
-                    key={op.op_id}
-                    onClick={() => setViewing(op)}
-                    className={`grid cursor-pointer grid-cols-[1.25rem_2.75rem_minmax(0,1fr)_auto] items-start gap-x-3 px-4 py-2.5 text-sm hover:bg-line/40 sm:grid-cols-[1.25rem_4rem_minmax(0,1fr)_auto_auto] sm:items-center ${op.before_opening ? 'opacity-60' : ''} ${selected.has(op.op_id) ? 'bg-accent/5' : ''}`}
-                    data-testid="op-row"
+                    key={row.id}
+                    onClick={() => (op ? setViewing(op) : setPlan(row))}
+                    className={`grid cursor-pointer grid-cols-[1.25rem_2.75rem_minmax(0,1fr)_auto] items-start gap-x-3 px-4 py-2.5 text-sm hover:bg-line/40 sm:grid-cols-[1.25rem_4rem_minmax(0,1fr)_auto_auto] sm:items-center ${op?.before_opening ? 'opacity-60' : ''} ${isPlan ? 'bg-bg/40' : ''} ${op && selected.has(op.op_id) ? 'bg-accent/5' : ''}`}
+                    data-testid={isPlan ? 'plan-row' : 'op-row'}
                   >
                     <span onClick={(e) => e.stopPropagation()}>
-                      {!op.transfer && (
-                        <input
-                          type="checkbox"
-                          checked={selected.has(op.op_id)}
-                          onChange={() => setSelected((prev) => {
-                            const next = new Set(prev)
-                            if (next.has(op.op_id)) next.delete(op.op_id)
-                            else next.add(op.op_id)
-                            return next
-                          })}
-                          aria-label="Выбрать для разметки"
-                          className="h-4 w-4 accent-accent"
-                          data-testid="op-select"
-                        />
+                      {op && !op.transfer && (
+                        <input type="checkbox" checked={selected.has(op.op_id)} onChange={() => toggle(op.op_id)} aria-label="Выбрать для изменения" className="h-4 w-4 accent-accent" data-testid="op-select" />
                       )}
                     </span>
-                    <span className="tabular-nums text-muted">{fmtDay(op.day).slice(0, 5)}</span>
+                    <span className={`tabular-nums ${row.status === 'overdue' ? 'text-bad' : 'text-muted'}`}>{fmtDay(row.day).slice(0, 5)}</span>
                     <span className="min-w-0">
-                      <span className={`font-medium ${!op.transfer && !op.category ? 'text-warn' : ''}`}>{title}</span>
-                      {op.category_by === 'rule' && <span className="ml-1 text-xs text-faint" data-testid="op-by-rule">· по правилу</span>}
-                      {SOURCE[op.source] && (
+                      <span className="font-medium">{title ?? <CategoryName row={row} />}</span>
+                      {op?.category_by === 'rule' && <span className="ml-1 text-xs text-faint" data-testid="op-by-rule">· по правилу</span>}
+                      {row.status === 'planned' && (
+                        <span className="ml-2 inline-block">
+                          <Badge tone="accent">{row.source === 'ozon_forecast' ? 'прогноз' : 'план'}</Badge>
+                        </span>
+                      )}
+                      {row.status === 'expected' && (
+                        <span className="ml-2 inline-block" data-testid="plan-expected">
+                          <Badge tone="warn">ожидается</Badge>
+                        </span>
+                      )}
+                      {row.status === 'overdue' && (
+                        <span className="ml-2 inline-block" data-testid="plan-overdue">
+                          <Badge tone="bad">просрочен</Badge>
+                        </span>
+                      )}
+                      {op && SOURCE[op.source] && (
                         <span className="ml-2 inline-block">
                           <Badge tone={op.source === 'ozon_payout' ? 'accent' : 'muted'}>{SOURCE[op.source]}</Badge>
                         </span>
                       )}
-                      {op.comment && (
+                      {isPlan && row.plan && <span className="block truncate text-xs text-fg/80">{row.plan.title}</span>}
+                      {description && (
                         <span className="block truncate text-xs text-fg/80" data-testid="op-description">
-                          {preview(op.comment)}
+                          {preview(description)}
                         </span>
                       )}
                       <span className="block truncate text-xs text-muted">
-                        {[!op.transfer && op.account.name, op.counterparty].filter(Boolean).join(' · ')}
-                        {op.before_opening && ' · до начального остатка — в остаток не входит'}
+                        {[!transfer && row.account?.name, row.counterparty, !isPlan && row.plan && `по плану: ${row.plan.title}`].filter(Boolean).join(' · ')}
+                        {op?.before_opening && ' · до начального остатка — в остаток не входит'}
                       </span>
                     </span>
-                    <span className={`whitespace-nowrap text-right font-semibold tabular-nums ${op.transfer ? 'text-muted' : amount > 0 ? 'text-ok' : 'text-bad'}`} data-testid="op-amount-cell">
-                      {op.transfer ? rub(String(Math.abs(amount))) : `${amount > 0 ? '+' : ''}${rub(op.amount)}`}
+                    <span className={`whitespace-nowrap text-right font-semibold tabular-nums ${tone} ${isPlan ? 'opacity-80' : ''}`} data-testid="op-amount-cell">
+                      {row.plan?.estimate && isPlan && amount !== null ? '≈ ' : ''}
+                      {signed(row.amount, transfer)}
                     </span>
                     <span className="col-start-4 flex justify-end gap-1 text-muted sm:col-start-auto" onClick={(e) => e.stopPropagation()}>
-                      <button type="button" onClick={() => setEditing(op)} className="rounded p-1 hover:text-fg" aria-label="Исправить" data-testid="op-edit">
-                        <Pencil className="h-4 w-4" />
-                      </button>
-                      {op.version > 1 && (
-                        <button type="button" onClick={() => setHistoryOf(op)} className="rounded p-1 hover:text-fg" aria-label="История исправлений" data-testid="op-history-btn">
-                          <History className="h-4 w-4" />
-                        </button>
-                      )}
-                      {op.source !== 'ozon_payout' && op.source !== 'bank' && (
-                        <button type="button" onClick={() => remove(op)} className="rounded p-1 hover:text-bad" aria-label="Удалить" data-testid="op-delete">
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                      {op ? (
+                        <>
+                          <button type="button" onClick={() => setEditing(op)} className="rounded p-1 hover:text-fg" aria-label="Исправить" data-testid="op-edit">
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          {op.version > 1 && (
+                            <button type="button" onClick={() => setHistoryOf(op)} className="rounded p-1 hover:text-fg" aria-label="История исправлений" data-testid="op-history-btn">
+                              <History className="h-4 w-4" />
+                            </button>
+                          )}
+                          {op.source !== 'ozon_payout' && op.source !== 'bank' && (
+                            <button type="button" onClick={() => remove(op)} className="rounded p-1 hover:text-bad" aria-label="Удалить" data-testid="op-delete">
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        row.source !== 'ozon_forecast' && (
+                          <button type="button" onClick={() => setPaying(row)} className="inline-flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-xs hover:border-accent hover:text-accent" data-testid="plan-paid">
+                            <Check className="h-3.5 w-3.5" /> Оплачено
+                          </button>
+                        )
                       )}
                     </span>
                   </li>
@@ -838,12 +1214,26 @@ export function OperationsTab({ accounts, categories, onChanged }: { accounts: A
               })}
             </ul>
           )}
+          {page.total > page.items.length && (
+            <p className="border-t border-line px-4 py-2 text-xs text-muted">
+              Показаны первые {page.items.length} из {page.total} — уточните период или фильтры; в Excel — все.
+            </p>
+          )}
         </section>
       )}
-      <p className="text-xs text-faint">Переводы между своими счетами не считаются ни приходом, ни расходом. Исправленная или удалённая операция остаётся в истории.</p>
+      {page?.plan_note && <p className="text-xs text-faint" data-testid="ops-plan-note">{page.plan_note}</p>}
+      <p className="text-xs text-faint">
+        Факт — операции по счетам; план и просроченные — неоплаченные платежи «Календаря»: «Оплачено» превращает их в операцию. Переводы между своими
+        счетами не считаются ни приходом, ни расходом. Исправленная или удалённая операция остаётся в истории.
+      </p>
 
-      <ImportPanel params={{ date_from: range.from, date_to: range.to }} onApplied={changed} />
+      <ImportPanel params={{ date_from: range.from, date_to: range.to > today ? today : range.to }} onApplied={changed} />
 
+      {adding && (
+        <Modal title="Новая операция" onClose={() => setAdding(false)}>
+          <OperationForm accounts={accounts} categories={categories} onSaved={changed} onCategoryCreated={onChanged} onCancel={() => setAdding(false)} />
+        </Modal>
+      )}
       {viewing && (
         <Modal title={viewing.category?.name ?? (viewing.transfer ? 'Перевод' : 'Операция')} onClose={() => setViewing(null)}>
           <OperationCard
@@ -870,6 +1260,7 @@ export function OperationsTab({ accounts, categories, onChanged }: { accounts: A
             categories={categories}
             initial={editing}
             onCancel={() => setEditing(null)}
+            onCategoryCreated={onChanged}
             onSaved={(sg) => {
               setEditing(null)
               setSuggestion(sg ?? null)
@@ -881,6 +1272,31 @@ export function OperationsTab({ accounts, categories, onChanged }: { accounts: A
       {historyOf && (
         <Modal title="История исправлений" onClose={() => setHistoryOf(null)}>
           <HistoryView opId={historyOf.op_id} />
+        </Modal>
+      )}
+      {plan && (
+        <Modal title={plan.plan?.title ?? 'Плановый платёж'} onClose={() => setPlan(null)}>
+          <PlanCard
+            row={plan}
+            onPaid={() => {
+              setPaying(plan)
+              setPlan(null)
+            }}
+          />
+        </Modal>
+      )}
+      {paying && (
+        <Modal title="Оплачено" onClose={() => setPaying(null)}>
+          <PaidForm
+            row={paying}
+            accounts={accounts}
+            onCancel={() => setPaying(null)}
+            onDone={() => {
+              setNotice(`«${paying.plan?.title}» оплачен — операция добавлена, в календаре платёж отмечен оплаченным.`)
+              setPaying(null)
+              changed()
+            }}
+          />
         </Modal>
       )}
     </div>

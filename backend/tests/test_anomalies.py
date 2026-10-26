@@ -304,6 +304,9 @@ async def test_bank_reconciliation(client, tokens, sessions):
         db.add(OzonBalanceDay(user_id=uid, day=payout_day, accrued=D(0), payments=D(-15000), synced_at=now))
         db.add(BankTransaction(user_id=uid, account_id=account, day=today - timedelta(days=2), amount=D(-500),
                                dedup_key="rent-1", source="file_1c", kind="regular", raw_json={}))
+        # выписка покрывает и дни выплаты (раньше первой выписки — «нет выписки», а не «не пришло», шаг 10.23)
+        db.add(BankTransaction(user_id=uid, account_id=account, day=payout_day - timedelta(days=3), amount=D(-500),
+                               dedup_key="rent-0", source="file_1c", kind="regular", raw_json={}))
         await db.commit()
     await detect(sessions, uid)
     [missing] = await rows(sessions, uid, "bank_missing")
@@ -345,7 +348,7 @@ async def test_api_list_count_acknowledge(client, tokens, sessions):
     item = next(i for i in body["items"] if i["type"] == "low_stock")
     assert item["title"] == "Товар закончился" and item["type_title"] == "Заканчивается остаток"
     assert item["product"]["offer_id"] == "ACB305523" and item["unit"] == "дн." and item["group"] == "stock"
-    assert item["link"] == f"/dashboard/products?product={p['B']}"
+    assert item["link"] == f"/dashboard/products/{p['B']}"
 
     assert (await get(severity="yellow")).json()["total"] == 1
     assert (await get(group="promo")).json()["total"] == 2
@@ -360,7 +363,7 @@ async def test_api_list_count_acknowledge(client, tokens, sessions):
     again = await client.post(f"/api/v1/anomalies/{item['id']}/acknowledge", headers=auth(tokens))
     assert again.json()["acknowledged_at"] == r.json()["acknowledged_at"]  # повторно — без изменений
 
-    await add_stock(sessions, p["B"], Хоругвино=100)
+    await add_stock(sessions, p["B"], Хоругвино=5)  # 25 дней запаса — норма (100 шт. — уже «Избыток», 10.5)
     await run_sync("anomalies", uid, sessions)
     resolved = (await get(status="resolved")).json()
     assert resolved["total"] == 1 and resolved["items"][0]["resolution"] == "normal"

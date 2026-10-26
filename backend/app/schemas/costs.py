@@ -1,3 +1,4 @@
+import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
@@ -63,6 +64,9 @@ class ImportRowOut(BaseModel):
     status: Literal["new", "changed", "unchanged", "skipped", "error"]
     current_cost: Decimal | None
     message: str | None
+    unknown: bool = False  # артикула нет в каталоге Ozon (10.15)
+    suggestions: list[str] = []  # похожие артикулы каталога — можно привязать
+    matched_from: str | None = None  # как артикул записан в файле, если сопоставлен по привязке
 
 
 class ImportCounts(BaseModel):
@@ -78,3 +82,47 @@ class ImportResponse(BaseModel):
     counts: ImportCounts
     recosted_reports: int
     rows: list[ImportRowOut]
+
+
+class SelectedTemplate(BaseModel):
+    """Шаблон себестоимости по выбранным товарам (10.13)."""
+
+    product_ids: list[uuid.UUID] = Field(min_length=1, max_length=5000)
+    format: Literal["xlsx", "csv"] = "xlsx"
+
+
+# ── сопоставление и полнота (шаг 10.15) ──
+class AliasIn(BaseModel):
+    alias: str = Field(min_length=1, max_length=100)  # артикул как в файле
+    offer_id: str = Field(min_length=1, max_length=100)  # артикул товара в Ozon
+
+
+class AliasOut(BaseModel):
+    id: uuid.UUID
+    alias: str
+    offer_id: str
+    name: str | None  # название товара в Ozon
+    created_at: datetime
+
+
+class CoverageItem(BaseModel):
+    offer_id: str
+    name: str | None
+    product_id: uuid.UUID | None  # в каталоге Ozon — ссылка на «Статистику товара»
+    qty: int
+    revenue: Decimal
+    share: Decimal | None  # доля выручки периода, %
+
+
+class CostCoverage(BaseModel):
+    date_from: date
+    date_to: date
+    data_source: str  # none — за период нет начислений: продажи неизвестны
+    catalog_total: int  # товаров в продаже (не архив)
+    catalog_with_cost: int
+    sold_total: int  # товаров с продажами за период
+    sold_without_cost: int
+    revenue_total: Decimal | None
+    revenue_without_cost: Decimal | None
+    revenue_share_without_cost: Decimal | None  # %
+    items: list[CoverageItem]  # продажи без себестоимости — больше выручки первыми

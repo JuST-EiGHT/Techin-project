@@ -1,4 +1,9 @@
-// Страница товаров (шаг 4.1): типы ответа /products и подписи — общие для таблицы и боковой панели.
+// Страница товаров (шаг 4.1): типы ответа /products и подписи — общие для таблицы и боковой панели. «Все товары» (10.13):
+// продажи, выручка и прибыль за период, индикаторы проблем, выбор товаров для групповых действий. «Статистика товара»
+// (10.14): ответ /products/{id}/stats.
+import type { ProductRow } from '@/components/products-pnl'
+import type { PriceHistoryItem } from '@/lib/pricing'
+import type { HistoryItem } from '@/lib/promotions'
 
 export type StockStatus = 'critical' | 'low' | 'normal' | 'excess'
 export type PriceIndex = 'super' | 'green' | 'yellow' | 'red'
@@ -38,10 +43,18 @@ export type ProductItem = {
   unit_profit: string | null
   margin: string | null
   margin_level: 'negative' | 'low' | 'ok' | null
+  breakeven_price: string | null // минимальная цена калькулятора: без прибыли и без убытка (10.15)
   price_index: PriceIndex | null
   promotions: ProductPromo[]
   last_sale: string | null
+  // за выбранный период (10.13): нет начислений за период — null, без продаж — 0; прибыль без себестоимости — null
+  sold_qty: number | null
+  revenue: string | null
+  period_profit: string | null
+  flags: { code: FlagCode; text: string }[]
 }
+
+export type FlagCode = 'loss' | 'low_margin' | 'low_stock' | 'no_cost' | 'price_changed'
 
 export type ProductsPage = {
   items: ProductItem[]
@@ -53,6 +66,7 @@ export type ProductsPage = {
   stocks_known: boolean
   sales_window_days: number
   margin_note: string
+  period: { date_from: string; date_to: string; data_source: string; days_total: number; missing_days: number }
 }
 
 export type ProductDetail = {
@@ -115,12 +129,28 @@ export const FILTER_LABEL: Record<QuickFilter, string> = {
   no_cost: 'Нет себестоимости',
 }
 
-export type ColumnKey = 'price' | 'min_price' | 'commission' | 'cost' | 'stock' | 'days' | 'margin' | 'index' | 'promo' | 'last_sale'
+export type ColumnKey =
+  | 'price'
+  | 'min_price'
+  | 'sold'
+  | 'revenue'
+  | 'profit'
+  | 'commission'
+  | 'cost'
+  | 'stock'
+  | 'days'
+  | 'margin'
+  | 'index'
+  | 'promo'
+  | 'last_sale'
 
 /** Настраиваемые колонки: артикул и название видны всегда; first — порядок при первом нажатии на заголовок. */
 export const COLUMNS: { key: ColumnKey; label: string; hint: string; first: 'asc' | 'desc' }[] = [
   { key: 'price', label: 'Цена', hint: 'Ваша цена в Ozon', first: 'desc' },
   { key: 'min_price', label: 'Мин. цена', hint: 'Минимальная цена в Ozon: ниже неё цена в акциях не опустится. Не задана — «—»', first: 'desc' },
+  { key: 'sold', label: 'Продано', hint: 'Штук за выбранный период — по начислениям Ozon', first: 'desc' },
+  { key: 'revenue', label: 'Выручка', hint: 'За выбранный период — строки «Выручка» в начислениях', first: 'desc' },
+  { key: 'profit', label: 'Прибыль', hint: 'До налога за выбранный период — как в «Прибыли по товарам»; без себестоимости — «—»', first: 'desc' },
   { key: 'commission', label: 'Комиссия', hint: 'Комиссия Ozon за продажу (FBO), % и ₽ от текущей цены', first: 'desc' },
   { key: 'cost', label: 'Себестоимость', hint: 'За 1 шт. без НДС, на сегодня', first: 'desc' },
   { key: 'stock', label: 'Остаток', hint: 'Доступно к продаже на всех складах; ниже — в пути', first: 'desc' },
@@ -132,3 +162,82 @@ export const COLUMNS: { key: ColumnKey; label: string; hint: string; first: 'asc
 ]
 
 export const DEFAULT_HIDDEN: ColumnKey[] = ['min_price']
+
+/** Индикаторы проблем у строки (10.13): значок и цвет — токенами темы; текст подсказки приходит с сервера. */
+export const FLAGS: Record<FlagCode, { mark: string; tone: string; label: string }> = {
+  loss: { mark: '↓', tone: 'bg-bad/15 text-bad', label: 'Убыток' },
+  low_margin: { mark: '%', tone: 'bg-warn/15 text-warn', label: 'Низкая маржа' },
+  low_stock: { mark: '▢', tone: 'bg-warn/15 text-warn', label: 'Мало остатков' },
+  no_cost: { mark: '?', tone: 'bg-warn/15 text-warn', label: 'Нет себестоимости' },
+  price_changed: { mark: '₽', tone: 'bg-accent/15 text-accent', label: 'Цена изменилась' },
+}
+
+/** Выбор товаров → «Цены списком» (6.3): страница цен откроется с этими товарами (на время вкладки браузера). */
+export const BULK_SELECTION_KEY = 'prices.bulk.selection'
+export function handOverSelection(ids: string[]): void {
+  try {
+    sessionStorage.setItem(BULK_SELECTION_KEY, JSON.stringify(ids))
+  } catch {
+    // хранилище недоступно — страница цен откроется без выбора
+  }
+}
+export function takeSelection(): string[] | null {
+  try {
+    const raw = sessionStorage.getItem(BULK_SELECTION_KEY)
+    sessionStorage.removeItem(BULK_SELECTION_KEY)
+    return raw ? (JSON.parse(raw) as string[]) : null
+  } catch {
+    return null
+  }
+}
+
+// ── «Статистика товара» (10.14) ──
+export type PriceLevelKind = 'old' | 'price' | 'marketing' | 'promo' | 'candidate'
+export type PriceLevel = {
+  kind: PriceLevelKind
+  title: string
+  price: string
+  discount_pct: string | null
+  margin: string | null
+  unit_profit: string | null
+  profit_change: string | null
+  promotion_id: string | null
+  date_to: string | null
+  added_automatically: boolean
+}
+export type ClusterStock = {
+  name: string
+  type: string
+  present: number
+  in_transit: number | null
+  reserved: number | null
+  warehouses: string[]
+  supply: {
+    kind: 'supply' | 'purchase'
+    urgency: 'critical' | 'urgent' | 'planned'
+    avg_daily: string
+    rate: string
+    days_left: string | null
+    to_order: number
+    target_stock: number
+    arrives_late: boolean
+    sold_30: number
+  } | null
+}
+export type RiskLevel = 'critical' | 'low' | 'ok' | 'excess' | 'unknown'
+export type CostRecord = { cost_price: string; vat_multiplier: string | null; effective_from: string; note: string | null; source: string; created_at: string }
+export type ProductStats = {
+  detail: ProductDetail
+  period: ProductsPage['period']
+  pnl: ProductRow | null
+  cost_basis: 'with_vat' | 'without_vat'
+  prices: { levels: PriceLevel[]; missing: string[]; note: string }
+  clusters: ClusterStock[]
+  supply_known: boolean
+  risk: { level: RiskLevel; text: string }
+  cost_history: CostRecord[]
+  price_changes: PriceHistoryItem[]
+  price_changes_total: number
+  promotions: HistoryItem[]
+  promotions_total: number
+}

@@ -65,6 +65,7 @@ HTTP-коды для этих текстов в документации не у
 | Ключ: роли и срок | POST | `/v1/roles` | `expires_at`, `roles[].methods` |
 | Список товаров | POST | `/v3/product/list` | `limit` 1–1000, пагинация `last_id`; `filter.visibility`: `ALL` — все **кроме архивных**, `ARCHIVED` — архив; в элементе есть `sku` |
 | Карточки товаров | POST | `/v3/product/info/list` | до 1000 идентификаторов за запрос; `product_id` — массив **строк** int64; ответ `{"items": [...]}` |
+| Дерево категорий и типов (шаг 10.3) | POST | `/v1/description-category/tree` | `language` (`DEFAULT` — русский); весь каталог Ozon одним ответом: `result[]{description_category_id, category_name, disabled, children[]}`, на последнем уровне — типы `{type_id, type_name}` |
 | Цены, комиссии, индексы | POST | `/v5/product/info/prices` | `limit` 1–1000 (обязателен), `filter` обязателен, пагинация `cursor` |
 | Остатки (FBO, FBS, rFBS, FBP) | POST | `/v4/product/info/stocks` | `limit` до 1000, `cursor` |
 | Остатки FBO по кластерам/складам, продажи за 28 дней | POST | `/v1/analytics/stocks` | раздел «FBO → Управление остатками»; только одно из `cluster_ids` / `macrolocal_cluster_ids`; кластеры — `/v1/cluster/list` |
@@ -76,7 +77,14 @@ HTTP-коды для этих текстов в документации не у
 | Начисления за день | POST | `/v1/finance/accrual/by-day` | `last_id` = `date` из предыдущего ответа |
 | Баланс у Ozon: начислено, выплаты, остаток (шаг 3.6) | POST | `/v1/finance/balance` | **бета**, «Финансы → Баланс»; `date_from`, `date_to` (YYYY-MM-DD), период ≤ 30 дней; `total{opening_balance, accrued, payments[], closing_balance}`, `cashflows{sales, returns, services[]}`; **дат выплат нет** — запрашиваем по одному дню (`services/sync/ozon_balance.py`; предположение «выплаты за день = выплата этого дня» проверить на реальном ключе, сверка по полумесяцам покажет расхождение) |
 | Финансовый отчёт по полумесяцам (шаг 3.6, сверка) | POST | `/v1/finance/cash-flow-statement/list` | только периоды 1–15 и 16–конец месяца; `date{from,to}`, `page`, `page_size`, `with_details`; `details{payments[], begin_balance_amount, end_balance_amount, …}` |
-| Отчёт о реализации за месяц | POST | `/v2/finance/realization` | не раньше августа 2023; приходит не позднее 5-го числа следующего месяца |
+| Отчёт о реализации за месяц (шаг 10.12) | POST | `/v2/finance/realization` | `month`, `year`; не раньше августа 2023; приходит не позднее 5-го числа следующего месяца; ответ `result{header{start_date, stop_date, номер, реквизиты}, rows[]}`; строка — `item{offer_id, sku, name, barcode}`, `delivery_commission` (продажи) и `return_commission` (возвраты): `amount`, `quantity`, `bonus`, `bank_coinvestment`, `stars`, `pick_up_point_coinvestment`, `commission`, `compensation`, `standard_fee`, `total`, `price_per_instance`; описаний полей в выгрузке нет — итоги собираем сами (`integrations/ozon_reports/realization.py`), сверить с файлом из кабинета (8.4a). `/v1/finance/realization` устарел и удалён из документации |
+| Позаказный отчёт о реализации | POST | `/v1/finance/realization/posting` | `month`, `year`; с августа 2023; **не используем** — продажи по отправлениям есть в начислениях |
+| Отчёт о реализации за день | POST | `/v1/finance/realization/by-day` | `day`, `month`, `year`; не дальше 32 дней; **только с подпиской Premium Plus / Pro** — не используем |
+| Отчёт о взаиморасчётах (шаг 10.12) | POST | `/v1/finance/mutual-settlement` | `date` (YYYY-MM), `language` RU / EN; ответ — `result.code`, файл — по `/v1/report/info`; «Финансы → Документы → Аналитические отчёты» |
+| Отчёты о компенсациях и декомпенсациях (шаг 10.12) | POST | `/v1/finance/compensation`, `/v1/finance/decompensation` | `date` (YYYY-MM), `language`; ответ — `result.code`, файл — по `/v1/report/info`; «Финансы → Документы → Компенсации и прочие начисления» |
+| Готовность отчёта по коду и файл (шаг 10.12) | POST | `/v1/report/info` | `code`; `result{status: waiting / processing / success / failed, file (ссылка на XLSX), error, report_type (MUTUAL_SETTLEMENT, COMPENSATION_REPORT, DECOMPENSATION_REPORT …), expires_at}`; код живёт 3 дня; файл скачиваем только с доменов `ozone.ru` / `ozon.ru` |
+| Реестр продаж юрлицам | POST | `/v1/finance/document-b2b-sales`, `/json` | `date` (YYYY-MM); **не используем** — продажи есть в начислениях и реализации |
+| Закрывающие документы за услуги Ozon (акты, УПД, счета-фактуры) | — | — | **через API нет** — только в личном кабинете (Финансы → Документы) |
 | Аналитика (выручка, заказы) | POST | `/v1/analytics/data` | лимит 50/сутки без Premium Plus |
 | Акции Ozon | GET | `/v1/actions` | |
 | Товары в акции / кандидаты | POST | `/v2/actions/products`, `/v2/actions/candidates` | v1 отключаются 13.10.2026 |
@@ -91,7 +99,7 @@ HTTP-коды для этих текстов в документации не у
 | список товаров | `/v3/product/list`, `visibility` = `ALL`, затем `ARCHIVED` | по документации `ALL` не включает архив |
 | `ozon_sku` | `/v3/product/info/list` → `sku`, иначе `sku` из списка товаров, иначе `sources[].sku` | |
 | `barcode` | `barcodes[0]` | |
-| `category_id` | `description_category_id` | |
+| `category_id` | `description_category_id` | название — справочник категорий (ниже, шаг 10.3) |
 | `vat` | `vat` | бывает `"0.1"`, `0.2` и `"20%"` — приводим к доле |
 | `is_archived` | `is_archived` (вручную) или `is_autoarchived` (автоматически) | |
 | `price`, `min_price`, `old_price` | `/v5/product/info/prices` → `price.*` | 0 у Ozon = «не задано», храним как есть |
@@ -153,6 +161,14 @@ Seller API нельзя: есть только отчёты по вывозу и
 через `/v1/product/import/prices` (`prices.net_price`); `/v1/product/prices/details` — цена
 для покупателя (`customer_price`), но только с подпиской Premium Pro.
 
+### Категории товаров (шаг 10.3)
+
+`/v1/description-category/tree` сверен с выгрузкой 2026-10. Дерево — весь каталог Ozon, поэтому сохраняем только категории
+товаров магазинов и их родителей (`ozon_categories`: id = `description_category_id`, название, путь «Автотовары /
+Подшипники»); типы (`type_id`) пропускаем — у товара хранится категория. Загружаем после синхронизации товаров, если у
+товара появилась неизвестная категория или справочник старше 30 дней (`services/sync/categories.py`); ошибка справочника
+не проваливает синхронизацию товаров (`stats.categories_error`). Справочник общий для всех продавцов.
+
 ### Отправления (шаг 5.2)
 
 Продажи по кластерам и складам для планирования поставок. Сверено с выгрузкой документации 2026-10.
@@ -174,8 +190,48 @@ Seller API нельзя: есть только отчёты по вывозу и
   из `analytics_data` убираем город и регион. Сборку FBS сервис не делает, поэтому `scanit` и штрихкоды не нужны.
 - Кластер покупателя приходит названием (`"Екатеринбург"`), остатки (`/v1/analytics/stocks`) — названием и id; сопоставляем
   по названию без учёта регистра, «ё» и пробелов. Поставку FBO Ozon принимает в кластер (`/v1/draft/*/create` —
-  обязательный `cluster_info`), поэтому рекомендации — по кластеру. Создание заявки на поставку через API (черновик,
-  таймслоты) — не делаем: рекомендации и Excel для логиста.
+  обязательный `cluster_info`), поэтому рекомендации — по кластеру. Заявки на поставку и их создание по плану — шаг 10.18,
+  раздел «Заявки на поставку FBO» ниже.
+
+### Заявки на поставку FBO (шаг 10.18, сверено с выгрузкой документации 2026-10)
+
+Чтение (синхронизация `supplies`, раз в 3 часа, `services/sync/supply_orders.py`):
+- `/v3/supply-order/list` (бета → основной 13.11.2025; v1 и v2 удалены): `filter.states` (обязателен, передаём все
+  статусы), `sort_by` (`ORDER_CREATION`), `sort_dir`, `limit` 1–100, `last_id` → `order_ids[]`, `last_id`. Идём по `last_id`,
+  пока он меняется (до 20 страниц).
+- `/v3/supply-order/get`: `order_ids` (до 50) → `orders[]`: `order_id`, `order_number`, `created_date`, `state`,
+  `state_updated_date`, `timeslot.timeslot.{from,to}` + `timezone_info.iana_name`, `dropoff_warehouse.name`,
+  `supplies[]`: `supply_id`, `bundle_id`, `macrolocal_cluster_id`, `storage_warehouse.{warehouse_id,name}`, `state`.
+  Статусы: `DATA_FILLING`, `READY_TO_SUPPLY`, `ACCEPTED_AT_SUPPLY_WAREHOUSE`, `IN_TRANSIT`,
+  `ACCEPTANCE_AT_STORAGE_WAREHOUSE`, `REPORTS_CONFIRMATION_AWAITING`, `REPORT_REJECTED`, `COMPLETED`,
+  `REJECTED_AT_SUPPLY_WAREHOUSE`, `CANCELLED`, `OVERDUE`. `/v1/supply-order/details` не используем — в нём водитель и
+  машина (персональные данные).
+- `/v1/supply-order/bundle` (заменил удалённый `/v1/supply-order/items`): `bundle_ids` (одна поставка за вызов), `limit`
+  1–100, `last_id` → `items[]` (`sku`, `offer_id`, `name`, `quantity`, `quant`), `has_next`, `last_id`.
+- `/v1/supply-order/act/product/get` (бета, акты FBO): `supply_id` → `supply_acts[].items[]` (`declared_quantity`,
+  `fact_quantity`, `approved_quantity`, `sku_info.{sku,offer_id,name}`), `skus_defects[]` (SKU с браком). Сбой — не
+  ошибка синхронизации: акты подтянутся в следующий раз. Итоговые заявки старше 180 дней — без состава и актов.
+- `/v1/cluster/list` `{"cluster_type": "CLUSTER_TYPE_OZON"}` → `clusters[]`: `id`, `macrolocal_cluster_id`, `name`,
+  `logistic_clusters[].warehouses[]` — кластер склада хранения и id кластера для черновика (по названию).
+- `/v1/supply-order/status/counter` не нужен — считаем по загруженным заявкам; таймслоты заявки и пропуск водителя
+  (`/v2/supply-order/timeslot/list`, `/v1/supply-order/pass/*`), грузоместа (`/v1/cargoes/*`), отмена
+  (`/v1/supply-order/cancel`) — в кабинете Ozon.
+
+Создание заявки по плану (`services/supply_ozon.py`, правило 6 — проверка → подтверждение → журнал):
+- `/v1/draft/direct/create`: `cluster_info.{items[{sku, quantity}], macrolocal_cluster_id}`, `deletion_sku_mode`
+  (обязателен; `PARTIAL` — убрать только не прошедшие единицы) → `draft_id`, `errors[]`. Черновик в кабинете не виден,
+  живёт 30 минут. Лимит: 2 в минуту, 50 в час, 500 в день (429).
+- `/v2/draft/create/info` `{draft_id}` → `status` (`SUCCESS` / `IN_PROGRESS` / `FAILED`), `clusters[].warehouses[]`
+  (`storage_warehouse`, `availability_status.{state, invalid_reason}` — значения `state` в документации не перечислены:
+  склад считаем недоступным, если есть `invalid_reason` или в `state` есть `NOT`/`UNAVAILABLE`), `errors[].items_validation[]
+  .rejected_items[{sku, reasons}]`.
+- `/v2/draft/timeslot/info`: `date_from`, `date_to` (не дальше 28 дней), `draft_id`, `supply_type` (`DIRECT`),
+  `selected_cluster_warehouses[{macrolocal_cluster_id, storage_warehouse_id}]` → `result.drop_off_warehouse_timeslots
+  .days[].timeslots[{from_in_timezone, to_in_timezone}]`, `warehouse_timezone`.
+- `/v2/draft/supply/create`: `draft_id`, `selected_cluster_warehouses`, `timeslot.{from_in_timezone, to_in_timezone}`,
+  `supply_type` → `error_reasons[]`; `/v2/draft/supply/create/status` `{draft_id}` → `status`, `order_id`. Тот же лимит.
+- Кросс-докинг и несколько кластеров (`/v1/draft/crossdock/create`, `/v1/draft/multi-cluster/create`) — не используем:
+  план поставки — в один кластер.
 
 ## Изменение (только через систему безопасности, см. BUSINESS_LOGIC.md §8)
 
@@ -290,12 +346,13 @@ FBS-отправлений хранить `scanit` рядом со штрихк�
 
 | Для чего | Методы | Шаг |
 |---|---|---|
-| Категории товаров (названия) | `/v1/description-category/tree` | 10.3 |
-| Отчёт о реализации через API | `/v1/finance/realization`, `/v1/finance/realization/by-day`, `/v1/finance/realization/posting` | 10.12 |
-| Взаиморасчёты, движение денег, компенсации | `/v1/finance/mutual-settlement`, `/v1/finance/cash-flow-statement/list`, `/v1/finance/compensation`, `/v1/finance/decompensation`, `/v1/finance/document-b2b-sales` | 10.12, 10.23 |
-| Отчёты, которые Ozon формирует по запросу | `/v1/report/*/create`, `/v1/report/info`, `/v1/report/list` (товары, отправления, возвраты, остатки) | 10.12 |
+| ~~Категории товаров (названия)~~ | `/v1/description-category/tree` — сверено, раздел «Категории товаров» выше | 10.3 ✅ |
+| ~~Отчёт о реализации через API~~ | `/v2/finance/realization` — сверено, таблица выше; `/v1/finance/realization` удалён, `/posting` и `/by-day` — не используем | 10.12 ✅ |
+| ~~Взаиморасчёты, компенсации~~ | `/v1/finance/mutual-settlement`, `/compensation`, `/decompensation` + `/v1/report/info` — сверено, выше; `/v1/finance/cash-flow-statement/list` — уже в 3.6 | 10.12 ✅ |
+| Движение денег по статьям (ДДС, бюджеты) | `/v1/finance/cash-flow-statement/list` (детали) | 10.23 |
+| Отчёты, которые Ozon формирует по запросу | `/v1/report/*/create`, `/v1/report/list` (товары, отправления, возвраты, остатки) — те же данные сервис берёт синхронизацией; `/v1/report/info` — сверено (10.12) | по необходимости |
 | Возвраты | `/v1/returns/list` | 10.8 |
-| Заявки на поставку FBO | `/v1/supply-order/list`, `/get`, `/items`, `/details`, `/status/counter`, `/cancel` | 10.18 |
-| Черновики поставок и таймслоты (изменение в Ozon — правило 6) | `/v1/draft/create`, `/v1/draft/create/info`, `/v1/draft/timeslot/info`, `/v1/draft/supply/create`, `/v1/draft/supply/create/status` | 10.18 |
-| Вывозы со складов (только списки) | `/v1/removal/from-stock/list`, `/v1/removal/from-supply/list` | 10.17 |
-| Кластеры | `/v1/cluster/list` | 10.17, 10.18 |
+| ~~Заявки на поставку FBO~~ | сверено: `/v3/supply-order/list`, `/v3/supply-order/get`, `/v1/supply-order/bundle`, акты `/v1/supply-order/act/product/get` — раздел «Заявки на поставку FBO» выше (v1/v2 списка и `/items` удалены) | 10.18 ✅ |
+| ~~Черновики поставок и таймслоты (изменение в Ozon — правило 6)~~ | сверено: `/v1/draft/direct/create`, `/v2/draft/create/info`, `/v2/draft/timeslot/info`, `/v2/draft/supply/create`, `/v2/draft/supply/create/status` — там же | 10.18 ✅ |
+| ~~Вывозы со складов (только списки)~~ | `/v1/removal/from-stock/list` — сверено (выгрузка 2026-10, бета): `date_from`, `date_to` (YYYY-MM-DD), `last_id`, `limit` 1–500 → `returns_summary_report_rows[]` (`offer_id`, `name`, `sku`, `quantity_for_return`, `return_created_at`, `return_state`, `box_state`, `stock_type`, `delivery_type`, `is_auto_return`, `clearing_warehouse_name`, `destination_warehouse_name` …), `last_id`; соответствует разделу кабинета «FBO → Вывоз и утилизация»; создать заявку нельзя. `/v1/removal/from-supply/list` (вывоз с поставки) — не используем | 10.17 ✅ |
+| ~~Кластеры~~ | `/v1/cluster/list` — сверено (10.18): кластер склада хранения заявки и `macrolocal_cluster_id` для черновика | 10.18 ✅ |

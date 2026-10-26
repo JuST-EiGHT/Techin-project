@@ -1,8 +1,9 @@
 'use client'
 // «Планирование → Календарь» (шаг 3.9): свои плановые платежи, выплаты Ozon, оплата поставщику и налоги по дням;
 // прогноз остатка и кассовый разрыв, «что если» (выключить план или генератор), перенос перетаскиванием,
-// отметка «оплачено», план-факт.
-import { CalendarDays, GripVertical, List, Pencil, Trash2 } from 'lucide-react'
+// отметка «оплачено», план-факт. Шаг 10.24: статусы (запланирован, ожидается, оплачен, частично, просрочен), вид по
+// дням, неделям и месяцу, остаток на начало дня и после его платежей, разрыв с причинами.
+import { CalendarDays, CalendarRange, GripVertical, List, Pencil, Trash2 } from 'lucide-react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -18,6 +19,7 @@ import {
   type CalendarLine,
   type Category,
   type ForecastDay,
+  type GapCauses,
   type Period,
   type Plan,
   type PlanKind,
@@ -26,6 +28,7 @@ import {
   SOURCE_LABELS,
   WEEKDAYS,
   calcHref,
+  opsHref,
   parseAmount,
 } from '@/components/planning/types'
 import { Badge, fmtDay, rub } from '@/components/reports'
@@ -40,13 +43,20 @@ const PAST_DAYS = 7 // в списке — и прошлая неделя: чт�
 const weekday = (iso: string) => (parseDay(iso).getUTCDay() + 6) % 7 // 0 — понедельник
 export const dayTitle = (iso: string) => `${WEEK_SHORT[weekday(iso)]}, ${fmtDay(iso).slice(0, 5)}`
 export const signed = (v: string) => `${Number(v) > 0 ? '+' : ''}${rub(v)}`
-export const STATUS: Record<CalendarLine['status'], { label: string; tone: 'warn' | 'muted' | 'bad' | 'accent' } | null> = {
+// запланирован — без отметки (их большинство); ожидается — срок сегодня или прошёл не больше 3 дней, в прогнозе — сегодня;
+// просрочен — больше 3 дней, в прогноз не входит; частично — факт меньше плана, остаток ещё ждём
+export const STATUS: Record<CalendarLine['status'], { label: string; tone: 'warn' | 'muted' | 'bad' | 'accent' | 'ok'; hint: string } | null> = {
   planned: null,
-  overdue: { label: 'не отмечен', tone: 'warn' },
-  paid: { label: 'оплачено', tone: 'accent' },
-  skipped: { label: 'пропущен', tone: 'muted' },
-  disabled: { label: 'выключен', tone: 'muted' },
+  expected: { label: 'ожидается', tone: 'warn', hint: 'Срок сегодня или прошёл недавно (до 3 дней) — в прогнозе на сегодня. Оплатили — отметьте.' },
+  overdue: { label: 'просрочен', tone: 'bad', hint: 'Срок прошёл больше 3 дней назад, оплаты нет — в прогноз не входит. Оплатили — отметьте, нет — перенесите.' },
+  paid: { label: 'оплачено', tone: 'ok', hint: 'Есть факт на всю сумму.' },
+  partial: { label: 'оплачено частично', tone: 'warn', hint: 'Факт меньше плана — остаток в прогнозе ещё 3 дня после срока.' },
+  skipped: { label: 'пропущен', tone: 'muted', hint: 'Пропущен — в прогноз не входит.' },
+  disabled: { label: 'выключен', tone: 'muted', hint: 'План выключен — «что если».' },
 }
+/** Платёж ещё ждёт оплаты: его можно отметить оплаченным, перенести, задать свою сумму. */
+export const waiting = (ln: CalendarLine) => ln.status === 'planned' || ln.status === 'expected' || ln.status === 'overdue'
+const done = (ln: CalendarLine) => ln.status === 'paid' || ln.status === 'partial'
 export const SOURCE_TONE: Record<CalendarLine['source'], 'warn' | 'muted' | 'bad' | 'accent'> = { ozon: 'accent', manual: 'muted', supplier: 'warn', tax: 'bad' }
 
 // ---------- прогноз: сводка, предупреждение, график ----------
@@ -76,8 +86,46 @@ function Summary({ data }: { data: CalendarData }) {
   )
 }
 
-/** Кассовый разрыв: с какого дня ниже нуля, отдельно — ниже порога (может начаться раньше). */
-export function GapBanner({ data }: { data: Pick<CalendarData, 'first_below_zero' | 'first_below_threshold' | 'gaps' | 'threshold'> }) {
+/** Почему разрыв (шаг 10.24): нехватка, крупнейшие платежи до дня разрыва, поступления, которые не пришли. */
+export function GapCausesList({ causes }: { causes: GapCauses }) {
+  const item = (c: GapCauses['expenses'][number]) => (
+    <li key={c.key}>
+      <Link href={`/dashboard/planning/calendar?day=${c.day}`} className="flex gap-2 hover:text-accent">
+        <span className="tabular-nums text-muted">{fmtDay(c.day).slice(0, 5)}</span>
+        <span className="min-w-0 flex-1 truncate">{c.title}</span>
+        <span className="whitespace-nowrap tabular-nums">{c.amount === null ? '—' : signed(c.amount)}</span>
+      </Link>
+    </li>
+  )
+  return (
+    <div className="mt-2 grid gap-3 text-xs sm:grid-cols-2" data-testid="gap-causes">
+      <div>
+        <div className="font-medium text-fg">
+          Не хватит {rub(causes.shortfall)} <span className="font-normal text-muted">({causes.below_zero ? 'до нуля' : 'до порога'}, минимум {fmtDay(causes.min_day)})</span>
+        </div>
+        {causes.expenses.length > 0 && (
+          <>
+            <div className="mt-1 text-muted">Крупнейшие платежи до {fmtDay(causes.day)}:</div>
+            <ul className="space-y-0.5" data-testid="gap-expenses">
+              {causes.expenses.map(item)}
+            </ul>
+          </>
+        )}
+      </div>
+      {causes.missing_income.length > 0 && (
+        <div>
+          <div className="text-muted">Не пришли поступления (в прогноз не входят — придут, разрыв станет меньше):</div>
+          <ul className="space-y-0.5" data-testid="gap-missing">
+            {causes.missing_income.map(item)}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Кассовый разрыв: с какого дня ниже нуля, отдельно — ниже порога (может начаться раньше); причины — если пришли. */
+export function GapBanner({ data }: { data: Pick<CalendarData, 'first_below_zero' | 'first_below_threshold' | 'gaps' | 'threshold'> & { causes?: GapCauses | null } }) {
   const zero = data.first_below_zero
   const low = data.first_below_threshold
   if (!zero && !low) return null
@@ -95,6 +143,7 @@ export function GapBanner({ data }: { data: Pick<CalendarData, 'first_below_zero
         Что можно сделать: перенести платёж на дату после поступления (перетащите его в календаре), выключить план и посмотреть, как изменится прогноз,
         или добавить поступление.
       </span>
+      {data.causes && <GapCausesList causes={data.causes} />}
     </div>
   )
 }
@@ -120,7 +169,7 @@ function ForecastChart({ data, onDay }: { data: CalendarData; onDay: (day: strin
   const drill = useDrill<ChartRow>((r) => onDay(r.day))
   const counts = useMemo(() => {
     const c: Record<string, number> = {}
-    for (const ln of data.lines) if (ln.status === 'planned') c[ln.day] = (c[ln.day] ?? 0) + 1
+    for (const ln of data.lines) if (ln.status === 'planned' || ln.status === 'expected') c[ln.day] = (c[ln.day] ?? 0) + 1
     return c
   }, [data.lines])
   if (!colors || data.start_balance === null || data.days.length === 0) return null
@@ -282,7 +331,7 @@ export function LineAmount({ ln }: { ln: CalendarLine }) {
   )
 }
 
-export function LineDetails({ ln, accounts, planning, onDone, onClose }: { ln: CalendarLine; accounts: Account[]; planning: boolean; onDone: () => void; onClose: () => void }) {
+export function LineDetails({ ln, accounts, planning, onDone, onClose, onEditPlan }: { ln: CalendarLine; accounts: Account[]; planning: boolean; onDone: () => void; onClose: () => void; onEditPlan?: (planId: string) => void }) {
   const today = todayMsk()
   const active = accounts.filter((a) => !a.archived)
   const [day, setDay] = useState(ln.day)
@@ -313,9 +362,10 @@ export function LineDetails({ ln, accounts, planning, onDone, onClose }: { ln: C
       <dd className="min-w-0 break-words">{v}</dd>
     </div>
   )
-  const paidMarked = ln.status === 'paid' && ln.fact?.marked
+  const paidMarked = done(ln) && ln.fact?.marked
+  const status = STATUS[ln.status]
   return (
-    <div className="space-y-4" data-testid="line-card">
+    <div className="space-y-4" data-testid="line-card" data-status={ln.status}>
       <div>
         <div className="text-2xl">
           <LineAmount ln={ln} />
@@ -323,6 +373,10 @@ export function LineDetails({ ln, accounts, planning, onDone, onClose }: { ln: C
         <div className="text-sm text-muted">
           {ln.kind === 'income' ? 'Поступление' : 'Платёж'} · {dayTitle(ln.day)}
           {ln.moved && ` · перенесён с ${fmtDay(ln.planned_day)}`}
+        </div>
+        <div className="mt-1 text-sm" data-testid="line-status">
+          {status ? <Badge tone={status.tone}>{status.label}</Badge> : <Badge tone="muted">запланирован</Badge>}
+          <span className="ml-2 text-xs text-faint">{status?.hint ?? 'Срок впереди — в прогнозе в свой день.'}</span>
         </div>
       </div>
       <dl className="text-sm">
@@ -340,13 +394,29 @@ export function LineDetails({ ln, accounts, planning, onDone, onClose }: { ln: C
             'Факт',
             <>
               {fmtDay(ln.fact.day)} · {signed(ln.fact.amount)} {ln.fact.marked ? '(отмечено)' : '(найдено по сумме и дате)'}
-              {ln.diff && <span className="block text-warn">Расхождение с планом: {signed(ln.diff)}</span>}
+              {ln.remaining ? (
+                <span className="block text-warn" data-testid="line-remaining">
+                  Осталось оплатить: {signed(ln.remaining)}
+                </span>
+              ) : (
+                ln.diff && <span className="block text-warn">Расхождение с планом: {signed(ln.diff)}</span>
+              )}
+              {ln.fact.op_id && (
+                <Link href={opsHref(ln.fact.day, ln.fact.day)} className="block text-accent hover:underline" data-testid="line-op">
+                  Операция →
+                </Link>
+              )}
             </>,
             'line-fact',
           )}
       </dl>
-      {(ln.calc || ln.link) && (
+      {(ln.calc || ln.link || (ln.plan_id && onEditPlan)) && (
         <div className="flex flex-wrap gap-4 text-sm">
+          {ln.plan_id && onEditPlan && (
+            <button type="button" onClick={() => onEditPlan(ln.plan_id!)} className="text-accent hover:underline" data-testid="line-edit-plan">
+              Изменить плановый платёж →
+            </button>
+          )}
           {ln.calc && (
             <Link href={calcHref(ln.calc)} className="text-accent hover:underline" data-testid="line-calc">
               Расчёт за период →
@@ -364,7 +434,16 @@ export function LineDetails({ ln, accounts, planning, onDone, onClose }: { ln: C
         <p className="text-sm text-muted">Выплата Ozon приходит по графику Ozon: оплаченной её делает сама выплата, перенести её нельзя. Выключить в прогнозе — переключателем «Выплаты Ozon».</p>
       ) : (
         <div className="space-y-3">
-          {ln.status !== 'paid' && (
+          {ln.status === 'partial' && ln.fact && (
+            <div className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm" data-testid="line-partial">
+              Оплачено {rub(String(Math.abs(Number(ln.fact.amount))))} из {rub(String(Math.abs(Number(ln.amount))))}. Остаток ждём ещё 3 дня после срока — он в прогнозе;
+              доплату внесите операцией в «Операциях». Больше платить не будете — закройте платёж суммой факта.
+              <button type="button" disabled={busy} onClick={() => override({ amount: String(Math.abs(Number(ln.fact!.amount))) })} className={`${button} mt-2 block bg-card`} data-testid="line-close-partial">
+                Считать оплаченным полностью
+              </button>
+            </div>
+          )}
+          {!done(ln) && (
             <div className="rounded-lg border border-line p-3">
               <div className="mb-2 text-sm font-medium">Оплачено</div>
               <div className="flex flex-wrap items-end gap-2">
@@ -397,7 +476,7 @@ export function LineDetails({ ln, accounts, planning, onDone, onClose }: { ln: C
               Снять отметку «оплачено»
             </button>
           )}
-          {ln.status !== 'paid' && (
+          {!done(ln) && (
             <div className="flex flex-wrap items-end gap-2">
               <label className="block text-sm">
                 <span className="text-muted">Перенести на</span>
@@ -434,9 +513,9 @@ export function LineDetails({ ln, accounts, planning, onDone, onClose }: { ln: C
   )
 }
 
-function LineRow({ ln, onOpen, draggable }: { ln: CalendarLine; onOpen: () => void; draggable: boolean }) {
+function LineRow({ ln, onOpen, draggable, withDay }: { ln: CalendarLine; onOpen: () => void; draggable: boolean; withDay?: boolean }) {
   const status = STATUS[ln.status]
-  const sub = [ln.period_label, ln.category?.name, ln.counterparty].filter(Boolean).join(' · ')
+  const sub = [withDay && dayTitle(ln.day), ln.period_label, ln.category?.name, ln.counterparty].filter(Boolean).join(' · ')
   return (
     <li
       onClick={onOpen}
@@ -448,6 +527,7 @@ function LineRow({ ln, onOpen, draggable }: { ln: CalendarLine; onOpen: () => vo
       className="grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 px-4 py-2.5 text-sm hover:bg-line/40 sm:items-center"
       data-testid="cal-line"
       data-key={ln.key}
+      data-status={ln.status}
     >
       <span className="flex min-w-0 items-start gap-2">
         {draggable && <GripVertical className="mt-0.5 hidden h-4 w-4 shrink-0 text-faint sm:block" aria-hidden />}
@@ -455,11 +535,21 @@ function LineRow({ ln, onOpen, draggable }: { ln: CalendarLine; onOpen: () => vo
           <span className="font-medium">{ln.title}</span>
           <span className="ml-2 inline-flex flex-wrap gap-1 align-middle">
             <Badge tone={SOURCE_TONE[ln.source]}>{SOURCE_LABELS[ln.source]}</Badge>
-            {status && <Badge tone={status.tone}>{status.label}</Badge>}
+            {status && (
+              <Badge tone={status.tone} title={status.hint}>
+                {status.label}
+              </Badge>
+            )}
             {ln.moved && <Badge tone="muted">перенесён</Badge>}
           </span>
           {sub && <span className="block truncate text-xs text-muted">{sub}</span>}
-          {ln.diff && <span className="block text-xs text-warn">факт {signed(ln.fact!.amount)}, расхождение {signed(ln.diff)}</span>}
+          {ln.remaining ? (
+            <span className="block text-xs text-warn">
+              оплачено {signed(ln.fact!.amount)}, осталось {signed(ln.remaining)}
+            </span>
+          ) : (
+            ln.diff && <span className="block text-xs text-warn">факт {signed(ln.fact!.amount)}, расхождение {signed(ln.diff)}</span>
+          )}
         </span>
       </span>
       <LineAmount ln={ln} />
@@ -483,11 +573,38 @@ function useDrop(onMove: (key: string, day: string) => void) {
   })
 }
 
-const movable = (ln: CalendarLine) => ln.editable && (ln.status === 'planned' || ln.status === 'overdue')
+const movable = (ln: CalendarLine) => ln.editable && waiting(ln)
+
+/** Остаток дня по прогнозу: на начало (сегодня — сейчас, с уже прошедшими операциями) и после его платежей. */
+function DayBalance({ fd, today, threshold }: { fd: ForecastDay | undefined; today: string; threshold: string | null }) {
+  if (!fd || fd.balance === null) return null
+  const after = Number(fd.balance)
+  const opening = after - Number(fd.income) - Number(fd.expense)
+  const tone = after < 0 ? 'text-bad' : threshold !== null && after < Number(threshold) ? 'text-warn' : 'text-fg'
+  const moves = Number(fd.income) !== 0 || Number(fd.expense) !== 0
+  return (
+    <span className="ml-auto flex flex-wrap items-center justify-end gap-x-2 tabular-nums" data-testid="day-balance">
+      {Number(fd.income) !== 0 && <span className="text-ok">{signed(fd.income)}</span>}
+      {Number(fd.expense) !== 0 && <span className="text-bad">{rub(fd.expense)}</span>}
+      <span className="text-muted">
+        {fd.day === today ? 'сейчас' : 'на начало'} {rub(String(opening))}
+        {moves && ' →'}
+      </span>
+      {moves && <span className={tone}>{rub(fd.balance)}</span>}
+      {after < 0 && (
+        <span data-testid="day-negative">
+          <Badge tone="bad" title="Прогноз остатка после платежей дня ниже нуля — денег не хватит">
+            ниже нуля
+          </Badge>
+        </span>
+      )}
+    </span>
+  )
+}
 
 function DayList({ data, selected, onOpen, onMove }: { data: CalendarData; selected: string | null; onOpen: (ln: CalendarLine) => void; onMove: (key: string, day: string) => void }) {
   const drop = useDrop(onMove)
-  const balance = useMemo(() => Object.fromEntries(data.days.map((d) => [d.day, d.balance])), [data.days])
+  const forecast = useMemo(() => Object.fromEntries(data.days.map((d) => [d.day, d])), [data.days])
   const groups = useMemo(() => {
     const out: { day: string; lines: CalendarLine[] }[] = []
     for (const ln of data.lines) {
@@ -502,24 +619,77 @@ function DayList({ data, selected, onOpen, onMove }: { data: CalendarData; selec
   return (
     <section className="overflow-hidden rounded-xl border border-line bg-card" data-testid="cal-list">
       {groups.map((g) => {
-        const b = balance[g.day]
         const past = g.day < data.today
         return (
-          <div key={g.day} id={`day-${g.day}`} {...drop(g.day)} className={selected === g.day ? 'bg-accent/5' : ''} data-testid="cal-day">
-            <div className="flex items-center gap-3 border-b border-line bg-bg/40 px-4 py-1.5 text-xs">
+          <div key={g.day} id={`day-${g.day}`} {...drop(g.day)} className={selected === g.day ? 'bg-accent/5' : ''} data-testid="cal-day" data-day={g.day}>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 border-b border-line bg-bg/40 px-4 py-1.5 text-xs">
               <span className={`font-semibold ${g.day === data.today ? 'text-accent' : past ? 'text-muted' : ''}`}>
                 {dayTitle(g.day)}
                 {g.day === data.today && ' · сегодня'}
               </span>
-              {b !== undefined && b !== null && (
-                <span className={`ml-auto tabular-nums ${Number(b) < 0 ? 'text-bad' : data.threshold !== null && Number(b) < Number(data.threshold) ? 'text-warn' : 'text-muted'}`}>
-                  остаток {rub(b)}
-                </span>
-              )}
+              <DayBalance fd={forecast[g.day]} today={data.today} threshold={data.threshold} />
             </div>
             <ul className="divide-y divide-line border-b border-line">
               {g.lines.map((ln) => (
                 <LineRow key={ln.key} ln={ln} onOpen={() => onOpen(ln)} draggable={movable(ln)} />
+              ))}
+            </ul>
+          </div>
+        )
+      })}
+    </section>
+  )
+}
+
+/** По неделям (пн–вс): платежи недели, суммы по плану, остаток на начало и на конец недели по прогнозу. */
+function WeekList({ data, onOpen }: { data: CalendarData; onOpen: (ln: CalendarLine) => void }) {
+  const forecast = useMemo(() => Object.fromEntries(data.days.map((d) => [d.day, d])), [data.days])
+  const weeks = useMemo(() => {
+    const out: { start: string; lines: CalendarLine[] }[] = []
+    for (const ln of data.lines) {
+      const start = addDays(ln.day, -weekday(ln.day))
+      const last = out[out.length - 1]
+      if (last && last.start === start) last.lines.push(ln)
+      else out.push({ start, lines: [ln] })
+    }
+    return out
+  }, [data.lines])
+  if (weeks.length === 0) return <p className="rounded-xl border border-line bg-card p-4 text-sm text-muted">В этом периоде платежей нет.</p>
+  return (
+    <section className="overflow-hidden rounded-xl border border-line bg-card" data-testid="cal-weeks">
+      {weeks.map((w) => {
+        const end = addDays(w.start, 6)
+        const counted = w.lines.filter((ln) => ln.amount !== null && ln.status !== 'skipped' && ln.status !== 'disabled')
+        const income = counted.reduce((a, ln) => a + Math.max(Number(ln.amount), 0), 0)
+        const expense = counted.reduce((a, ln) => a + Math.min(Number(ln.amount), 0), 0)
+        // остаток — по прогнозу с сегодня: на конец — последний день недели в окне, на начало — день перед неделей
+        let last: ForecastDay | undefined
+        for (let d = end; d >= w.start && !last; d = addDays(d, -1)) last = forecast[d]
+        const current = w.start <= data.today && data.today <= end
+        const before = forecast[addDays(w.start, -1)]
+        const opening = current ? data.start_balance : before?.balance ?? null
+        const closing = last?.balance ?? null
+        const tone = closing === null ? '' : Number(closing) < 0 ? 'text-bad' : data.threshold !== null && Number(closing) < Number(data.threshold) ? 'text-warn' : ''
+        return (
+          <div key={w.start} data-testid="cal-week" data-week={w.start}>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 border-b border-line bg-bg/40 px-4 py-1.5 text-xs">
+              <span className={`font-semibold ${current ? 'text-accent' : end < data.today ? 'text-muted' : ''}`}>
+                {fmtDay(w.start).slice(0, 5)}–{fmtDay(end).slice(0, 5)}
+                {current && ' · эта неделя'}
+              </span>
+              <span className="tabular-nums text-muted">
+                по плану {income !== 0 && <span className="text-ok">{signed(String(income))}</span>} {expense !== 0 && <span className="text-bad">{rub(String(expense))}</span>}
+              </span>
+              {closing !== null && (
+                <span className="ml-auto tabular-nums" data-testid="week-balance">
+                  {opening !== null && <span className="text-muted">{current ? 'сейчас' : 'на начало'} {rub(opening)} → </span>}
+                  <span className={tone}>на конец {rub(closing)}</span>
+                </span>
+              )}
+            </div>
+            <ul className="divide-y divide-line border-b border-line">
+              {w.lines.map((ln) => (
+                <LineRow key={ln.key} ln={ln} onOpen={() => onOpen(ln)} draggable={false} withDay />
               ))}
             </ul>
           </div>
@@ -587,7 +757,7 @@ function MonthGrid({ data, selected, onSelect, onOpen, onMove }: { data: Calenda
                         e.stopPropagation()
                         onOpen(ln)
                       }}
-                      className={`truncate rounded px-1 ${ln.kind === 'income' ? 'bg-ok/10 text-ok' : 'bg-bad/10 text-bad'} ${ln.status === 'paid' || ln.status === 'skipped' || ln.status === 'disabled' ? 'opacity-50' : ''} ${movable(ln) ? 'cursor-grab' : ''}`}
+                      className={`truncate rounded px-1 ${ln.kind === 'income' ? 'bg-ok/10 text-ok' : 'bg-bad/10 text-bad'} ${ln.status === 'paid' || ln.status === 'skipped' || ln.status === 'disabled' ? 'opacity-50' : ''} ${ln.status === 'overdue' ? 'ring-1 ring-inset ring-bad' : ''} ${movable(ln) ? 'cursor-grab' : ''}`}
                       title={`${ln.title}${ln.amount ? `: ${rub(ln.amount)}` : ''}`}
                       data-testid="cal-chip"
                       data-key={ln.key}
@@ -617,6 +787,29 @@ function MonthGrid({ data, selected, onSelect, onOpen, onMove }: { data: Calenda
         </section>
       )}
       <p className="text-xs text-faint">Перетащите платёж на другой день — прогноз пересчитается сразу. На телефоне — нажмите на день, затем на платёж: «Перенести на».</p>
+    </div>
+  )
+}
+
+/** Сколько платежей в каком статусе — с пояснением, что значит каждый. */
+function StatusLegend({ data }: { data: CalendarData }) {
+  const counts: Partial<Record<CalendarLine['status'], number>> = {}
+  for (const ln of data.lines) counts[ln.status] = (counts[ln.status] ?? 0) + 1
+  const order: CalendarLine['status'][] = ['overdue', 'expected', 'partial', 'planned', 'paid']
+  const shown = order.filter((st) => counts[st])
+  if (shown.length === 0) return null
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted" data-testid="cal-legend">
+      {shown.map((st) => {
+        const s = STATUS[st]
+        return (
+          <span key={st} className="flex items-center gap-1" title={s?.hint ?? 'Срок впереди — в прогнозе в свой день.'} data-testid={`legend-${st}`}>
+            <Badge tone={s?.tone ?? 'muted'}>{s?.label ?? 'запланирован'}</Badge>
+            <span className="tabular-nums">{counts[st]}</span>
+          </span>
+        )
+      })}
+      <span className="text-faint">ожидается — срок подошёл (до 3 дней), просрочен — больше 3 дней без оплаты</span>
     </div>
   )
 }
@@ -909,7 +1102,7 @@ export function CalendarTab({ accounts, categories, state, onChanged }: { accoun
   const preset = params.get('plan') // из обзора: «Запланировать» — название статьи
   const today = todayMsk()
   const [horizon, setHorizon] = useState(() => HORIZONS.reduce((a, b) => (Math.abs(b - state.horizon_days) < Math.abs(a - state.horizon_days) ? b : a)))
-  const [view, setView] = useState<'list' | 'month'>('list')
+  const [view, setView] = useState<'list' | 'weeks' | 'month'>('list')
   const [data, setData] = useState<CalendarData | null>(null)
   const [plans, setPlans] = useState<Plan[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -953,7 +1146,7 @@ export function CalendarTab({ accounts, categories, state, onChanged }: { accoun
     setSelected(selectedParam)
     if (data && scrolled.current !== selectedParam) {
       scrolled.current = selectedParam
-      document.getElementById(view === 'list' ? `day-${selectedParam}` : 'cal-month')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      document.getElementById(view === 'month' ? 'cal-month' : `day-${selectedParam}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
   }, [selectedParam, data, view])
 
@@ -986,12 +1179,17 @@ export function CalendarTab({ accounts, categories, state, onChanged }: { accoun
           ))}
         </div>
         <div className="ml-auto flex gap-1 rounded-lg border border-line bg-card p-1" role="group" aria-label="Вид">
-          <button type="button" aria-pressed={view === 'list'} onClick={() => setView('list')} className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-sm ${view === 'list' ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`} data-testid="view-list">
-            <List className="h-4 w-4" /> Список
-          </button>
-          <button type="button" aria-pressed={view === 'month'} onClick={() => setView('month')} className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-sm ${view === 'month' ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`} data-testid="view-month">
-            <CalendarDays className="h-4 w-4" /> По дням
-          </button>
+          {(
+            [
+              ['list', List, 'Дни'],
+              ['weeks', CalendarRange, 'Недели'],
+              ['month', CalendarDays, 'Месяц'],
+            ] as const
+          ).map(([v, Icon, label]) => (
+            <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)} className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm ${view === v ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`} data-testid={`view-${v}`}>
+              <Icon className="h-4 w-4" /> {label}
+            </button>
+          ))}
         </div>
       </div>
       <FormError message={error} />
@@ -1013,8 +1211,11 @@ export function CalendarTab({ accounts, categories, state, onChanged }: { accoun
               {notice}
             </p>
           )}
+          <StatusLegend data={data} />
           {view === 'list' ? (
             <DayList data={data} selected={selected} onOpen={setOpened} onMove={move} />
+          ) : view === 'weeks' ? (
+            <WeekList data={data} onOpen={setOpened} />
           ) : (
             <MonthGrid data={data} selected={selected} onSelect={setSelected} onOpen={setOpened} onMove={move} />
           )}
@@ -1081,6 +1282,12 @@ export function CalendarTab({ accounts, categories, state, onChanged }: { accoun
             onDone={() => {
               setOpened(null)
               changed()
+            }}
+            onEditPlan={(id) => {
+              const plan = plans.find((x) => x.plan_id === id)
+              if (!plan) return
+              setOpened(null)
+              setEditing(plan)
             }}
           />
         </Modal>

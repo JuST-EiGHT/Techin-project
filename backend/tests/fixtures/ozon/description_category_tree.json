@@ -1,0 +1,32 @@
+{
+  "result": [
+    {
+      "description_category_id": 17027484,
+      "category_name": "Автотовары",
+      "disabled": false,
+      "children": [
+        {
+          "description_category_id": 17028922,
+          "category_name": "Подшипники",
+          "disabled": false,
+          "children": [
+            {"type_id": 970836453, "type_name": "Подшипник", "disabled": false, "children": []},
+            {"type_id": 970836454, "type_name": "Подшипник ступицы", "disabled": false, "children": []}
+          ]
+        },
+        {
+          "description_category_id": 17028923,
+          "category_name": "Шины",
+          "disabled": false,
+          "children": [{"type_id": 970836455, "type_name": "Шина", "disabled": false, "children": []}]
+        }
+      ]
+    },
+    {
+      "description_category_id": 17027485,
+      "category_name": "Дом и сад",
+      "disabled": false,
+      "children": []
+    }
+  ]
+}

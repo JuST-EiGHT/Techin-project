@@ -10,9 +10,9 @@ from app.crud import credential as crud
 from app.db.session import get_db
 from app.models.api_credential import ApiCredential
 from app.models.user import User
-from app.schemas.credential import CredentialCreate, CredentialResponse, VerifyResponse
+from app.schemas.credential import CredentialCreate, CredentialReplace, CredentialResponse, VerifyResponse
 from app.services.stores import get_current_store
-from app.services.encryption import DecryptionError, decrypt
+from app.services.encryption import DecryptionError, decrypt, encrypt
 from app.services.ozon_auth import verify_ozon_credentials
 from app.services import stores
 from app.services.sync.runner import SyncAlreadyRunning
@@ -49,9 +49,9 @@ async def add_credential(data: CredentialCreate, user: User = Depends(get_curren
 
 async def _start_finance_backfill(db: AsyncSession, user_id: uuid.UUID) -> None:
     """Ключ подключён — разово загружаем начисления, баланс у Ozon (выплаты) и отправления (поставки, шаг 5.2) за
-    последние 90 дней (уже загруженные дни начислений пропускаются). Сбой очереди не мешает сохранить ключ: догрузят
-    плановые задачи раз в 6 часов."""
-    for kind in ("finance", "balance", "postings"):
+    последние 90 дней (уже загруженные дни начислений пропускаются) и заявки на поставку (10.18). Сбой очереди не мешает
+    сохранить ключ: догрузят плановые задачи по расписанию."""
+    for kind in ("finance", "balance", "postings", "supplies"):
         try:
             await sync_api.queue_sync(db, user_id, kind)
         except (SyncAlreadyRunning, sync_api.QueueUnavailable):
@@ -66,6 +66,25 @@ async def list_credentials(user: User = Depends(get_current_store), db: AsyncSes
 @router.delete("/{cred_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_credential(cred_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     await crud.delete(db, await _own(cred_id, user, db))
+
+
+@router.post("/{cred_id}/replace", response_model=VerifyResponse)
+async def replace_credential(cred_id: uuid.UUID, data: CredentialReplace, user: User = Depends(get_current_store),
+                             db: AsyncSession = Depends(get_db)):
+    """«Обновить доступ»: новый ключ того же кабинета Ozon вместо старого (истёк, отозвали, сменили права). Сохраняем,
+    только если Ozon его принял; старый ключ не хранится."""
+    cred = await _own(cred_id, user, db)
+    result = await verify_ozon_credentials(cred.client_id, data.api_key.get_secret_value())
+    if not result.ok:
+        code = status.HTTP_503_SERVICE_UNAVAILABLE if result.reason == "unavailable" else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(code, f"Ключ не обновлён: {result.message}")
+    now = datetime.now(timezone.utc)
+    cred.api_key_encrypted = encrypt(data.api_key.get_secret_value())
+    cred.is_active, cred.last_used_at = True, now
+    cred.expires_at = result.expires_at or data.expires_at or crud.add_months(now, crud.KEY_LIFETIME_MONTHS)
+    cred = await crud.save(db, cred)
+    return VerifyResponse(ok=True, message="Ключ обновлён — Ozon его принял, загрузка данных продолжится с ним.",
+                          credential=CredentialResponse.from_model(cred))
 
 
 @router.post("/{cred_id}/verify", response_model=VerifyResponse)

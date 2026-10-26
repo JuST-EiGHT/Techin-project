@@ -1,4 +1,5 @@
 """Обзор «Планирования» и ДДС (шаг 3.10): деньги сейчас, прогноз и разрывы, ожидается за горизонт; ДДС по статьям."""
+import uuid
 from datetime import date, timedelta
 from typing import Literal
 
@@ -7,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.plan_calendar import CashFlowOut, OverviewOut
+from app.schemas.plan_calendar import CashFlowOut, OverviewOut, SeriesOut
 from app.services import planning as planning_svc
 from app.services import planning_overview as svc
 from app.services.stores import get_current_store
@@ -15,6 +16,8 @@ from app.services.sync.finance import today_msk
 
 router = APIRouter(prefix="/planning", tags=["planning"])
 MAX_CASH_FLOW_DAYS = 731
+MAX_SERIES_DAYS = 366  # график за раз — не больше года
+MAX_AHEAD_DAYS = 180  # план и прогноз — не дальше полугода (как самый длинный горизонт)
 
 
 @router.get("/overview", response_model=OverviewOut)
@@ -31,11 +34,31 @@ async def overview(
     return await svc.overview(db, user.id, horizon_days)
 
 
+@router.get("/overview/series", response_model=SeriesOut)
+async def overview_series(
+    date_from: date = Query(..., description="Начало периода графика: прошлое, сегодня или будущее"),
+    date_to: date = Query(..., description="Конец периода графика"),
+    user: User = Depends(get_current_store),
+    db: AsyncSession = Depends(get_db),
+):
+    """Ряд для графика «Остаток и движение денег» за любой период: до сегодня — факт по операциям, с сегодня — план
+    и прогноз остатка. Например, 5 дней назад и 5 дней вперёд, только прошлое или только будущее."""
+    if date_from > date_to:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Период: дата начала позже даты окончания")
+    if (date_to - date_from).days + 1 > MAX_SERIES_DAYS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Период графика: не больше года за раз")
+    if date_to > today_msk() + timedelta(days=MAX_AHEAD_DAYS):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Прогноз — не дальше 180 дней вперёд: выберите дату ближе")
+    await planning_svc.sync_ozon_operations(db, user.id)
+    return await svc.series(db, user.id, date_from, date_to)
+
+
 @router.get("/cash-flow", response_model=CashFlowOut)
 async def cash_flow(
     date_from: date | None = Query(None, description="По умолчанию — начало месяца два месяца назад"),
     date_to: date | None = Query(None, description="По умолчанию — сегодня"),
     granularity: Literal["week", "month"] = "month",
+    account_id: uuid.UUID | None = Query(None, description="Один счёт; по умолчанию — все"),
     user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
@@ -51,4 +74,4 @@ async def cash_flow(
     if (date_to - date_from).days + 1 > MAX_CASH_FLOW_DAYS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Период: не больше двух лет за раз")
     await planning_svc.sync_ozon_operations(db, user.id)
-    return await svc.cash_flow(db, user.id, date_from, date_to, granularity)
+    return await svc.cash_flow(db, user.id, date_from, date_to, granularity, account_id)

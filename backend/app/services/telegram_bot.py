@@ -98,8 +98,7 @@ async def cmd_stop(db: AsyncSession, chat_id: int) -> str:
 
 
 def _prefs_text(p: engine.Prefs) -> str:
-    on = [engine.CATEGORY_TITLES[c] for c, flag in ((engine.RED, p.red), (engine.YELLOW, p.yellow),
-                                                     (engine.AUTO_PROMO, p.auto_promo), (engine.MONEY, p.money)) if flag]
+    on = p.enabled()
     quiet = (f"тихие часы {engine.hhmm(p.quiet_from)}–{engine.hhmm(p.quiet_to)}" if p.quiet_enabled else "без тихих часов")
     return f"присылаем: {', '.join(on) if on else 'ничего'}; {quiet}"
 
@@ -114,7 +113,7 @@ async def cmd_status(db: AsyncSession, chat_id: int) -> str:
         names = await stores.names(db, s.user_id)  # у аккаунта несколько магазинов (шаг 8.4b) — по каждому
         text = f"<b>{html.escape(mask_email(user.email) if user else 'аккаунт')}</b>: {html.escape(_prefs_text(notifier.prefs(s)))}."
         for store_id, name in names.items() or {s.user_id: ""}.items():
-            c = await anomalies.counts(db, store_id)
+            c = await anomalies.counts(db, store_id, notifier.prefs(s).muted_types())
             prefix = f"{html.escape(name)} — а" if len(names) > 1 else "А"
             text += f"\n{prefix}ктивных уведомлений: {c['active']}, без «Ок» — {c['unread']} (красных {c['red']})."
         lines.append(text)

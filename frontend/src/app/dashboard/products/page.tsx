@@ -1,20 +1,25 @@
 'use client'
-// Товары (шаг 4.1): все товары каталога Ozon — цена, комиссия, себестоимость, остаток, маржа, акции; боковая панель товара.
+// Товары (шаг 4.1): все товары каталога Ozon — цена, комиссия, себестоимость, остаток, маржа, акции.
+// «Все товары» (10.13): продано, выручка и прибыль за период, значки проблем, выбор товаров и групповые действия.
+// Клик по товару — «Статистика товара» (10.14, /dashboard/products/[id]); старый адрес ?product= переадресуется туда.
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
-import { ProductPanel } from '@/components/product-panel'
+import { BulkBar } from '@/components/products-bulk'
 import { Badge, fmtDay, pctText, rub } from '@/components/reports'
-import { timeAgo } from '@/components/SyncStatus'
+import { refreshSyncStatus, timeAgo } from '@/lib/sync'
 import { api, errorMessage } from '@/lib/api'
+import { rangeOf, type PeriodPreset } from '@/lib/analytics'
 import { saveFile } from '@/lib/download'
+import { productHref } from '@/lib/stocks'
 import { todayMsk } from '@/lib/period'
 import {
   COLUMNS,
   DEFAULT_HIDDEN,
   FILTER_LABEL,
+  FLAGS,
   MARGIN_TONE,
   PRICE_INDEX,
   QUICK_FILTERS,
@@ -37,6 +42,16 @@ const POLL_MS = 3000
 const ACTIVE = ['queued', 'running']
 const COLUMNS_KEY = 'products.hidden-columns'
 const ALL_FILTERS: QuickFilter[] = ['negative', 'low_stock', 'critical_stock', 'in_promo', 'no_cost']
+type Period = Exclude<PeriodPreset, 'custom' | 'week' | '365d'>
+// период для «Продано», «Выручка», «Прибыль»: по умолчанию 30 дней — в адресе не пишется
+const PERIODS: { value: Period; label: string }[] = [
+  { value: '7d', label: '7 дней' },
+  { value: '30d', label: '30 дней' },
+  { value: 'month', label: 'Этот месяц' },
+  { value: 'prev_month', label: 'Прошлый месяц' },
+  { value: '90d', label: '90 дней' },
+]
+const parsePeriod = (text: string | null): Period => PERIODS.find((p) => p.value === text)?.value ?? '30d'
 
 function readHidden(): ColumnKey[] {
   try {
@@ -73,17 +88,19 @@ function Products() {
   const router = useRouter()
   const pathname = usePathname()
   const filters = parseFilters(params.get('filter'))
-  const selected = params.get('product')
+  const period = parsePeriod(params.get('period'))
+  const range = rangeOf(period)
+  const periodParams = { date_from: range.from, date_to: range.to }
   const setUrl = useCallback(
-    (next: { filter?: QuickFilter[]; product?: string | null }) => {
+    (next: { filter?: QuickFilter[]; period?: Period }) => {
       const q = new URLSearchParams(params.toString())
       if (next.filter !== undefined) {
         if (next.filter.length) q.set('filter', next.filter.join(','))
         else q.delete('filter')
       }
-      if (next.product !== undefined) {
-        if (next.product) q.set('product', next.product)
-        else q.delete('product')
+      if (next.period !== undefined) {
+        if (next.period !== '30d') q.set('period', next.period)
+        else q.delete('period')
       }
       const s = q.toString()
       router.replace(s ? `${pathname}?${s}` : pathname, { scroll: false })
@@ -104,6 +121,9 @@ function Products() {
   const [reload, setReload] = useState(0)
   const [sync, setSync] = useState<SyncStatus | null>(null)
   const [starting, setStarting] = useState(false)
+  // выбранные товары: сохраняются при сортировке, листании и смене фильтров, пока их не снимут
+  const [chosen, setChosen] = useState<Set<string>>(new Set())
+  const [selectingAll, setSelectingAll] = useState(false)
   const seq = useRef(0)
   const wasActive = useRef(false)
   const filterKey = filters.join(',')
@@ -123,7 +143,17 @@ function Products() {
     setBusy(true)
     api
       .get<ProductsPage>('/products', {
-        params: { sort, order, limit: PAGE, offset, archived, ...(search ? { search } : {}), ...(filterKey ? { filters: filterKey } : {}) },
+        params: {
+          sort,
+          order,
+          limit: PAGE,
+          offset,
+          archived,
+          date_from: range.from,
+          date_to: range.to,
+          ...(search ? { search } : {}),
+          ...(filterKey ? { filters: filterKey } : {}),
+        },
       })
       .then((r) => {
         if (id !== seq.current) return
@@ -132,7 +162,7 @@ function Products() {
       })
       .catch((err) => id === seq.current && setError(errorMessage(err)))
       .finally(() => id === seq.current && setBusy(false))
-  }, [sort, order, offset, archived, search, filterKey, reload])
+  }, [sort, order, offset, archived, search, filterKey, reload, range.from, range.to])
 
   const loadSync = useCallback(async () => {
     try {
@@ -161,6 +191,7 @@ function Products() {
     setStarting(true)
     try {
       await api.post('/sync/products')
+      refreshSyncStatus() // кнопка «Синхронизация» в шапке сразу покажет загрузку
     } catch (err) {
       if ((err as { response?: { status?: number } }).response?.status !== 409) setError(errorMessage(err))
     } finally {
@@ -194,7 +225,7 @@ function Products() {
     try {
       await saveFile(
         api.get('/products/export', {
-          params: { sort, order, archived, ...(search ? { search } : {}), ...(filterKey ? { filters: filterKey } : {}) },
+          params: { sort, order, archived, ...periodParams, ...(search ? { search } : {}), ...(filterKey ? { filters: filterKey } : {}) },
           responseType: 'blob',
         }),
         'products.csv',
@@ -204,7 +235,29 @@ function Products() {
     }
   }
 
-  const closePanel = useCallback(() => setUrl({ product: null }), [setUrl])
+  function toggleChosen(ids: string[], on: boolean) {
+    const next = new Set(chosen)
+    for (const id of ids) {
+      if (on) next.add(id)
+      else next.delete(id)
+    }
+    setChosen(next)
+  }
+
+  async function chooseAllByFilter() {
+    setSelectingAll(true)
+    try {
+      const { data: found } = await api.get<{ ids: string[]; total: number }>('/products/ids', {
+        params: { archived, ...(search ? { search } : {}), ...(filterKey ? { filters: filterKey } : {}) },
+      })
+      setChosen(new Set([...chosen, ...found.ids]))
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setSelectingAll(false)
+    }
+  }
+
   const reloadList = useCallback(() => setReload((n) => n + 1), [])
   useOnPriceSettingsChange(reloadList) // маржа считается калькулятором цены
   const settings = useSettings() // пороги остатков (шаг 5.1) — для подсказок
@@ -216,6 +269,9 @@ function Products() {
   const visible = COLUMNS.filter((c) => !hidden.includes(c.key))
   const c = data?.counts
   const noCatalog = data !== null && c?.all === 0 && c.archived === 0 && !search && filters.length === 0
+  const pageIds = data?.items.map((r) => r.id) ?? []
+  const pageChosen = pageIds.length > 0 && pageIds.every((id) => chosen.has(id))
+  const allChosen = data !== null && data.total > 0 && pageChosen && chosen.size >= data.total && !busy
 
   return (
     <div className="mx-auto max-w-7xl space-y-5">
@@ -308,6 +364,21 @@ function Products() {
             <span className="text-xs text-muted" data-testid="products-found">
               {search || filters.length ? `найдено ${data.total}` : `${data.total} товаров`}
             </span>
+            <label className="flex items-center gap-2 text-sm text-muted" title="За какой период показать «Продано», «Выручку» и «Прибыль»">
+              Продажи за
+              <select
+                value={period}
+                onChange={(e) => setUrl({ period: e.target.value as Period })}
+                className="rounded-lg border border-line bg-card px-2 py-1.5 text-sm text-fg outline-none focus:border-accent"
+                data-testid="products-period"
+              >
+                {PERIODS.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="flex items-center gap-2 text-sm text-muted">
               <input
                 type="checkbox"
@@ -327,6 +398,22 @@ function Products() {
               </button>
             </div>
           </div>
+
+          {chosen.size > 0 && (
+            <BulkBar
+              ids={[...chosen]}
+              period={periodParams}
+              onClear={() => setChosen(new Set())}
+              onDone={reloadList}
+              selectAll={
+                !allChosen && data.total > 0 ? (
+                  <button type="button" onClick={chooseAllByFilter} disabled={selectingAll} className="text-sm text-accent hover:underline disabled:opacity-60" data-testid="select-all-filter">
+                    {search || filters.length ? `Выбрать все ${data.total} по фильтру` : `Выбрать все ${data.total}`}
+                  </button>
+                ) : null
+              }
+            />
+          )}
 
           {data.total === 0 ? (
             <section className="rounded-xl border border-line bg-card p-6 text-sm text-muted" data-testid="products-nothing">
@@ -350,6 +437,16 @@ function Products() {
                 <table className="w-full min-w-[56rem] text-[13px]" data-testid="products-table">
                   <thead className="border-b border-line text-left text-xs text-muted">
                     <tr>
+                      <th className="w-8 py-2 pl-3 pr-0">
+                        <input
+                          type="checkbox"
+                          checked={pageChosen}
+                          onChange={(e) => toggleChosen(pageIds, e.target.checked)}
+                          aria-label="Выбрать товары на этой странице"
+                          title="Выбрать товары на этой странице"
+                          data-testid="select-page"
+                        />
+                      </th>
                       <SortTh s="offer_id" first="asc" sort={sort} order={order} onSort={sortBy} left>
                         Товар
                       </SortTh>
@@ -364,12 +461,27 @@ function Products() {
                     {data.items.map((r) => (
                       <tr
                         key={r.id}
-                        onClick={() => setUrl({ product: r.id })}
-                        className={`cursor-pointer border-b border-line last:border-b-0 hover:bg-line/40 ${selected === r.id ? 'bg-accent/10' : ''}`}
+                        onClick={() => router.push(productHref(r.id))}
+                        className={`cursor-pointer border-b border-line last:border-b-0 hover:bg-line/40 ${chosen.has(r.id) ? 'bg-accent/10' : ''}`}
                         data-testid="product-row"
                       >
-                        <td className="max-w-[13rem] px-3 py-2">
-                          <div className="truncate font-medium">{r.offer_id}</div>
+                        <td className="py-2 pl-3 pr-0 align-top" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={chosen.has(r.id)}
+                            onChange={(e) => toggleChosen([r.id], e.target.checked)}
+                            aria-label={`Выбрать ${r.offer_id}`}
+                            className="mt-0.5"
+                            data-testid="select-row"
+                          />
+                        </td>
+                        <td className="max-w-[15rem] px-3 py-2">
+                          <div className="flex items-center gap-1.5">
+                            <Link href={productHref(r.id)} onClick={(e) => e.stopPropagation()} className="truncate font-medium hover:text-accent" data-testid="product-link">
+                              {r.offer_id}
+                            </Link>
+                            <Flags flags={r.flags} />
+                          </div>
                           <div className="truncate text-xs text-muted">
                             {r.name ?? 'Без названия'}
                             {r.ozon_sku && <span className="text-faint"> · {r.ozon_sku}</span>}
@@ -400,6 +512,14 @@ function Products() {
           )}
 
           <div className="space-y-1 text-xs text-faint" data-testid="products-notes">
+            <p data-testid="period-note">
+              Продано, выручка и прибыль — за {fmtDay(data.period.date_from)} – {fmtDay(data.period.date_to)} по начислениям Ozon, как в
+              «Прибыли по товарам»; прибыль до налога.
+              {data.period.data_source === 'none'
+                ? ' За этот период начислений нет — «—», а не ноль.'
+                : data.period.missing_days > 0 && ` Дней без начислений: ${data.period.missing_days} из ${data.period.days_total} — цифры могут быть меньше настоящих.`}{' '}
+              Значки у артикула — убыток, низкая маржа, мало остатков, нет себестоимости, недавно менялась цена; наведите — подскажут подробнее.
+            </p>
             <p>{data.margin_note}</p>
             <p>
               Дни запаса — остаток на всех складах, делённый на продажи в день за {data.sales_window_days} дней.
@@ -409,8 +529,6 @@ function Products() {
           </div>
         </div>
       )}
-
-      {selected && <ProductPanel productId={selected} onClose={closePanel} onChanged={reloadList} />}
     </div>
   )
 }
@@ -486,6 +604,26 @@ function Cell({ col, r }: { col: ColumnKey; r: ProductItem }) {
       )
     case 'min_price':
       return <td className={`${td} text-muted`}>{rub(r.min_price)}</td>
+    case 'sold':
+      return (
+        <td className={td} title={r.sold_qty === null ? 'За период нет начислений' : undefined} data-testid="sold-cell">
+          {r.sold_qty === null ? <span className="text-faint">—</span> : r.sold_qty.toLocaleString('ru-RU')}
+        </td>
+      )
+    case 'revenue':
+      return <td className={`${td} ${r.revenue === null ? 'text-faint' : ''}`}>{rub(r.revenue)}</td>
+    case 'profit': {
+      const n = r.period_profit === null ? null : Number(r.period_profit)
+      return (
+        <td
+          className={`${td} ${n === null ? 'text-faint' : n < 0 ? 'text-bad' : ''}`}
+          title={n === null && r.sold_qty !== null ? 'Нет себестоимости — прибыль не посчитать' : undefined}
+          data-testid="profit-cell"
+        >
+          {rub(r.period_profit)}
+        </td>
+      )
+    }
     case 'commission':
       return (
         <td className={td}>
@@ -560,6 +698,30 @@ function Cell({ col, r }: { col: ColumnKey; r: ProductItem }) {
         </td>
       )
   }
+}
+
+/** Значки проблем у артикула: цвет — важность, подробности — в подсказке. */
+function Flags({ flags }: { flags: ProductItem['flags'] }) {
+  if (!flags.length) return null
+  return (
+    <span className="flex shrink-0 gap-0.5" data-testid="row-flags">
+      {flags.map((f) => {
+        const meta = FLAGS[f.code]
+        return (
+          <span
+            key={f.code}
+            title={f.text}
+            aria-label={`${meta.label}: ${f.text}`}
+            role="img"
+            className={`inline-flex h-4 min-w-4 items-center justify-center rounded px-0.5 text-[10px] font-bold leading-none ${meta.tone}`}
+            data-testid={`flag-${f.code}`}
+          >
+            {meta.mark}
+          </span>
+        )
+      })}
+    </span>
+  )
 }
 
 function ColumnsMenu({ hidden, onToggle }: { hidden: ColumnKey[]; onToggle: (k: ColumnKey) => void }) {

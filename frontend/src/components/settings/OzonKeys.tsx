@@ -5,7 +5,7 @@ import axios from 'axios'
 import { useCallback, useEffect, useState } from 'react'
 
 import { Field, FormError, SubmitButton } from '@/components/AuthForm'
-import { notifyCredentialsChanged } from '@/components/SyncStatus'
+import { notifyCredentialsChanged } from '@/lib/sync'
 import { openStore, type Store, useStores } from '@/contexts/StoreContext'
 import { api, errorMessage } from '@/lib/api'
 
@@ -40,9 +40,29 @@ function ExpiryNote({ days, expiresAt }: { days: number; expiresAt: string }) {
 }
 
 function CredentialRow({ cred, onChanged, onDeleted }: { cred: Credential; onChanged: (c: Credential) => void; onDeleted: (id: string) => void }) {
-  const [busy, setBusy] = useState<'verify' | 'delete' | null>(null)
+  const [busy, setBusy] = useState<'verify' | 'delete' | 'replace' | null>(null)
   const [confirming, setConfirming] = useState(false)
+  const [replacing, setReplacing] = useState(false) // «Обновить доступ» (шаг 10.26): новый ключ того же кабинета
+  const [newKey, setNewKey] = useState('')
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
+
+  async function replace(e: React.FormEvent) {
+    e.preventDefault()
+    setBusy('replace')
+    setResult(null)
+    try {
+      const { data } = await api.post<VerifyResponse>(`/credentials/${cred.id}/replace`, { api_key: newKey.trim() })
+      onChanged(data.credential)
+      setResult({ ok: true, text: data.message })
+      setReplacing(false)
+      setNewKey('')
+      notifyCredentialsChanged()
+    } catch (err) {
+      setResult({ ok: false, text: errorMessage(err) })
+    } finally {
+      setBusy(null)
+    }
+  }
 
   async function verify() {
     setBusy('verify')
@@ -91,19 +111,45 @@ function CredentialRow({ cred, onChanged, onDeleted }: { cred: Credential; onCha
           {cred.last_used_at && (
             <div className="mt-1 text-xs text-faint">Последнее использование: {fmtDateTime(cred.last_used_at)}</div>
           )}
-          {result && <div className={`mt-2 text-sm ${result.ok ? 'text-ok' : 'text-bad'}`}>{result.text}</div>}
+          {result && (
+            <div className={`mt-2 text-sm ${result.ok ? 'text-ok' : 'text-bad'}`} data-testid="credential-result">
+              {result.text}
+            </div>
+          )}
+          {replacing && (
+            <form onSubmit={replace} className="mt-3 flex flex-wrap items-end gap-2" data-testid="credential-replace-form">
+              <label className="block text-sm">
+                <span className="text-muted">Новый Api-Key этого кабинета (Client-Id {cred.client_id_masked})</span>
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={newKey}
+                  onChange={(e) => setNewKey(e.target.value)}
+                  className="mt-1 block w-72 max-w-full rounded-lg border border-line bg-bg px-3 py-1.5 text-sm outline-none focus:border-accent"
+                  data-testid="credential-new-key"
+                />
+              </label>
+              <button type="submit" disabled={busy !== null || !newKey.trim()} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="credential-replace-save">
+                {busy === 'replace' ? 'Проверяю…' : 'Проверить и заменить'}
+              </button>
+              <button type="button" onClick={() => setReplacing(false)} className="rounded-lg border border-line px-3 py-1.5 text-sm hover:border-muted">
+                Отмена
+              </button>
+              <span className="w-full text-xs text-faint">Ключ истёк, его отозвали или сменились права — создайте новый в кабинете Ozon («Настройки → Seller API»). Заменим, только если Ozon его примет.</span>
+            </form>
+          )}
         </div>
 
         <div className="flex gap-2">
           {confirming ? (
             <>
-              <span className="self-center text-sm text-muted">Удалить ключ?</span>
+              <span className="self-center text-sm text-muted">Отключить ключ? Загруженные данные останутся, обновление из Ozon остановится.</span>
               <button
                 onClick={remove}
                 disabled={busy !== null}
                 className="rounded-lg bg-bad px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
               >
-                {busy === 'delete' ? 'Удаляю…' : 'Да, удалить'}
+                {busy === 'delete' ? 'Отключаю…' : 'Да, отключить'}
               </button>
               <button
                 onClick={() => setConfirming(false)}
@@ -120,14 +166,23 @@ function CredentialRow({ cred, onChanged, onDeleted }: { cred: Credential; onCha
                 disabled={busy !== null}
                 className="rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent disabled:opacity-60"
               >
-                {busy === 'verify' ? 'Проверяю…' : 'Проверить'}
+                {busy === 'verify' ? 'Проверяю…' : 'Проверить соединение'}
+              </button>
+              <button
+                onClick={() => setReplacing((v) => !v)}
+                disabled={busy !== null}
+                className="rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent disabled:opacity-60"
+                data-testid="credential-replace"
+              >
+                Обновить доступ
               </button>
               <button
                 onClick={() => setConfirming(true)}
                 disabled={busy !== null}
                 className="rounded-lg border border-line px-3 py-1.5 text-sm hover:border-bad hover:text-bad disabled:opacity-60"
+                data-testid="credential-disconnect"
               >
-                Удалить
+                Отключить
               </button>
             </>
           )}

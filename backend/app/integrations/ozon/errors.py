@@ -70,4 +70,4 @@ class OzonNetworkError(OzonAPIError):
 class OzonNotConfiguredError(OzonAPIError):
     """У пользователя нет рабочего API-ключа Ozon."""
 
-    default_message = "Не подключён действующий API-ключ Ozon — добавьте его в разделе «API-ключи»"
+    default_message = "Не подключён действующий API-ключ Ozon — добавьте его: меню аккаунта → «Интеграции» → «Ozon»"

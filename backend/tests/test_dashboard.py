@@ -60,7 +60,7 @@ async def test_empty_dashboard_shows_what_to_connect(client, tokens):
     assert body["figures"]["profit"]["kind"] == "before_tax"
     assert all(p["revenue"] is None for p in body["series"]["points"]) and len(body["series"]["points"]) == 7
     assert body["payouts"]["has_data"] is False and body["payouts"]["next_payout"] is None  # без баланса — не прогноз
-    assert body["payouts"]["weeks"] == []
+    assert body["payouts"]["weeks"] == [] and body["payouts"]["upcoming"] == []
     bad = await client.get("/api/v1/dashboard/ozon", params={"date_from": "2026-09-13", "date_to": "2026-09-07"},
                            headers=auth(tokens))
     assert (bad.status_code, bad.json()["detail"]) == (400, "Период: дата начала позже даты окончания")
@@ -114,6 +114,9 @@ async def test_payouts_block(client, tokens, sessions, monkeypatch):
     assert body["setup"]["has_balance"] is True and pay["balance"] == "25000.00"
     assert pay["next_payout"]["date"] == "2026-10-21" and pay["next_payout"]["kind"] == "schedule"
     assert pay["schedule_title"] == "раз в неделю по средам, за неделю продаж 3 нед. назад"
+    # ближайшие 14 дней — с 14.10 по 27.10: выплата 21.10, следующая (28.10) уже за окном; она же — «следующая выплата»
+    assert [f["date"] for f in pay["upcoming"]] == ["2026-10-21"]
+    assert pay["upcoming"][0] == pay["next_payout"]
     starts = [w["week_from"] for w in pay["weeks"]]
     assert starts[0] >= "2026-08-10" and starts[-1] <= "2026-11-09"  # 8 недель назад и 4 вперёд
     assert any(Decimal(w["paid"]) > 0 for w in pay["weeks"]) and any(Decimal(w["schedule"]) > 0 for w in pay["weeks"])

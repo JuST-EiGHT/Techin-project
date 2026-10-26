@@ -80,16 +80,29 @@ class Category(BaseModel):
     archived: bool
     required: bool
     why: str | None
+    parent_id: uuid.UUID | None = None  # подстатья этой статьи (10.19)
+    has_children: bool = False
+    in_pnl: bool = False  # прочий расход бизнеса в P&L (10.22)
+    in_budget: bool = True  # статья бюджетов (10.21)
+    operations: int = 0  # действующих операций со статьёй
 
 
 class CategoryIn(BaseModel):
     name: str = Field(..., max_length=100)
     kind: Literal["income", "expense"]
+    parent_id: uuid.UUID | None = None
+    in_pnl: bool | None = None
+    in_budget: bool | None = None
 
 
 class CategoryPatch(BaseModel):
+    """Не переданное поле не меняется; parent_id: null — статья верхнего уровня."""
+
     name: str | None = Field(None, max_length=100)
     archived: bool | None = None
+    parent_id: uuid.UUID | None = None
+    in_pnl: bool | None = None
+    in_budget: bool | None = None
 
 
 class TemplateCodes(BaseModel):
@@ -136,6 +149,7 @@ class Ref(BaseModel):
 
 class CategoryRef(Ref):
     kind: CategoryKind
+    parent_id: uuid.UUID | None = None  # подстатья — статья, в которую она входит
 
 
 class TransferInfo(BaseModel):
@@ -266,6 +280,7 @@ class ImportResponse(BaseModel):
 # ---------- правила разнесения (шаг 3.12) ----------
 
 RuleDirection = Literal["in", "out"]
+RuleSource = Literal["bank", "import", "manual"]  # из банка (файл или API), из файла операций, вручную
 
 
 class RuleIn(BaseModel):
@@ -279,6 +294,8 @@ class RuleIn(BaseModel):
     amount_min: Decimal | None = Field(None, ge=0, le=10_000_000_000)
     amount_max: Decimal | None = Field(None, ge=0, le=10_000_000_000)
     enabled: bool = True
+    account_id: uuid.UUID | None = None  # только операции этого счёта
+    source: RuleSource | None = None  # только операции из этого источника
 
 
 class RulePatch(BaseModel):
@@ -290,6 +307,8 @@ class RulePatch(BaseModel):
     amount_min: Decimal | None = Field(None, ge=0, le=10_000_000_000)
     amount_max: Decimal | None = Field(None, ge=0, le=10_000_000_000)
     enabled: bool | None = None
+    account_id: uuid.UUID | None = None  # null — любой счёт
+    source: RuleSource | None = None  # null — любой источник
 
 
 class RuleOut(BaseModel):
@@ -301,9 +320,14 @@ class RuleOut(BaseModel):
     purpose: str | None
     amount_min: Decimal | None
     amount_max: Decimal | None
+    account: Ref | None = None
+    source: RuleSource | None = None
     category: CategoryRef | None
     enabled: bool
     operations: int  # сколько операций сейчас разнесено этим правилом
+    number: int = 0  # место в порядке, с 1
+    matches: int = 0  # операций без ручной разметки подходит под условия (часть может забрать правило выше)
+    problem: str | None = None  # статья в архиве, правило не срабатывает — и что сделать
 
 
 class BuiltinRule(BaseModel):
@@ -341,6 +365,162 @@ class RuleOrder(BaseModel):
     ids: list[uuid.UUID] = Field(..., max_length=300)
 
 
+class RuleRef(BaseModel):
+    id: str
+    number: int | None  # место в порядке сейчас; удалено — null
+    text: str  # условия → статья
+
+
+class RunDetail(BaseModel):
+    op_id: str
+    day: date
+    amount: Decimal
+    counterparty: str | None
+    before: str | None  # статья до (null — без статьи)
+    after: str | None
+    by: Literal["rule", "auto", "user", "none"]  # auto — встроенное правило; none — статья снята
+    rule: RuleRef | None
+
+
+class RunProblem(BaseModel):
+    message: str
+    rule: RuleRef | None
+
+
+class RuleRunOut(BaseModel):
+    id: uuid.UUID
+    created_at: datetime
+    trigger: str
+    title: str  # почему был пересчёт
+    rule: RuleRef | None
+    checked: int  # операций без ручной разметки проверено
+    changed: int
+    details: list[RunDetail]  # первые 100
+    problems: list[RunProblem]
+
+
+class RulesDryRun(BaseModel):
+    checked: int
+    changed: int
+    examples: list[RunDetail]
+    problems: list[RunProblem]
+
+
+class RulesApplied(BaseModel):
+    changed: int
+
+
+class PlanFactOp(BaseModel):
+    op_id: uuid.UUID | None  # null — «оплачено» отмечено без операции
+    day: date
+    amount: Decimal
+    category: str | None
+    counterparty: str | None
+    account: str | None
+    comment: str | None
+
+
+class PlanFactSuggestion(BaseModel):
+    op: PlanFactOp
+    reasons: list[str]  # почему похоже: сумма, дата, статья, контрагент
+    category_fix: str | None  # у операции нет статьи — поставим эту
+
+
+class PlanFactRow(BaseModel):
+    key: str
+    title: str
+    source: str  # manual | supplier | tax
+    kind: Literal["income", "expense"]
+    day: date
+    amount: Decimal | None
+    estimate: bool
+    category: str | None
+    counterparty: str | None
+    status: Literal["paid", "partial", "overdue", "expected", "planned"]
+    how: Literal["marked", "auto", "tax"] | None  # отмечено вручную / по сумме и дате / ЕНП по сроку
+    fact: PlanFactOp | None
+    diff: Decimal | None  # факт − план
+    days_late: int | None  # факт позже плана на … дней (минус — раньше)
+    suggestion: PlanFactSuggestion | None
+
+
+class PlanFactPage(BaseModel):
+    date_from: date
+    date_to: date
+    today: date
+    rows: list[PlanFactRow]
+    counts: dict[str, int]  # paid / overdue / planned / suggestions
+    totals: dict[str, Decimal]  # plan / fact / unpaid
+
+
+class PlanFactIn(BaseModel):
+    key: str = Field(..., max_length=120)
+    op_id: uuid.UUID
+
+
+class PlanFactAccepted(BaseModel):
+    title: str
+    category_set: str | None  # у операции не было статьи — поставили эту
+
+
+class JournalPlan(BaseModel):
+    key: str  # ключ платежа календаря — для «Оплачено» (POST /planning/calendar/paid)
+    title: str
+    plan_id: uuid.UUID | None  # свой плановый платёж — правится в «Календаре»
+    estimate: bool  # сумма — оценка
+    link: str | None
+
+
+class JournalRow(BaseModel):
+    """Строка журнала: факт — операция (как в /operations), план — платёж календаря без оплаты."""
+
+    id: str  # op:<op_id> | plan:<ключ>
+    status: Literal["fact", "planned", "expected", "overdue"]
+    type: Literal["income", "expense", "transfer"]
+    day: date
+    amount: Decimal | None  # + приход, − расход; у плана сумма может быть ещё неизвестна
+    category: CategoryRef | None
+    parent: Ref | None  # статья, если category — подстатья
+    account: Ref | None
+    counterparty: str | None
+    comment: str | None
+    source: Literal["manual", "import", "ozon_payout", "bank", "plan", "supplier", "tax", "ozon_forecast"]
+    operation: Operation | None  # у факта
+    plan: JournalPlan | None  # у плана; у факта — платёж, который он закрыл
+
+
+class JournalTotals(BaseModel):
+    fact: Totals  # без переводов
+    plan: Totals  # ещё не оплаченное (плановое и просроченное), суммы-оценки — как есть
+
+
+class JournalPage(BaseModel):
+    date_from: date
+    date_to: date
+    total: int
+    limit: int
+    offset: int
+    items: list[JournalRow]
+    totals: JournalTotals
+    counts: dict[str, int]  # fact / planned / overdue — по фильтрам, кроме статуса
+    plan_note: str | None  # почему плановых нет (планирование выключено, период длиннее 400 дней)
+
+
+class BulkIn(BaseModel):
+    """Массовое изменение: передаются только поля, которые меняем. category_id: null — убрать статью."""
+
+    op_ids: list[uuid.UUID] = Field(..., min_length=1, max_length=500)
+    category_id: uuid.UUID | None = None
+    account_id: uuid.UUID | None = None
+    counterparty: str | None = Field(None, max_length=200)
+    comment: str | None = Field(None, max_length=2000)
+
+
+class BulkOut(BaseModel):
+    changed: int  # операций с новой версией
+    unchanged: int  # уже были такими
+
+
 class CategorizeIn(BaseModel):
     op_ids: list[uuid.UUID] = Field(..., min_length=1, max_length=500)
     category_id: uuid.UUID | None  # null — убрать статью (тогда операцию могут разнести правила)
@@ -348,3 +528,263 @@ class CategorizeIn(BaseModel):
 
 class CategorizeOut(BaseModel):
     changed: int
+
+
+# ---------- счета: история, сверка, нераспознанные (шаг 10.20) ----------
+
+
+class HistoryRow(BaseModel):
+    op_id: uuid.UUID
+    day: date
+    amount: Decimal
+    type: Literal["income", "expense", "transfer"]
+    category: str | None
+    counterparty: str | None
+    comment: str | None
+    source: Source
+    transfer_account: str | None  # второй счёт перевода
+    balance: Decimal | None  # остаток после операции; до начального остатка — неизвестен
+    before_opening: bool
+
+
+class AccountHistory(BaseModel):
+    account: Ref
+    date_from: date
+    date_to: date
+    opening: Decimal | None  # на начало периода; null — неизвестен
+    closing: Decimal | None
+    opening_as_of: date | None  # с какого дня известен остаток счёта
+    totals: dict[str, Decimal]  # income / expense / transfer_in / transfer_out
+    items: list[HistoryRow]
+
+
+class ReconcileSuspect(BaseModel):
+    op_id: uuid.UUID
+    day: date
+    amount: Decimal
+    source: Source
+    counterparty: str | None
+    comment: str | None
+    category: str | None
+    likely: bool  # сумма = на сколько разошлось в этот день
+
+
+class ReconcileDay(BaseModel):
+    day: date
+    bank: Decimal
+    service: Decimal
+    diff: Decimal
+    point: bool  # остаток из выписки, а не досчитан по операциям банка
+
+
+class ReconcileAccount(BaseModel):
+    id: uuid.UUID
+    name: str
+    number: str | None
+    source: Literal["manual", "bank"]
+
+
+class ReconcileOut(BaseModel):
+    account: ReconcileAccount
+    status: Literal["ok", "diff", "no_bank", "no_opening", "no_overlap"]
+    hint: str
+    day: date | None  # последний день, за который есть остаток банка
+    bank: Decimal | None
+    service: Decimal | None
+    diff: Decimal | None  # сервис − банк
+    since: date | None  # с какого дня расходится
+    matched_until: date | None
+    from_start: bool
+    adjacent: bool  # since — следующий день после matched_until (иначе выписки за промежуток нет)
+    jump: Decimal | None
+    suspects: list[ReconcileSuspect]  # операции сервиса без пары в банке в день расхождения
+    days: list[ReconcileDay]
+
+
+class UnrecognizedRule(BaseModel):
+    direction: RuleDirection
+    counterparty_inn: str | None
+    counterparty: str | None
+
+
+class UnrecognizedItem(BaseModel):
+    op_id: uuid.UUID
+    day: date
+    amount: Decimal
+    type: Literal["income", "expense"]
+    account: Ref
+    source: Source
+    counterparty: str | None
+    inn: str | None
+    purpose: str | None
+    rule: UnrecognizedRule  # заготовка правила для такого контрагента
+
+
+class UnrecognizedByAccount(BaseModel):
+    id: uuid.UUID
+    name: str
+    count: int
+
+
+class UnrecognizedPage(BaseModel):
+    total: int
+    items: list[UnrecognizedItem]
+    by_account: list[UnrecognizedByAccount]
+
+
+# ---------- бюджеты и сценарии (шаг 10.21) ----------
+
+
+class BudgetCell(BaseModel):
+    plan: Decimal | None  # null — плана нет
+    fact: Decimal | None  # null — период ещё не начался
+    diff: Decimal | None  # факт − план
+    pct: Decimal | None
+    worse: bool | None  # хуже плана: поступлений меньше или расходов больше
+
+
+class BudgetCategory(BaseModel):
+    id: uuid.UUID
+    name: str
+    kind: Literal["income", "expense"]
+    parent_id: uuid.UUID | None
+    archived: bool
+
+
+class BudgetMonth(BaseModel):
+    month: date
+    plan: Decimal | None  # свой план статьи (без подстатей)
+
+
+class BudgetRow(BaseModel):
+    category: BudgetCategory
+    own: list[BudgetMonth]  # 12 месяцев — свой план
+    cells: list[BudgetCell]  # по периодам: статья вместе с подстатьями
+    total: BudgetCell  # за год
+    children: list["BudgetRow"]
+
+
+class BudgetOther(BaseModel):
+    cells: list[BudgetCell]  # факт вне статей бюджета и без статьи
+    total: BudgetCell
+
+
+class BudgetSection(BaseModel):
+    rows: list[BudgetRow]
+    other: BudgetOther
+    cells: list[BudgetCell]  # итог раздела: план — по статьям бюджета, факт — все операции раздела
+    total: BudgetCell
+
+
+class BudgetNet(BaseModel):
+    cells: list[BudgetCell]
+    total: BudgetCell
+
+
+class BudgetPeriod(BaseModel):
+    key: str
+    label: str
+    date_from: date
+    date_to: date
+    started: bool
+    partial: bool  # идёт сейчас — факт неполный
+
+
+class BudgetPage(BaseModel):
+    year: int
+    granularity: Literal["month", "quarter", "year"]
+    today: date
+    periods: list[BudgetPeriod]
+    income: BudgetSection
+    expense: BudgetSection
+    net: BudgetNet  # поступления − расходы
+    has_plan: bool
+
+
+class BudgetSet(BaseModel):
+    category_id: uuid.UUID
+    granularity: Literal["month", "quarter", "year"] = "month"
+    start: date  # любой день периода
+    amount: Decimal | None = Field(None, ge=0, le=10_000_000_000)  # null — убрать план; квартал и год — поровну
+
+
+class BudgetChanged(BaseModel):
+    changed: int  # месяцев с новой версией плана
+
+
+class BudgetVersion(BaseModel):
+    amount: Decimal | None
+    source: Literal["manual", "import", "last_year", "prev_period"]
+    created_at: datetime
+    superseded_at: datetime | None
+
+
+class BudgetFillIn(BaseModel):
+    source: Literal["last_year", "prev_period"]
+    granularity: Literal["month", "quarter", "year"] = "year"
+    start: date
+    overwrite: bool = False  # заменить уже заданный план
+    dry_run: bool = True
+
+
+class BudgetFillExample(BaseModel):
+    category: str
+    month: date
+    before: Decimal | None
+    after: Decimal
+
+
+class BudgetFillOut(BaseModel):
+    changed: int
+    kept: int  # уже есть свой план — не трогали
+    examples: list[BudgetFillExample]
+    date_from: date = Field(alias="from")  # по факту каких месяцев
+    date_to: date = Field(alias="to")
+
+    model_config = {"populate_by_name": True}
+
+
+class ScenarioIn(BaseModel):
+    """На сколько % плановые поступления и платежи сценария больше (+) или меньше (−) базового."""
+
+    scen_opt_income: Decimal | None = Field(None, ge=-90, le=300)
+    scen_opt_expense: Decimal | None = Field(None, ge=-90, le=300)
+    scen_pes_income: Decimal | None = Field(None, ge=-90, le=300)
+    scen_pes_expense: Decimal | None = Field(None, ge=-90, le=300)
+
+
+class ForecastDay(BaseModel):
+    day: date
+    balance: Decimal | None
+
+
+class ScenarioOut(BaseModel):
+    key: Literal["base", "optimistic", "pessimistic"]
+    label: str
+    income_pct: Decimal
+    expense_pct: Decimal
+    income: Decimal  # ожидается поступлений за горизонт
+    expense: Decimal  # платежей (отрицательное)
+    end_balance: Decimal | None
+    min_balance: Decimal | None
+    min_day: date | None
+    first_below_zero: date | None  # кассовый разрыв: с этого дня денег меньше нуля
+    first_below_threshold: date | None
+    days: list[ForecastDay]
+
+
+class BudgetAdded(BaseModel):
+    category: str
+    day: date
+    amount: Decimal  # + поступление, − платёж
+
+
+class ForecastOut(BaseModel):
+    today: date
+    date_to: date
+    months: int
+    start: Decimal | None  # остаток сейчас; null — не указан ни у одного счёта
+    unknown: list[str]  # счета без остатка
+    threshold: Decimal | None
+    scenarios: list[ScenarioOut]
+    budget_added: list[BudgetAdded]  # остаток бюджета, которого нет в календаре и факте, — добавлен в прогноз

@@ -8,9 +8,13 @@ export type User = {
   id: string
   email: string
   full_name: string | null
+  first_name?: string | null
+  last_name?: string | null
+  phone?: string | null
   is_active: boolean
   is_verified: boolean
   created_at: string
+  deletion_due_at?: string | null // удаление запрошено — когда удалится (шаг 10.26)
 }
 
 export type RegisterData = { email: string; password: string; full_name?: string; invite_code?: string }

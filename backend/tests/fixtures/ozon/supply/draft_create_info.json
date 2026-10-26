@@ -1,0 +1,18 @@
+{
+  "status": "SUCCESS",
+  "errors": [
+    {"error_message": "UNSPECIFIED", "items_validation": [
+      {"macrolocal_cluster_id": 154, "rejected_items": [{"reasons": ["SKU_IS_NOT_ALLOWED_FOR_SUPPLY"], "sku": 900001004}]}
+    ]}
+  ],
+  "clusters": [
+    {"cluster_name": "Екатеринбург", "macrolocal_cluster_id": 154, "supply_type": "DIRECT", "warehouses": [
+      {"availability_status": {"invalid_reason": "UNSPECIFIED", "state": "FULL_AVAILABLE"}, "bundle_id": "draft-bnd-1",
+       "storage_warehouse": {"address": "Екатеринбург, ул. Тестовая, 2", "name": "ЕКАТЕРИНБУРГ_РФЦ_НОВЫЙ", "warehouse_id": 1020000000000101},
+       "total_rank": 1, "total_score": 0.92},
+      {"availability_status": {"invalid_reason": "WAREHOUSE_OVERLOADED", "state": "NOT_AVAILABLE"}, "bundle_id": "draft-bnd-2",
+       "storage_warehouse": {"address": "Екатеринбург, ул. Тестовая, 3", "name": "ЕКАТЕРИНБУРГ_2", "warehouse_id": 1020000000000111},
+       "total_rank": 2, "total_score": 0.4}
+    ]}
+  ]
+}

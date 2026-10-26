@@ -1,4 +1,5 @@
-"""Выплаты и баланс у Ozon (шаг 3.6) — область «Финансы Ozon»: работает без банков и планирования."""
+"""Выплаты и баланс у Ozon (шаг 3.6) и расчёты с Ozon за период (10.23) — область «Финансы Ozon»: работает без банков и
+планирования (сверка с банком — если выписки загружены)."""
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -6,8 +7,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.ozon_payouts import BalanceDay, PayoutSettingsIn, PayoutSettingsRow, PayoutSettingsState, PayoutsOut
+from app.schemas.ozon_payouts import (
+    BalanceDay,
+    PayoutSettingsIn,
+    PayoutSettingsRow,
+    PayoutSettingsState,
+    PayoutsOut,
+    SettlementOut,
+)
 from app.services import ozon_payouts as svc
+from app.services import settlement
 from app.services.stores import get_current_store
 from app.services.sync.finance import today_msk
 
@@ -39,6 +48,24 @@ async def get_balance(
     if (date_to - date_from).days + 1 > 366:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Период: не больше 366 дней за раз")
     return await svc.balance_days(db, user.id, date_from, date_to)
+
+
+@router.get("/settlement", response_model=SettlementOut)
+async def get_settlement(
+    date_from: date | None = Query(None, description="По умолчанию — 90 дней до сегодня"),
+    date_to: date | None = Query(None, description="По умолчанию — сегодня (МСК)"),
+    user: User = Depends(get_current_store),
+    db: AsyncSession = Depends(get_db),
+):
+    """Расчёты с Ozon за период: баланс (на начало, начислено, выплачено, на конец), начисления и удержания по статьям,
+    выплаты и поступления в банк по каждой выплате, расхождения с объяснением, отчёты о взаиморасчётах."""
+    date_to = date_to or today_msk()
+    date_from = date_from or date_to - timedelta(days=89)
+    if date_from > date_to:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Период: дата начала позже даты окончания")
+    if (date_to - date_from).days + 1 > 366:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Период: не больше 366 дней за раз")
+    return await settlement.settlement(db, user.id, date_from, date_to)
 
 
 def _row(r) -> PayoutSettingsRow:

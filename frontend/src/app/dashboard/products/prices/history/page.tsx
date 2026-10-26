@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { PricesTabs } from '@/components/prices-tabs'
 import { RollbackModal, signedPct } from '@/components/price-history'
 import { Badge, fmtDateTime, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
@@ -109,15 +110,13 @@ function PriceHistory() {
   return (
     <div className="mx-auto max-w-6xl space-y-5">
       <div>
-        <Link href="/dashboard/products/prices" className="text-sm text-accent hover:underline">
-          ← Цены
-        </Link>
-        <h1 className="mt-1 text-2xl font-semibold">История цен</h1>
+        <h1 className="text-2xl font-semibold">Цены</h1>
         <p className="mt-1 text-sm text-muted">
           Все изменения цен через сервис — вручную, списком и откаты, в том числе не применённые. Откатить можно изменение не старше 7
           дней, если цена в Ozon с тех пор не менялась; откат отката не делается.
         </p>
       </div>
+      <PricesTabs />
 
       {notice && (
         <div className="flex items-start gap-3 rounded-lg bg-ok/10 px-3 py-2 text-sm" role="status" data-testid="history-notice">
@@ -212,7 +211,7 @@ function HistoryRow({ i, onRollback }: { i: PriceHistoryItem; onRollback: () => 
     <li className={`px-4 py-3 text-sm ${tint}`} data-testid={`history-${i.kind === 'rollback' ? 'rollback' : notApplied ? 'gray' : 'row'}`}>
       <div className="flex flex-wrap items-start gap-x-4 gap-y-1">
         <div className="min-w-[12rem] flex-1">
-          <Link href={`/dashboard/products?product=${i.product.id}`} className="break-all font-medium hover:underline">
+          <Link href={`/dashboard/products/${i.product.id}`} className="break-all font-medium hover:underline">
             {i.product.offer_id}
           </Link>
           {i.product.name && <span className="block truncate text-xs text-muted">{i.product.name}</span>}

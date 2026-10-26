@@ -5,9 +5,18 @@
 - `match` — план-факт: платёж закрывает отмеченная операция («оплачено») или подходящая операция (та же сторона,
   сумма ± допуск, дата ± N дней, контрагент и статья, если указаны в плане); прогноз выплаты Ozon закрывает
   фактическая выплата Ozon в тот же день;
+- `suggest` — предложения «это оплата плана …» (шаг 10.20): неоплаченный платёж и операция, которая не подошла под
+  `match` (сумма или дата дальше допуска, у операции нет статьи, контрагент записан иначе), но похожа;
 - `forecast` — остаток по дням = остаток сейчас + плановые поступления − плановые платежи; кассовый разрыв — дни ниже
-  нуля или порога. В прогнозе только действующие платежи с сегодняшнего дня: выключенный план не участвует («что
-  если»), неоплаченный прошлый платёж — тоже (его показываем отдельно: перенести или отметить).
+  нуля или порога. В прогнозе — действующие платежи с сегодняшнего дня и «ожидаемые» (срок прошёл не больше чем на 3
+  дня — банк ещё может не показать оплату: считаем их сегодня), у частично оплаченных — остаток к оплате; выключенный
+  план не участвует («что если»), просроченный — тоже (его показываем отдельно: перенести или отметить);
+- `gap_causes` — почему разрыв: крупнейшие платежи до его даты и поступления, которые не пришли (шаг 10.24).
+
+Статусы (шаг 10.24, BUSINESS_LOGIC «Календарь и ДДС»): запланирован — срок впереди; ожидается — срок сегодня или прошёл
+не больше чем на 3 дня; оплачен — есть факт на всю сумму (от 1 ₽ меньше плана — частично оплачен; у оценок — прогноз
+Ozon, налог по неполному периоду, один ЕНП на несколько налогов — факт закрывает платёж целиком); просрочен — срок
+прошёл больше чем на 3 дня, факта нет.
 """
 
 import calendar
@@ -20,6 +29,10 @@ CENT = Decimal("0.01")
 STEP_MONTHS = {"month": 1, "quarter": 3, "year": 12}
 MATCH_PCT = Decimal(10)  # сумма операции может отличаться от плана на 10 %
 MATCH_DAYS = 3  # и дата — на 3 дня в любую сторону
+SUGGEST_PCT = Decimal(25)  # предложение «это оплата плана»: сумма — до 25 %
+SUGGEST_DAYS = 10  # и дата — до 10 дней
+EXPECT_DAYS = 3  # «ожидается»: срок прошёл не больше чем на 3 дня — банк ещё может не показать оплату
+PARTIAL_MIN = Decimal(1)  # факт меньше плана на копейки округления — не частичная оплата
 
 
 @dataclass(frozen=True)
@@ -117,10 +130,24 @@ class Item:
         if self.skipped:
             return "skipped"
         if self.fact is not None:
-            return "paid"
+            return "partial" if self.remaining is not None else "paid"
         if not self.enabled:
             return "disabled"
-        return "overdue" if self.day < today else "planned"
+        if self.day > today:
+            return "planned"
+        return "expected" if self.day >= today - timedelta(days=EXPECT_DAYS) else "overdue"
+
+    @property
+    def remaining(self) -> Decimal | None:
+        """Сколько осталось оплатить (со знаком плана), если факт меньше плана от 1 ₽; иначе — None (оплачен целиком).
+        Сумма-оценка, прогноз выплаты Ozon и один ЕНП на несколько налогов закрываются фактом целиком."""
+        if (self.fact is None or self.amount is None or self.estimate or self.source == "ozon"
+                or self.meta.get("shared_fact")):
+            return None
+        rest = abs(self.amount) - abs(self.fact.amount)
+        if rest < PARTIAL_MIN:
+            return None
+        return (rest if self.amount > 0 else -rest).quantize(CENT)
 
     @property
     def diff(self) -> Decimal | None:
@@ -202,6 +229,83 @@ def match(
         used.add(best.op_id)
 
 
+@dataclass
+class Suggestion:
+    item: Item
+    op: Op
+    reasons: list[str]
+    score: Decimal
+
+
+def _days_text(n: int) -> str:
+    word = "день" if n % 10 == 1 and n % 100 != 11 else "дня" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "дней"
+    return f"{n} {word}"
+
+
+def suggest(
+    items: list[Item], ops: list[Op], today: date, dismissed: set[tuple[str, str]] = frozenset(),
+    category_of=None, pct: Decimal = SUGGEST_PCT, days: int = SUGGEST_DAYS,
+) -> list[Suggestion]:
+    """Неоплаченный платёж (срок — не позже чем через `days` дней) ↔ операция, не закрывшая ни один платёж: та же
+    сторона, сумма ± `pct` %, дата ± `days` дней, у операции нет другой статьи и есть хоть одно совпадение — статья,
+    контрагент или сумма почти та же (± MATCH_PCT). Пара, от которой отказались (`dismissed`: ключ, op_id), — нет.
+    Каждому платежу — лучшая операция, каждая операция — одному платежу. `category_of` — статья платежа (у налогов
+    и поставщика она по коду, а не в плане); по умолчанию — `item.category_id`. Вызывать после `match`."""
+    category_of = category_of or (lambda i: i.category_id)
+    used = matched_ops(items)
+    free = [op for op in ops if op.op_id and op.op_id not in used and op.source not in ("ozon_payout", "mark")]
+    pairs: list[Suggestion] = []
+    for item in items:
+        if item.fact is not None or item.skipped or not item.enabled or item.source == "ozon":
+            continue
+        if item.day > today + timedelta(days=days):
+            continue
+        cat = category_of(item)
+        for op in free:
+            if (item.key, op.op_id) in dismissed or (op.amount > 0) != (item.kind == "income"):
+                continue
+            shift = (op.day - item.day).days
+            if abs(shift) > days:
+                continue
+            if cat and op.category_id and op.category_id != cat:
+                continue  # у операции другая статья — это не оплата этого платежа
+            same_cat = bool(cat) and op.category_id == cat
+            same_party = bool(item.counterparty) and _same_text(item.counterparty, op.counterparty)
+            reasons: list[str] = []
+            if item.amount is not None and item.amount != 0:
+                gap = abs(abs(op.amount) - abs(item.amount))
+                gap_pct = (gap / abs(item.amount) * 100).quantize(Decimal("0.1"))
+                if gap_pct > pct:
+                    continue
+                close = gap_pct <= MATCH_PCT
+                reasons.append("сумма та же" if gap == 0 else f"сумма отличается на {gap:.2f} ₽ ({gap_pct} %)")
+            else:
+                gap_pct, close = Decimal(0), False
+                reasons.append("сумма в плане неизвестна")
+            if not (same_cat or same_party or close):
+                continue
+            reasons.append("дата та же" if shift == 0 else
+                           f"на {_days_text(abs(shift))} {'позже' if shift > 0 else 'раньше'} срока")
+            if same_cat:
+                reasons.append("та же статья")
+            if same_party:
+                reasons.append("тот же контрагент")
+            if not op.category_id and cat:
+                reasons.append("у операции нет статьи — поставим статью платежа")
+            score = gap_pct + 2 * abs(shift) - (10 if same_cat else 0) - (6 if same_party else 0)
+            pairs.append(Suggestion(item, op, reasons, score))
+    out: list[Suggestion] = []
+    taken_items: set[str] = set()
+    taken_ops: set[str] = set()
+    for sg in sorted(pairs, key=lambda x: (x.score, x.item.day, x.item.key, x.op.op_id)):
+        if sg.item.key in taken_items or sg.op.op_id in taken_ops:
+            continue
+        taken_items.add(sg.item.key)
+        taken_ops.add(sg.op.op_id)
+        out.append(sg)
+    return sorted(out, key=lambda x: (x.item.day, x.item.key))
+
+
 TAX_EARLY_DAYS = 40  # ЕНП платят заранее: платёж за 40 дней до срока ещё относится к нему
 TAX_LATE_DAYS = 10  # и с опозданием до 10 дней
 
@@ -260,16 +364,29 @@ class Forecast:
     end_balance: Decimal | None
 
 
+def forecast_flow(item: Item, today: date) -> tuple[date, Decimal] | None:
+    """Что платёж даёт прогнозу: день (ожидаемый с прошедшим сроком — сегодня) и сумма (у частично оплаченного —
+    остаток к оплате); не входит — None."""
+    st = item.status(today)
+    day = max(item.day, today)
+    if st in ("planned", "expected") and item.amount is not None:
+        return day, item.amount
+    if st == "partial" and item.day >= today - timedelta(days=EXPECT_DAYS):
+        return day, item.remaining  # type: ignore[return-value]
+    return None
+
+
 def in_forecast(item: Item, today: date) -> bool:
-    return item.status(today) == "planned" and item.amount is not None
+    return forecast_flow(item, today) is not None
 
 
 def forecast(start: Decimal | None, items: list[Item], today: date, date_to: date, threshold: Decimal | None = None) -> Forecast:
     """Остаток на конец каждого дня с сегодня по date_to. start — остаток сейчас (с сегодняшними операциями)."""
     flows: dict[date, list[Decimal]] = {}
     for item in items:
-        if in_forecast(item, today) and today <= item.day <= date_to:
-            flows.setdefault(item.day, []).append(item.amount)
+        flow = forecast_flow(item, today)
+        if flow is not None and flow[0] <= date_to:
+            flows.setdefault(flow[0], []).append(flow[1])
     limit = threshold if threshold is not None else ZERO
     days: list[Day] = []
     balance = start
@@ -302,3 +419,23 @@ def forecast(start: Decimal | None, items: list[Item], today: date, date_to: dat
         min_balance=min((d.balance for d in known), default=None),
         end_balance=known[-1].balance if known else None,
     )
+
+
+@dataclass
+class Causes:
+    """Почему кассовый разрыв: крупнейшие платежи с сегодня по день разрыва и поступления, которые не пришли."""
+
+    expenses: list[tuple[Item, Decimal]]  # платёж и сумма в прогнозе (у частично оплаченного — остаток)
+    missing_income: list[Item]  # просроченные поступления: в прогноз не входят — если придут, разрыв меньше
+
+
+def gap_causes(items: list[Item], today: date, until: date, limit: int = 5) -> Causes:
+    expenses = []
+    for item in items:
+        flow = forecast_flow(item, today)
+        if flow is not None and flow[1] < 0 and flow[0] <= until:
+            expenses.append((item, flow[1]))
+    expenses.sort(key=lambda x: (x[1], x[0].day, x[0].key))
+    missing = [i for i in items if i.kind == "income" and i.status(today) == "overdue" and i.amount is not None]
+    missing.sort(key=lambda i: (-abs(i.amount), i.day, i.key))  # type: ignore[arg-type]
+    return Causes(expenses[:limit], missing[:limit])

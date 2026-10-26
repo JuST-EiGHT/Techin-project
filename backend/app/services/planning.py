@@ -39,6 +39,11 @@ MAX_AMOUNT = Decimal("10000000000")
 MIN_DAY = date(2000, 1, 1)
 OZON_KEY = "ozon_payout:"
 OZON_BANK_DAYS = 5  # выплата Ozon доходит до счёта за 0–5 дней (шаг 3.11)
+# расходы, которые не прочие расходы бизнеса в P&L (шаг 10.19 → 10.22): себестоимость и налог в P&L уже есть, кредит и
+# вывод владельцу — не расход бизнеса, перевод — не расход вовсе
+NOT_IN_PNL = ("loans", "taxes", "owner", "purchase", "supplier", "materials", "production_salary", "workshop_rent",
+              "equipment", "transfer")
+UNSET = object()
 KIND_TITLES = {"checking": "Расчётный счёт", "card": "Карта", "cash": "Наличные", "wallet": "Кошелёк", "other": "Счёт"}
 
 
@@ -233,18 +238,38 @@ async def add_template_categories(db: AsyncSession, user_id: uuid.UUID, codes: l
                 existing.archived_at = None
                 added += 1
             continue
-        db.add(CashCategory(user_id=user_id, name=t["name"], kind=t["kind"], code=t["code"]))
+        db.add(CashCategory(user_id=user_id, name=t["name"], kind=t["kind"], code=t["code"],
+                            in_pnl=default_in_pnl(t["kind"], t["code"]), in_budget=t["kind"] != "transfer"))
         added += 1
     return added
 
 
+def default_in_pnl(kind: str, code: str | None) -> bool:
+    """Расход бизнеса в P&L по умолчанию: расходы, кроме себестоимости (закупка, поставщик, затраты производства — они
+    в себестоимости производства), налогов, кредитов, вывода владельцу."""
+    return kind == "expense" and code not in NOT_IN_PNL
+
+
 async def categories(db: AsyncSession, user_id: uuid.UUID) -> list[dict]:
+    """Статьи со подстатьями (parent_id), отметками «где учитывается» и числом действующих операций."""
     why = {t["code"]: t["why"] for t in template_categories()}
+    used = dict((await db.execute(_current(
+        select(MoneyOperation.category_id, func.count()).where(MoneyOperation.user_id == user_id,
+                                                                MoneyOperation.category_id.is_not(None))
+    ).group_by(MoneyOperation.category_id))).all())
+    cats = await _categories(db, user_id)
+    children = {c.parent_id for c in cats if c.parent_id and c.archived_at is None}
     return [
         {"id": c.id, "name": c.name, "kind": c.kind, "code": c.code, "archived": c.archived_at is not None,
-         "required": c.code in REQUIRED_CODES, "why": why.get(c.code)}
-        for c in await _categories(db, user_id)
+         "required": c.code in REQUIRED_CODES, "why": why.get(c.code), "parent_id": c.parent_id,
+         "has_children": c.id in children, "in_pnl": c.in_pnl, "in_budget": c.in_budget, "operations": used.get(c.id, 0)}
+        for c in cats
     ]
+
+
+async def subcategory_ids(db: AsyncSession, user_id: uuid.UUID, category_id: uuid.UUID) -> set[uuid.UUID]:
+    """Статья и её подстатьи — фильтр «по статье» включает подстатьи (их факт входит в статью)."""
+    return {category_id} | {c.id for c in await _categories(db, user_id) if c.parent_id == category_id}
 
 
 async def _category(db: AsyncSession, user_id: uuid.UUID, category_id: uuid.UUID) -> CashCategory:
@@ -277,13 +302,40 @@ async def _same_name(
     ), None)
 
 
-async def create_category(db: AsyncSession, user_id: uuid.UUID, name: str, kind: str) -> CashCategory:
+async def _check_parent(db: AsyncSession, user_id: uuid.UUID, kind: str, parent_id: uuid.UUID | None,
+                        cat: CashCategory | None = None) -> uuid.UUID | None:
+    """Подстатья: родитель — действующая статья того же вида без своего родителя; у статьи с подстатьями родителя нет."""
+    if parent_id is None:
+        return None
+    parent = await _category(db, user_id, parent_id)
+    if cat is not None and parent.id == cat.id:
+        raise PlanningError("Статья не может быть подстатьёй самой себя")
+    if parent.kind != kind or kind == "transfer":
+        raise PlanningError("Подстатья — того же вида, что статья: поступление в поступлении, расход в расходе")
+    if parent.archived_at is not None:
+        raise PlanningError(f"Статья «{parent.name}» в архиве — выберите действующую")
+    if parent.parent_id is not None:
+        raise PlanningError(f"«{parent.name}» сама подстатья — вложенность одна: выберите статью верхнего уровня")
+    if cat is not None and any(c.parent_id == cat.id and c.archived_at is None for c in await _categories(db, user_id)):
+        raise PlanningError("У статьи есть подстатьи — сначала перенесите их, потом делайте её подстатьёй")
+    return parent.id
+
+
+async def create_category(db: AsyncSession, user_id: uuid.UUID, name: str, kind: str, parent_id: uuid.UUID | None = None,
+                          in_pnl: bool | None = None, in_budget: bool | None = None) -> CashCategory:
     name = _check_category_name(name)
     if kind not in ("income", "expense"):
         raise PlanningError("Статья — поступление или расход")
     if (same := await _same_name(db, user_id, name, kind)) is not None:
         raise PlanningError(f"Статья «{same.name}» уже есть — выберите её в списке")
-    cat = CashCategory(user_id=user_id, name=name, kind=kind)
+    if kind != "expense" and in_pnl:
+        raise PlanningError("В P&L идут только расходы: доходы магазина P&L берёт из начислений Ozon")
+    parent = await _check_parent(db, user_id, kind, parent_id)
+    if parent is not None and in_pnl is None:  # подстатья — как статья
+        in_pnl = (await _category(db, user_id, parent)).in_pnl
+    cat = CashCategory(id=uuid.uuid4(), user_id=user_id, name=name, kind=kind, parent_id=parent,
+                       in_pnl=default_in_pnl(kind, None) if in_pnl is None else in_pnl,
+                       in_budget=True if in_budget is None else in_budget)
     db.add(cat)
     return cat
 
@@ -300,16 +352,29 @@ async def resolve_category(db: AsyncSession, user_id: uuid.UUID, name: str, kind
     if same:
         same[0].archived_at = None
         return same[0], "restored"
-    cat = CashCategory(id=uuid.uuid4(), user_id=user_id, name=name, kind=kind)
+    cat = CashCategory(id=uuid.uuid4(), user_id=user_id, name=name, kind=kind, in_pnl=default_in_pnl(kind, None))
     db.add(cat)
     await db.flush()
     return cat, "created"
 
 
 async def update_category(
-    db: AsyncSession, user_id: uuid.UUID, category_id: uuid.UUID, name: str | None, archived: bool | None
+    db: AsyncSession, user_id: uuid.UUID, category_id: uuid.UUID, name: str | None, archived: bool | None,
+    parent_id=UNSET, in_pnl: bool | None = None, in_budget: bool | None = None,
 ) -> CashCategory:
+    """Название, архив, подстатья (parent_id: статья — сделать подстатьёй, None — на верхний уровень), «где
+    учитывается»."""
     cat = await _category(db, user_id, category_id)
+    if parent_id is not UNSET and parent_id != cat.parent_id:
+        if cat.code in REQUIRED_CODES and parent_id is not None:
+            raise PlanningError("Эта статья нужна сервису — она остаётся статьёй верхнего уровня")
+        cat.parent_id = await _check_parent(db, user_id, cat.kind, parent_id, cat)
+    if in_pnl is not None:
+        if cat.kind != "expense" and in_pnl:
+            raise PlanningError("В P&L идут только расходы: доходы магазина P&L берёт из начислений Ozon")
+        cat.in_pnl = in_pnl
+    if in_budget is not None:
+        cat.in_budget = in_budget
     if name is not None:
         name = _check_category_name(name)
         if (same := await _same_name(db, user_id, name, cat.kind, skip=cat.id)) is not None:
@@ -321,6 +386,12 @@ async def update_category(
                 "Эта статья нужна сервису: в неё попадают выплаты Ozon" if cat.code == "marketplace"
                 else "Эта статья нужна сервису: так отмечаются переводы между своими счетами"
             )
+        if archived and any(c.parent_id == cat.id and c.archived_at is None for c in await _categories(db, user_id)):
+            raise PlanningError("У статьи есть подстатьи — сначала перенесите их в другую статью или в архив")
+        if not archived and cat.parent_id is not None:
+            parent = await _category(db, user_id, cat.parent_id)
+            if parent.archived_at is not None:  # статья-родитель в архиве — возвращаем на верхний уровень
+                cat.parent_id = None
         cat.archived_at = _now() if archived else None
     return cat
 
@@ -466,7 +537,7 @@ async def create_operation(
         from app.engine.categorize import Facts
         from app.services import categorization
 
-        facts = Facts(data.amount, data.counterparty, purpose=data.comment)
+        facts = Facts(data.amount, data.counterparty, purpose=data.comment, account_id=str(data.account_id), source=source)
         hit = (await categorization.picker(db, user_id, [facts])).pick(facts)
         if hit is not None:
             category, by, rule = hit
@@ -625,7 +696,7 @@ async def history(db: AsyncSession, user_id: uuid.UUID, op_id: uuid.UUID) -> lis
 async def list_operations(
     db: AsyncSession, user_id: uuid.UUID, date_from: date, date_to: date, account_id: uuid.UUID | None = None,
     category_id: uuid.UUID | None = None, search: str | None = None, limit: int = 100, offset: int = 0,
-    uncategorized: bool = False,
+    uncategorized: bool = False, rule_id: uuid.UUID | None = None,
 ) -> dict:
     """Действующие операции периода, новые сверху. Перевод — одной строкой (частью «со счёта»), а при выборе счёта —
     частью этого счёта. Итоги — без переводов: они не доход и не расход."""
@@ -634,8 +705,10 @@ async def list_operations(
     ))
     if account_id is not None:
         q = q.where(MoneyOperation.account_id == account_id)
-    if category_id is not None:
-        q = q.where(MoneyOperation.category_id == category_id)
+    if category_id is not None:  # статья — вместе с её подстатьями
+        q = q.where(MoneyOperation.category_id.in_(await subcategory_ids(db, user_id, category_id)))
+    if rule_id is not None:  # операции, которым статью поставило это правило (шаг 10.20)
+        q = q.where(MoneyOperation.rule_id == rule_id, MoneyOperation.category_by == "rule")
     if uncategorized:  # «без статьи» — переводы не в счёт: у них своя статья
         q = q.where(MoneyOperation.category_id.is_(None), MoneyOperation.transfer_id.is_(None))
     if search:
@@ -672,7 +745,7 @@ async def list_operations(
         return {
             "op_id": r.op_id, "version": r.version, "day": r.day, "amount": r.amount,
             "account": {"id": acc.id, "name": acc.name},
-            "category": {"id": cat.id, "name": cat.name, "kind": cat.kind} if cat else None,
+            "category": {"id": cat.id, "name": cat.name, "kind": cat.kind, "parent_id": cat.parent_id} if cat else None,
             "counterparty": r.counterparty, "comment": r.comment, "source": r.source, "transfer": transfer,
             "category_by": r.category_by,
             "before_opening": opening is not None and r.day < opening.as_of,

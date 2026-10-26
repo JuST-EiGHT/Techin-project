@@ -1,0 +1,48 @@
+{
+  "orders": [
+    {
+      "order_id": 5001,
+      "order_number": "2000000005001",
+      "created_date": "2026-09-20T08:00:00Z",
+      "state": "COMPLETED",
+      "state_updated_date": "2026-09-27T12:30:00Z",
+      "dropoff_warehouse": {"warehouse_id": 23843917228000, "address": "г. Москва, ул. Тестовая, 1", "name": "Точка отгрузки Тест"},
+      "order_tags": {"is_econom": false, "is_virtual": false, "is_super_fbo": false, "product_super_fbo": false, "is_quant": false},
+      "timeslot": {"timeslot": {"from": "2026-09-25T06:00:00Z", "to": "2026-09-25T07:00:00Z"},
+                   "timezone_info": {"offset": "+03:00", "iana_name": "Europe/Moscow"}},
+      "supplies": [
+        {"supply_id": 7001, "macrolocal_cluster_id": 2,
+         "storage_warehouse": {"warehouse_id": 1020000000000202, "arrival_date": "2026-09-25T00:00:00Z", "address": "СПб", "name": "СПБ_БУГРЫ_РФЦ"},
+         "is_crossdock": false, "bundle_id": "bnd-5001", "state": "COMPLETED"}
+      ]
+    },
+    {
+      "order_id": 5002,
+      "order_number": "2000000005002",
+      "created_date": "2026-10-20T09:15:00Z",
+      "state": "READY_TO_SUPPLY",
+      "state_updated_date": "2026-10-21T10:00:00Z",
+      "dropoff_warehouse": {"warehouse_id": 23843917228000, "address": "г. Москва, ул. Тестовая, 1", "name": "Точка отгрузки Тест"},
+      "order_tags": {"is_econom": false, "is_virtual": false},
+      "timeslot": {"timeslot": {"from": "2026-10-28T07:00:00Z", "to": "2026-10-28T08:00:00Z"},
+                   "timezone_info": {"offset": "+05:00", "iana_name": "Asia/Yekaterinburg"}},
+      "supplies": [
+        {"supply_id": 7002, "macrolocal_cluster_id": 154,
+         "storage_warehouse": {"warehouse_id": 1020000000000101, "name": "ЕКАТЕРИНБУРГ_РФЦ_НОВЫЙ"},
+         "is_crossdock": false, "bundle_id": "bnd-5002", "state": "READY_TO_SUPPLY"}
+      ]
+    },
+    {
+      "order_id": 5003,
+      "order_number": "2000000005003",
+      "created_date": "2026-10-01T11:00:00Z",
+      "state": "CANCELLED",
+      "state_updated_date": "2026-10-02T09:00:00Z",
+      "supplies": [
+        {"supply_id": 7003, "macrolocal_cluster_id": 999,
+         "storage_warehouse": {"warehouse_id": 1020000000000303, "name": "КРАСНОДАР_2_РФЦ"},
+         "bundle_id": "bnd-5003", "state": "CANCELLED"}
+      ]
+    }
+  ]
+}

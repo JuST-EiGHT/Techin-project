@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ProductPromo(BaseModel):
@@ -41,9 +41,39 @@ class ProductItem(BaseModel):
     unit_profit: Decimal | None  # остаётся с 1 шт. при текущей цене (простая формула)
     margin: Decimal | None  # %, та же формула
     margin_level: str | None  # negative | low | ok
+    breakeven_price: Decimal | None = None  # минимальная цена калькулятора 4.2: без прибыли и без убытка (10.15)
     price_index: str | None  # super | green | yellow | red | null — индекса нет
     promotions: list[ProductPromo]
     last_sale: date | None  # последний день с продажей по загруженным начислениям
+    # за выбранный период (10.13) — «Прибыль по товарам»: нет начислений за период — null, без продаж — 0
+    sold_qty: int | None
+    revenue: Decimal | None
+    period_profit: Decimal | None  # до налога; нет себестоимости — null
+    flags: list["ProductFlag"] = []  # индикаторы проблем: значок с подсказкой
+
+
+class ProductFlag(BaseModel):
+    code: str  # loss | low_margin | low_stock | no_cost | price_changed
+    text: str
+
+
+class ProductsPeriod(BaseModel):
+    date_from: date
+    date_to: date
+    data_source: str  # xlsx | api | mixed | none
+    days_total: int
+    missing_days: int
+
+
+class ProductIds(BaseModel):
+    ids: list[uuid.UUID]  # все товары по поиску и фильтрам — «выбрать все по фильтру»
+    total: int
+
+
+class SelectedRequest(BaseModel):
+    product_ids: list[uuid.UUID] = Field(min_length=1, max_length=5000)
+    date_from: date | None = None
+    date_to: date | None = None
 
 
 class ProductCounts(BaseModel):
@@ -66,6 +96,7 @@ class ProductsPage(BaseModel):
     stocks_known: bool  # остатки загружались
     sales_window_days: int
     margin_note: str  # как считаем маржу — подсказка «?»
+    period: ProductsPeriod  # за какой период продажи, выручка и прибыль (10.13)
 
 
 class ProductCost(BaseModel):
@@ -116,3 +147,79 @@ class ProductDetail(BaseModel):
     price_days: list[PriceDay]  # цена на конец каждого дня за период
     price_changes: list[PriceChange]  # снимки цены за период (новые — первыми)
     first_price_at: datetime | None  # с какого момента копится история цены
+
+
+# ── «Статистика товара» (шаг 10.14) ──
+class PriceLevel(BaseModel):
+    """Цена и что остаётся с 1 шт. при ней — калькулятор 4.2."""
+
+    kind: str  # old — зачёркнутая, price — ваша, marketing — с вашими акциями, promo — в акции, candidate — можно в акцию
+    title: str
+    price: Decimal
+    discount_pct: Decimal | None  # скидка от вашей цены, %
+    margin: Decimal | None  # %, до налога на прибыль; не хватает данных — null
+    unit_profit: Decimal | None
+    profit_change: Decimal | None  # прибыль с 1 шт. к вашей цене
+    promotion_id: uuid.UUID | None
+    date_to: datetime | None
+    added_automatically: bool
+
+
+class PriceLevels(BaseModel):
+    levels: list[PriceLevel]
+    missing: list[str]  # чего не хватает калькулятору
+    note: str
+
+
+class ClusterSupply(BaseModel):
+    """Поставка в кластер или закупка на свой склад из «Поставок» (5.2)."""
+
+    kind: str  # supply | purchase
+    urgency: str  # critical | urgent | planned
+    avg_daily: Decimal
+    rate: Decimal
+    days_left: Decimal | None
+    to_order: int
+    target_stock: int
+    arrives_late: bool
+    sold_30: int
+
+
+class ClusterStock(BaseModel):
+    name: str  # кластер Ozon или свой склад
+    type: str  # FBO | FBS | rFBS
+    present: int
+    in_transit: int | None
+    reserved: int | None
+    warehouses: list[str]  # склады Ozon кластера, где товар лежит
+    supply: ClusterSupply | None
+
+
+class StockRisk(BaseModel):
+    level: str  # critical | low | ok | excess | unknown
+    text: str
+
+
+class ProductStats(BaseModel):
+    detail: ProductDetail
+    period: ProductsPeriod
+    pnl: "ProductRow | None"  # «Прибыль по товарам» за период; продаж не было или нет данных — null
+    cost_basis: str  # with_vat | without_vat — как считается себестоимость в прибыли
+    prices: PriceLevels
+    clusters: list[ClusterStock]
+    supply_known: bool  # отправления FBO хоть раз загружались — поставки по кластерам считаются
+    risk: StockRisk
+    cost_history: list["CostRecord"]  # новые — первыми
+    price_changes: list["PriceHistoryItem"]  # через сервис за год, последние
+    price_changes_total: int
+    promotions: list["HistoryItem"]  # участие в акциях за год, последние
+    promotions_total: int
+
+
+from app.schemas.costs import CostRecord  # noqa: E402
+from app.schemas.pnl import ProductRow  # noqa: E402
+from app.schemas.prices import PriceHistoryItem  # noqa: E402
+from app.schemas.promotion import HistoryItem  # noqa: E402
+
+ProductItem.model_rebuild()
+ProductStats.model_rebuild()

@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.models.invite import Invite
 from app.models.user import User
 from app.schemas.user import UserCreate
+from app.services.account import split_name
 from app.services.security import hash_password
 
 CLOSED, INVITE, OPEN = "closed", "invite", "open"
@@ -111,7 +112,9 @@ async def check_invite(db: AsyncSession, code: str | None, email: str) -> Invite
 async def register(db: AsyncSession, data: UserCreate, invite: Invite | None) -> User:
     """Пользователь и отметка «приглашение использовано» — одной транзакцией: одно приглашение — один аккаунт, даже
     если два человека отправили код одновременно."""
-    user = User(email=data.email.lower(), hashed_password=hash_password(data.password), full_name=data.full_name)
+    first, last = split_name(data.full_name)
+    user = User(email=data.email.lower(), hashed_password=hash_password(data.password), full_name=data.full_name,
+                first_name=first, last_name=last)
     db.add(user)
     await db.flush()
     if invite is not None:

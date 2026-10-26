@@ -8,7 +8,7 @@ auto / xlsx / api, пропуски видны. Себестоимость с Н
 import csv
 import io
 import uuid
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +32,43 @@ def _s(v: Decimal | None) -> str | None:
     return None if v is None else str(Decimal(v).quantize(engine.CENT))
 
 
+@dataclass
+class Runner:
+    """Движок прибыли по товарам с себестоимостью и НДС периода: run(строки) — для всего периода или его части
+    (аналитика по дням, шаг 10.3, — тот же расчёт, что и «Прибыль по товарам»)."""
+
+    posting_offers: dict[str, set[str]]
+    cost_of: engine.CostLookup
+    with_vat: bool
+    default_vat: Decimal
+
+    def __call__(self, lines: list[pnl_data.Line]) -> engine.ProductPnL:
+        return engine.compute(
+            [engine.LineIn(ln.day, ln.type_name, ln.amount, ln.quantity, ln.offer_id, ln.sku, ln.name, ln.posting_number)
+             for ln in lines],
+            self.posting_offers, self.cost_of, self.with_vat, self.default_vat,
+        )
+
+
+async def runner(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest, lines: list[pnl_data.Line]) -> Runner:
+    history = await load_cost_history(db, user_id)
+    row = profile_on(await load_profiles(db, user_id), req.date_from)
+    with_vat = not (row is not None and row.vat_mode == "general")  # НДС с вычетом — поставщику без НДС
+    if req.vat_multiplier is not None:
+        default_vat = req.vat_multiplier
+    else:
+        default_vat = 1 + (Decimal(row.supplier_vat_pct) if row else default_supplier_vat_pct(req.date_from)) / 100
+
+    def cost_of(offer: str, day):
+        rec = history.record_at(offer, day)
+        if rec is None:
+            return None
+        return Decimal(rec.cost_price), Decimal(rec.vat_multiplier) if rec.vat_multiplier is not None else None
+
+    numbers = {ln.posting_number for ln in lines if not ln.offer_id and ln.posting_number}
+    return Runner(await pnl_data.posting_offers(db, user_id, numbers), cost_of, with_vat, default_vat)
+
+
 async def compute(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest, report: Report | None = None) -> dict:
     """Все товары периода (или отчёта по начислениям), «Не распределено», итоги, источник и предупреждения."""
     if report is not None:
@@ -51,29 +88,9 @@ async def compute(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest, report:
         else await pnl_data.coverage(db, user_id, req.date_from, req.date_to, req.source)
     )
     lines = await pnl_data.load_lines(db, user_id, cov)
-    history = await load_cost_history(db, user_id)
-    row = profile_on(await load_profiles(db, user_id), req.date_from)
-    with_vat = not (row is not None and row.vat_mode == "general")  # НДС с вычетом — поставщику без НДС
-    if req.vat_multiplier is not None:
-        default_vat = req.vat_multiplier
-    else:
-        default_vat = 1 + (Decimal(row.supplier_vat_pct) if row else default_supplier_vat_pct(req.date_from)) / 100
-
-    def cost_of(offer: str, day):
-        rec = history.record_at(offer, day)
-        if rec is None:
-            return None
-        return Decimal(rec.cost_price), Decimal(rec.vat_multiplier) if rec.vat_multiplier is not None else None
-
-    numbers = {ln.posting_number for ln in lines if not ln.offer_id and ln.posting_number}
-    result = engine.compute(
-        [engine.LineIn(ln.day, ln.type_name, ln.amount, ln.quantity, ln.offer_id, ln.sku, ln.name, ln.posting_number)
-         for ln in lines],
-        await pnl_data.posting_offers(db, user_id, numbers),
-        cost_of,
-        with_vat,
-        default_vat,
-    )
+    run = await runner(db, user_id, req, lines)
+    with_vat, default_vat = run.with_vat, run.default_vat
+    result = run(lines)
 
     warnings = coverage_warnings(cov)
     missing = [r for r in result.rows if r.cost_missing]
@@ -165,6 +182,30 @@ def select_rows(items: list[dict], search: str | None, sort: str, order: str) ->
     empty = [i for i in items if key(i) is None]
     present.sort(key=lambda i: (key(i), i["offer_id"]), reverse=order == "desc")
     return present + sorted(empty, key=lambda i: i["offer_id"])
+
+
+# быстрые фильтры «Аналитики прибыльности» (10.9): прибыль < 0, маржа ниже порога «низкой маржи» (7.1), нет себестоимости
+LOSS, LOW_MARGIN, NO_COST = "loss", "low_margin", "no_cost"
+FILTERS = (LOSS, LOW_MARGIN, NO_COST)
+
+
+def passes(item: dict, kind: str, low_margin: Decimal) -> bool:
+    if kind == LOSS:
+        return item["profit"] is not None and Decimal(item["profit"]) < 0
+    if kind == LOW_MARGIN:  # и в минусе тоже — маржа ниже порога
+        return item["margin"] is not None and Decimal(item["margin"]) < low_margin
+    return bool(item["cost_missing"])
+
+
+def filter_rows(items: list[dict], kinds: list[str], low_margin: Decimal, offers: set[str] | None = None) -> list[dict]:
+    """Товары фильтра (None — все) и все условия kinds сразу."""
+    return [i for i in items if (offers is None or i["offer_id"] in offers) and all(passes(i, k, low_margin) for k in kinds)]
+
+
+def filter_counts(items: list[dict], low_margin: Decimal, offers: set[str] | None = None) -> dict[str, int]:
+    """Сколько товаров у каждого быстрого фильтра — числа у кнопок."""
+    scope = filter_rows(items, [], low_margin, offers)
+    return {"all": len(scope), **{k: sum(passes(i, k, low_margin) for i in scope) for k in FILTERS}}
 
 
 CSV_COLUMNS = [

@@ -67,6 +67,12 @@ class PromotionProductResponse(BaseModel):
     margin_in_promo: Decimal | None  # %, калькулятор цены (шаг 4.2); null — нет себестоимости, комиссии или логистики
     margin_level: str | None  # negative | low | ok
     first_seen_at: datetime
+    # минимальная цена для участия (10.16) — калькулятор 4.2: без прибыли и без убытка; целевая — с вашей маржой
+    breakeven_price: Decimal | None = None
+    target_price: Decimal | None = None
+    below_breakeven: bool = False  # цена в акции (у кандидата — цена входа) ниже минимальной: каждая продажа в минус
+    unit_profit: Decimal | None = None  # остаётся с 1 шт. при цене в акции, до налога на прибыль
+    whole_stock_profit: Decimal | None = None  # «весь остаток» (§9): если по цене в акции уйдёт весь остаток
 
 
 class PromotionProductsResponse(BaseModel):
@@ -113,6 +119,60 @@ class HistoryItem(BaseModel):
     prices: list[HistoryPrice]  # цена и количество в акции: при входе и при каждом изменении
     added_automatically: bool
     margin_in_promo: Decimal | None  # по последней синхронизации
+    result: "ParticipationResult | None" = None  # результат участия (10.16)
+
+
+class ResultWindow(BaseModel):
+    """Окно сравнения: дни, из них с данными, продано, выручка, прибыль (None — нет себестоимости или данных)."""
+
+    date_from: date
+    date_to: date
+    days: int
+    days_with_data: int
+    qty: int
+    revenue: Decimal
+    profit: Decimal | None
+
+
+class ParticipationResult(BaseModel):
+    """Результат участия (10.16): «во время» против такого же периода «до»; дни без данных — пропуск."""
+
+    during: ResultWindow
+    before: ResultWindow
+    base: ResultWindow | None  # «до», приведённое к дням с данными «во время» — с ним и сравниваем
+    known: bool  # в обоих окнах есть дни с данными
+    qty_change_pct: Decimal | None
+    revenue_change_pct: Decimal | None
+    profit_change: Decimal | None  # ₽ за дни с данными «во время»
+
+
+class PromotionResultItem(BaseModel):
+    participation_id: uuid.UUID
+    product: PromoProduct
+    entered_at: datetime
+    left_at: datetime | None
+    is_current: bool  # участвует сейчас
+    result: ParticipationResult
+
+
+class PromotionTotals(BaseModel):
+    products: int  # товаров с данными в обоих окнах
+    qty: int | None
+    qty_before: int | None
+    revenue: Decimal | None
+    revenue_before: Decimal | None
+    profit: Decimal | None
+    profit_before: Decimal | None
+    qty_change_pct: Decimal | None
+    revenue_change_pct: Decimal | None
+    profit_change: Decimal | None
+
+
+class PromotionResults(BaseModel):
+    promotion: PromotionResponse
+    totals: PromotionTotals
+    items: list[PromotionResultItem]
+    note: str
 
 
 class HistoryResponse(BaseModel):
@@ -170,3 +230,6 @@ class ActionResponse(BaseModel):
     whole_stock_total: WholeStockTotal | None
     boosting: bool
     message: str | None
+
+
+HistoryItem.model_rebuild()

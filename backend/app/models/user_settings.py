@@ -61,6 +61,11 @@ class UserSettings(Base):
     # планирование поставок (шаг 5.2): запас после поставки, дней, и сколько дней везти; пусто — 45 и 7
     supply_target_days: Mapped[int | None] = mapped_column(Integer)
     supply_lead_time_days: Mapped[int | None] = mapped_column(Integer)
+    supply_safety_days: Mapped[int | None] = mapped_column(Integer)  # страховой запас, дней (10.18); нет — 0
+    # период планирования поставок (10.26): спрос — по заказам за столько дней; нет — 30
+    supply_demand_days: Mapped[int | None] = mapped_column(Integer)
+    # минимальная допустимая прибыль с продажи, ₽ (10.26): в расчёте цены — «цена с минимальной прибылью»; нет — 0
+    min_profit_rub: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     # порог «низкой маржи», % (шаг 7.1): акции, страница товаров, прибыль по товарам и аномалия «маржа ниже порога»;
     # пусто — 10 % (engine/anomaly_detector.Thresholds)
     low_margin_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
@@ -74,6 +79,14 @@ class UserSettings(Base):
     anomaly_payout_diff_pct: Mapped[int | None] = mapped_column(Integer)  # выплата разошлась с прогнозом, % (10)
     anomaly_cash_gap_days: Mapped[int | None] = mapped_column(Integer)  # кассовый разрыв: смотрим вперёд, дней (14)
     anomaly_uncategorized_days: Mapped[int | None] = mapped_column(Integer)  # операция без статьи дольше, дней (7)
+    # проверки данных (шаг 10.5): данные не обновлялись дольше, часов (24); дней без начислений между загруженными (1)
+    anomaly_sync_stale_hours: Mapped[int | None] = mapped_column(Integer)
+    anomaly_data_gap_days: Mapped[int | None] = mapped_column(Integer)
+    # «Рекомендуемые действия» (шаг 10.6): «Скрыть» — на сколько дней; пусто — 7
+    recommendation_hide_days: Mapped[int | None] = mapped_column(Integer)
+    # ABC-анализ (шаг 10.10): границы групп, % накопленной доли; пусто — 80 и 95 (engine/abc)
+    abc_a_pct: Mapped[int | None] = mapped_column(Integer)
+    abc_b_pct: Mapped[int | None] = mapped_column(Integer)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

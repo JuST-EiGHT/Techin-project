@@ -1,22 +1,28 @@
 'use client'
-// «Выплаты Ozon» (шаг 3.6) — область «Финансы Ozon»: работает без банков и планирования.
+// «Выплаты и расчёты с Ozon» (шаги 3.6, 10.23) — область «Финансы Ozon»: работает без банков и планирования. Следующая
+// выплата, баланс, график и прогноз (3.6); за период — баланс у Ozon и начисления по статьям, выплаты и поступления на
+// счёт по каждой выплате (сверка 3.11), расхождения с объяснением и переходами; настройка графика выплат.
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { AnalyticsFilters, useAnalyticsFilter } from '@/components/analytics'
 import {
   ForecastTable,
-  HistoryTable,
   type Payouts,
   ScheduleBlock,
+  type Settlement,
+  SettlementIssues,
+  SettlementSummary,
+  SettlementTable,
   WeekChart,
   mondayOf,
   weekText,
   weekdayShort,
 } from '@/components/payouts'
 import { Warnings, fmtDay, rub } from '@/components/reports'
-import { timeAgo } from '@/components/SyncStatus'
+import { refreshSyncStatus, timeAgo } from '@/lib/sync'
 import { api, errorMessage } from '@/lib/api'
 import { addDays, todayMsk } from '@/lib/period'
 
@@ -80,6 +86,9 @@ function PayoutsView() {
   const rawWeek = params.get('week')
   const week = rawWeek && DAY.test(rawWeek) ? mondayOf(rawWeek) : null
   const [data, setData] = useState<Payouts | null>(null)
+  const [filter, update] = useAnalyticsFilter('90d')
+  const { from, to } = filter.range
+  const [settlement, setSettlement] = useState<Settlement | null>(null)
   const [sync, setSync] = useState<SyncStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
@@ -95,11 +104,27 @@ function PayoutsView() {
     }
   }, [])
 
+  // расчёты за период — свой запрос: меняется с фильтром, выплаты 3.6 — нет
+  const [version, setVersion] = useState(0)
+  useEffect(() => {
+    let alive = true
+    api
+      .get<Settlement>('/ozon/settlement', { params: { date_from: from, date_to: to } })
+      .then(({ data }) => alive && setSettlement(data))
+      .catch((err) => alive && setError(errorMessage(err)))
+    return () => {
+      alive = false
+    }
+  }, [from, to, version])
+
   const loadSync = useCallback(async () => {
     try {
       const { data } = await api.get<SyncStatus>('/sync/status')
       const nowActive = ['queued', 'running'].includes(data.balance.last_run?.status ?? '')
-      if (wasActive.current && !nowActive) load() // загрузка баланса закончилась — перечитываем выплаты
+      if (wasActive.current && !nowActive) {
+        load() // загрузка баланса закончилась — перечитываем выплаты и расчёты
+        setVersion((v) => v + 1)
+      }
       wasActive.current = nowActive
       setSync(data)
     } catch (err) {
@@ -113,7 +138,7 @@ function PayoutsView() {
   }, [load, loadSync])
 
   // выбрали неделю на графике (здесь или на главной) — показать её выплаты
-  const loaded = data !== null
+  const loaded = data !== null && settlement !== null
   useEffect(() => {
     if (!week || !loaded) return
     const target = document.querySelector('[data-highlight]') ?? document.querySelector('[data-testid=week-focus]')
@@ -132,6 +157,7 @@ function PayoutsView() {
     setError(null)
     try {
       await api.post('/sync/balance')
+      refreshSyncStatus() // кнопка «Синхронизация» в шапке сразу покажет загрузку
     } catch (err) {
       if ((err as { response?: { status?: number } }).response?.status !== 409) setError(errorMessage(err))
     } finally {
@@ -149,7 +175,7 @@ function PayoutsView() {
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <h1 className="text-2xl font-semibold">Выплаты Ozon</h1>
+        <h1 className="text-2xl font-semibold">Выплаты и расчёты с Ozon</h1>
         {sync?.has_active_key && (
           <div className="flex items-center gap-3 text-sm sm:ml-auto">
             <span className="text-muted" data-testid="balance-updated">
@@ -244,9 +270,32 @@ function PayoutsView() {
         </>
       )}
 
-      {data && <ScheduleBlock schedule={data.schedule} detected={data.detected} onSaved={load} />}
+      <div className="space-y-3 pt-2" data-testid="settlement">
+        <div>
+          <h2 className="text-lg font-semibold">Расчёты за период</h2>
+          <p className="text-sm text-muted">Сколько Ozon начислил и удержал, сколько выплатил и дошло ли это до счёта.</p>
+        </div>
+        <AnalyticsFilters
+          value={filter}
+          onChange={update}
+          showProduct={false}
+          showCategory={false}
+          showGranularity={false}
+          showCompare={false}
+          kinds={['balance', 'finance', 'bank']}
+        />
+        {settlement === null ? (
+          <p className="text-sm text-muted">Загрузка…</p>
+        ) : (
+          <>
+            <SettlementSummary data={settlement} />
+            <SettlementIssues data={settlement} />
+            <SettlementTable data={settlement} week={week} />
+          </>
+        )}
+      </div>
 
-      {data?.has_data && <HistoryTable items={data.history} week={week} />}
+      {data && <ScheduleBlock schedule={data.schedule} detected={data.detected} onSaved={load} />}
 
       {data?.has_data && (
         <p className="text-xs text-faint">
