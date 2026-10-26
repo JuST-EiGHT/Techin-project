@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.crud import credential as crud_credential
 from app.engine import cash_flow as cf
 from app.engine import payment_calendar as cal
+from app.models.ozon_balance import OzonBalanceDay
 from app.models.planning import MoneyOperation, PlannedPayment
 from app.services import plan_calendar
 from app.services import planning as planning_svc
@@ -42,14 +43,18 @@ async def _sum_ops(db: AsyncSession, user_id: uuid.UUID, account_id: uuid.UUID, 
     return Decimal(total)
 
 
-async def opening_at(db: AsyncSession, user_id: uuid.UUID, day: date) -> tuple[Decimal | None, list[str]]:
-    """Остаток всех счетов на начало дня day и счета без начального остатка (их остаток неизвестен).
+async def opening_at(db: AsyncSession, user_id: uuid.UUID, day: date,
+                     account_id: uuid.UUID | None = None) -> tuple[Decimal | None, list[str]]:
+    """Остаток всех счетов (или одного — account_id) на начало дня day и счета без начального остатка (их остаток
+    неизвестен).
 
     Начальный остаток счёта — на начало дня `as_of`: раньше него остаток = начальный − операции между днём и `as_of`,
     позже — начальный + операции с `as_of` до дня. Ни у одного счёта остатка нет — None."""
     openings = await planning_svc._openings(db, user_id)
     total, known, unknown = ZERO, False, []
     for acc in await planning_svc._accounts(db, user_id):
+        if account_id is not None and acc.id != account_id:
+            continue
         o = openings.get(acc.id)
         if o is None:
             unknown.append(acc.name)
@@ -73,14 +78,29 @@ async def _flows(db: AsyncSession, user_id: uuid.UUID, lo: date, hi: date) -> tu
 # ---------- ДДС ----------
 
 
-async def cash_flow(db: AsyncSession, user_id: uuid.UUID, date_from: date, date_to: date, granularity: str) -> dict:
+TRANSFER_KEY = "transfer"  # по одному счёту перевод — приход или расход этого счёта
+PLAN_MAX_DAYS = 400  # как у календаря: длиннее — только факт
+
+
+async def cash_flow(db: AsyncSession, user_id: uuid.UUID, date_from: date, date_to: date, granularity: str,
+                    account_id: uuid.UUID | None = None) -> dict:
+    """ДДС: факт по операциям и (шаг 10.24) план календаря — оставшиеся платежи с сегодня дают прогнозный остаток на
+    конец периодов, план периода — план-факт по статьям. account_id — один счёт: его остаток, его операции и платежи;
+    переводы со своими счетами тогда — приход и расход этого счёта."""
+    today = today_msk()
     rows, cats = await _flows(db, user_id, date_from, date_to)
-    flows = [
-        cf.Flow(r.day, Decimal(r.amount), str(r.category_id) if r.category_id else None,
-                cats[r.category_id].kind if r.category_id in cats else None, transfer=r.transfer_id is not None)
-        for r in rows
-    ]
-    opening, unknown = await opening_at(db, user_id, date_from)
+    if account_id is not None:
+        rows = [r for r in rows if r.account_id == account_id]
+    flows = []
+    for r in rows:
+        amount = Decimal(r.amount)
+        if r.transfer_id is not None and account_id is not None:
+            flows.append(cf.Flow(r.day, amount, TRANSFER_KEY, "income" if amount > 0 else "expense"))
+            continue
+        flows.append(cf.Flow(r.day, amount, str(r.category_id) if r.category_id else None,
+                             cats[r.category_id].kind if r.category_id in cats else None,
+                             transfer=r.transfer_id is not None))
+    opening, unknown = await opening_at(db, user_id, date_from, account_id)
     accounts = {a.id: a.name for a in await planning_svc._accounts(db, user_id)}
     openings = await planning_svc._openings(db, user_id)
     blind = sorted({accounts[r.account_id] for r in rows if r.account_id not in openings and r.transfer_id is None})
@@ -93,35 +113,81 @@ async def cash_flow(db: AsyncSession, user_id: uuid.UUID, date_from: date, date_
         )
     elif unknown and opening is not None:
         warnings.append(f"Остаток не указан: {', '.join(unknown)} — остатки без этих счетов.")
+
+    # план: платежи календаря 3.9 — оставшиеся с сегодня (прогноз) и все с датой в периоде (план-факт)
+    forecast: list[cf.Flow] = []
+    planned: list[cf.Flow] = []
+    plan_note = None
+    causes = None
+    settings = await planning_svc.get_settings(db, user_id)
+    if settings is None or not settings.enabled:
+        plan_note = "План появится, когда включено «Планирование»"
+    elif (date_to - date_from).days + 1 > PLAN_MAX_DAYS:
+        plan_note = f"План и прогноз — при периоде до {PLAN_MAX_DAYS} дней"
+    else:
+        snap = await plan_calendar.snapshot(db, user_id, date_from, max(date_to, today))
+        by_code = {c.code: c.id for c in cats.values() if c.code and c.archived_at is None}
+        for item in snap.items:
+            acc = item.meta.get("account_id") or (settings.ozon_account_id if item.source == "ozon" else None)
+            if account_id is not None and acc != account_id:
+                continue
+            cid = item.category_id or item.meta.get("category_id") or by_code.get(plan_calendar.TAX_CATEGORY.get(item.source))
+            key = str(cid) if cid else None
+            flow = cal.forecast_flow(item, today)
+            if flow is not None and date_from <= flow[0] <= date_to:
+                forecast.append(cf.Flow(flow[0], flow[1], key, item.kind))
+            if (date_from <= item.day <= date_to and item.amount is not None
+                    and item.status(today) not in ("skipped", "disabled")):
+                planned.append(cf.Flow(item.day, item.amount, key, item.kind))
+        if account_id is None and date_to >= today:
+            causes = plan_calendar.causes_out(snap)
+
     parents = {str(c.id): str(c.parent_id) for c in cats.values() if c.parent_id}
-    result = cf.cash_flow(opening, flows, date_from, date_to, granularity, parents)
+    result = cf.cash_flow(opening, flows, date_from, date_to, granularity, parents, forecast=forecast, planned=planned)
     if result.transfers:
         warnings.append(f"Переводов между своими счетами: {result.transfers} — они не приход и не расход, в ДДС не входят.")
 
     def name(key: str | None, section: str) -> str:
         if key is None:
             return "Без статьи"
+        if key == TRANSFER_KEY:
+            return "Переводы между своими счетами"
         cat = cats.get(uuid.UUID(key))
         return cat.name if cat else "Статья удалена"
 
+    def row_out(r: cf.Row, children: bool = True) -> dict:
+        return {
+            "category_id": None if r.category in (None, TRANSFER_KEY) else r.category,
+            "transfer": r.category == TRANSFER_KEY, "name": name(r.category, r.section), "section": r.section,
+            "values": [_money(v) for v in r.values], "total": _money(r.total),
+            "forecast": [_money(v) for v in r.forecast], "forecast_total": _money(r.forecast_total),
+            "plan": [_money(v) for v in r.plan], "plan_total": _money(r.plan_total),
+            "children": [row_out(c, False) for c in r.children] if children else [],
+        }
+
+    def kind(p: cf.Period) -> str:
+        return "past" if p.end < today else "future" if p.start > today else "current"
+
     return {
-        "date_from": _d(date_from), "date_to": _d(date_to), "granularity": granularity,
+        "date_from": _d(date_from), "date_to": _d(date_to), "granularity": granularity, "today": _d(today),
+        "account_id": account_id,
         "opening": _money(result.opening), "closing": _money(result.closing),
         "income": _money(result.income), "expense": _money(result.expense), "net": _money(result.net),
+        "forecast_income": _money(result.forecast_income), "forecast_expense": _money(result.forecast_expense),
+        "plan_income": _money(result.plan_income), "plan_expense": _money(result.plan_expense),
         "periods": [
-            {"date_from": _d(p.start), "date_to": _d(p.end), "opening": _money(p.opening), "income": _money(p.income),
-             "expense": _money(p.expense), "net": _money(p.net), "closing": _money(p.closing)}
+            {"date_from": _d(p.start), "date_to": _d(p.end), "kind": kind(p), "opening": _money(p.opening),
+             "income": _money(p.income), "expense": _money(p.expense), "net": _money(p.net),
+             "forecast_income": _money(p.forecast_income), "forecast_expense": _money(p.forecast_expense),
+             "plan_income": _money(p.plan_income), "plan_expense": _money(p.plan_expense),
+             "closing": _money(p.closing)}
             for p in result.periods
         ],
-        "rows": [
-            {"category_id": r.category, "name": name(r.category, r.section), "section": r.section,
-             "values": [_money(v) for v in r.values], "total": _money(r.total),
-             "children": [{"category_id": c.category, "name": name(c.category, c.section), "section": c.section,
-                           "values": [_money(v) for v in c.values], "total": _money(c.total), "children": []}
-                          for c in r.children]}
-            for r in result.rows
-        ],
+        "rows": [row_out(r) for r in result.rows],
         "has_data": bool(result.rows),
+        "has_plan": bool(forecast or planned),
+        "plan_note": plan_note,
+        "causes": causes,
         "warnings": warnings,
     }
 
@@ -154,10 +220,11 @@ async def _series(
             bucket = fact.setdefault(r.day, {"ozon": ZERO, "income": ZERO, "expense": ZERO})
             bucket[key] += Decimal(r.amount)
     plan: dict[date, dict[str, Decimal]] = {}
-    for item in snap.visible:
-        if cal.in_forecast(item, today) and max(today, date_from) <= item.day <= date_to:
-            bucket = plan.setdefault(item.day, {"ozon": ZERO, "income": ZERO, "expense": ZERO})
-            bucket[_kind_of(item)] += item.amount
+    for item in snap.items:  # «ожидается» со сроком в прошлом — в прогнозе сегодня (шаг 10.24)
+        flow = cal.forecast_flow(item, today)
+        if flow is not None and max(today, date_from) <= flow[0] <= date_to:
+            bucket = plan.setdefault(flow[0], {"ozon": ZERO, "income": ZERO, "expense": ZERO})
+            bucket[_kind_of(item)] += flow[1]
     forecast = {d.day: d.balance for d in snap.forecast.days} if snap.forecast else {}
 
     series = []
@@ -200,17 +267,26 @@ async def overview(db: AsyncSession, user_id: uuid.UUID, horizon_days: int) -> d
     ctx = snap.ctx
     series = await _series(db, user_id, snap, date_from, date_to)
 
-    ahead = [i for i in snap.visible if cal.in_forecast(i, today) and today <= i.day <= date_to]
-    expected = {k: sum((i.amount for i in ahead if _kind_of(i) == k), ZERO) for k in ("ozon", "income", "expense")}
+    ahead = [(i, f) for i in snap.items if (f := cal.forecast_flow(i, today)) is not None and f[0] <= date_to]
+    expected = {k: sum((f[1] for i, f in ahead if _kind_of(i) == k), ZERO) for k in ("ozon", "income", "expense")}
     unknown_amount = [i for i in snap.visible if i.amount is None and i.status(today) == "planned" and i.day >= today]
-    next_ozon = next((i for i in ahead if i.source == "ozon"), None)
+    next_ozon = next((i for i, _ in sorted(ahead, key=lambda x: (x[1][0], x[0].key)) if i.source == "ozon"), None)
     upcoming_to = today + timedelta(days=UPCOMING_DAYS - 1)
-    upcoming = [
-        i for i in snap.visible
-        if (today <= i.day <= upcoming_to and i.status(today) in ("planned", "paid")) or i.status(today) == "overdue"
-    ]
-    upcoming.sort(key=lambda i: (i.status(today) != "overdue", i.day, i.title))
+    upcoming = [i for i in snap.visible if today <= i.day <= upcoming_to and i.status(today) not in ("skipped", "disabled")]
+    upcoming.sort(key=lambda i: (i.day, i.title))
+    # к подтверждению (шаг 10.24): просрочены, оплачены частично, «ожидается» со сроком сегодня и раньше
+    order = {"overdue": 0, "partial": 1, "expected": 2}
+    to_confirm = [i for i in snap.visible if i.day <= today and i.status(today) in order]
+    to_confirm.sort(key=lambda i: (order[i.status(today)], i.day, i.title))
+    past = [i for i in snap.visible if date_from <= i.day <= today and i.status(today) in ("paid", "partial", "expected", "overdue")]
+    plan_fact = {
+        "date_from": date_from, **{k: sum(1 for i in past if i.status(today) == k) for k in ("paid", "partial", "expected", "overdue")},
+        "plan": _money(sum((i.amount for i in past if i.amount is not None), ZERO)),
+        "fact": _money(sum((i.fact.amount for i in past if i.fact is not None), ZERO)),
+    }
     names = await plan_calendar._names(ctx)
+    ozon_day = (await db.execute(select(OzonBalanceDay).where(OzonBalanceDay.user_id == user_id)
+                                 .order_by(OzonBalanceDay.day.desc(), OzonBalanceDay.synced_at.desc()).limit(1))).scalar()
 
     accounts = await planning_svc.accounts(db, user_id)
     has_key = await crud_credential.has_active(db, user_id)
@@ -256,6 +332,10 @@ async def overview(db: AsyncSession, user_id: uuid.UUID, horizon_days: int) -> d
         },
         "series": series,
         "upcoming": [line_out(i, today, names) for i in upcoming],
+        "to_confirm": [line_out(i, today, names) for i in to_confirm],
+        "ozon_balance": None if ozon_day is None else {"amount": _money(ozon_day.closing), "day": ozon_day.day},
+        "plan_fact": plan_fact,
+        "causes": plan_calendar.causes_out(snap),
         "empty": {"has_ops": has_ops, "has_plans": has_plans, "suggestions": suggestions},
         "warnings": snap.notes,
     }

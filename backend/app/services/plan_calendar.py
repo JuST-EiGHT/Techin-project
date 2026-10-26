@@ -435,6 +435,7 @@ def line_out(item: cal.Item, today: date, names: dict) -> dict:
             "op_id": fact.op_id or None, "day": _d(fact.day), "amount": _money(fact.amount), "marked": item.fact_marked,
         },
         "diff": _money(item.diff) if item.diff not in (None, ZERO) and not meta.get("shared_fact") else None,
+        "remaining": _money(item.remaining),  # частично оплачен — сколько осталось (со знаком плана)
         "shared_fact": bool(meta.get("shared_fact")),  # один платёж ЕНП закрыл несколько налогов с этим сроком
         "plan_id": str(meta["plan_id"]) if meta.get("plan_id") else None,
         "category": names["categories"].get(meta.get("category_id")),
@@ -479,6 +480,28 @@ async def snapshot(db: AsyncSession, user_id: uuid.UUID, date_from: date, date_t
     threshold = Decimal(raw) if raw is not None else None
     fc = cal.forecast(start, items, ctx.today, date_to, threshold) if date_to >= ctx.today else None
     return Snapshot(ctx, items, visible, notes, extra["ops"], start, unknown, threshold, fc)
+
+
+def causes_out(snap: "Snapshot") -> dict | None:
+    """Кассовый разрыв (шаг 10.24): с какого дня, нехватка и почему — крупнейшие платежи до этого дня и поступления,
+    которые не пришли. Разрыва ниже нуля нет — по порогу; ни того ни другого — None."""
+    fc = snap.forecast
+    if fc is None or not fc.gaps:
+        return None
+    gap = next((g for g in fc.gaps if g.below_zero), fc.gaps[0])
+    floor = ZERO if gap.below_zero else (snap.threshold or ZERO)
+    c = cal.gap_causes(snap.items, snap.ctx.today, gap.date_from)
+
+    def ref(item: cal.Item, amount: Decimal | None) -> dict:
+        return {"key": item.key, "title": item.title, "source": item.source, "day": _d(item.day),
+                "amount": _money(amount)}
+
+    return {
+        "day": _d(gap.date_from), "below_zero": gap.below_zero, "min_balance": _money(gap.min_balance),
+        "min_day": _d(gap.min_day), "shortfall": _money(floor - gap.min_balance),
+        "expenses": [ref(i, amount) for i, amount in c.expenses],
+        "missing_income": [ref(i, i.amount) for i in c.missing_income],
+    }
 
 
 async def calendar(db: AsyncSession, user_id: uuid.UUID, date_from: date, date_to: date) -> dict:
@@ -558,6 +581,7 @@ async def calendar(db: AsyncSession, user_id: uuid.UUID, date_from: date, date_t
         "min_balance": _money(fc.min_balance) if fc else None,
         "end_balance": _money(fc.end_balance) if fc else None,
         "overdue": len(overdue),
+        "causes": causes_out(snap),
         "warnings": warnings,
     }
 

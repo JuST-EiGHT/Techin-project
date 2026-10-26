@@ -1,4 +1,5 @@
 """Обзор «Планирования» и ДДС (шаг 3.10): деньги сейчас, прогноз и разрывы, ожидается за горизонт; ДДС по статьям."""
+import uuid
 from datetime import date, timedelta
 from typing import Literal
 
@@ -57,6 +58,7 @@ async def cash_flow(
     date_from: date | None = Query(None, description="По умолчанию — начало месяца два месяца назад"),
     date_to: date | None = Query(None, description="По умолчанию — сегодня"),
     granularity: Literal["week", "month"] = "month",
+    account_id: uuid.UUID | None = Query(None, description="Один счёт; по умолчанию — все"),
     user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
@@ -72,4 +74,4 @@ async def cash_flow(
     if (date_to - date_from).days + 1 > MAX_CASH_FLOW_DAYS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Период: не больше двух лет за раз")
     await planning_svc.sync_ozon_operations(db, user.id)
-    return await svc.cash_flow(db, user.id, date_from, date_to, granularity)
+    return await svc.cash_flow(db, user.id, date_from, date_to, granularity, account_id)

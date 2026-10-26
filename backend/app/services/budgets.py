@@ -322,7 +322,13 @@ async def forecast(db: AsyncSession, user_id: uuid.UUID, months: int) -> dict:
             return uuid.UUID(item.category_id)
         return by_code.get(plan_calendar.TAX_CATEGORY.get(item.source))
 
-    planned = [i for i in snap.items if cal.in_forecast(i, today) and today <= i.day <= horizon]
+    # платежи календаря в прогнозе: день и сумма — как у прогноза (ожидаемые — сегодня, частично оплаченные — остаток)
+    planned = []
+    for i in snap.items:
+        flow = cal.forecast_flow(i, today)
+        if flow is not None and flow[0] <= horizon:
+            planned.append(cal.Item(key=i.key, source=i.source, title=i.title, planned_day=flow[0], amount=flow[1],
+                                    kind=i.kind, category_id=i.category_id))
     scheduled: dict[tuple, Decimal] = {}
     for i in planned:
         key = (category_of(i), eng.month_start(i.day))

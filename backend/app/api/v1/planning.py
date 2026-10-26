@@ -258,7 +258,7 @@ class _JournalQuery:
         self,
         date_from: date | None = Query(None, description="По умолчанию — 30 дней назад"),
         date_to: date | None = Query(None, description="По умолчанию — сегодня"),
-        status_: Literal["fact", "planned", "overdue"] | None = Query(None, alias="status",
+        status_: Literal["fact", "planned", "expected", "overdue"] | None = Query(None, alias="status",
                                                                         description="Факт, план или просроченные"),
         type_: Literal["income", "expense", "transfer"] | None = Query(None, alias="type"),
         account_id: uuid.UUID | None = None,

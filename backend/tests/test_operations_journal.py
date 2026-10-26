@@ -153,7 +153,7 @@ async def test_journal_fact_and_plan_filters_paid_export(client, tokens):
         ("fact", "expense", "2026-10-12", "-1200.00", "manual"),
         ("overdue", "expense", "2026-10-10", "-30000.00", "plan"),  # срок прошёл, оплаты нет
     ]
-    assert body["counts"] == {"fact": 2, "planned": 1, "overdue": 1}
+    assert body["counts"] == {"fact": 2, "planned": 1, "expected": 0, "overdue": 1}
     assert body["totals"]["fact"] == {"income": "800.00", "expense": "-1200.00", "net": "-400.00"}
     assert body["totals"]["plan"] == {"income": "5000.00", "expense": "-30000.00", "net": "-25000.00"}
     overdue = body["items"][3]
@@ -180,7 +180,7 @@ async def test_journal_fact_and_plan_filters_paid_export(client, tokens):
     paid = next(r for r in body["items"] if r["plan"] and r["plan"]["title"] == "Аренда склада")
     assert (paid["status"], paid["day"], paid["amount"], paid["category"]["name"]) == (
         "fact", "2026-10-11", "-29500.00", "Аренда")
-    assert paid["operation"]["source"] == "manual" and body["counts"] == {"fact": 3, "planned": 1, "overdue": 0}
+    assert paid["operation"]["source"] == "manual" and body["counts"] == {"fact": 3, "planned": 1, "expected": 0, "overdue": 0}
 
     r = await client.get(f"{URL}/journal/export", params=params, headers=auth(tokens))
     assert r.status_code == 200 and r.content[:2] == b"PK"

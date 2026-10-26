@@ -118,7 +118,7 @@ def test_overrides_forecast_gap_threshold_and_what_if():
         item("ozon", t + timedelta(days=7), "50000", kind="income", source="ozon"),
         item("salary", t + timedelta(days=5), "-50000"),
         item("ads", t + timedelta(days=3), "-10000", enabled=False),  # выключен — «что если»
-        item("old", t - timedelta(days=3), "-5000"),  # прошлый неоплаченный — в прогноз не входит
+        item("old", t - timedelta(days=5), "-5000"),  # просрочен (> 3 дней) — в прогноз не входит
     ]
     fc = cal.forecast(D(100000), items, t, t + timedelta(days=10), threshold=D(30000))
     by_day = {d.day: d.balance for d in fc.days}
@@ -167,7 +167,8 @@ def test_match_plan_fact():
     items = [rent, salary, tax, ozon, marked]
     cal.match(items, ops, {"marked": cal.Override(op_id="op6")})
     assert rent.fact.op_id == "op1" and rent.diff == D("-1000")  # план разошёлся с фактом — видно
-    assert salary.fact.op_id == "op3" and salary.status(t) == "paid"
+    # заплатили на 1 000 меньше плана — оплачен частично, остаток к оплате (шаг 10.24)
+    assert salary.fact.op_id == "op3" and salary.status(t) == "partial" and salary.remaining == D("-1000.00")
     assert tax.fact is None and tax.status(t) == "overdue"
     assert ozon.fact.op_id == "op5" and ozon.status(t) == "paid"  # прогноз Ozon закрыла фактическая выплата
     assert marked.fact.op_id == "op6" and marked.fact_marked
@@ -320,13 +321,15 @@ async def test_calendar_overrides_paid_and_fact(client, tokens):
     await call(client, tokens, "PATCH", f"/plans/{rent['plan_id']}", json={"amount": "33000"})
     body = await calendar(client, tokens, date_to="2026-11-30")
     line = next(ln for ln in lines(body) if ln["key"] == oct16)
+    # план подняли после оплаты — оплачен частично: остаток 3 000 к доплате (шаг 10.24)
     assert (line["status"], line["fact"]["amount"], line["fact"]["marked"], line["diff"]) == (
-        "paid", "-30000.00", True, "3000.00")
+        "partial", "-30000.00", True, "3000.00")
     assert body["start_balance"] == "70000.00"  # оплата уже в остатке — в прогнозе второй раз не вычитается
-    assert {d["day"]: d["balance"] for d in body["days"]}["2026-10-16"] == "60000.00"
+    # в прогнозе 16.10 — только остаток к доплате (3 000), а не вся аренда
+    assert {d["day"]: d["balance"] for d in body["days"]}["2026-10-16"] == "57000.00"
     await call(client, tokens, "POST", "/calendar/unpaid", 204, json={"key": oct16})
     line = next(ln for ln in lines(await calendar(client, tokens)) if ln["key"] == oct16)
-    assert line["status"] == "paid" and line["fact"]["marked"] is False  # операция осталась — нашлась по сумме и дате
+    assert line["status"] == "partial" and line["fact"]["marked"] is False  # операция осталась — нашлась по сумме и дате
 
     # операция без плана — «вне плана»; переводы не показываем
     await call(client, tokens, "POST", "/operations", 201, json={
@@ -483,7 +486,7 @@ async def test_regime_change_recalc_past_but_paid_stays(client, tokens, sessions
     lines_after = {ln["day"]: ln for ln in lines(await calendar(client, tokens, **window), "tax")}
     paid = lines_after["2026-07-28"]
     assert (paid["status"], paid["fact"]["amount"], paid["amount"], paid["diff"]) == (
-        "paid", "-5460.00", "-6370.00", "910.00")  # факт тот же, план пересчитан — расхождение видно
+        "partial", "-5460.00", "-6370.00", "910.00")  # факт тот же, план пересчитан — доплатить 910 ₽
     assert lines_after["2026-10-28"]["amount"] == "-6440.00"  # 92 000 × 7 %
 
 

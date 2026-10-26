@@ -70,11 +70,11 @@ async def overview(db: AsyncSession, user_id: uuid.UUID, date_from: date, date_t
                 "counterparty": row.counterparty, "account": accounts.get(row.account_id), "comment": row.comment}
 
     out = []
-    counts = {"paid": 0, "overdue": 0, "planned": 0, "suggestions": 0}
+    counts = {"paid": 0, "partial": 0, "overdue": 0, "expected": 0, "planned": 0, "suggestions": 0}
     totals = {"plan": ZERO, "fact": ZERO, "unpaid": ZERO}
     for item in snap.visible:
         status = item.status(today)
-        if status not in ("paid", "overdue", "planned"):
+        if status not in counts:
             continue
         counts[status] += 1
         fact = item.fact

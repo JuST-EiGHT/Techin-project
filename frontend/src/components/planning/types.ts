@@ -116,14 +116,14 @@ export type PlanFactRow = {
   estimate: boolean
   category: string | null
   counterparty: string | null
-  status: 'paid' | 'overdue' | 'planned'
+  status: 'paid' | 'partial' | 'overdue' | 'expected' | 'planned'
   how: 'marked' | 'auto' | 'tax' | null
   fact: PlanFactOp | null
   diff: string | null
   days_late: number | null
   suggestion: { op: PlanFactOp; reasons: string[]; category_fix: string | null } | null
 }
-export type PlanFactPage = { date_from: string; date_to: string; today: string; rows: PlanFactRow[]; counts: Record<'paid' | 'overdue' | 'planned' | 'suggestions', number>; totals: Record<'plan' | 'fact' | 'unpaid', string> }
+export type PlanFactPage = { date_from: string; date_to: string; today: string; rows: PlanFactRow[]; counts: Record<'paid' | 'partial' | 'overdue' | 'expected' | 'planned' | 'suggestions', number>; totals: Record<'plan' | 'fact' | 'unpaid', string> }
 
 // ---------- счета: история, сверка, нераспознанные (шаг 10.20) ----------
 
@@ -249,7 +249,8 @@ export type Plan = {
 }
 
 export type LineSource = 'ozon' | 'manual' | 'supplier' | 'tax'
-export type LineStatus = 'planned' | 'overdue' | 'paid' | 'skipped' | 'disabled'
+// шаг 10.24: ожидается — срок сегодня или прошёл не больше 3 дней; частично — факт меньше плана; просрочен — больше 3 дней
+export type LineStatus = 'planned' | 'expected' | 'overdue' | 'paid' | 'partial' | 'skipped' | 'disabled'
 export type Range = { date_from: string; date_to: string }
 
 export type CalendarLine = {
@@ -269,6 +270,7 @@ export type CalendarLine = {
   skipped: boolean
   fact: { op_id: string | null; day: string; amount: string; marked: boolean } | null
   diff: string | null
+  remaining?: string | null // частично оплачен — сколько осталось (со знаком плана)
   plan_id: string | null
   category: Ref | null
   account: Ref | null
@@ -310,7 +312,20 @@ export type CalendarData = {
   min_balance: string | null
   end_balance: string | null
   overdue: number
+  causes?: GapCauses | null
   warnings: string[]
+}
+
+/** Кассовый разрыв (шаг 10.24): с какого дня, нехватка и почему. */
+export type CauseRef = { key: string; title: string; source: string; day: string; amount: string | null }
+export type GapCauses = {
+  day: string
+  below_zero: boolean
+  min_balance: string
+  min_day: string
+  shortfall: string
+  expenses: CauseRef[]
+  missing_income: CauseRef[]
 }
 
 export const SOURCE_LABELS: Record<LineSource, string> = { ozon: 'Ozon', manual: 'план', supplier: 'поставщик', tax: 'налог' }
@@ -367,35 +382,73 @@ export type Overview = {
   expected: { ozon: string; income: string; expense: string; unknown: number }
   series: SeriesDay[]
   upcoming: CalendarLine[]
+  to_confirm: CalendarLine[] // просрочены → оплачены частично → ожидаются (шаг 10.24)
+  ozon_balance: { amount: string | null; day: string } | null
+  plan_fact: { date_from: string; paid: number; partial: number; expected: number; overdue: number; plan: string; fact: string }
+  causes: GapCauses | null
   empty: { has_ops: boolean; has_plans: boolean; suggestions: { code: string; name: string; why: string; have: boolean }[] }
   warnings: string[]
 }
 
-export type CashFlowPeriod = { date_from: string; date_to: string; opening: string | null; income: string; expense: string; net: string; closing: string | null }
+export type CashFlowPeriod = {
+  date_from: string
+  date_to: string
+  kind: 'past' | 'current' | 'future'
+  opening: string | null
+  income: string // факт
+  expense: string
+  net: string
+  forecast_income: string // оставшийся план с сегодня
+  forecast_expense: string
+  plan_income: string // план периода по календарю
+  plan_expense: string
+  closing: string | null // с прогнозом
+}
 // children — подстатьи (шаг 10.19): их факт уже входит в values и total статьи
-export type CashFlowRow = { category_id: string | null; name: string; section: 'income' | 'expense'; values: string[]; total: string; children?: CashFlowRow[] }
+export type CashFlowRow = {
+  category_id: string | null
+  transfer?: boolean // переводы со своими счетами — при выбранном счёте
+  name: string
+  section: 'income' | 'expense'
+  values: string[]
+  total: string
+  forecast: string[]
+  forecast_total: string
+  plan: string[]
+  plan_total: string
+  children?: CashFlowRow[]
+}
 export type CashFlow = {
   date_from: string
   date_to: string
   granularity: 'week' | 'month'
+  today: string
+  account_id: string | null
   opening: string | null
-  closing: string | null
+  closing: string | null // с прогнозом
   income: string
   expense: string
   net: string
+  forecast_income: string
+  forecast_expense: string
+  plan_income: string
+  plan_expense: string
   periods: CashFlowPeriod[]
   rows: CashFlowRow[]
   has_data: boolean
+  has_plan: boolean
+  plan_note: string | null
+  causes: GapCauses | null
   warnings: string[]
 }
 
 /** Операции за период (и статью) — подробности точки графика или строки ДДС. */
-export const opsHref = (from: string, to: string, category?: string | null) =>
-  `/dashboard/operations?from=${from}&to=${to}${category ? `&category=${category}` : ''}`
+export const opsHref = (from: string, to: string, category?: string | null, account?: string | null) =>
+  `/dashboard/operations?from=${from}&to=${to}${category ? `&category=${category}` : ''}${account ? `&account=${account}` : ''}`
 
 // ---------- «Все операции» — журнал факт + план (шаг 10.19) ----------
 
-export type JournalStatus = 'fact' | 'planned' | 'overdue'
+export type JournalStatus = 'fact' | 'planned' | 'expected' | 'overdue'
 export type JournalSource = Operation['source'] | 'plan' | 'supplier' | 'tax' | 'ozon_forecast'
 
 export type JournalRow = {

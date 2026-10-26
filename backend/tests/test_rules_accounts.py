@@ -196,7 +196,8 @@ async def test_plan_fact_suggest_accept_dismiss(client, tokens):
                                              "тот же контрагент", "у операции нет статьи — поставим статью платежа"]
     assert rent["suggestion"]["category_fix"] == "Аренда"
     assert rows["Курьер"]["suggestion"]["op"]["op_id"] == courier_op["op_id"]
-    assert body["counts"] == {"paid": 1, "overdue": 2, "planned": 0, "suggestions": 2}
+    # курьер — срок 2 дня назад: «ожидается» (шаг 10.24), аренда — просрочена
+    assert body["counts"] == {"paid": 1, "partial": 0, "overdue": 1, "expected": 1, "planned": 0, "suggestions": 2}
 
     accepted = await call(client, tokens, "POST", "/plan-fact/accept", json={"key": rent["key"], "op_id": rent_op["op_id"]})
     assert accepted == {"title": "Аренда склада", "category_set": "Аренда"}
@@ -204,8 +205,9 @@ async def test_plan_fact_suggest_accept_dismiss(client, tokens):
                                                                           "op_id": courier_op["op_id"]})
     body = await call(client, tokens, "GET", "/plan-fact", params=params)
     rows = {r["title"]: r for r in body["rows"]}
+    # оплата 28 000 при плане 30 000 — оплачен частично, остаток 2 000 (шаг 10.24)
     assert (rows["Аренда склада"]["status"], rows["Аренда склада"]["how"], rows["Аренда склада"]["diff"]) == (
-        "paid", "marked", "2000.00")
+        "partial", "marked", "2000.00")
     assert rows["Аренда склада"]["fact"]["category"] == "Аренда" and rows["Аренда склада"]["days_late"] == 4
     assert rows["Курьер"]["suggestion"] is None and body["counts"]["suggestions"] == 0
     # статья у операции поставлена вручную — новая версия, прежняя в истории

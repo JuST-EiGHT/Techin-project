@@ -750,6 +750,7 @@ const STATUS_FILTERS: { value: '' | JournalStatus; label: string }[] = [
   { value: '', label: 'Все' },
   { value: 'fact', label: 'Факт' },
   { value: 'planned', label: 'План' },
+  { value: 'expected', label: 'Ожидается' },
   { value: 'overdue', label: 'Просрочено' },
 ]
 const SOURCES: { value: JournalSource; label: string }[] = [
@@ -799,7 +800,7 @@ function PlanCard({ row, onPaid }: { row: JournalRow; onPaid: () => void }) {
       <div>
         <div className={`text-2xl font-bold tabular-nums ${row.type === 'income' ? 'text-ok' : 'text-bad'}`}>{signed(row.amount)}</div>
         <div className="text-sm text-muted">
-          {row.status === 'overdue' ? 'Срок прошёл, оплаты нет' : 'По плану'} · {fmtDay(row.day)}
+          {row.status === 'overdue' ? 'Просрочен: срок прошёл больше 3 дней назад, оплаты нет' : row.status === 'expected' ? 'Ожидается: срок подошёл, оплаты пока нет' : 'По плану'} · {fmtDay(row.day)}
           {row.plan?.estimate && ' · сумма — оценка'}
         </div>
       </div>
@@ -1151,6 +1152,11 @@ export function OperationsTab({ accounts, categories, onChanged }: { accounts: A
                       {row.status === 'planned' && (
                         <span className="ml-2 inline-block">
                           <Badge tone="accent">{row.source === 'ozon_forecast' ? 'прогноз' : 'план'}</Badge>
+                        </span>
+                      )}
+                      {row.status === 'expected' && (
+                        <span className="ml-2 inline-block" data-testid="plan-expected">
+                          <Badge tone="warn">ожидается</Badge>
                         </span>
                       )}
                       {row.status === 'overdue' && (

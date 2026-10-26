@@ -146,11 +146,12 @@ export function PlanFact() {
       {notice && <p className="text-sm text-ok" data-testid="pf-notice">{notice}</p>}
       {page && (
         <>
-          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line text-sm sm:grid-cols-4" data-testid="pf-summary">
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line text-sm sm:grid-cols-5" data-testid="pf-summary">
             {[
               ['Оплачено', page.counts.paid, 'text-ok'],
+              ['Частично', page.counts.partial, page.counts.partial ? 'text-warn' : ''],
               ['Просрочено', page.counts.overdue, page.counts.overdue ? 'text-bad' : ''],
-              ['Ожидается', page.counts.planned, ''],
+              ['Ожидается', page.counts.expected + page.counts.planned, ''],
               ['Похоже на оплату', page.counts.suggestions, page.counts.suggestions ? 'text-accent' : ''],
             ].map(([label, n, tone]) => (
               <div key={label as string} className="bg-card px-4 py-2">
@@ -212,8 +213,10 @@ export function PlanFact() {
                   </span>
                   <span className="sm:text-right" data-testid="pf-status">
                     {row.status === 'paid' && <Badge tone="ok">оплачен · {HOW[row.how ?? 'auto']}</Badge>}
+                    {row.status === 'partial' && <Badge tone="warn">оплачен частично · {HOW[row.how ?? 'auto']}</Badge>}
                     {row.status === 'overdue' && <Badge tone="bad">просрочен</Badge>}
-                    {row.status === 'planned' && <Badge tone="muted">ожидается</Badge>}
+                    {row.status === 'expected' && <Badge tone="warn">ожидается</Badge>}
+                    {row.status === 'planned' && <Badge tone="muted">запланирован</Badge>}
                   </span>
                 </li>
               ))}

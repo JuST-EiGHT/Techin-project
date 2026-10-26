@@ -2,7 +2,8 @@
 // «Планирование → Обзор» (шаг 3.10) — дашборд раздела, не главная: деньги сейчас, ближайшая выплата Ozon, кассовый
 // разрыв или «денег хватит до …», что ожидается за горизонт; график — слева от «сегодня» факт, справа план, период —
 // с какого по какое число (прошлое, будущее или всё вместе); ближайшие платежи на 14 дней с отметкой «оплачено». Нет
-// данных — «нет данных», а не 0.
+// данных — «нет данных», а не 0. Шаг 10.24: баланс у Ozon, остаток на конец периода, разрыв с причинами, «требуют
+// подтверждения» (просрочены, частично, ожидаются), план-факт за две недели, переходы в календарь и ДДС.
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Bar, CartesianGrid, Cell, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -10,7 +11,7 @@ import { Bar, CartesianGrid, Cell, ComposedChart, Line, ReferenceLine, Responsiv
 import { FormError } from '@/components/AuthForm'
 import { type Drill, MoreLink, TipBox, useDrill } from '@/components/charts'
 import { compact, useTokenColors } from '@/components/finance'
-import { GapBanner, LineAmount, LineDetails, SOURCE_TONE, STATUS, dayTitle, signed } from '@/components/planning/Calendar'
+import { GapBanner, LineAmount, LineDetails, SOURCE_TONE, STATUS, dayTitle, signed, waiting } from '@/components/planning/Calendar'
 import { Modal } from '@/components/planning/Operations'
 import { type Account, type CalendarLine, type Overview, type SeriesDay, type SeriesOut, SOURCE_LABELS, opsHref } from '@/components/planning/types'
 import { Badge, fmtDay, rub } from '@/components/reports'
@@ -75,6 +76,20 @@ function Figures({ data }: { data: Overview }) {
         ) : (
           <span className="text-ok">на весь период</span>
         )}
+      </Figure>
+      <Figure
+        label="На балансе Ozon"
+        testid="ov-ozon-balance"
+        hint={data.ozon_balance ? `на ${fmtDay(data.ozon_balance.day)} — ещё не выплачено` : data.ozon.has_key ? 'баланс Ozon не загружен' : 'нет данных — подключите ключ Ozon'}
+      >
+        {data.ozon_balance?.amount ? rub(data.ozon_balance.amount) : '—'}
+      </Figure>
+      <Figure
+        label={`На ${fmtDay(data.date_to).slice(0, 5)}`}
+        testid="ov-end"
+        hint={data.end_balance === null ? undefined : 'прогноз на конец периода'}
+      >
+        {data.end_balance === null ? '—' : <span className={Number(data.end_balance) < 0 ? 'text-bad' : ''}>{rub(data.end_balance)}</span>}
       </Figure>
       <Figure
         label={`Ожидается за ${data.horizon_days} дн.`}
@@ -341,7 +356,7 @@ function Upcoming({ data, accounts, onChanged }: { data: Overview; accounts: Acc
         <ul className="divide-y divide-line">
           {data.upcoming.map((ln) => {
             const status = STATUS[ln.status]
-            const canPay = ln.editable && (ln.status === 'planned' || ln.status === 'overdue') && ln.amount !== null
+            const canPay = ln.editable && waiting(ln) && ln.amount !== null
             return (
               <li key={ln.key} className="grid grid-cols-[3.25rem_minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-2 text-sm" data-testid="ov-line">
                 <button type="button" onClick={() => setOpened(ln)} className="text-left tabular-nums text-muted">
@@ -383,6 +398,127 @@ function Upcoming({ data, accounts, onChanged }: { data: Overview; accounts: Acc
           />
         </Modal>
       )}
+    </section>
+  )
+}
+
+// ---------- требуют подтверждения, план-факт ----------
+
+const SHOW_CONFIRM = 7
+
+/** Срок подошёл или прошёл, а оплаты нет (или она частичная): отметить оплату, перенести — в карточке платежа. */
+function ToConfirm({ data, accounts, onChanged }: { data: Overview; accounts: Account[]; onChanged: () => void }) {
+  const [opened, setOpened] = useState<CalendarLine | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const lines = data.to_confirm
+  if (lines.length === 0) return null
+
+  async function paid(ln: CalendarLine) {
+    setBusy(ln.key)
+    setError(null)
+    try {
+      await api.post('/planning/calendar/paid', { key: ln.key })
+      onChanged()
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <section className="overflow-hidden rounded-xl border border-warn/40 bg-card" data-testid="ov-confirm">
+      <div className="flex flex-wrap items-baseline gap-x-3 border-b border-line px-4 py-2">
+        <h2 className="text-sm font-semibold">Требуют подтверждения · {lines.length}</h2>
+        <span className="text-xs text-faint">срок подошёл, а оплаты нет или она частичная — отметьте оплату или перенесите, чтобы прогноз был верным</span>
+      </div>
+      <ul className="divide-y divide-line">
+        {lines.slice(0, SHOW_CONFIRM).map((ln) => {
+          const status = STATUS[ln.status]
+          const canPay = ln.editable && waiting(ln) && ln.amount !== null
+          return (
+            <li key={ln.key} className="grid grid-cols-[3.25rem_minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-2 text-sm" data-testid="ov-confirm-line" data-status={ln.status}>
+              <button type="button" onClick={() => setOpened(ln)} className={`text-left tabular-nums ${ln.status === 'overdue' ? 'text-bad' : 'text-muted'}`}>
+                {fmtDay(ln.day).slice(0, 5)}
+              </button>
+              <button type="button" onClick={() => setOpened(ln)} className="min-w-0 text-left">
+                <span className="font-medium">{ln.title}</span>
+                <span className="ml-2 inline-flex flex-wrap gap-1 align-middle">
+                  {status && (
+                    <Badge tone={status.tone} title={status.hint}>
+                      {status.label}
+                    </Badge>
+                  )}
+                </span>
+                {ln.remaining && <span className="block text-xs text-warn">осталось {signed(ln.remaining)}</span>}
+              </button>
+              <span className="flex items-center gap-2">
+                <LineAmount ln={ln} />
+                {canPay && (
+                  <button type="button" disabled={busy === ln.key} onClick={() => paid(ln)} className="hidden rounded-md border border-line px-2 py-1 text-xs hover:border-accent hover:text-accent disabled:opacity-50 sm:inline-block" data-testid="ov-confirm-paid">
+                    Оплачено
+                  </button>
+                )}
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+      {lines.length > SHOW_CONFIRM && (
+        <Link href={`/dashboard/planning/calendar?day=${lines[SHOW_CONFIRM].day}`} className="block border-t border-line px-4 py-2 text-xs text-accent hover:underline">
+          И ещё {lines.length - SHOW_CONFIRM} — в календаре →
+        </Link>
+      )}
+      <FormError message={error} />
+      {opened && (
+        <Modal title={opened.title} onClose={() => setOpened(null)}>
+          <LineDetails
+            ln={opened}
+            accounts={accounts}
+            planning
+            onClose={() => setOpened(null)}
+            onDone={() => {
+              setOpened(null)
+              onChanged()
+            }}
+          />
+        </Modal>
+      )}
+    </section>
+  )
+}
+
+/** План-факт за две недели до сегодня: сколько оплачено, частично, ждём, просрочено; план и факт по ним. */
+function PlanFactSummary({ data }: { data: Overview }) {
+  const pf = data.plan_fact
+  const total = pf.paid + pf.partial + pf.expected + pf.overdue
+  if (total === 0) return null
+  const cell = (label: string, n: number, tone: string, testid: string) => (
+    <div className="bg-card px-3 py-2" data-testid={testid}>
+      <div className="text-[11px] uppercase tracking-wider text-muted">{label}</div>
+      <div className={`text-base font-semibold tabular-nums ${n ? tone : ''}`}>{n}</div>
+    </div>
+  )
+  return (
+    <section className="rounded-xl border border-line bg-card p-4" data-testid="ov-plan-fact">
+      <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 className="text-sm font-semibold">План-факт с {fmtDay(pf.date_from)}</h2>
+        <span className="text-xs text-faint">платежи календаря со сроком до сегодня</span>
+        <Link href="/dashboard/operations/rules?tab=plan-fact" className="ml-auto text-xs text-accent hover:underline" data-testid="ov-plan-fact-link">
+          План-факт →
+        </Link>
+      </div>
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-4">
+        {cell('Оплачено', pf.paid, 'text-ok', 'pf-paid')}
+        {cell('Частично', pf.partial, 'text-warn', 'pf-partial')}
+        {cell('Ожидается', pf.expected, 'text-warn', 'pf-expected')}
+        {cell('Просрочено', pf.overdue, 'text-bad', 'pf-overdue')}
+      </div>
+      <div className="mt-2 text-xs text-muted tabular-nums">
+        по плану {signed(pf.plan)} · по факту {signed(pf.fact)}
+        {Number(pf.plan) !== Number(pf.fact) && <span> · не оплачено {signed(String(Number(pf.plan) - Number(pf.fact)))}</span>}
+      </div>
     </section>
   )
 }
@@ -478,6 +614,14 @@ export function OverviewTab({ accounts, horizonDays, onChanged }: { accounts: Ac
           ))}
         </div>
         <span className="text-xs text-faint">ДДС — по деньгам на счетах; прибыль по начислениям Ozon — в «Финансах»</span>
+        <span className="ml-auto flex gap-3 text-sm">
+          <Link href="/dashboard/planning/calendar" className="text-accent hover:underline" data-testid="ov-to-calendar">
+            Календарь →
+          </Link>
+          <Link href="/dashboard/planning/cashflow" className="text-accent hover:underline" data-testid="ov-to-cashflow">
+            ДДС →
+          </Link>
+        </span>
       </div>
       <FormError message={error} />
       {!data && !error && <p className="text-sm text-muted">Загрузка…</p>}
@@ -493,8 +637,10 @@ export function OverviewTab({ accounts, horizonDays, onChanged }: { accounts: Ac
               ))}
             </ul>
           )}
+          <ToConfirm data={data} accounts={accounts} onChanged={changed} />
           <OverviewChart data={data} horizon={horizon} />
           <Upcoming data={data} accounts={accounts} onChanged={changed} />
+          <PlanFactSummary data={data} />
         </>
       )}
     </div>

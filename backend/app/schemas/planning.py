@@ -436,7 +436,7 @@ class PlanFactRow(BaseModel):
     estimate: bool
     category: str | None
     counterparty: str | None
-    status: Literal["paid", "overdue", "planned"]
+    status: Literal["paid", "partial", "overdue", "expected", "planned"]
     how: Literal["marked", "auto", "tax"] | None  # отмечено вручную / по сумме и дате / ЕНП по сроку
     fact: PlanFactOp | None
     diff: Decimal | None  # факт − план
@@ -475,7 +475,7 @@ class JournalRow(BaseModel):
     """Строка журнала: факт — операция (как в /operations), план — платёж календаря без оплаты."""
 
     id: str  # op:<op_id> | plan:<ключ>
-    status: Literal["fact", "planned", "overdue"]
+    status: Literal["fact", "planned", "expected", "overdue"]
     type: Literal["income", "expense", "transfer"]
     day: date
     amount: Decimal | None  # + приход, − расход; у плана сумма может быть ещё неизвестна

@@ -27,9 +27,9 @@ from app.services.xlsx_export import Col, table_xlsx
 ZERO = Decimal(0)
 CENT = Decimal("0.01")
 PLAN_WINDOW_DAYS = 400  # как у календаря: длиннее — только факт
-STATUSES = ("fact", "planned", "overdue")
+STATUSES = ("fact", "planned", "expected", "overdue")
 PLAN_SOURCE = {"manual": "plan", "supplier": "supplier", "tax": "tax", "ozon": "ozon_forecast"}
-STATUS_TEXT = {"fact": "Факт", "planned": "План", "overdue": "Просрочен"}
+STATUS_TEXT = {"fact": "Факт", "planned": "План", "expected": "Ожидается", "overdue": "Просрочен"}
 TYPE_TEXT = {"income": "Поступление", "expense": "Платёж", "transfer": "Перевод"}
 SOURCE_TEXT = {
     "manual": "Вручную", "import": "Из файла", "ozon_payout": "Выплата Ozon", "bank": "Банк",
@@ -94,7 +94,7 @@ async def journal(
         by_code = {c.code: c.id for c in cats.values() if c.code and c.archived_at is None}
         for item in snap.visible:
             st = item.status(today)
-            if st not in ("planned", "overdue"):
+            if st not in ("planned", "expected", "overdue"):
                 continue
             meta = item.meta
             # статья и счёт — те, с которыми «Оплачено» запишет операцию

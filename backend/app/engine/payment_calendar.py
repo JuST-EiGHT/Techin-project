@@ -8,8 +8,15 @@
 - `suggest` — предложения «это оплата плана …» (шаг 10.20): неоплаченный платёж и операция, которая не подошла под
   `match` (сумма или дата дальше допуска, у операции нет статьи, контрагент записан иначе), но похожа;
 - `forecast` — остаток по дням = остаток сейчас + плановые поступления − плановые платежи; кассовый разрыв — дни ниже
-  нуля или порога. В прогнозе только действующие платежи с сегодняшнего дня: выключенный план не участвует («что
-  если»), неоплаченный прошлый платёж — тоже (его показываем отдельно: перенести или отметить).
+  нуля или порога. В прогнозе — действующие платежи с сегодняшнего дня и «ожидаемые» (срок прошёл не больше чем на 3
+  дня — банк ещё может не показать оплату: считаем их сегодня), у частично оплаченных — остаток к оплате; выключенный
+  план не участвует («что если»), просроченный — тоже (его показываем отдельно: перенести или отметить);
+- `gap_causes` — почему разрыв: крупнейшие платежи до его даты и поступления, которые не пришли (шаг 10.24).
+
+Статусы (шаг 10.24, BUSINESS_LOGIC «Календарь и ДДС»): запланирован — срок впереди; ожидается — срок сегодня или прошёл
+не больше чем на 3 дня; оплачен — есть факт на всю сумму (от 1 ₽ меньше плана — частично оплачен; у оценок — прогноз
+Ozon, налог по неполному периоду, один ЕНП на несколько налогов — факт закрывает платёж целиком); просрочен — срок
+прошёл больше чем на 3 дня, факта нет.
 """
 
 import calendar
@@ -24,6 +31,8 @@ MATCH_PCT = Decimal(10)  # сумма операции может отличат
 MATCH_DAYS = 3  # и дата — на 3 дня в любую сторону
 SUGGEST_PCT = Decimal(25)  # предложение «это оплата плана»: сумма — до 25 %
 SUGGEST_DAYS = 10  # и дата — до 10 дней
+EXPECT_DAYS = 3  # «ожидается»: срок прошёл не больше чем на 3 дня — банк ещё может не показать оплату
+PARTIAL_MIN = Decimal(1)  # факт меньше плана на копейки округления — не частичная оплата
 
 
 @dataclass(frozen=True)
@@ -121,10 +130,24 @@ class Item:
         if self.skipped:
             return "skipped"
         if self.fact is not None:
-            return "paid"
+            return "partial" if self.remaining is not None else "paid"
         if not self.enabled:
             return "disabled"
-        return "overdue" if self.day < today else "planned"
+        if self.day > today:
+            return "planned"
+        return "expected" if self.day >= today - timedelta(days=EXPECT_DAYS) else "overdue"
+
+    @property
+    def remaining(self) -> Decimal | None:
+        """Сколько осталось оплатить (со знаком плана), если факт меньше плана от 1 ₽; иначе — None (оплачен целиком).
+        Сумма-оценка, прогноз выплаты Ozon и один ЕНП на несколько налогов закрываются фактом целиком."""
+        if (self.fact is None or self.amount is None or self.estimate or self.source == "ozon"
+                or self.meta.get("shared_fact")):
+            return None
+        rest = abs(self.amount) - abs(self.fact.amount)
+        if rest < PARTIAL_MIN:
+            return None
+        return (rest if self.amount > 0 else -rest).quantize(CENT)
 
     @property
     def diff(self) -> Decimal | None:
@@ -341,16 +364,29 @@ class Forecast:
     end_balance: Decimal | None
 
 
+def forecast_flow(item: Item, today: date) -> tuple[date, Decimal] | None:
+    """Что платёж даёт прогнозу: день (ожидаемый с прошедшим сроком — сегодня) и сумма (у частично оплаченного —
+    остаток к оплате); не входит — None."""
+    st = item.status(today)
+    day = max(item.day, today)
+    if st in ("planned", "expected") and item.amount is not None:
+        return day, item.amount
+    if st == "partial" and item.day >= today - timedelta(days=EXPECT_DAYS):
+        return day, item.remaining  # type: ignore[return-value]
+    return None
+
+
 def in_forecast(item: Item, today: date) -> bool:
-    return item.status(today) == "planned" and item.amount is not None
+    return forecast_flow(item, today) is not None
 
 
 def forecast(start: Decimal | None, items: list[Item], today: date, date_to: date, threshold: Decimal | None = None) -> Forecast:
     """Остаток на конец каждого дня с сегодня по date_to. start — остаток сейчас (с сегодняшними операциями)."""
     flows: dict[date, list[Decimal]] = {}
     for item in items:
-        if in_forecast(item, today) and today <= item.day <= date_to:
-            flows.setdefault(item.day, []).append(item.amount)
+        flow = forecast_flow(item, today)
+        if flow is not None and flow[0] <= date_to:
+            flows.setdefault(flow[0], []).append(flow[1])
     limit = threshold if threshold is not None else ZERO
     days: list[Day] = []
     balance = start
@@ -383,3 +419,23 @@ def forecast(start: Decimal | None, items: list[Item], today: date, date_to: dat
         min_balance=min((d.balance for d in known), default=None),
         end_balance=known[-1].balance if known else None,
     )
+
+
+@dataclass
+class Causes:
+    """Почему кассовый разрыв: крупнейшие платежи с сегодня по день разрыва и поступления, которые не пришли."""
+
+    expenses: list[tuple[Item, Decimal]]  # платёж и сумма в прогнозе (у частично оплаченного — остаток)
+    missing_income: list[Item]  # просроченные поступления: в прогноз не входят — если придут, разрыв меньше
+
+
+def gap_causes(items: list[Item], today: date, until: date, limit: int = 5) -> Causes:
+    expenses = []
+    for item in items:
+        flow = forecast_flow(item, today)
+        if flow is not None and flow[1] < 0 and flow[0] <= until:
+            expenses.append((item, flow[1]))
+    expenses.sort(key=lambda x: (x[1], x[0].day, x[0].key))
+    missing = [i for i in items if i.kind == "income" and i.status(today) == "overdue" and i.amount is not None]
+    missing.sort(key=lambda i: (-abs(i.amount), i.day, i.key))  # type: ignore[arg-type]
+    return Causes(expenses[:limit], missing[:limit])
