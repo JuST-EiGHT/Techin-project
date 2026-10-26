@@ -17,10 +17,12 @@ from app.schemas.anomaly import (
     AnomalyCounts,
     AnomalyItem,
     Group,
+    Section,
     Severity,
 )
 from app.schemas.sync import utc
 from app.services import anomalies as svc
+from app.services import notifier
 from app.services.stores import get_current_store
 from app.services.sync.runner import latest_run
 
@@ -33,6 +35,9 @@ async def list_anomalies(
                                                           description="active — сейчас, resolved — закрытые, all — все"),
     severity: Severity | None = Query(None),
     group: Group | None = Query(None, description="sales | price | margin | stock | promo | money | data"),
+    section: Section | None = Query(None, description="Раздел уведомлений: sales | margin | stock | cash | payouts | "
+                                                      "auto_promo | prices | data"),
+    include_off: bool = Query(False, description="true — и выключенные разделы (страница «Уведомления»), с пометкой"),
     type_: str | None = Query(None, alias="type", description="Тип: sales_drop, price_change …"),
     product_id: uuid.UUID | None = Query(None),
     acknowledged: bool | None = Query(None, description="false — только без «Ок»"),
@@ -46,21 +51,25 @@ async def list_anomalies(
 ):
     """Аномалии: активные — красные первыми, внутри — больше денег под риском, затем новые («Требует внимания», 10.5);
     закрытые — по времени закрытия. Записи не
-    удаляются: закрытая остаётся в истории, повторное появление — новая запись."""
+    удаляются: закрытая остаётся в истории, повторное появление — новая запись. Выключенные разделы уведомлений (10.25)
+    не показываются, кроме include_off=true."""
     if type_ is not None and type_ not in TYPES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Тип аномалии: недопустимое значение")
+    muted = await notifier.muted_types(db, user.id)
     page = await svc.list_anomalies(
         db, user.id, status=status_, severity=severity, group=group, type_=type_, product_id=product_id,
-        acknowledged=acknowledged, order=order, limit=limit, offset=offset, area=area,
+        acknowledged=acknowledged, order=order, limit=limit, offset=offset, area=area, section=section, muted=muted,
+        hide_muted=not include_off,
     )
     run = await latest_run(db, user.id, "anomalies", status=SUCCESS)
-    return {**page, "counts": await svc.counts(db, user.id), "checked_at": utc(run.finished_at) if run else None}
+    return {**page, "counts": await svc.counts(db, user.id, muted), "checked_at": utc(run.finished_at) if run else None}
 
 
 @router.get("/count", response_model=AnomalyCounts)
 async def count(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
-    """Сколько активных аномалий без «Ок» (красных и жёлтых) — для колокольчика в шапке."""
-    return await svc.counts(db, user.id)
+    """Сколько активных аномалий без «Ок» (красных и жёлтых) — для колокольчика в шапке; выключенные разделы
+    уведомлений не считаются."""
+    return await svc.counts(db, user.id, await notifier.muted_types(db, user.id))
 
 
 @router.post("/acknowledge-all", response_model=AcknowledgedAll)
@@ -68,15 +77,16 @@ async def acknowledge_all(data: AcknowledgeAll, user: User = Depends(get_current
     """«Отметить все прочитанными»: «Ок» у всех активных без «Ок» — по фильтрам страницы (без фильтров — у всех)."""
     if data.type is not None and data.type not in TYPES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Тип аномалии: недопустимое значение")
+    muted = await notifier.muted_types(db, user.id)
     n = await svc.acknowledge_all(db, user.id, severity=data.severity, group=data.group, type_=data.type,
-                                  product_id=data.product_id)
-    return {"acknowledged": n, "counts": await svc.counts(db, user.id)}
+                                  product_id=data.product_id, section=data.section, muted=muted)
+    return {"acknowledged": n, "counts": await svc.counts(db, user.id, muted)}
 
 
 @router.post("/{anomaly_id}/acknowledge", response_model=AnomalyItem)
 async def acknowledge(anomaly_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """«Ок»: видел. Аномалия остаётся активной, пока метрика не вернётся в норму, но в счётчик больше не входит."""
     try:
-        return await svc.acknowledge(db, user.id, anomaly_id)
+        return await svc.acknowledge(db, user.id, anomaly_id, await notifier.muted_types(db, user.id))
     except svc.NotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Аномалия не найдена") from exc

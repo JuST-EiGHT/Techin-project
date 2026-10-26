@@ -298,16 +298,19 @@ async def test_attention_order_severity_money_then_new(client, tokens, sessions)
 
 # ── Telegram и настройки ──
 async def test_data_category_off_in_telegram_by_default(client, tokens):
+    on = notify.Prefs(notify.legacy_sections(data=True))
     for t in (det.SYNC_PROBLEM, det.ACCRUAL_GAPS, det.REPORT_ERROR, det.MISSING_COST):
-        assert notify.category(t, "red") == notify.DATA and not notify.wanted(notify.Prefs(), t, "red")
-        assert notify.wanted(notify.Prefs(data=True), t, "yellow")
-    assert notify.category(det.EXCESS_STOCK, "yellow") == notify.YELLOW  # избыток — «Остатки», жёлтая
-    assert "данные" in notify.render_test("https://x", notify.Prefs(data=True))
+        assert notify.section_of(t) == "data" and not notify.wanted(notify.Prefs(), t, "red")
+        assert notify.wanted(on, t, "yellow")
+    assert notify.section_of(det.EXCESS_STOCK) == "stock"  # избыток — «Остатки»
+    assert "синхронизация и отчёты" in notify.render_test("https://x", on)
 
+    data = lambda body: next(x for x in body["sections"] if x["key"] == "data")  # noqa: E731
     get = await client.get("/api/v1/notifications/settings", headers=auth(tokens))
-    assert get.json()["notify_data"] is False
-    r = await client.patch("/api/v1/notifications/settings", json={"notify_data": True}, headers=auth(tokens))
-    assert r.status_code == 200 and r.json()["notify_data"] is True
+    assert data(get.json())["telegram"] is False
+    r = await client.patch("/api/v1/notifications/settings", json={"sections": {"data": {"telegram": True}}},
+                           headers=auth(tokens))
+    assert r.status_code == 200 and data(r.json())["telegram"] is True
 
 
 async def test_data_thresholds_are_settings(client, tokens):

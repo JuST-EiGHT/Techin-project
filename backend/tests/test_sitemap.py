@@ -127,7 +127,7 @@ def run_node(urls: list[str]) -> dict:
 def page_exists(url: str) -> bool:
     """Есть страница Next по адресу: каталоги app/…/page.tsx, вместо сегмента — [параметр]."""
     here = APP
-    for part in url.split("?")[0].strip("/").split("/"):
+    for part in url.split("#")[0].split("?")[0].strip("/").split("/"):
         if (here / part).is_dir():
             here = here / part
             continue
@@ -215,13 +215,15 @@ def anomaly_links() -> tuple[dict[str, str | None], set[str]]:
 def test_anomaly_links_lead_to_new_pages():
     links, types = anomaly_links()
     assert types == set(det.TYPES)  # все 19 проверок (14 — шаг 7.1, 5 — шаг 10.5)
-    assert links["sales_shop"] == "/dashboard/finance/pnl?tab=products"
+    assert links["sales_shop"] == "/dashboard/analytics/sales"  # 10.25: продажи магазина — «Аналитика продаж»
     assert links["price_service"] == f"/dashboard/products/prices/history?product={ID}"
     assert links["promo_auto"] == "/dashboard/products/promotions/1234567"
     assert links["promo_auto_no_id"] == "/dashboard/products/promotions"
-    assert links["payout_missed"] == links["payout_diff"] == "/dashboard/finance/payouts"
-    assert links["bank_missing"] == links["bank_diff"] == "/dashboard/operations/accounts"
-    assert links["cash_gap"] == "/dashboard/planning/calendar"
+    # 10.25: прямо к выплате — строка сверки в «Выплатах и расчётах» (10.23); разрыв — день в календаре (10.24)
+    assert links["payout_missed"] == "/dashboard/finance/payouts"
+    assert links["payout_diff"] == "/dashboard/finance/payouts#payout-2026-10-07"
+    assert links["bank_missing"] == links["bank_diff"] == "/dashboard/finance/payouts#payout-2026-10-07"
+    assert links["cash_gap"] == "/dashboard/planning/calendar?day=2026-10-17"
     assert links["uncategorized"] == "/dashboard/operations?category=none&from=2026-09-01&to=2026-10-15"
     assert links["uncategorized_no_day"] == "/dashboard/operations"
     assert links["excess_stock"] == "/dashboard/warehouses/withdrawal"

@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud import credential as crud_credential
 from app.engine import anomaly_detector as det
+from app.engine import notifications as notify
 from app.engine import payouts as payout_engine
 from app.engine.anomaly_text import TYPE_TITLES, UNITS, describe
 from app.models.anomaly import RED, YELLOW, Anomaly
@@ -320,11 +321,12 @@ async def detect(db: AsyncSession, user_id: uuid.UUID, now: datetime | None = No
 STATUSES = ("active", "resolved", "all")
 
 
-def item(a: Anomaly, product: Product | None, today: date) -> dict:
+def item(a: Anomaly, product: Product | None, today: date, muted: set[str] | frozenset = frozenset()) -> dict:
     text = describe(a.type, a.severity, a.metric_before, a.metric_after, a.threshold, a.details, a.product_id,
                     product.name or product.offer_id if product else None, today)
     return {
         "id": a.id, "type": a.type, "type_title": TYPE_TITLES.get(a.type, a.type), "group": det.GROUPS.get(a.type),
+        "section": notify.section_of(a.type), "muted": a.type in muted,
         "severity": a.severity, "title": text.title, "message": text.message, "link": text.link,
         "product": {"id": product.id, "offer_id": product.offer_id, "name": product.name} if product else None,
         "metric_before": a.metric_before, "metric_after": a.metric_after, "threshold": a.threshold,
@@ -334,15 +336,16 @@ def item(a: Anomaly, product: Product | None, today: date) -> dict:
     }
 
 
-async def counts(db: AsyncSession, user_id: uuid.UUID) -> dict:
+async def counts(db: AsyncSession, user_id: uuid.UUID, muted: set[str] | frozenset = frozenset()) -> dict:
     """Активные: всего и непрочитанные (без «Ок») — всего, красных и жёлтых; активные красные и жёлтые с «Ок» и без
-    (`red_active`, `yellow_active` — числа у фильтров страницы). Для колокольчика (7.2) — один запрос."""
+    (`red_active`, `yellow_active` — числа у фильтров страницы). Для колокольчика (7.2) — один запрос. muted — типы
+    выключенных разделов уведомлений (10.25): не считаются."""
     out = {"active": 0, "unread": 0, RED: 0, YELLOW: 0, "red_active": 0, "yellow_active": 0}
-    for severity, acknowledged, n in await db.execute(
-        select(Anomaly.severity, Anomaly.is_acknowledged, func.count())
-        .where(Anomaly.user_id == user_id, Anomaly.resolved_at.is_(None))
-        .group_by(Anomaly.severity, Anomaly.is_acknowledged)
-    ):
+    q = select(Anomaly.severity, Anomaly.is_acknowledged, func.count()).where(
+        Anomaly.user_id == user_id, Anomaly.resolved_at.is_(None))
+    if muted:
+        q = q.where(Anomaly.type.not_in(sorted(muted)))
+    for severity, acknowledged, n in await db.execute(q.group_by(Anomaly.severity, Anomaly.is_acknowledged)):
         out["active"] += n
         out[f"{severity}_active"] = out.get(f"{severity}_active", 0) + n
         if not acknowledged:
@@ -353,8 +356,12 @@ async def counts(db: AsyncSession, user_id: uuid.UUID) -> dict:
 
 def _filtered(user_id: uuid.UUID, *, status: str = "active", severity: str | None = None, group: str | None = None,
               type_: str | None = None, product_id: uuid.UUID | None = None, acknowledged: bool | None = None,
-              area: str | None = None):
+              area: str | None = None, section: str | None = None, muted: set[str] | frozenset = frozenset()):
     q = select(Anomaly).where(Anomaly.user_id == user_id)
+    if section:
+        q = q.where(Anomaly.type.in_(notify.types_of([section])))
+    if muted:
+        q = q.where(Anomaly.type.not_in(sorted(muted)))
     if area:
         q = q.where(Anomaly.type.in_(det.AREAS[area]))
     if status == "active":
@@ -378,14 +385,18 @@ async def list_anomalies(
     db: AsyncSession, user_id: uuid.UUID, *, status: str = "active", severity: str | None = None,
     group: str | None = None, type_: str | None = None, product_id: uuid.UUID | None = None,
     acknowledged: bool | None = None, order: str | None = None, limit: int = 50, offset: int = 0,
-    area: str | None = None,
+    area: str | None = None, section: str | None = None, muted: set[str] | frozenset = frozenset(),
+    hide_muted: bool = True,
 ) -> dict:
     """Аномалии по фильтрам. Порядок: severity — красные первыми, внутри — больше денег под риском, затем новые (по
     умолчанию у активных; «Требует внимания» 10.5); new — новые первыми (колокольчик, 7.2); у закрытых по умолчанию — по
     времени закрытия. by_group — сколько по группам при тех же
-    фильтрах, кроме группы и типа (числа у фильтров страницы)."""
+    фильтрах, кроме группы и типа (числа у фильтров страницы); by_section — так же по разделам уведомлений (10.25).
+    muted — типы выключенных разделов: hide_muted — не показывать (колокольчик, «Требует внимания»), иначе — с пометкой
+    (страница «Уведомления»)."""
+    hidden = muted if hide_muted else frozenset()
     q = _filtered(user_id, status=status, severity=severity, group=group, type_=type_, product_id=product_id,
-                  acknowledged=acknowledged, area=area)
+                  acknowledged=acknowledged, area=area, section=section, muted=hidden)
     total = await db.scalar(select(func.count()).select_from(q.subquery()))
     order = order or ("severity" if status == "active" else "resolved")
     by = {
@@ -397,24 +408,31 @@ async def list_anomalies(
     names = {p.id: p for p in (await db.execute(select(Product).where(
         Product.id.in_({a.product_id for a in rows if a.product_id})))).scalars()} if rows else {}
     by_group: dict[str, int] = {}
+    by_section: dict[str, int] = {}
     base = _filtered(user_id, status=status, severity=severity, product_id=product_id, acknowledged=acknowledged,
-                     area=area).subquery()
+                     area=area, muted=hidden).subquery()
     for type_name, n in await db.execute(select(base.c.type, func.count()).group_by(base.c.type)):
         group_name = det.GROUPS.get(type_name)
         if group_name:
             by_group[group_name] = by_group.get(group_name, 0) + n
+        section_name = notify.section_of(type_name)
+        if section_name:
+            by_section[section_name] = by_section.get(section_name, 0) + n
     today = today_msk()
-    return {"items": [item(a, names.get(a.product_id), today) for a in rows], "total": total, "limit": limit,
-            "offset": offset, "by_group": by_group}
+    return {"items": [item(a, names.get(a.product_id), today, muted) for a in rows], "total": total, "limit": limit,
+            "offset": offset, "by_group": by_group, "by_section": by_section}
 
 
 async def acknowledge_all(
     db: AsyncSession, user_id: uuid.UUID, *, severity: str | None = None, group: str | None = None,
-    type_: str | None = None, product_id: uuid.UUID | None = None,
+    type_: str | None = None, product_id: uuid.UUID | None = None, section: str | None = None,
+    muted: set[str] | frozenset = frozenset(),
 ) -> int:
-    """«Отметить все прочитанными» — активные без «Ок» (по тем же фильтрам, что на странице). Сколько отмечено."""
+    """«Отметить все прочитанными» — активные без «Ок» (по тем же фильтрам, что на странице; выключенные разделы — не
+    трогаем, их и не видно). Сколько отмечено."""
     rows = list((await db.execute(_filtered(
         user_id, status="active", severity=severity, group=group, type_=type_, product_id=product_id, acknowledged=False,
+        section=section, muted=muted,
     ))).scalars())
     now = _now()
     for a in rows:
@@ -427,7 +445,8 @@ class NotFound(Exception):
     pass
 
 
-async def acknowledge(db: AsyncSession, user_id: uuid.UUID, anomaly_id: uuid.UUID) -> dict:
+async def acknowledge(db: AsyncSession, user_id: uuid.UUID, anomaly_id: uuid.UUID,
+                      muted: set[str] | frozenset = frozenset()) -> dict:
     """«Ок»: аномалия больше не просит внимания (остаётся активной, пока метрика не вернётся в норму). Повторно — без
     изменений."""
     a = await db.get(Anomaly, anomaly_id)
@@ -437,4 +456,4 @@ async def acknowledge(db: AsyncSession, user_id: uuid.UUID, anomaly_id: uuid.UUI
         a.is_acknowledged, a.acknowledged_at = True, _now()
         await db.commit()
     product = await db.get(Product, a.product_id) if a.product_id else None
-    return item(a, product, today_msk())
+    return item(a, product, today_msk(), muted)

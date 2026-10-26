@@ -11,7 +11,9 @@ import { api, errorMessage } from '@/lib/api'
 import {
   type Anomaly,
   type AnomaliesPage,
+  NOTIFY_SETTINGS,
   RESOLUTION,
+  SECTION_LABEL,
   SEVERITY,
   acknowledge,
   acknowledgeAll,
@@ -208,9 +210,12 @@ export function AlertCard({ anomaly: a, onChange }: { anomaly: Anomaly; onChange
       className={`rounded-xl border border-l-4 border-line bg-card p-4 ${SEVERITY[a.severity].stripe} ${a.is_acknowledged || resolved ? 'opacity-80' : ''}`}
       data-testid="alert-card"
       data-severity={a.severity}
+      data-section={a.section ?? undefined}
+      data-muted={a.muted || undefined}
     >
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-muted">
         <span className={`font-medium ${SEVERITY[a.severity].text}`}>{a.severity === 'red' ? 'Красная' : 'Жёлтая'}</span>
+        {a.section && <span>· {SECTION_LABEL[a.section]}</span>}
         <span>· {whenText(a.detected_at)}</span>
         {resolved ? (
           <span className="text-faint">
@@ -230,6 +235,14 @@ export function AlertCard({ anomaly: a, onChange }: { anomaly: Anomaly; onChange
       )}
       <p className="mt-1 text-sm text-muted">{a.message}</p>
       {metric && <p className="mt-1 text-xs text-faint">{metric}</p>}
+      {a.muted && !resolved && (
+        <p className="mt-1 text-xs text-faint" data-testid="alert-muted">
+          Раздел выключен — в колокольчике и Telegram его нет.{' '}
+          <Link href={NOTIFY_SETTINGS} className="text-accent hover:underline">
+            Включить →
+          </Link>
+        </p>
+      )}
       {a.money_at_risk !== null && !resolved && (
         <p className={`mt-1 text-sm ${SEVERITY[a.severity].text}`} data-testid="alert-money">
           Под риском ≈ {rubles(a.money_at_risk)}
@@ -241,7 +254,7 @@ export function AlertCard({ anomaly: a, onChange }: { anomaly: Anomaly; onChange
             Подробнее →
           </AlertLink>
         )}
-        {!resolved && !a.is_acknowledged && (
+        {!resolved && !a.is_acknowledged && !a.muted && (
           <span className="ml-auto">
             <OkButton anomaly={a} onDone={onChange} />
           </span>

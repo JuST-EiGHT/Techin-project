@@ -248,6 +248,8 @@ ACTIONS: dict[tuple[str, str], Action] = {
                                                               "/dashboard/warehouses/supply?tab=orders", "Заявки"),
     ("PATCH", f"{P}/notifications/settings"): Action("Изменены настройки уведомлений", "/dashboard/settings/notifications",
                                                      "Уведомления"),
+    ("PATCH", f"{P}/notifications/thresholds"): Action("Изменены пороги предупреждений",
+                                                      "/dashboard/settings/notifications#thresholds", "Уведомления"),
     ("POST", f"{P}/notifications/unlink"): Action("Telegram отвязан", "/dashboard/settings/notifications", "Уведомления"),
     ("PATCH", f"{P}/reports/{{report_id}}"): Action("Изменён отчёт: сумма «сколько пришло» или параметры расчёта",
                                                     "/dashboard/analytics/reports", "Отчёт", True),

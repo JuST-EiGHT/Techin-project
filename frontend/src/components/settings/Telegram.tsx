@@ -17,11 +17,9 @@ export type NotifySettings = {
   telegram_name: string | null
   linked_at: string | null
   blocked: boolean
-  notify_red: boolean
-  notify_yellow: boolean
-  notify_auto_promo: boolean
-  notify_money: boolean
-  notify_data: boolean
+  sections: NotifySection[] // по разделам карты (10.25)
+  channels: NotifyChannel[] // в сервисе, Telegram, e-mail (после почты)
+  digest_at: string // «09:00» — сводка раз в день
   quiet_enabled: boolean
   quiet_from: string
   quiet_to: string
@@ -30,6 +28,19 @@ export type NotifySettings = {
   pending: number
   last_sent_at: string | null
 }
+export type SectionKey = 'sales' | 'margin' | 'stock' | 'cash' | 'payouts' | 'auto_promo' | 'prices' | 'data' | 'automation'
+export type NotifySection = {
+  key: SectionKey
+  title: string
+  hint: string
+  severities: ('red' | 'yellow')[] // какие бывают; одна — выбор важности не нужен
+  soon: string | null // раздела ещё нет — с какого шага
+  on: boolean // уведомлять: колокольчик, «Требует внимания», Telegram
+  telegram: boolean
+  severity: 'all' | 'red' // в Telegram: все или только красные
+  daily: boolean // в Telegram сводкой раз в день
+}
+export type NotifyChannel = { key: 'service' | 'telegram' | 'email'; title: string; available: boolean; connected: boolean; note: string }
 type LinkCode = { code: string; expires_at: string; bot_username: string | null; deep_link: string | null }
 
 export const TELEGRAM_HREF = '/dashboard/settings/integrations?tab=telegram'

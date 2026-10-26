@@ -87,10 +87,11 @@ async def log_rows(sessions, uid) -> list[NotificationLog]:
 
 # ── чистые функции ──
 def test_categories_do_not_overlap():
-    p = engine.Prefs(red=True, yellow=False, auto_promo=False, money=True)
-    assert engine.category(det.PAYOUT_MISSED, "red") == engine.MONEY and engine.category(det.CASH_GAP, "yellow") == engine.MONEY
-    assert engine.category(det.PROMO_AUTO_ADDED, "yellow") == engine.AUTO_PROMO
-    assert engine.category(det.PROMO_LOSS, "red") == engine.RED and engine.category(det.PRICE_CHANGE, "yellow") == engine.YELLOW
+    """Прежние категории (красные, жёлтые, автоакции, деньги) — теперь разделами: выбор тот же (10.25)."""
+    p = engine.Prefs(engine.legacy_sections(red=True, yellow=False, auto_promo=False, money=True))
+    assert engine.section_of(det.PAYOUT_MISSED) == "payouts" and engine.section_of(det.CASH_GAP) == "cash"
+    assert engine.section_of(det.PROMO_AUTO_ADDED) == "auto_promo"
+    assert engine.section_of(det.PROMO_LOSS) == "margin" and engine.section_of(det.PRICE_CHANGE) == "prices"
     assert engine.wanted(p, det.LOW_STOCK, "red") and not engine.wanted(p, det.LOW_STOCK, "yellow")
     assert not engine.wanted(p, det.PROMO_AUTO_ADDED, "yellow") and engine.wanted(p, det.BANK_DIFF, "yellow")
 
@@ -170,7 +171,7 @@ async def test_status_test_stop_commands(client, tokens, sessions, tg):
     await link(sessions, uid, quiet_enabled=True, notify_yellow=True)
     async with sessions() as db:
         status = await commands.cmd_status(db, CHAT)
-        assert "s***r@example.com" in status and "красные, жёлтые, автоакции, деньги" in status
+        assert "s***r@example.com" in status and "присылаем: продажи, низкая маржа, остатки, кассовый разрыв" in status
         assert "тихие часы 23:00–08:00" in status and "Активных уведомлений: 0" in status
         assert (await commands.cmd_test(db, CHAT)).startswith("✅ <b>Тестовое сообщение")
         assert (await commands.cmd_start(db, CHAT, None, None, [])).startswith("Уведомления уже подключены")
@@ -287,14 +288,16 @@ async def test_settings_api_and_test_message(client, tokens, sessions, tg):
     get = lambda: client.get("/api/v1/notifications/settings", headers=auth(tokens))  # noqa: E731
     patch = lambda body: client.patch("/api/v1/notifications/settings", json=body, headers=auth(tokens))  # noqa: E731
     body = (await get()).json()
-    assert (body["linked"], body["notify_red"], body["notify_yellow"], body["notify_auto_promo"], body["notify_money"]) == (
-        False, True, False, True, True)
+    tg_ = {x["key"]: (x["telegram"], x["severity"]) for x in body["sections"]}
+    assert body["linked"] is False and tg_["sales"] == (True, "red") and tg_["payouts"] == (True, "all")
+    assert tg_["auto_promo"] == (True, "all") and tg_["data"] == (False, "all")
     assert (body["quiet_enabled"], body["quiet_from"], body["quiet_to"], body["timezone"]) == (False, "23:00", "08:00", "Europe/Moscow")
     assert {"value": "Asia/Vladivostok", "label": "Владивосток (UTC+10)"} in body["timezones"]
-    r = await patch({"notify_yellow": True, "quiet_enabled": True, "quiet_from": "22:30", "quiet_to": "07:00",
-                     "timezone": "Asia/Yekaterinburg"})
+    r = await patch({"sections": {"sales": {"severity": "all"}}, "quiet_enabled": True, "quiet_from": "22:30",
+                     "quiet_to": "07:00", "timezone": "Asia/Yekaterinburg"})
     assert r.status_code == 200
-    assert (r.json()["notify_yellow"], r.json()["quiet_from"], r.json()["timezone"]) == (True, "22:30", "Asia/Yekaterinburg")
+    sales = next(x for x in r.json()["sections"] if x["key"] == "sales")
+    assert (sales["severity"], r.json()["quiet_from"], r.json()["timezone"]) == ("all", "22:30", "Asia/Yekaterinburg")
     assert (await patch({"timezone": "Europe/London"})).json()["detail"] == "Часовой пояс: выберите из списка"
     r = await patch({"quiet_from": "07:00"})
     assert (r.status_code, r.json()["detail"]) == (400, "Тихие часы: начало и конец совпадают — укажите разное время")

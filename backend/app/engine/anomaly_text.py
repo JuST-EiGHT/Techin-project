@@ -95,6 +95,11 @@ def _span(r: list[str]) -> str:
     return _day(r[0]) if r[0] == r[1] else f"{_day(r[0])}–{_day(r[1])}"
 
 
+def _payout_link(day) -> str:
+    """Выплата в «Выплатах и расчётах с Ozon» (10.23): строка сверки этой выплаты — с поступлением на счёт."""
+    return f"/dashboard/finance/payouts#payout-{day}" if day else "/dashboard/finance/payouts"
+
+
 def describe(
     type_: str, severity: str, before: Decimal | None, after: Decimal | None, threshold: Decimal | None,
     details: dict | None, product_id=None, product_name: str | None = None, today: date | None = None,
@@ -116,7 +121,7 @@ def describe(
                    "Посмотрите, у каких товаров упали продажи, — «Прибыль по товарам».")
         else:
             tip = "Проверьте цену: не слишком ли низкая, не попал ли товар в акцию."
-        return Text(title, f"{base} {tip}", product_link or "/dashboard/finance/pnl?tab=products")
+        return Text(title, f"{base} {tip}", product_link or "/dashboard/analytics/sales")
 
     if type_ == det.PRICE_CHANGE:
         up = after is not None and before is not None and after > before
@@ -142,7 +147,7 @@ def describe(
         title = f"Маржа {num(after)} % — ниже порога {num(threshold)} %"
         price = f" {rub(d['price'])}" if d.get("price") else ""
         return Text(title, f"При текущей цене{price} у {what} остаётся меньше, чем вы считаете нормой. Минимальная и "
-                           "целевая цена — в разделе «Цены», порог — в «Настройках».", product_link)
+                           "целевая цена — в разделе «Цены», порог — в «Уведомлениях».", product_link)
 
     if type_ == det.LOW_STOCK:
         if after is not None and after <= 0:
@@ -179,18 +184,18 @@ def describe(
         week = f" (начисления недели продаж с {_day(d.get('week_from'))})" if d.get("week_from") else ""
         return Text(f"Выплата {_day(d.get('day'))} {'больше' if more else 'меньше'} прогноза на {_pct(d.get('change_pct', 0))}",
                     f"Пришло {rub(after)}, по графику ожидали {rub(before)}{week}. Посмотрите начисления за ту неделю: "
-                    "возвраты, удержания, хранение.", "/dashboard/finance/payouts")
+                    "возвраты, удержания, хранение.", _payout_link(d.get("day")))
 
     if type_ == det.BANK_MISSING:
         return Text(f"Выплата Ozon {_day(d.get('day'))} не дошла до счёта",
                     f"Ozon выплатил {rub(before)}, а в выписке банка поступления нет, хотя выписка за эти дни загружена. "
-                    "Проверьте реквизиты для выплат в кабинете Ozon и выписку.", "/dashboard/operations/accounts")
+                    "Проверьте реквизиты для выплат в кабинете Ozon и выписку.", _payout_link(d.get("day")))
 
     if type_ == det.BANK_DIFF:
         diff = (Decimal(after) - Decimal(before)) if after is not None and before is not None else None
         return Text(f"Выплата Ozon {_day(d.get('day'))}: на счёт пришло {rub(after)}",
                     f"Ozon выплатил {rub(before)}, в банке {_day(d.get('bank_day'))} — {rub(after)} (разница {rub(diff)}).",
-                    "/dashboard/operations/accounts")
+                    _payout_link(d.get("day")))
 
     if type_ == det.CASH_GAP:
         if severity == det.RED:
@@ -200,7 +205,8 @@ def describe(
             title = f"Остаток ниже порога с {_day(d.get('first_day'))}"
             text = f"По прогнозу остаток опустится ниже вашего порога {rub(threshold)} {_day(d.get('first_day'), True)}"
         return Text(title, f"{text}; минимум — {rub(after)} {_day(d.get('min_day'))}. Перенесите платежи или "
-                           "запланируйте поступления — «Календарь».", "/dashboard/planning/calendar")
+                           "запланируйте поступления — «Календарь».",
+                    f"/dashboard/planning/calendar?day={d['first_day']}" if d.get("first_day") else "/dashboard/planning/calendar")
 
     if type_ == det.UNCATEGORIZED:
         frm = d.get("oldest_day")

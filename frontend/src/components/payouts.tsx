@@ -782,6 +782,11 @@ export function SettlementSummary({ data }: { data: Settlement }) {
 /** Выплаты Ozon за период и поступления на счёт: по каждой — пришло, не пришло или пришло другой суммой. */
 export function SettlementTable({ data, week }: { data: Settlement; week?: string | null }) {
   const rows = data.payouts
+  // ссылка уведомления «прямо к выплате» (#payout-…, шаг 10.25): строка появляется после загрузки — тогда и прокручиваем
+  useEffect(() => {
+    const hash = window.location.hash.slice(1)
+    if (hash.startsWith('payout-')) document.getElementById(hash)?.scrollIntoView({ block: 'center' })
+  }, [rows])
   return (
     <section className="rounded-xl border border-line bg-card p-4" data-testid="settlement-table">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">

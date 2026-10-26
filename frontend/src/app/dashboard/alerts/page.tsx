@@ -1,6 +1,8 @@
 'use client'
 // Уведомления (шаг 7.2): аномалии, которые раз в час находит сервис (шаг 7.1), — фильтры, группы по типу, «Ок»,
-// «Отметить все прочитанными». Telegram — шаг 7.3.
+// «Отметить все прочитанными». Telegram — шаг 7.3. Шаг 10.25: разделы по карте сервиса (`?section=`) с числами;
+// выключенные в настройках разделы — здесь же, с пометкой (в колокольчике их нет); пороги и каналы — «Аккаунт →
+// Уведомления». Старый фильтр `?group=` по-прежнему работает.
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useState } from 'react'
@@ -10,10 +12,13 @@ import { FormError } from '@/components/AuthForm'
 import { api, errorMessage } from '@/lib/api'
 import {
   type AlertGroup,
+  type AlertSection,
   type AlertStatus,
   type Anomaly,
   type AnomaliesPage,
   GROUPS,
+  NOTIFY_SETTINGS,
+  SECTIONS,
   type Severity,
   acknowledgeAll,
   useAlertCounts,
@@ -54,6 +59,7 @@ function Alerts() {
   const status = (STATUSES.find((s) => s.value === params.get('status'))?.value ?? 'active') as AlertStatus
   const severity = (['red', 'yellow'].includes(params.get('severity') ?? '') ? params.get('severity') : null) as Severity | null
   const group = (GROUPS.find((g) => g.value === params.get('group'))?.value ?? null) as AlertGroup | null
+  const section = (SECTIONS.find((g) => g.value === params.get('section') && !g.soon)?.value ?? null) as AlertSection | null
   const unreadOnly = params.get('unread') === '1' && status === 'active'
   const [data, setData] = useState<AnomaliesPage | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -65,11 +71,13 @@ function Alerts() {
       status,
       ...(severity ? { severity } : {}),
       ...(group ? { group } : {}),
+      ...(section ? { section } : {}),
       ...(unreadOnly ? { acknowledged: false } : {}),
+      include_off: true, // выключенные разделы — тоже, с пометкой
       limit: PAGE,
       offset,
     }),
-    [status, severity, group, unreadOnly],
+    [status, severity, group, section, unreadOnly],
   )
 
   const load = useCallback(() => {
@@ -94,11 +102,13 @@ function Alerts() {
     }
   }
 
-  const setParam = (key: string, value: string | null) => {
+  const setParam = (key: string, value: string | null, clear: string[] = []) => {
     const next = new URLSearchParams(params.toString())
     if (value === null) next.delete(key)
     else next.set(key, value)
+    for (const k of clear) next.delete(k)
     if (key === 'status' && value !== 'active') next.delete('unread')
+    if (key === 'section' && value !== null) next.delete('group') // раздел вместо старой группы
     const q = next.toString()
     router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false })
     setNotice(null)
@@ -111,7 +121,7 @@ function Alerts() {
     setBusy(true)
     setError(null)
     try {
-      const n = await acknowledgeAll({ ...(severity ? { severity } : {}), ...(group ? { group } : {}) })
+      const n = await acknowledgeAll({ ...(severity ? { severity } : {}), ...(group ? { group } : {}), ...(section ? { section } : {}) })
       setNotice(n ? `Отмечено прочитанными: ${n}. Аномалии закроются сами, когда всё вернётся в норму.` : 'Непрочитанных нет.')
       load()
     } catch (err) {
@@ -121,7 +131,8 @@ function Alerts() {
     }
   }
 
-  const unreadHere = data ? data.items.filter((a) => !a.resolved_at && !a.is_acknowledged).length : 0
+  const unreadHere = data ? data.items.filter((a) => !a.resolved_at && !a.is_acknowledged && !a.muted).length : 0
+  const filtered = Boolean(severity || group || section)
   const chip = (active: boolean) =>
     `rounded-full border px-3 py-1 text-sm ${active ? 'border-accent bg-accent/10 text-accent' : 'border-line text-muted hover:text-fg'}`
 
@@ -135,12 +146,12 @@ function Alerts() {
         </p>
         <p className="mt-1 text-xs text-faint" data-testid="alerts-checked">
           {data?.checked_at ? `Последняя проверка — ${whenText(data.checked_at)}. ` : 'Проверок ещё не было. '}
-          <Link href="/dashboard/settings#anomalies" className="text-accent hover:underline">
+          <Link href={`${NOTIFY_SETTINGS}#thresholds`} className="text-accent hover:underline" data-testid="alerts-thresholds">
             Пороги — когда считать проблемой →
           </Link>{' '}
           ·{' '}
-          <Link href="/dashboard/settings/notifications" className="text-accent hover:underline" data-testid="alerts-telegram">
-            Получать в Telegram →
+          <Link href={NOTIFY_SETTINGS} className="text-accent hover:underline" data-testid="alerts-telegram">
+            Разделы, Telegram, сводка →
           </Link>
         </p>
       </div>
@@ -188,23 +199,39 @@ function Alerts() {
             </label>
           )}
         </div>
-        <div className="flex flex-wrap gap-2" role="group" aria-label="Что проверяли">
-          <button type="button" className={chip(group === null)} onClick={() => setParam('group', null)} data-testid="alerts-group-all">
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Разделы">
+          <button
+            type="button"
+            className={chip(section === null && group === null)}
+            onClick={() => setParam('section', null, ['group'])}
+            data-testid="alerts-section-all"
+          >
             Все разделы
           </button>
-          {GROUPS.map((g) => (
-            <button
-              key={g.value}
-              type="button"
-              title={g.hint}
-              className={chip(group === g.value)}
-              onClick={() => setParam('group', g.value)}
-              data-testid={`alerts-group-${g.value}`}
-            >
-              {g.label}
-              <span className="text-faint"> {data?.by_group[g.value] ?? 0}</span>
+          {SECTIONS.map((g) =>
+            g.soon ? (
+              <span key={g.value} title={g.hint} className="rounded-full border border-dashed border-line px-3 py-1 text-sm text-faint" data-testid={`alerts-section-${g.value}`}>
+                {g.label} <span className="text-xs">· скоро</span>
+              </span>
+            ) : (
+              <button
+                key={g.value}
+                type="button"
+                title={g.hint}
+                className={chip(section === g.value)}
+                onClick={() => setParam('section', g.value)}
+                data-testid={`alerts-section-${g.value}`}
+              >
+                {g.label}
+                <span className="text-faint"> {data?.by_section[g.value] ?? 0}</span>
+              </button>
+            ),
+          )}
+          {group && (
+            <button type="button" className={chip(true)} onClick={() => setParam('group', null)} title="Фильтр по старой группе — снять">
+              {GROUPS.find((g) => g.value === group)?.label} ×
             </button>
-          ))}
+          )}
         </div>
       </div>
 
@@ -224,14 +251,14 @@ function Alerts() {
             className="rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent disabled:opacity-60"
             data-testid="alerts-read-all"
           >
-            Отметить все прочитанными{severity || group ? ' — в этом фильтре' : ''}
+            Отметить все прочитанными{filtered ? ' — в этом фильтре' : ''}
           </button>
-          <span className="text-xs text-faint">«Ок» у всех активных{severity || group ? ' по выбранному фильтру' : ''}: закрываться они будут сами.</span>
+          <span className="text-xs text-faint">«Ок» у всех активных{filtered ? ' по выбранному фильтру' : ''}: закрываться они будут сами.</span>
         </div>
       )}
 
       {!data && !error && <p className="text-sm text-muted">Загружаем…</p>}
-      {data && data.items.length === 0 && <Empty status={status} filtered={Boolean(severity || group || unreadOnly)} checked={data.checked_at} />}
+      {data && data.items.length === 0 && <Empty status={status} filtered={filtered || unreadOnly} checked={data.checked_at} />}
       {data &&
         byType(data.items).map((g) => (
           <section key={g.type} className="space-y-2" data-testid="alerts-group">
