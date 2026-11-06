@@ -17,6 +17,7 @@ class CalculateRequest(BaseModel):
     logistics: Decimal | None = Field(None, ge=0, le=1_000_000)
     storage: Decimal | None = Field(None, ge=0, le=1_000_000)
     other: Decimal | None = Field(None, ge=0, le=1_000_000)
+    extra_pct: Decimal | None = Field(None, ge=0, le=90)  # доп. расходы, % от цены
     target_margin_pct: Decimal | None = Field(None, ge=0, le=90)
     price: Decimal | None = Field(None, gt=0, le=100_000_000)  # проверить другую цену
     promo_price: Decimal | None = Field(None, gt=0, le=100_000_000)
@@ -36,10 +37,31 @@ class CalcInputs(BaseModel):
     logistics_text: str
     storage: Decimal
     other: Decimal
+    extra_pct: Decimal = Decimal(0)  # доп. расходы, % от цены: свои у товара или общие магазина
+    shop_extra_pct: Decimal = Decimal(0)  # общие доп. расходы магазина, % (настройка)
+    saved: "SavedExtras | None" = None  # что сохранено для этого товара
     target_margin_pct: Decimal
     price: Decimal | None
     promo_price: Decimal | None
     sources: dict[str, str]  # поле → откуда значение
+
+
+class SavedExtras(BaseModel):
+    """Свои расходы товара в расчёте цены; пусто — общее значение."""
+
+    storage: Decimal | None = None
+    other: Decimal | None = None
+    extra_pct: Decimal | None = None
+    note: str | None = None
+
+
+class ExtrasUpdate(BaseModel):
+    """Сохранить свои расходы товара — для всех расчётов (таблицы, акции, подсказки). Пусто — убрать своё значение."""
+
+    storage: Decimal | None = Field(None, ge=0, le=1_000_000)
+    other: Decimal | None = Field(None, ge=0, le=1_000_000)
+    extra_pct: Decimal | None = Field(None, ge=0, le=90)
+    note: str | None = Field(None, max_length=200)
 
 
 class CalcTax(BaseModel):
@@ -66,6 +88,7 @@ class Breakdown(BaseModel):
     margin: Decimal | None
     profit_tax: Decimal
     net: Decimal  # после налога на прибыль
+    extra: Decimal = Decimal(0)  # доп. расходы продавца, ₽
 
 
 class CalcResult(BaseModel):
@@ -173,3 +196,7 @@ class Suggestions(BaseModel):
     loss_count: int
     underpriced: list[Suggestion]  # между минимальной и целевой — сильнее отстающие от целевой первыми
     underpriced_count: int
+
+
+CalcInputs.model_rebuild()
+CalculateResponse.model_rebuild()

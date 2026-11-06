@@ -176,7 +176,7 @@ def build_row(ctx: Context, p: Product) -> dict:
     ]
     row = {
         "id": p.id, "offer_id": p.offer_id, "name": p.name, "ozon_sku": p.ozon_sku, "ozon_product_id": p.ozon_product_id,
-        "is_archived": p.is_archived,
+        "barcode": p.barcode, "is_archived": p.is_archived,
         "price": money(price), "old_price": money(engine.positive(snap.old_price)) if snap else None,
         "marketing_price": money(engine.positive(snap.marketing_price)) if snap else None,
         "min_price": money(engine.positive(snap.min_price)) if snap else None,

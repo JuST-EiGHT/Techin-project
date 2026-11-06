@@ -15,6 +15,7 @@ export type UserSettings = {
   cost_label: string
   price_ad_pct: string // калькулятор цены (шаг 4.2): реклама, % от цены
   price_target_margin_pct: string // целевая маржа, %
+  price_extra_pct: string // доп. расходы магазина, % от цены, для всех товаров (правка 06.11.2026)
   price_defaults: boolean // реклама и маржа ещё не заданы — значения по умолчанию
   // пороги статуса остатка, дней запаса (шаг 5.1): меньше — «Критично», меньше — «Мало», больше — «Избыток»
   stock_critical_days: number
@@ -106,13 +107,28 @@ export function useLowMargin(): number {
   return value === undefined ? DEFAULT_LOW_MARGIN : Number(value)
 }
 
-/** Реклама или целевая маржа поменялись (например, сохранили в панели товара) — onChange: таблица пересчитает цены. */
+const priceInputListeners = new Set<() => void>()
+
+/** Свои расходы товара сохранены (калькулятор цены) — таблицы цен и товаров пересчитаются. */
+export function notifyPriceInputsChanged() {
+  priceInputListeners.forEach((l) => l())
+}
+
+/** Реклама, целевая маржа или доп. расходы поменялись (например, сохранили в панели товара) — onChange: таблица
+ * пересчитает цены. */
 export function useOnPriceSettingsChange(onChange: () => void) {
   const settings = useSettings()
-  const key = settings ? `${settings.price_ad_pct}/${settings.price_target_margin_pct}` : null
+  const key = settings ? `${settings.price_ad_pct}/${settings.price_target_margin_pct}/${settings.price_extra_pct}` : null
   const last = useRef<string | null>(null)
   const callback = useRef(onChange)
   callback.current = onChange
+  useEffect(() => {
+    const l = () => callback.current()
+    priceInputListeners.add(l)
+    return () => {
+      priceInputListeners.delete(l)
+    }
+  }, [])
   useEffect(() => {
     if (key === null) return
     if (last.current !== null && last.current !== key) callback.current()

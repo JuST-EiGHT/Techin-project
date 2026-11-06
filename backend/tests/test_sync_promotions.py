@@ -478,3 +478,39 @@ async def test_api_history(sessions, client, tokens, ozon):
     promo_id = next(p["id"] for p in (await client.get("/api/v1/promotions", headers=auth(tokens))).json() if p["ozon_action_id"] == 71001)
     rows = (await client.get(f"/api/v1/promotions/{promo_id}/products", headers=auth(tokens))).json()["items"]
     assert [r["product"]["offer_id"] for r in rows].count("6001-2RS.C3.SRL.NAC.TH") == 1
+
+
+async def test_api_other_promotions_and_export(sessions, client, tokens, ozon):
+    """Правки владельца: товар уже в другой акции (дешевле — пометкой) и товары акции в Excel."""
+    import io
+
+    from openpyxl import load_workbook
+
+    await api_user(sessions, client, tokens)
+    promo_id = next(p["id"] for p in (await client.get("/api/v1/promotions", headers=auth(tokens))).json() if p["ozon_action_id"] == 71001)
+    items = (await client.get(f"/api/v1/promotions/{promo_id}/products", headers=auth(tokens))).json()["items"]
+    by_offer = {i["product"]["offer_id"]: i for i in items}
+    candidate = by_offer["6000-2RS.C3.SRL.NAC.JP"]  # кандидат здесь, участник «Эластичного бустинга»
+    assert [o["title"] for o in candidate["other_promotions"]] == ["Эластичный бустинг"]
+    other = candidate["other_promotions"][0]
+    entry = candidate["max_action_price"] if Decimal(candidate["max_action_price"] or 0) > 0 else candidate["action_price"]
+    assert other["cheaper"] is (Decimal(other["action_price"]) < Decimal(entry))
+    assert by_offer["6001-2RS.C3.SRL.NAC.TH"]["other_promotions"] == []
+
+    r = await client.get(f"/api/v1/promotions/{promo_id}/products/export", headers=auth(tokens))
+    assert r.status_code == 200 and r.headers["content-type"].startswith("application/vnd.openxmlformats")
+    wb = load_workbook(io.BytesIO(r.content))
+    ws = wb["Товары акции"]
+    head = [c.value for c in ws[1]]
+    assert head[:6] == ["Статус", "Артикул", "SKU Ozon", "Название", "Ваша цена, ₽", "Цена в акции / цена входа, ₽"]
+    assert ws.max_row == 1 + len(items)
+    statuses = [ws.cell(row=i, column=1).value for i in range(2, ws.max_row + 1)]
+    assert statuses.count("кандидат") == 1
+    assert "Эластичный бустинг" in ws.cell(row=1 + [i["product"]["offer_id"] for i in items].index("6000-2RS.C3.SRL.NAC.JP") + 1, column=16).value
+    assert wb["Пояснения"]["A1"].value == "Акция «Скидка на сток»"
+
+    other_user = {"email": "other2@example.com", "password": "strongpass2"}
+    await client.post("/api/v1/auth/register", json=other_user)
+    t2 = (await client.post("/api/v1/auth/login", json=other_user)).json()
+    r = await client.get(f"/api/v1/promotions/{promo_id}/products/export", headers=auth(t2))
+    assert r.status_code == 404

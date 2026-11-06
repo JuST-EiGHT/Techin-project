@@ -51,6 +51,15 @@ class PromoProduct(BaseModel):
     ozon_sku: int | None
 
 
+class OtherPromotion(BaseModel):
+    """Товар уже участвует в другой акции (правка владельца): название, цена там и ниже ли она, чем здесь."""
+
+    id: uuid.UUID
+    title: str
+    action_price: Decimal | None
+    cheaper: bool  # цена там ниже цены в этой акции (у кандидата — цены входа)
+
+
 class PromotionProductResponse(BaseModel):
     product: PromoProduct
     action_price: Decimal | None
@@ -73,6 +82,7 @@ class PromotionProductResponse(BaseModel):
     below_breakeven: bool = False  # цена в акции (у кандидата — цена входа) ниже минимальной: каждая продажа в минус
     unit_profit: Decimal | None = None  # остаётся с 1 шт. при цене в акции, до налога на прибыль
     whole_stock_profit: Decimal | None = None  # «весь остаток» (§9): если по цене в акции уйдёт весь остаток
+    other_promotions: list[OtherPromotion] = []  # товар уже участвует в других идущих акциях; дешевле — первыми
 
 
 class PromotionProductsResponse(BaseModel):

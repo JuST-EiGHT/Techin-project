@@ -74,7 +74,7 @@ function Dashboard() {
         <Connect />
       ) : (
         <>
-          <AnalyticsFilters value={filter} onChange={update} showProduct={false} showCategory={false} kinds={['finance', 'postings', 'balance']} />
+          <AnalyticsFilters value={filter} onChange={update} showProduct={false} showCategory={false} showGranularity={false} kinds={['finance', 'postings', 'balance']} />
           <MetricsState error={error ?? boardError} loading={loading} empty={!data} />
           {data && (
             <>
@@ -87,7 +87,7 @@ function Dashboard() {
                   Отчёты Ozon →
                 </Link>
               </div>
-              {data.coverage.data_source !== 'none' && <DynamicsChart data={data} />}
+              {data.coverage.data_source !== 'none' && <DynamicsChart data={data} granularity={{ value: filter.granularity, onChange: (g) => update({ granularity: g, granularityChosen: true }) }} />}
             </>
           )}
           {/* «Требует внимания» (10.5): единый список проблем — аномалии и данные, по важности и деньгам под риском */}

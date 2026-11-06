@@ -12,7 +12,18 @@ import { PromoActionModal } from '@/components/promo-action'
 import { PromotionResultsBlock } from '@/components/promo-results'
 import { Badge, pctText, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
-import { MARGIN_TEXT, PROMO_TAB_VALUES, fmtDate, promoTabs, tabOf, type PromoProductRow, type PromoTab, type ProductsResponse } from '@/lib/promotions'
+import { saveFile } from '@/lib/download'
+import {
+  MARGIN_TEXT,
+  type OtherPromotion,
+  PROMO_TAB_VALUES,
+  fmtDate,
+  promoTabs,
+  tabOf,
+  type PromoProductRow,
+  type PromoTab,
+  type ProductsResponse,
+} from '@/lib/promotions'
 import { useLowMargin } from '@/lib/settings'
 
 export default function PromotionRoute() {
@@ -33,6 +44,18 @@ function PromotionPage() {
   const [error, setError] = useState<string | null>(null)
   const [action, setAction] = useState<{ row: PromoProductRow; mode: 'join' | 'leave' } | null>(null)
   const [done, setDone] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
+
+  async function exportXlsx() {
+    setExporting(true)
+    try {
+      await saveFile(api.get(`/promotions/${id}/products/export`, { responseType: 'blob' }), 'promotion.xlsx')
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const load = useCallback(() => {
     api
@@ -118,7 +141,10 @@ function PromotionPage() {
       )}
       <FormError message={error} />
 
-      <div className="flex gap-1 overflow-x-auto border-b border-line" role="tablist">
+      <PricesHelp />
+
+      <div className="flex items-end gap-2 border-b border-line">
+      <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto" role="tablist">
         {promoTabs(low).filter((t) => t.value !== 'none' || counts.none > 0).map((t) => (
           <button
             key={t.value}
@@ -134,6 +160,17 @@ function PromotionPage() {
           </button>
         ))}
       </div>
+        <button
+          type="button"
+          onClick={exportXlsx}
+          disabled={exporting}
+          className="mb-1.5 shrink-0 rounded-lg border border-line px-3 py-1 text-sm hover:border-accent hover:text-accent disabled:opacity-60"
+          title="Все товары акции и кандидаты с ценами, минимальной ценой для участия, маржой и прибылью"
+          data-testid="promo-export"
+        >
+          {exporting ? 'Готовим…' : 'Скачать Excel'}
+        </button>
+      </div>
 
       {rows.length === 0 ? (
         <p className="rounded-xl border border-line bg-card p-4 text-sm text-muted">
@@ -146,7 +183,17 @@ function PromotionPage() {
               <thead className="border-b border-line text-left text-xs text-muted">
                 <tr>
                   <th className="px-3 py-2 font-normal">Товар</th>
-                  <th className="px-3 py-2 text-right font-normal">{tab === 'candidates' ? 'Цена для входа' : 'Цена в акции'}</th>
+                  <th
+                    className="px-3 py-2 text-right font-normal"
+                    title={
+                      tab === 'candidates'
+                        ? 'Максимальная цена, по которой Ozon примет товар в акцию; под ней — ваша цена без акции'
+                        : 'Цена для покупателя во время акции — от неё считаются маржа и прибыль; под ней — ваша цена без акции и скидка'
+                    }
+                  >
+                    {tab === 'candidates' ? 'Цена входа' : 'Цена в акции'}
+                    <div className="text-[11px] text-faint">ваша цена · скидка</div>
+                  </th>
                   <th className="px-3 py-2 text-right font-normal" title="Калькулятор цены: ниже — каждая продажа в минус; под ней — цена с вашей целевой маржой">
                     Мин. для участия
                   </th>
@@ -154,8 +201,9 @@ function PromotionPage() {
                     Мин. в Ozon
                   </th>
                   <th className="px-3 py-2 text-right font-normal">Остаток</th>
-                  <th className="px-3 py-2 text-right font-normal" title="Калькулятор цены: с логистикой, рекламой и налогами">
-                    Маржа
+                  <th className="px-3 py-2 text-right font-normal" title="Калькулятор цены при цене в акции: с комиссией, логистикой, рекламой, доп. расходами и налогами">
+                    Маржа в акции
+                    <div className="text-[11px] text-faint">прибыль с 1 шт.</div>
                   </th>
                   <th className="px-3 py-2" />
                 </tr>
@@ -195,6 +243,67 @@ function PromotionPage() {
   )
 }
 
+/** Товар уже в других акциях: дешевле — заметно (покупатель может увидеть ту цену), остальные — списком в подсказке. */
+function OtherPromos({ items }: { items: OtherPromotion[] }) {
+  if (items.length === 0) return null
+  const cheaper = items.filter((o) => o.cheaper)
+  const list = items.map((o) => `«${o.title}»${o.action_price ? ` — ${rub(o.action_price)}` : ''}`).join('\n')
+  if (cheaper.length > 0) {
+    const o = cheaper[0]
+    return (
+      <Link
+        href={`/dashboard/products/promotions/${o.id}`}
+        className="mt-0.5 block truncate text-xs text-warn hover:underline"
+        title={`Уже участвует:\n${list}`}
+        data-testid="promo-other-cheaper"
+      >
+        уже в «{o.title}» дешевле{o.action_price ? ` — ${rub(o.action_price)}` : ''}
+        {items.length > 1 && ` (+${items.length - 1})`}
+      </Link>
+    )
+  }
+  return (
+    <div className="mt-0.5 truncate text-xs text-faint" title={`Уже участвует:\n${list}`} data-testid="promo-other">
+      ещё в {items.length === 1 ? `«${items[0].title}»` : `${items.length} акциях`}
+    </div>
+  )
+}
+
+/** Какие цены в таблице — словами (правка владельца: «непонятно, какие цены показаны»). */
+function PricesHelp() {
+  return (
+    <details className="rounded-lg border border-line bg-card px-3 py-2 text-sm" data-testid="promo-prices-help">
+      <summary className="cursor-pointer select-none text-muted hover:text-fg">Какие цены в таблице и как считается прибыль</summary>
+      <ul className="mt-2 list-disc space-y-1 pl-5 text-muted">
+        <li>
+          <b className="text-fg">Ваша цена</b> — цена товара в Ozon без акции.
+        </li>
+        <li>
+          <b className="text-fg">Цена в акции</b> — по ней покупатель купит товар во время акции. От неё считаются комиссия, логистика,
+          маржа и прибыль.
+        </li>
+        <li>
+          <b className="text-fg">Цена входа</b> (у кандидатов) — «до …»: самая высокая цена, по которой Ozon примет товар в акцию. Добавляем
+          по ней; ниже — меньше прибыль.
+        </li>
+        <li>
+          <b className="text-fg">Мин. для участия</b> — наш расчёт: цена без прибыли и без убытка (себестоимость, комиссия, логистика,
+          реклама, доп. расходы, налоги). Ниже — каждая продажа в минус. Под ней — целевая цена с вашей маржой.
+        </li>
+        <li>
+          <b className="text-fg">Мин. в Ozon</b> — минимальная цена, которую вы задали в Ozon: ниже неё Ozon цену в акциях не опустит.
+        </li>
+        <li>
+          <b className="text-fg">Маржа в акции</b> и <b className="text-fg">прибыль с 1 шт.</b> — при цене в акции, до налога на прибыль.
+        </li>
+        <li>
+          <b className="text-fg">«уже в … дешевле»</b> — товар участвует в другой акции по цене ниже, чем здесь.
+        </li>
+      </ul>
+    </details>
+  )
+}
+
 function Stat({ label, value, hint, tone = '' }: { label: string; value: string; hint: string; tone?: string }) {
   return (
     <div className="bg-card px-4 py-3">
@@ -222,11 +331,12 @@ function Row({ r, wholeStock, frozen, onAction }: { r: PromoProductRow; wholeSto
           <span className="truncate">{r.product.name}</span>
           {r.added_automatically && <Badge tone="accent">авто</Badge>}
         </div>
+        <OtherPromos items={r.other_promotions ?? []} />
       </td>
-      <td className={td}>
-        {r.is_active ? rub(price) : `до ${rub(price)}`}
+      <td className={td} data-testid="promo-price">
+        <span className="font-medium">{r.is_active ? rub(price) : `до ${rub(price)}`}</span>
         <div className="text-xs text-faint">
-          {rub(r.price)}
+          ваша {rub(r.price)}
           {r.discount_pct !== null && r.is_active && ` · −${r.discount_pct} %`}
         </div>
       </td>

@@ -51,7 +51,11 @@ export type PromoProductRow = {
   below_breakeven: boolean // цена в акции (у кандидата — цена входа) ниже минимальной
   unit_profit: string | null // остаётся с 1 шт. при цене в акции
   whole_stock_profit: string | null // «весь остаток»: если по цене в акции уйдёт весь остаток
+  other_promotions?: OtherPromotion[] // товар уже участвует в других идущих акциях; дешевле — первыми
 }
+
+/** Другая акция, в которой товар уже участвует; cheaper — там цена ниже, чем здесь. */
+export type OtherPromotion = { id: string; title: string; action_price: string | null; cheaper: boolean }
 
 export type ProductsResponse = { promotion: Promotion; margin_note: string | null; items: PromoProductRow[] }
 export type AutoAddedRow = PromoProductRow & { promotion: Promotion }

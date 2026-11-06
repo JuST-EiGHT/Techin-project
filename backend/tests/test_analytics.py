@@ -100,7 +100,9 @@ async def setup_store(client, tokens, sessions) -> uuid.UUID:
         ):
             posting = Posting(user_id=uid, scheme=FBO, posting_number=number, status=status, day=when,
                               ordered_at=datetime(when.year, when.month, when.day, 9, tzinfo=timezone.utc), synced_at=now)
-            posting.items = [PostingItem(sku=1, offer_id=o, product_id=products[o].id, quantity=q) for o, q in items]
+            price = {"A": Decimal("500"), "B": Decimal("300")}  # цена в отправлении — сумма заказов (правка владельца)
+            posting.items = [PostingItem(sku=1, offer_id=o, product_id=products[o].id, quantity=q, price=price[o])
+                             for o, q in items]
             db.add(posting)
         await sales.rebuild(db, uid, D(2026, 9, 1), D(2026, 9, 13))
         await db.commit()
@@ -129,6 +131,9 @@ async def test_store_by_day_matches_pnl(client, tokens, sessions):
     # заказы ≠ продажи: 08.09 — продажа без заказа, 13.09 — отправления не загружены
     assert [pts[f"2026-09-{d:02d}"]["orders"] for d in range(7, 14)] == [1, 0, 0, 0, 0, 0, None]
     assert pts["2026-09-07"]["ordered_qty"] == 2
+    # сумма заказов — цена × штуки по дню заказа, отмена не в сумме; не загружено — None
+    assert pts["2026-09-07"]["ordered_amount"] == "800.00" and pts["2026-09-08"]["ordered_amount"] == "0.00"
+    assert pts["2026-09-13"]["ordered_amount"] is None
     assert r["coverage"]["missing_days"] == 4 and r["coverage"]["orders_missing_days"] == 1
 
     # итоги — из P&L того же периода
@@ -140,6 +145,7 @@ async def test_store_by_day_matches_pnl(client, tokens, sessions):
     assert t["profit"] == f"{Decimal(pnl['pnl']['profit_before_tax']):.2f}"
     assert t["margin"] == f"{Decimal(t['profit']) / Decimal(t['revenue']) * 100:.2f}"
     assert (t["sold_qty"], t["orders"], t["ordered_qty"], t["avg_price"]) == (5, 1, 2, "520.00")
+    assert t["ordered_amount"] == "800.00"
     # сумма прибыли по дням — прибыль до налога P&L по дням
     by_day = (await client.get("/api/v1/pnl/by-day", params={"date_from": "2026-09-07", "date_to": "2026-09-13"},
                                headers=auth(tokens))).json()
@@ -202,6 +208,7 @@ async def test_product_filter_matches_product_pnl(client, tokens, sessions):
     assert pts["2026-09-07"]["revenue"] == "1000.00" and pts["2026-09-07"]["profit"] == "600.00"  # 1000 − 200 − 100×2
     assert pts["2026-09-10"]["revenue"] == "0.00" and pts["2026-09-09"]["revenue"] is None  # нет продаж ≠ нет данных
     assert pts["2026-09-07"]["orders"] == 1 and pts["2026-09-07"]["ordered_qty"] == 1
+    assert pts["2026-09-07"]["ordered_amount"] == "500.00"
     assert r["filter"]["products"][0]["offer_id"] == "A" and r["filter"]["product_count"] == 1
     by_product = (await client.get("/api/v1/pnl/by-product", params={"date_from": "2026-09-07", "date_to": "2026-09-13"},
                                    headers=auth(tokens))).json()

@@ -131,13 +131,13 @@ function ProductPage() {
             )}
           </header>
 
-          <AnalyticsFilters value={filter} onChange={update} showProduct={false} showCategory={false} kinds={['finance', 'postings', 'products']} />
+          <AnalyticsFilters value={filter} onChange={update} showProduct={false} showCategory={false} showGranularity={false} kinds={['finance', 'postings', 'products']} />
           <MetricsState error={metrics.error} loading={metrics.loading} empty={!metrics.data} />
           {metrics.data && (
             <>
               <KeyFigures data={metrics.data} taxSet costLabel={costLabel} fourth="sold_qty" query={`product=${id}`} />
               <CoverageNote data={metrics.data} />
-              {metrics.data.coverage.data_source !== 'none' && <DynamicsChart data={metrics.data} query={`product=${id}`} />}
+              {metrics.data.coverage.data_source !== 'none' && <DynamicsChart data={metrics.data} query={`product=${id}`} granularity={{ value: filter.granularity, onChange: (g) => update({ granularity: g, granularityChosen: true }) }} />}
             </>
           )}
 

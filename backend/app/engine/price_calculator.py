@@ -87,6 +87,7 @@ class PriceParams:
     other: Decimal = ZERO  # X — прочие расходы на 1 шт., ₽ (упаковка, маркировка…)
     target_margin_pct: Decimal | None = None  # M — желаемая маржа, % от цены
     tax: UnitTax = field(default_factory=UnitTax)
+    extra_pct: Decimal = ZERO  # E — доп. расходы продавца, % от цены (не услуги Ozon: без вычета НДС услуг)
 
     @property
     def shares_pct(self) -> Decimal:
@@ -112,6 +113,7 @@ def coefficients(p: PriceParams) -> tuple[Decimal, Decimal]:
         alpha = net - shares
         beta = ozon_fixed + p.other + p.cost * p.supplier_vat
     alpha -= net * t.income_tax_pct / HUNDRED
+    alpha -= p.extra_pct / HUNDRED  # свои расходы долей цены — не услуги Ozon, НДС с них не вычитается
     return alpha, beta
 
 
@@ -168,6 +170,7 @@ class Breakdown:
     margin: Decimal | None  # % от цены
     profit_tax: Decimal  # налог на прибыль с этой суммы — оценка
     net: Decimal  # останется после налога на прибыль
+    extra: Decimal = ZERO  # доп. расходы продавца, % от цены → ₽
 
 
 def breakdown(p: PriceParams, price: Decimal) -> Breakdown:
@@ -175,6 +178,7 @@ def breakdown(p: PriceParams, price: Decimal) -> Breakdown:
     commission = price * p.commission_pct / HUNDRED
     acquiring = price * p.acquiring_pct / HUNDRED
     ad = price * p.ad_pct / HUNDRED
+    extra = price * p.extra_pct / HUNDRED
     cost = p.cost * p.supplier_vat
     out_vat = price * t.vat_pct / (HUNDRED + t.vat_pct)
     vat = out_vat
@@ -182,7 +186,7 @@ def breakdown(p: PriceParams, price: Decimal) -> Breakdown:
         services = commission + acquiring + ad + p.logistics + p.storage
         vat -= cost - p.cost + services * t.services_vat_pct / (HUNDRED + t.services_vat_pct)
     income_tax = (price - out_vat) * t.income_tax_pct / HUNDRED
-    profit = price - commission - acquiring - ad - p.logistics - p.storage - p.other - cost - vat - income_tax
+    profit = price - commission - acquiring - ad - extra - p.logistics - p.storage - p.other - cost - vat - income_tax
     profit_tax = max(profit, ZERO) * t.profit_tax_pct / HUNDRED
 
     def q(v: Decimal) -> Decimal:
@@ -192,6 +196,7 @@ def breakdown(p: PriceParams, price: Decimal) -> Breakdown:
         price=q(price), commission=q(commission), acquiring=q(acquiring), ad=q(ad), logistics=q(p.logistics),
         storage=q(p.storage), other=q(p.other), cost=q(cost), vat=q(vat), income_tax=q(income_tax), profit=q(profit),
         margin=q(profit / price * HUNDRED) if price > 0 else None, profit_tax=q(profit_tax), net=q(profit - profit_tax),
+        extra=q(extra),
     )
 
 

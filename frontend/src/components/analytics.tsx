@@ -17,6 +17,7 @@ import {
   type AnalyticsFilter,
   type CategoryOption,
   GRANULARITIES,
+  type Granularity,
   METRICS,
   type MetricKey,
   type MetricPoint,
@@ -251,6 +252,19 @@ export function AnalyticsFilters({
   )
 }
 
+/** Детализация графика — прямо над графиком (правка владельца: фильтры графика — у графика). */
+export function GranularitySwitch({ value, onChange }: { value: Granularity; onChange: (g: Granularity) => void }) {
+  return (
+    <div className="flex gap-1" role="group" aria-label="Детализация графика" data-testid="chart-granularity">
+      {GRANULARITIES.map((g) => (
+        <button key={g.value} type="button" onClick={() => onChange(g.value)} className={chip(value === g.value)} aria-pressed={value === g.value} data-testid={`granularity-${g.value}`}>
+          {g.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 /** Пропуски данных периода одной строкой: дни без начислений и без загруженных отправлений — не ноль. */
 export function CoverageNote({ data }: { data: Metrics }) {
   const parts = []
@@ -281,7 +295,7 @@ function MetricTooltip({ active, payload, metric, data, drill }: { active?: bool
   const { point, events } = payload[0].payload
   const meta = METRICS[metric]
   const g = data.granularity
-  const missing = metric === 'orders' || metric === 'ordered_qty' ? point.orders_missing_days : point.missing_days
+  const missing = metric === 'orders' || metric === 'ordered_qty' || metric === 'ordered_amount' ? point.orders_missing_days : point.missing_days
   return (
     <TipBox href={drill.hrefFor(payload[0].payload)} touch={drill.touch}>
       <div className="mb-1 font-semibold">
@@ -340,6 +354,8 @@ export function MetricChart({
     events: events.filter((e) => p.date_from <= e.day && e.day <= p.date_to),
   }))
   const profitNote = metric === 'profit' && data.profit_kind === 'net' ? ' (в точках — до налога)' : ''
+  // прибыль и маржа: красная линия «ноль» — ниже неё убыток (правка владельца), точки в минусе — красные
+  const zeroLine = metric === 'profit' || metric === 'margin'
   return (
     <section className="rounded-xl border border-line bg-card p-4" data-testid="metric-chart" data-metric={metric}>
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1">
@@ -361,7 +377,35 @@ export function MetricChart({
             <XAxis dataKey="label" tick={{ fill: colors.muted, fontSize: 11 }} tickLine={false} axisLine={{ stroke: colors.line }} minTickGap={8} />
             <YAxis tick={{ fill: colors.muted, fontSize: 11 }} tickFormatter={meta.format === 'pct' ? (v: number) => `${v} %` : compact} tickLine={false} axisLine={false} width={64} />
             <Tooltip content={<MetricTooltip metric={metric} data={data} drill={drill} />} cursor={{ stroke: colors.faint, strokeDasharray: '3 3' }} {...drill.tooltipProps} />
-            <Line type="monotone" dataKey="value" stroke={colors.accent} strokeWidth={2} dot={{ r: 2, fill: colors.accent, strokeWidth: 0 }} activeDot={{ r: 4 }} connectNulls={false} isAnimationActive={false} />
+            {zeroLine && (
+              <ReferenceLine
+                y={0}
+                stroke={colors.bad}
+                strokeDasharray="4 3"
+                ifOverflow="extendDomain"
+                label={{ value: metric === 'margin' ? 'маржа 0 %' : 'ниже — убыток', position: 'insideBottomLeft', fill: colors.bad, fontSize: 10 }}
+                data-testid="zero-line"
+              />
+            )}
+            <Line
+              type="monotone"
+              dataKey="value"
+              stroke={colors.accent}
+              strokeWidth={2}
+              dot={(props: { cx?: number; cy?: number; value?: number | null; index?: number }) => (
+                <circle
+                  key={props.index}
+                  cx={props.cx}
+                  cy={props.cy}
+                  r={zeroLine && (props.value ?? 0) < 0 ? 3 : 2}
+                  fill={zeroLine && (props.value ?? 0) < 0 ? colors.bad : colors.accent}
+                  display={props.value == null || props.cx == null ? 'none' : undefined}
+                />
+              )}
+              activeDot={{ r: 4 }}
+              connectNulls={false}
+              isAnimationActive={false}
+            />
             {data.previous && (
               <Line type="monotone" dataKey="prev" stroke={colors.muted} strokeDasharray="4 3" strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />
             )}

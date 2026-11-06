@@ -6,6 +6,7 @@
 import { useState } from 'react'
 
 import { Field, FormError, SubmitButton } from '@/components/AuthForm'
+import { OzonKeyGuide } from '@/components/settings/OzonKeyGuide'
 import { openStore, type Store, useStores } from '@/contexts/StoreContext'
 import { api, errorMessage } from '@/lib/api'
 
@@ -167,6 +168,7 @@ function AddStore({ onAdded }: { onAdded: (s: Store) => void }) {
         хранится только зашифрованным; сразу начнут загружаться товары, остатки, акции, начисления и выплаты за 90 дней.
         Себестоимость, налоги и планирование нового магазина настраиваются отдельно — у разных магазинов они бывают разными.
       </p>
+      <OzonKeyGuide />
       <FormError message={error} />
       <div className="grid gap-x-4 sm:grid-cols-3">
         <Field label="Название (видно только вам)" id="store_name" placeholder="Например, «Подшипники Юг»" value={form.name} onChange={set('name')} maxLength={100} />

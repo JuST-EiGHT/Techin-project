@@ -47,6 +47,8 @@ class UserSettings(Base):
     # калькулятор цены (шаг 4.2): реклама, % от цены, и целевая маржа, %; пусто — по умолчанию
     price_ad_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     price_target_margin_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    # доп. расходы магазина, % от цены, для всех товаров (правка 06.11.2026); пусто — 0. У товара — свои (product_price_extras)
+    price_extra_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     # пороги статуса остатка, дней запаса (шаг 5.1); пусто — 7 / 14 / 60 (engine/stocks.Thresholds)
     stock_critical_days: Mapped[int | None] = mapped_column(Integer)
     stock_low_days: Mapped[int | None] = mapped_column(Integer)

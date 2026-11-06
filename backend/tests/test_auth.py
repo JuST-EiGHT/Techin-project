@@ -108,7 +108,32 @@ async def test_refresh_issues_new_access(client, tokens):
 
 
 async def test_refresh_rotation_old_token_rejected(client, tokens):
+    """Старый refresh после ротации не работает — когда окно для параллельных вкладок прошло."""
+    from app.services.token_blacklist import blacklist
+
     await client.post(f"{API}/refresh", json={"refresh_token": tokens["refresh_token"]})
+    blacklist._rotated.clear()  # прошло больше ROTATION_GRACE_SECONDS
+    r = await client.post(f"{API}/refresh", json={"refresh_token": tokens["refresh_token"]})
+    assert r.status_code == 401
+
+
+async def test_parallel_tabs_refresh_do_not_log_out(client, tokens):
+    """Две вкладки разом обновляют токен одним refresh (правка 06.11.2026): обе получают рабочую пару — человек не
+    выходит из аккаунта; новые токены — того же сеанса."""
+    first = await client.post(f"{API}/refresh", json={"refresh_token": tokens["refresh_token"]})
+    second = await client.post(f"{API}/refresh", json={"refresh_token": tokens["refresh_token"]})
+    assert first.status_code == 200 and second.status_code == 200
+    for pair in (first.json(), second.json()):
+        assert (await client.get(f"{API}/me", headers=auth(pair["access_token"]))).status_code == 200
+    # новый refresh второй вкладки обновляется дальше обычным порядком
+    assert (await client.post(f"{API}/refresh", json={"refresh_token": second.json()["refresh_token"]})).status_code == 200
+
+
+async def test_logout_closes_rotation_window(client, tokens):
+    """Вышли — старый refresh не спасёт и в окне ротации: сеанс закрыт."""
+    new = (await client.post(f"{API}/refresh", json={"refresh_token": tokens["refresh_token"]})).json()
+    r = await client.post(f"{API}/logout", json={"refresh_token": new["refresh_token"]}, headers=auth(new["access_token"]))
+    assert r.status_code == 204
     r = await client.post(f"{API}/refresh", json={"refresh_token": tokens["refresh_token"]})
     assert r.status_code == 401
 

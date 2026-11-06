@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine import price_calculator as calc
 from app.engine.products import acquiring_pct, positive
+from app.models.price_extras import ProductPriceExtras
 from app.models.product import Product, ProductPrice
 from app.models.promotion import Promotion, PromotionProduct
 from app.schemas.sync import utc
@@ -28,7 +29,7 @@ from app.services.pnl_service import PnLRequest
 from app.services.sync.finance import today_msk
 from app.services.sync.products import latest_prices
 from app.services.tax_profile import load_profiles, profile_on, supplier_vat_multiplier
-from app.services.user_settings import get_settings, min_profit, price_settings
+from app.services.user_settings import get_settings, min_profit, price_extra, price_settings
 
 WINDOWS = (30, 90)  # дней продаж для логистики на штуку
 CENT = Decimal("0.01")
@@ -58,7 +59,8 @@ class Logistics:
 
 @dataclass(frozen=True)
 class Overrides:
-    """Свои значения для расчёта — не сохраняются (реклама и маржа сохраняются отдельно, в настройках)."""
+    """Свои значения для расчёта — не сохраняются (реклама и маржа — в настройках, хранение, прочее и доп. расходы
+    товара — в product_price_extras: PUT /price/extras/{product_id})."""
 
     cost: Decimal | None = None
     commission_pct: Decimal | None = None
@@ -70,6 +72,7 @@ class Overrides:
     target_margin_pct: Decimal | None = None
     price: Decimal | None = None
     promo_price: Decimal | None = None
+    extra_pct: Decimal | None = None
 
 
 @dataclass
@@ -86,6 +89,7 @@ class Inputs:
     other: Decimal
     target_margin_pct: Decimal
     price: Decimal | None
+    extra_pct: Decimal = Decimal(0)
     sources: dict[str, str] = field(default_factory=dict)  # поле → «из Ozon», «из справочника», «ваше» …
     missing: list[str] = field(default_factory=list)
 
@@ -104,6 +108,8 @@ class PricingContext:
     logistics: dict[str, Logistics]
     shop: Logistics
     min_profit: Decimal = Decimal(0)  # минимальная допустимая прибыль с продажи, ₽ (настройка, шаг 10.26)
+    extra_pct: Decimal = Decimal(0)  # доп. расходы магазина, % от цены (настройка, правка 06.11.2026)
+    extras: dict[uuid.UUID, ProductPriceExtras] = field(default_factory=dict)  # свои расходы товаров
 
     def logistics_for(self, offer_id: str) -> Logistics:
         return self.logistics.get(offer_id) or self.shop
@@ -128,6 +134,16 @@ class PricingContext:
         acquiring = pick("acquiring_pct", ov.acquiring_pct, acquiring_pct(snap.acquiring, snap.price) if snap else None,
                          "из Ozon")
         ad = pick("ad_pct", ov.ad_pct, self.ad_pct, "ваша настройка")
+        own = self.extras.get(product.id)
+        storage = pick("storage", ov.storage, own.storage if own else None, "сохранено для товара")
+        other = pick("other", ov.other, own.other if own else None, "сохранено для товара")
+        extra = pick("extra_pct", ov.extra_pct, own.extra_pct if own and own.extra_pct is not None else None,
+                     "сохранено для товара")
+        if extra is None:
+            extra = self.extra_pct
+            if extra:
+                sources["extra_pct"] = "ваша настройка"
+
         margin = pick("target_margin_pct", ov.target_margin_pct, self.target_margin_pct, "ваша настройка")
         price = pick("price", ov.price, positive(snap.price) if snap else None, "текущая цена в Ozon")
         logistics = (
@@ -141,8 +157,8 @@ class PricingContext:
         ]
         return Inputs(
             cost=cost, supplier_vat=vat, commission_pct=commission, acquiring_pct=acquiring or Decimal(0), ad_pct=ad,
-            logistics=logistics, storage=ov.storage or Decimal(0), other=ov.other or Decimal(0),
-            target_margin_pct=margin, price=price, sources=sources, missing=missing,
+            logistics=logistics, storage=storage or Decimal(0), other=other or Decimal(0),
+            target_margin_pct=margin, price=price, extra_pct=extra, sources=sources, missing=missing,
         )
 
     def params(self, inputs: Inputs) -> calc.PriceParams | None:
@@ -152,6 +168,7 @@ class PricingContext:
             cost=inputs.cost, supplier_vat=inputs.supplier_vat, commission_pct=inputs.commission_pct,
             acquiring_pct=inputs.acquiring_pct, ad_pct=inputs.ad_pct, logistics=inputs.logistics.per_unit,
             storage=inputs.storage, other=inputs.other, target_margin_pct=inputs.target_margin_pct, tax=self.tax,
+            extra_pct=inputs.extra_pct,
         )
 
     def product_params(self, product: Product) -> calc.PriceParams | None:
@@ -189,14 +206,24 @@ async def load(db: AsyncSession, user_id: uuid.UUID, products: list[Product] | N
     row = profile_on(await load_profiles(db, user_id), today)
     s = await get_settings(db, user_id)
     ad, margin = price_settings(s)
+    extras = await load_extras(db, user_id, [p.id for p in products])
     by_offer, shop = await load_logistics(db, user_id, {p.offer_id for p in products}, today)
     return PricingContext(
         today=today, ad_pct=ad, target_margin_pct=margin,
         tax=calc.unit_tax(row.to_engine() if row else None, today),
         default_vat=await supplier_vat_multiplier(db, user_id, today), history=await load_cost_history(db, user_id),
         prices=await latest_prices(db, [p.id for p in products]), logistics=by_offer, shop=shop,
-        min_profit=min_profit(s),
+        min_profit=min_profit(s), extra_pct=price_extra(s), extras=extras,
     )
+
+
+async def load_extras(db: AsyncSession, user_id: uuid.UUID, product_ids: list[uuid.UUID]) -> dict[uuid.UUID, ProductPriceExtras]:
+    """Свои расходы товаров (хранение, прочее, доп. %) — одним запросом."""
+    if not product_ids:
+        return {}
+    rows = await db.scalars(select(ProductPriceExtras).where(
+        ProductPriceExtras.user_id == user_id, ProductPriceExtras.product_id.in_(product_ids)))
+    return {r.product_id: r for r in rows}
 
 
 async def current_promotions(
@@ -221,6 +248,13 @@ async def current_promotions(
 
 
 # ── расчёт товара: панель и POST /price/calculate ──
+def _saved(own: ProductPriceExtras | None) -> dict | None:
+    """Что сохранено для товара (пусто — ничего своего)."""
+    if own is None or (own.storage is None and own.other is None and own.extra_pct is None):
+        return None
+    return {"storage": own.storage, "other": own.other, "extra_pct": own.extra_pct, "note": own.note}
+
+
 def _breakdown(b: calc.Breakdown | None) -> dict | None:
     return None if b is None else vars(b).copy()
 
@@ -248,6 +282,8 @@ def calculate(ctx: PricingContext, product: Product, ov: Overrides | None = None
             "commission_pct": inputs.commission_pct, "acquiring_pct": inputs.acquiring_pct, "ad_pct": inputs.ad_pct,
             "logistics": inputs.logistics.per_unit, "logistics_source": inputs.logistics.source,
             "logistics_text": inputs.logistics.text, "storage": inputs.storage, "other": inputs.other,
+            "extra_pct": inputs.extra_pct, "shop_extra_pct": ctx.extra_pct,
+            "saved": _saved(ctx.extras.get(product.id)),
             "target_margin_pct": inputs.target_margin_pct, "price": inputs.price, "promo_price": promo,
             "sources": inputs.sources,
         },
