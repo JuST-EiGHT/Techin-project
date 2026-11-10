@@ -361,7 +361,8 @@ cd /opt/ozon-analytics
    - ответа нет совсем — пункт 4 (Nginx) или 6 (сертификат).
 3. **Перезапустить всё:** `./scripts/compose.sh up -d` — поднимет упавшее. Один сервис: `./scripts/compose.sh restart api`.
 4. **«502 Bad Gateway»** — Nginx работает, а API или сайт нет: `./scripts/compose.sh logs --tail 100 api frontend` —
-   в конце будет причина.
+   в конце будет причина. Если в `ps` нет строки `frontend`, а в журнале Nginx — `frontend could not be resolved`,
+   фронтенд не запущен (он ждёт, пока API пройдёт проверку, а API поднимался долго): `./scripts/compose.sh up -d`.
 5. **Сервер перезагрузили** — всё поднимается само через минуту-две. Если нет — `./scripts/compose.sh up -d`.
 6. **Браузер пишет «Подключение не защищено»** — сертификат: `./scripts/compose.sh logs --tail 30 certbot`.
    Продлить вручную:
