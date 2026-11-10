@@ -69,7 +69,9 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 30s
+      # на сервере сразу после сборки API поднимается дольше 2 минут (06.11.2026): пока идёт start_period, неудачные
+      # проверки не считаются — фронтенд (ждёт healthy API) не остаётся незапущенным
+      start_period: 240s
     mem_limit: 1g
 
   worker:

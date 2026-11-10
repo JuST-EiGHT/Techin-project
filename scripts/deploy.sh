@@ -100,9 +100,27 @@ wait_healthy() {
   return 1
 }
 
+# Запустить все службы. API долго проходит healthcheck — `up` сдаётся и не запускает зависящий от него фронтенд
+# (сайт отдаёт 502, хотя API уже работает): ждём, пока API станет healthy, и запускаем остальное ещё раз.
+# Версия — из APP_VERSION (новая или, при откате, прежняя).
+start_services() {
+  if "$COMPOSE" up -d --remove-orphans; then
+    return 0
+  fi
+  echo "Не все службы запустились сразу — жду, пока API будет готов (до $HEALTH_TIMEOUT с), и запускаю остальные…"
+  local deadline=$((SECONDS + HEALTH_TIMEOUT)) id status
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    id="$("$COMPOSE" ps -q api 2>/dev/null || true)"
+    status="$( [ -n "$id" ] && docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$id" 2>/dev/null || true)"
+    [ "$status" = healthy ] && break
+    sleep 5
+  done
+  "$COMPOSE" up -d --remove-orphans || true
+}
+
 say "Перезапускаю сервисы на версии $NEW_VERSION"
 # Ошибка запуска (например, API не прошёл healthcheck) — не выход: дальше проверка ответа сайта и откат
-"$COMPOSE" up -d --remove-orphans || true
+start_services
 "$COMPOSE" restart nginx || true  # настройки Nginx — файлы из репозитория: перечитать (контейнер сам не пересоздаётся)
 echo "Жду ответа сайта (до $HEALTH_TIMEOUT с)…"
 if wait_healthy "$NEW_VERSION"; then
@@ -134,7 +152,7 @@ if [ -n "$PREV_REV" ] && [ "$NEW_REV" != "$PREV_REV" ]; then
     || echo "Миграции назад не откатились. Копия БД до выкладки — ./scripts/restore.sh (файл predeploy_…)"
 fi
 restore_code
-APP_VERSION="$PREV_VERSION" "$COMPOSE" up -d --remove-orphans || true
+APP_VERSION="$PREV_VERSION" start_services
 "$COMPOSE" restart nginx || true
 if APP_VERSION="$PREV_VERSION" wait_healthy "$PREV_VERSION"; then
   fail "версия $NEW_VERSION не заработала — вернул прежнюю $PREV_VERSION, сайт работает. Журнал выше"
