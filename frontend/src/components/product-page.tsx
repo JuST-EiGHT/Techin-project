@@ -81,13 +81,47 @@ export function UnitBlock({ data, costLabel, profitHref, lowMargin }: { data: Pr
                 <dd className="text-right tabular-nums text-warn">{p.returned_qty} шт.</dd>
               </>
             )}
+            {(p.not_bought ?? 0) > 0 && (
+              <>
+                <dt className="text-muted">Не выкупили</dt>
+                <dd className="text-right tabular-nums text-warn">{p.not_bought} шт.</dd>
+              </>
+            )}
+            {p.buyout_pct != null && (
+              <>
+                <dt className="text-muted" title="Из доехавших до покупателя — сколько купили">Выкуп</dt>
+                <dd className={`text-right tabular-nums ${Number(p.buyout_pct) < 80 ? 'text-warn' : ''}`} data-testid="unit-buyout">
+                  {pctText(p.buyout_pct)}
+                </dd>
+              </>
+            )}
             <dt className="text-muted">Выручка</dt>
             <dd className="text-right tabular-nums">{rub(p.revenue)}</dd>
             <dt className="text-muted">Комиссия Ozon</dt>
             <dd className={`text-right tabular-nums ${signTone(p.commission)}`}>{rub(p.commission)}</dd>
             <dt className="text-muted">Логистика</dt>
             <dd className={`text-right tabular-nums ${signTone(p.logistics)}`}>{rub(p.logistics)}</dd>
-            <dt className="text-muted">Прочее: баллы, эквайринг, возвраты</dt>
+            {p.returns !== undefined && Number(p.returns) !== 0 && (
+              <>
+                <dt className="text-muted">Возвраты и невыкупы</dt>
+                <dd className={`text-right tabular-nums ${signTone(p.returns)}`}>{rub(p.returns)}</dd>
+              </>
+            )}
+            {p.ads !== undefined && Number(p.ads) !== 0 && (
+              <>
+                <dt className="text-muted">Реклама и продвижение</dt>
+                <dd className={`text-right tabular-nums ${signTone(p.ads)}`}>{rub(p.ads)}</dd>
+              </>
+            )}
+            {p.storage !== undefined && Number(p.storage) !== 0 && (
+              <>
+                <dt className="text-muted" title="Доля товара в хранении магазина по отчёту Ozon «Стоимость размещения по товарам»">
+                  Хранение
+                </dt>
+                <dd className={`text-right tabular-nums ${signTone(p.storage)}`}>{rub(p.storage)}</dd>
+              </>
+            )}
+            <dt className="text-muted">Прочее: баллы, эквайринг, возврат выручки</dt>
             <dd className={`text-right tabular-nums ${signTone(p.other)}`}>{rub(p.other)}</dd>
             <dt className="text-muted">= Начислено Ozon</dt>
             <dd className={`text-right font-medium tabular-nums ${signTone(p.total)}`}>{rub(p.total)}</dd>

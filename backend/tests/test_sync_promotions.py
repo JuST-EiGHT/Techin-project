@@ -369,8 +369,9 @@ async def test_api_margin_is_fresh(sessions, client, tokens, ozon):
     await client.patch("/api/v1/settings", json={"low_margin_pct": "3"}, headers=auth(tokens))
     data = (await client.get(url, headers=auth(tokens))).json()
     assert data["items"][0]["margin_level"] == "ok" and data["promotion"]["profitable"] == 1
-    # реклама 5 % от цены: 17,615 − 459 × 5 % = −5,335 ₽ → −1,16 %
-    await client.patch("/api/v1/settings", json={"price_ad_pct": "5"}, headers=auth(tokens))
+    # реклама 5 % от цены — своя у товара (4.2a: общая настройка — только без данных)
+    # 17,615 − 459 × 5 % = −5,335 ₽ → −1,16 %
+    await client.put(f"/api/v1/price/extras/{product.id}", json={"ad_pct": "5"}, headers=auth(tokens))
     data = (await client.get(url, headers=auth(tokens))).json()
     assert data["items"][0]["margin_in_promo"] == "-1.16" and data["items"][0]["margin_level"] == "negative"
 

@@ -1,6 +1,7 @@
 """Цены (шаг 4.2): калькулятор минимальной и целевой цены, таблица цен, подсказки «что поднять».
 
-Реклама и целевая маржа — настройки пользователя (PATCH /settings); здесь — только расчёт, ничего в Ozon не меняется.
+Целевая маржа — настройка пользователя (PATCH /settings); реклама, возвраты и хранение — по начислениям Ozon (4.2a),
+настройка «реклама %» — когда данных нет. Здесь — только расчёт, ничего в Ozon не меняется.
 """
 from typing import Literal
 
@@ -81,7 +82,12 @@ async def price_table(
         "items": found[offset:offset + limit], "total": len(found), "limit": limit, "offset": offset, "counts": counts,
         "settings": {"ad_pct": ctx.ad_pct, "target_margin_pct": ctx.target_margin_pct,
                      "defaults": s.price_ad_pct is None and s.price_target_margin_pct is None},
-        "tax": _tax(ctx), "shop_logistics": {"per_unit": ctx.shop.per_unit, "text": ctx.shop.text},
+        "tax": _tax(ctx), "shop_logistics": {
+            "per_unit": ctx.shop.per_unit, "text": ctx.shop.text, "returns": ctx.shop_facts.returns,
+            "storage": ctx.shop_facts.storage, "ads_pct": ctx.shop_facts.ads_pct,
+            "unattributed_ads_pct": ctx.shop_facts.unattributed_ads_pct if ctx.shop_facts.days else None,
+            "storage_by_report": ctx.shop_facts.storage_by_report,
+        },
     }
 
 
@@ -98,8 +104,9 @@ async def suggestions(
 async def save_extras(
     product_id: uuid.UUID, data: ExtrasUpdate, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
 ):
-    """Свои расходы товара — хранение и прочее на 1 шт., доп. расходы в % — для всех расчётов цены: таблицы цен и
-    товаров, маржа в акциях, подсказки. Пустое поле — убрать своё значение (останется общее). Ответ — что сохранено."""
+    """Свои расходы товара — хранение и прочее на 1 шт., доп. расходы и реклама в % — для всех расчётов цены: таблицы цен
+    и товаров, маржа в акциях, подсказки. Пустое поле — убрать своё значение (останется факт по начислениям или общее).
+    Ответ — что сохранено."""
     product = await db.get(Product, product_id)
     if product is None or product.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Товар не найден")
@@ -108,9 +115,9 @@ async def save_extras(
     if row is None:
         row = ProductPriceExtras(user_id=user.id, product_id=product.id)
         db.add(row)
-    row.storage, row.other, row.extra_pct = data.storage, data.other, data.extra_pct
+    row.storage, row.other, row.extra_pct, row.ad_pct = data.storage, data.other, data.extra_pct, data.ad_pct
     row.note = (data.note or "").strip() or None
     await db.commit()
-    if row.storage is None and row.other is None and row.extra_pct is None:
+    if all(v is None for v in (row.storage, row.other, row.extra_pct, row.ad_pct)):
         return None
-    return SavedExtras(storage=row.storage, other=row.other, extra_pct=row.extra_pct, note=row.note)
+    return SavedExtras(storage=row.storage, other=row.other, extra_pct=row.extra_pct, ad_pct=row.ad_pct, note=row.note)

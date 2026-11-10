@@ -14,10 +14,12 @@ D = Decimal
 
 def test_groups_and_structure_sum():
     assert ps.group_of("Выручка") == ps.REVENUE and ps.group_of("Возврат выручки") == ps.RETURNS
-    # комиссии и логистика — ровно колонки «Прибыли по товарам»; её «Прочее» — подробнее
+    # группы — ровно колонки «Прибыли по товарам» (с 4.2a — как юнит-экономика Ozon)
     assert ps.group_of("Вознаграждение за продажу") == ps.group_of("Возврат вознаграждения") == ps.COMMISSION
-    assert ps.group_of("Логистика") == ps.group_of("Обратная логистика") == ps.LOGISTICS
+    assert ps.group_of("Логистика") == ps.group_of("Доставка до места выдачи") == ps.LOGISTICS
+    assert ps.group_of("Обратная логистика") == ps.group_of("Обработка возвратов, отмен и невыкупов партнёрами") == ps.RETURNS
     assert ps.group_of("Продвижение с оплатой за заказ") == ps.group_of("Оплата за клик") == ps.ADS
+    assert ps.group_of("Звёздные товары") == ps.ADS
     assert ps.group_of("Размещение на складе") == ps.group_of("Услуга хранения") == ps.STORAGE
     for name in ("Страхование товара от массовых повреждений", "Эквайринг", "Баллы за скидки", "Подписка Premium"):
         assert ps.group_of(name) == ps.OTHER, name
