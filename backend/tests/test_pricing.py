@@ -204,3 +204,48 @@ async def test_price_table_and_suggestions(client, tokens, sessions):
     assert [x["offer_id"] for x in s["underpriced"]] == ["ART-C"] and s["underpriced_count"] == 1
     assert (s["underpriced"][0]["raise_to"], s["underpriced"][0]["raise_pct"]) == ("1219.91", "22.0")
     assert s["underpriced"][0]["raise_to"] == s["underpriced"][0]["target_price"]
+
+
+async def test_extra_expenses_shop_and_product(client, tokens, sessions):
+    """Доп. расходы (правка 06.11.2026): % от цены для всех товаров — в «Настройках», у товара — свои хранение, прочее и
+    % — сохраняются и попадают во все расчёты: калькулятор, таблицу цен."""
+    p = await seed(sessions, await user_id_of(client, tokens))
+    a = p["A"].id
+    # 5 % для всех: α = 0,605 − 0,05 = 0,555 → мин. 260,08 / 0,555 = 468,61…; при 600 ₽: 333 − 260,08 = 72,92 → 12,15 %
+    r = await client.patch("/api/v1/settings", json={"price_extra_pct": "5"}, headers=auth(tokens))
+    assert r.status_code == 200 and D(r.json()["price_extra_pct"]) == 5
+    d = await calc(client, tokens, a)
+    assert D(d["inputs"]["extra_pct"]) == 5 and d["inputs"]["sources"]["extra_pct"] == "ваша настройка"
+    assert d["result"]["min_price"] == "468.62" and d["result"]["current"]["profit"] == "72.92"
+    assert d["result"]["current"]["extra"] == "30.00" and d["inputs"]["saved"] is None
+    rows = {x["offer_id"]: x for x in (await client.get("/api/v1/price", headers=auth(tokens))).json()["items"]}
+    assert rows["ART-A"]["min_price"] == "468.62"  # таблица — та же формула
+
+    # у товара A свои: хранение 10 ₽, прочее 5 ₽, доп. расходы 0 % — вместо общих 5 %
+    r = await client.put(f"/api/v1/price/extras/{a}", json={"storage": "10", "other": "5", "extra_pct": "0", "note": "коробка"},
+                         headers=auth(tokens))
+    saved = r.json()
+    assert r.status_code == 200 and (D(saved["storage"]), D(saved["other"]), D(saved["extra_pct"]), saved["note"]) == (
+        10, 5, 0, "коробка")
+    d = await calc(client, tokens, a)
+    i = d["inputs"]
+    assert (D(i["storage"]), D(i["other"]), D(i["extra_pct"])) == (10, 5, 0)
+    assert i["sources"]["storage"] == "сохранено для товара" and i["saved"]["note"] == "коробка"
+    # β = 260,08 + 10 + 5 = 275,08; α = 0,605 → мин. 454,68…; при 600: 363 − 275,08 = 87,92
+    assert d["result"]["min_price"] == "454.68" and d["result"]["current"]["profit"] == "87.92"
+    rows = {x["offer_id"]: x for x in (await client.get("/api/v1/price", headers=auth(tokens))).json()["items"]}
+    assert rows["ART-A"]["min_price"] == "454.68" and rows["ART-B"]["min_price"] != "380.30"  # у B — общие 5 %
+    # своё значение в расчёте важнее сохранённого — только для этого расчёта
+    assert (await calc(client, tokens, a, other="0"))["result"]["current"]["profit"] == "92.92"
+
+    # пустые поля — убрать своё: снова общие 5 %
+    r = await client.put(f"/api/v1/price/extras/{a}", json={}, headers=auth(tokens))
+    assert r.status_code == 200 and r.json() is None
+    assert (await calc(client, tokens, a))["result"]["min_price"] == "468.62"
+
+    await client.post("/api/v1/auth/register", json={"email": "other@example.com", "password": "strongpass1"})
+    t2 = (await client.post("/api/v1/auth/login", json={"email": "other@example.com", "password": "strongpass1"})).json()
+    r = await client.put(f"/api/v1/price/extras/{a}", json={"other": "1"}, headers=auth(t2))
+    assert r.status_code == 404
+    r = await client.put(f"/api/v1/price/extras/{a}", json={"extra_pct": "95"}, headers=auth(tokens))
+    assert r.status_code == 400

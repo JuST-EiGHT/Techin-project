@@ -7,8 +7,10 @@ import { Bar, CartesianGrid, Cell, ComposedChart, ReferenceLine, ResponsiveConta
 import { type Drill, MoreLink, TipBox, useDrill } from '@/components/charts'
 import { Badge, type PnL, fmtDay, rub, vatPctText } from '@/components/reports'
 import { useTheme } from '@/contexts/ThemeContext'
-import { daysWord } from '@/lib/period'
+import { api, errorMessage } from '@/lib/api'
+import { type Range, daysWord, todayMsk } from '@/lib/period'
 import { useCostLabel } from '@/lib/settings'
+import { refreshSyncStatus, timeAgo, useSyncStatus } from '@/lib/sync'
 
 export type DataSource = 'xlsx' | 'api' | 'mixed' | 'none'
 
@@ -74,6 +76,140 @@ export function SourceNote({ source, coverage }: { source: DataSource; coverage?
         {SOURCE[source].text}
         {parts.length > 0 && <span className="text-faint"> {parts.join(', ')}.</span>}
       </span>
+    </div>
+  )
+}
+
+const OZON_FIRST_DAY = '2022-01-01' // раньше Ozon начисления не отдаёт
+const RELOAD_MAX_DAYS = 92 // POST /finance/sync за раз
+
+const shiftDay = (day: string, days: number) => {
+  const d = new Date(`${day}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+/** Какой период загрузить заново: не в будущем, не раньше 2022 года и не длиннее 92 дней (последние дни периода). */
+export function reloadRange(range: Range, today = todayMsk()): (Range & { cut: boolean }) | null {
+  const to = range.to < today ? range.to : today
+  let from = range.from > OZON_FIRST_DAY ? range.from : OZON_FIRST_DAY
+  if (from > to) return null
+  const earliest = shiftDay(to, -(RELOAD_MAX_DAYS - 1))
+  const cut = from < earliest
+  if (cut) from = earliest
+  return { from, to, cut }
+}
+
+/**
+ * Начисления из Ozon API за период: подключён ли ключ, когда загружались, что сломалось — словами, и «Загрузить новые
+ * данные» (перезагрузить период из API; когда загрузка закончится — onLoaded, P&L перечитывается).
+ */
+export function OzonApiStatus({ range, coverage, onLoaded }: { range: Range; coverage?: Coverage; onLoaded: () => void }) {
+  const sync = useSyncStatus()
+  const [started, setStarted] = useState<number | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [posting, setPosting] = useState(false)
+  const kind = sync?.kinds.find((k) => k.kind === 'finance') ?? null
+  const run = sync?.finance.last_run ?? null
+  const span = reloadRange(range)
+
+  // загрузка, которую запустили отсюда, закончилась — сообщить и перечитать P&L
+  useEffect(() => {
+    if (started === null || !run || run.status === 'queued' || run.status === 'running') return
+    if (new Date(run.started_at).getTime() < started - 60_000) return
+    setStarted(null)
+    if (run.status === 'success') {
+      setMessage('Начисления из Ozon API загружены — цифры обновлены.')
+      onLoaded()
+    } else {
+      setError(kind?.problem ?? 'Ozon API не ответил. Попробуйте позже.')
+    }
+  }, [run, started, kind, onLoaded])
+
+  async function reload() {
+    if (!span) return
+    setPosting(true)
+    setError(null)
+    setMessage(null)
+    try {
+      await api.post('/finance/sync', { date_from: span.from, date_to: span.to })
+      setStarted(Date.now())
+      await refreshSyncStatus()
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setPosting(false)
+    }
+  }
+
+  if (!sync) return null
+  const loading = started !== null || !!kind?.running
+  let state: { tone: 'ok' | 'warn' | 'bad' | 'muted'; text: string }
+  if (!sync.has_active_key) {
+    state = {
+      tone: 'warn',
+      text: 'Ключ Ozon API не подключён — начисления из API не загружаются, P&L считается только по загруженным отчётам.',
+    }
+  } else if (loading) {
+    state = { tone: 'muted', text: 'Загружаются начисления из Ozon API…' }
+  } else if (kind?.state === 'error') {
+    state = { tone: 'bad', text: `Начисления из Ozon API не загрузились: ${kind.problem ?? 'Ozon не ответил'}.` }
+  } else if (kind?.last_success_at) {
+    state = { tone: kind.state === 'stale' ? 'warn' : 'ok', text: `Начисления из Ozon API обновлены ${timeAgo(kind.last_success_at)}.` }
+  } else {
+    state = { tone: 'warn', text: 'Начисления из Ozon API ещё не загружались.' }
+  }
+  const dot = { ok: 'bg-ok', warn: 'bg-warn', bad: 'bg-bad', muted: 'bg-faint' }[state.tone]
+  const missing = coverage?.missing_days ?? 0
+  return (
+    <div className="space-y-1.5 rounded-lg border border-line bg-card px-3 py-2 text-xs" data-testid="api-status">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <span className="flex min-w-0 flex-1 items-start gap-2">
+          <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${dot}`} aria-hidden />
+          <span className="min-w-0" data-testid="api-status-text">
+            {state.text}
+            {missing > 0 && sync.has_active_key && !loading && (
+              <span className="text-muted"> За выбранный период нет данных за {daysWord(missing)}.</span>
+            )}
+            {kind?.state === 'error' && kind.hint && <span className="text-muted"> {kind.hint}</span>}
+          </span>
+        </span>
+        {!sync.has_active_key || (kind?.state === 'error' && kind.action) ? (
+          <Link
+            href={kind?.action?.href ?? '/dashboard/settings/integrations'}
+            className="rounded-lg border border-line px-3 py-1 hover:border-accent hover:text-accent"
+            data-testid="api-status-action"
+          >
+            {kind?.action?.label ?? 'Подключить ключ Ozon →'}
+          </Link>
+        ) : null}
+        {sync.has_active_key && span && (
+          <button
+            type="button"
+            onClick={reload}
+            disabled={posting || loading}
+            className="rounded-lg border border-accent px-3 py-1 font-medium text-accent hover:bg-accent hover:text-white disabled:opacity-60"
+            data-testid="api-reload"
+            title={`Загрузить начисления из Ozon API заново за ${fmtDay(span.from)} – ${fmtDay(span.to)}`}
+          >
+            {loading ? 'Загружаем…' : 'Загрузить новые данные'}
+          </button>
+        )}
+      </div>
+      {span?.cut && sync.has_active_key && (
+        <p className="text-faint">За раз загружается до 92 дней — загрузим {fmtDay(span.from)} – {fmtDay(span.to)}.</p>
+      )}
+      {message && (
+        <p className="text-ok" data-testid="api-reload-done">
+          {message}
+        </p>
+      )}
+      {error && (
+        <p className="text-bad" data-testid="api-reload-error">
+          {error}
+        </p>
+      )}
     </div>
   )
 }
@@ -443,7 +579,14 @@ export function DayChart({ days, dayHref, moreHref }: { days: DayPnL[]; dayHref?
             <CartesianGrid vertical={false} stroke={colors.line} />
             <XAxis dataKey="label" tick={{ fill: colors.muted, fontSize: 11 }} tickLine={false} axisLine={{ stroke: colors.line }} minTickGap={8} />
             <YAxis tick={{ fill: colors.muted, fontSize: 11 }} tickFormatter={compact} tickLine={false} axisLine={false} width={64} />
-            <ReferenceLine y={0} stroke={colors.muted} />
+            {rows.some((r) => (r.profit ?? 0) < 0) && (
+              <ReferenceLine
+                y={0}
+                stroke={colors.bad}
+                strokeDasharray="4 3"
+                label={{ value: 'ниже — убыток', position: 'insideBottomLeft', fill: colors.bad, fontSize: 10 }}
+              />
+            )}
             <Tooltip content={<ChartTooltip drill={drill} />} cursor={{ fill: colors.line, opacity: 0.4 }} {...drill.tooltipProps} />
             <Bar dataKey="revenue" fill={colors.accent} fillOpacity={0.35} radius={[3, 3, 0, 0]} isAnimationActive={false} />
             <Bar dataKey="profit" radius={[3, 3, 0, 0]} isAnimationActive={false}>

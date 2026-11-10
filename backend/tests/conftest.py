@@ -42,6 +42,7 @@ async def client(sessions):
 
     app.dependency_overrides[get_db] = _get_db
     blacklist._memory.clear()
+    blacklist._rotated.clear()
     pnl_cache.clear_memory()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c

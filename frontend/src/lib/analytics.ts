@@ -10,6 +10,7 @@ export type MetricValues = {
   margin: string | null
   orders: number | null
   ordered_qty: number | null
+  ordered_amount: string | null // сумма заказов, ₽ — по дню заказа (цена в отправлении × штуки), без отмен
   sold_qty: number | null
   returned_qty: number | null
   returns_amount: string | null
@@ -61,6 +62,7 @@ export const METRICS: Record<MetricKey, { label: string; format: MetricFormat; u
   margin: { label: 'Маржинальность', format: 'pct', upIsGood: true },
   orders: { label: 'Заказы', format: 'count', upIsGood: true },
   ordered_qty: { label: 'Заказано, шт.', format: 'qty', upIsGood: true },
+  ordered_amount: { label: 'Заказано на сумму', format: 'rub', upIsGood: true },
   sold_qty: { label: 'Продано, шт.', format: 'qty', upIsGood: true },
   returned_qty: { label: 'Возвраты, шт.', format: 'qty', upIsGood: false },
   returns_amount: { label: 'Возвраты, ₽', format: 'rub', upIsGood: false },

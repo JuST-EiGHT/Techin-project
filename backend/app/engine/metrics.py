@@ -25,11 +25,12 @@ class DayData:
     returns_amount: Decimal | None = None  # «Возврат выручки», ₽, ≥ 0
     orders: int | None = None  # заказы — отправления по дате создания без отмен; None — отправления не загружены
     ordered_qty: int | None = None  # штуки в заказах
+    ordered_amount: Decimal | None = None  # сумма заказов, ₽ — цена в отправлении × штуки, по дню заказа (без отмен)
 
 
 SUMS = tuple(f.name for f in fields(DayData))
 ACCRUAL_FIELDS = ("revenue", "profit", "margin_base", "sold_qty", "returned_qty", "returns_amount")
-ORDER_FIELDS = ("orders", "ordered_qty")
+ORDER_FIELDS = ("orders", "ordered_qty", "ordered_amount")
 
 
 def month_end(d: date) -> date:
@@ -90,7 +91,7 @@ def change_pct(current, previous) -> Decimal | None:
     return _q((Decimal(current) - Decimal(previous)) / abs(Decimal(previous)) * 100, TENTH)
 
 
-VALUES = ("revenue", "profit", "margin", "orders", "ordered_qty", "sold_qty", "returned_qty", "returns_amount", "avg_price")
+VALUES = ("revenue", "profit", "margin", "orders", "ordered_qty", "ordered_amount", "sold_qty", "returned_qty", "returns_amount", "avg_price")
 
 
 def changes(current: dict, previous: dict) -> dict:

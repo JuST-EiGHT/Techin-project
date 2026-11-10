@@ -11,8 +11,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertBell } from '@/components/alerts'
 import { SyncButton } from '@/components/sync'
 import { useAuth } from '@/contexts/AuthContext'
-import { useDismiss } from '@/hooks/useDismiss'
+import { useDismiss, useExclusiveMenu } from '@/hooks/useDismiss'
 import { ACCOUNT_MENU, NAV, type NavSection, sectionActive } from '@/lib/nav'
+import { sectionSettings } from '@/lib/section-settings'
 
 const CLOSE_DELAY_MS = 150 // курсор ушёл с меню — закрыть не сразу, чтобы не мигало
 
@@ -43,6 +44,7 @@ function onMenuKeyDown(e: React.KeyboardEvent<HTMLElement>, close: () => void, b
 function SectionMenu({ section, pathname }: { section: NavSection; pathname: string }) {
   const [open, setOpen] = useState(false)
   const timer = useRef<number>()
+  const hoveredAt = useRef(0) // когда открыли наведением: клик по стрелке сразу после — не закрывает
   const box = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
   const close = useCallback(() => setOpen(false), [])
@@ -53,6 +55,7 @@ function SectionMenu({ section, pathname }: { section: NavSection; pathname: str
   const enter = (e: React.PointerEvent) => {
     if (e.pointerType !== 'mouse') return
     window.clearTimeout(timer.current)
+    if (!open) hoveredAt.current = Date.now()
     setOpen(true)
   }
   const leave = (e: React.PointerEvent) => {
@@ -68,18 +71,36 @@ function SectionMenu({ section, pathname }: { section: NavSection; pathname: str
   }
 
   const active = sectionActive(section, pathname)
+  const first = section.items?.[0]?.href
   return (
-    <div ref={box} className="relative" onPointerEnter={enter} onPointerLeave={leave} data-testid="nav-section">
+    <div ref={box} className="relative flex items-center" onPointerEnter={enter} onPointerLeave={leave} data-testid="nav-section">
+      {/* название раздела — сразу его первая страница; список страниц — наведением или стрелкой */}
+      {first ? (
+        <Link
+          href={first}
+          onClick={close}
+          data-testid="nav-section-link"
+          className={`rounded-lg py-1.5 pl-2 pr-0.5 ${active ? 'text-accent' : 'text-muted hover:text-fg'}`}
+        >
+          {section.label}
+        </Link>
+      ) : (
+        <span className={`py-1.5 pl-2 pr-0.5 ${active ? 'text-accent' : 'text-muted'}`}>{section.label}</span>
+      )}
       <button
         ref={button}
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
+        aria-label={`${section.label}: все страницы раздела`}
+        onClick={() => {
+          // мышь навела и сразу нажала — список уже открыт наведением, клик его не закрывает
+          if (open && Date.now() - hoveredAt.current < 600) return
+          setOpen((o) => !o)
+        }}
         onKeyDown={openWithKeyboard}
-        className={`flex items-center gap-1 rounded-lg px-2 py-1.5 ${active ? 'text-accent' : 'text-muted hover:text-fg'}`}
+        className={`rounded-lg py-1.5 pl-0.5 pr-1.5 ${active ? 'text-accent' : 'text-muted hover:text-fg'}`}
       >
-        {section.label}
         <ChevronDown className={`h-4 w-4 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden />
       </button>
       {open && (
@@ -230,7 +251,13 @@ function MobileNav({ pathname, onClose }: { pathname: string; onClose: () => voi
           </Link>
         ) : (
           <div key={section.label} className="py-2">
-            <div className={`text-xs uppercase tracking-wide ${sectionActive(section, pathname) ? 'text-accent' : 'text-faint'}`}>{section.label}</div>
+            <Link
+              href={section.items?.[0]?.href ?? '/dashboard'}
+              onClick={onClose}
+              className={`block text-xs uppercase tracking-wide ${sectionActive(section, pathname) ? 'text-accent' : 'text-faint'}`}
+            >
+              {section.label}
+            </Link>
             {section.items?.map((item) => (
               <div key={item.href}>
                 <Link href={item.href} onClick={onClose} className="block py-1.5 pl-3 text-sm">
@@ -250,9 +277,28 @@ function MobileNav({ pathname, onClose }: { pathname: string; onClose: () => voi
   )
 }
 
+/** Шестерёнка: настройки раздела, на странице которого пользователь (lib/section-settings). */
+function SectionGear({ pathname }: { pathname: string }) {
+  const target = sectionSettings(pathname)
+  if (!target) return null
+  return (
+    <Link
+      href={target.href}
+      title={`Настройки раздела — ${target.title}`}
+      aria-label={`Настройки раздела — ${target.title}`}
+      className="hidden h-9 w-9 items-center justify-center rounded-full sm:flex border border-line text-muted hover:border-accent hover:text-accent"
+      data-testid="section-settings"
+    >
+      <Settings className="h-5 w-5" aria-hidden />
+    </Link>
+  )
+}
+
 export function AppHeader({ onLogout, leaving }: { onLogout: () => void; leaving: boolean }) {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const closeMobile = useCallback(() => setMobileOpen(false), [])
+  useExclusiveMenu(mobileOpen, closeMobile, 'mobile-nav') // мобильное меню и выпадающие списки не открыты вместе
   useEffect(() => setMobileOpen(false), [pathname])
 
   return (
@@ -287,6 +333,7 @@ export function AppHeader({ onLogout, leaving }: { onLogout: () => void; leaving
           )}
         </nav>
         <div className="ml-auto flex items-center gap-2">
+          <SectionGear pathname={pathname} />
           <SyncButton />
           <AlertBell />
           <AccountMenu onLogout={onLogout} leaving={leaving} />

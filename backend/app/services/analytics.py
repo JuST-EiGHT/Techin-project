@@ -74,8 +74,9 @@ async def _category(db: AsyncSession, category_id: int | None) -> dict | None:
 
 # ── данные по дням ──
 async def _orders(db: AsyncSession, store_id: uuid.UUID, date_from: date, date_to: date,
-                  product_ids: set[uuid.UUID] | None) -> dict[date, tuple[int, int] | None]:
-    """День → (заказы, штуки); None — отправления за этот день не загружены."""
+                  product_ids: set[uuid.UUID] | None) -> dict[date, tuple[int, int, Decimal] | None]:
+    """День → (заказы, штуки, сумма заказов ₽); None — отправления за этот день не загружены. Сумма — цена товара в
+    отправлении × штуки (выручка по заказам, а не по доставленным — правка владельца); строки без цены — не в сумме."""
     syncs = list((await db.execute(select(PostingSync).where(PostingSync.user_id == store_id))).scalars())
 
     def covered(day: date) -> bool:
@@ -86,22 +87,24 @@ async def _orders(db: AsyncSession, store_id: uuid.UUID, date_from: date, date_t
         return False
 
     counts: dict[date, list] = {}
-    q = (select(Posting.id, Posting.day, Posting.status, PostingItem.product_id, PostingItem.quantity)
+    q = (select(Posting.id, Posting.day, Posting.status, PostingItem.product_id, PostingItem.quantity, PostingItem.price)
          .join(PostingItem, PostingItem.posting_id == Posting.id)
          .where(Posting.user_id == store_id, Posting.day >= date_from, Posting.day <= date_to))
     if product_ids is not None:
         q = q.where(PostingItem.product_id.in_(product_ids))
-    for pid, day, status, _product, qty in (await db.execute(q)).all():
+    for pid, day, status, _product, qty, price in (await db.execute(q)).all():
         if is_cancelled(status):
             continue
-        acc = counts.setdefault(day, [set(), 0])
+        acc = counts.setdefault(day, [set(), 0, Decimal(0)])
         acc[0].add(pid)
         acc[1] += qty
-    out: dict[date, tuple[int, int] | None] = {}
+        if price is not None:
+            acc[2] += Decimal(price) * qty
+    out: dict[date, tuple[int, int, Decimal] | None] = {}
     d = date_from
     while d <= date_to:
         acc = counts.get(d)
-        out[d] = (len(acc[0]), acc[1]) if acc else ((0, 0) if covered(d) else None)
+        out[d] = (len(acc[0]), acc[1], acc[2]) if acc else ((0, 0, Decimal(0)) if covered(d) else None)
         d += timedelta(days=1)
     return out
 
@@ -161,7 +164,7 @@ async def _days(db: AsyncSession, store_id: uuid.UUID, date_from: date, date_to:
     product_ids = None if products is None else {p.id for p in products}
     for day, value in (await _orders(db, store_id, date_from, date_to, product_ids)).items():
         if value is not None:
-            days[day].orders, days[day].ordered_qty = value
+            days[day].orders, days[day].ordered_qty, days[day].ordered_amount = value
     return days, cov
 
 

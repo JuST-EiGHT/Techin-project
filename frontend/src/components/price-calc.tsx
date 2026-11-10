@@ -8,16 +8,17 @@ import { FormError } from '@/components/AuthForm'
 import { pctText, rub } from '@/components/reports'
 import { useAuth } from '@/contexts/AuthContext'
 import { api, errorMessage } from '@/lib/api'
-import { AD_WHY, MARGIN_WHY, fieldNumber, type Breakdown, type CalculateResponse, type Overrides } from '@/lib/pricing'
-import { saveSettings, useSettings } from '@/lib/settings'
+import { AD_WHY, EXTRA_WHY, MARGIN_WHY, fieldNumber, type Breakdown, type CalculateResponse, type Overrides } from '@/lib/pricing'
+import { notifyPriceInputsChanged, saveSettings, useSettings } from '@/lib/settings'
 
-const EMPTY: Overrides = { ad_pct: '', target_margin_pct: '', logistics: '', storage: '', other: '', price: '' }
+const EMPTY: Overrides = { ad_pct: '', target_margin_pct: '', logistics: '', storage: '', other: '', extra_pct: '', price: '' }
 const LIMITS: Record<keyof Overrides, [number, number, string]> = {
   ad_pct: [0, 90, 'Реклама — от 0 до 90 %'],
   target_margin_pct: [0, 90, 'Целевая маржа — от 0 до 90 %'],
   logistics: [0, 1_000_000, 'Логистика — число не меньше 0'],
   storage: [0, 1_000_000, 'Хранение — число не меньше 0'],
   other: [0, 1_000_000, 'Прочие расходы — число не меньше 0'],
+  extra_pct: [0, 90, 'Доп. расходы — от 0 до 90 %'],
   price: [0.01, 100_000_000, 'Цена — число больше 0'],
 }
 
@@ -44,6 +45,7 @@ function Field({
   suffix,
   hint,
   testid,
+  disabled = false,
 }: {
   label: string
   value: string
@@ -52,6 +54,7 @@ function Field({
   suffix: string
   hint?: string
   testid: string
+  disabled?: boolean
 }) {
   return (
     <label className="block text-xs text-muted">
@@ -62,7 +65,8 @@ function Field({
           value={value}
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full rounded-lg border border-line bg-bg px-2 py-1.5 text-right text-sm text-fg outline-none placeholder:text-faint focus:border-accent"
+          disabled={disabled}
+          className="w-full rounded-lg border border-line bg-bg px-2 py-1.5 text-right text-sm text-fg outline-none placeholder:text-faint focus:border-accent disabled:opacity-60"
           data-testid={testid}
         />
         <span className="text-faint">{suffix}</span>
@@ -81,6 +85,8 @@ export function PriceCalcBlock({ productId, refreshKey }: { productId: string; r
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState<string | null>(null)
+  const [savedNote, setSavedNote] = useState<string | null>(null)
+  const [extrasVersion, setExtrasVersion] = useState(0)
   const seq = useRef(0)
   const { body, error: inputError } = overridesBody(ov)
   const key = JSON.stringify(body)
@@ -88,6 +94,7 @@ export function PriceCalcBlock({ productId, refreshKey }: { productId: string; r
   useEffect(() => {
     setOv(EMPTY)
     setSaved(null)
+    setSavedNote(null)
   }, [productId])
 
   useEffect(() => {
@@ -108,10 +115,11 @@ export function PriceCalcBlock({ productId, refreshKey }: { productId: string; r
     return () => clearTimeout(t)
     // body сравниваем по содержимому (key); refreshKey — данные товара перечитаны (например, себестоимость)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productId, key, inputError, refreshKey, settings?.price_ad_pct, settings?.price_target_margin_pct])
+  }, [productId, key, inputError, refreshKey, extrasVersion, settings?.price_ad_pct, settings?.price_target_margin_pct, settings?.price_extra_pct])
 
   const set = (k: keyof Overrides) => (v: string) => {
     setSaved(null)
+    setSavedNote(null)
     setOv((o) => ({ ...o, [k]: v }))
   }
 
@@ -119,6 +127,26 @@ export function PriceCalcBlock({ productId, refreshKey }: { productId: string; r
     settings !== null &&
     ((body.ad_pct !== undefined && Number(body.ad_pct) !== Number(settings.price_ad_pct)) ||
       (body.target_margin_pct !== undefined && Number(body.target_margin_pct) !== Number(settings.price_target_margin_pct)))
+
+  // свои расходы товара: хранение, прочее, доп. % — сохраняются для всех расчётов (правка 06.11.2026)
+  const savedExtras = data?.inputs.saved ?? null
+  const extrasTyped = body.storage !== undefined || body.other !== undefined || body.extra_pct !== undefined
+  async function saveExtras(clear = false) {
+    const keep = (typed: string | undefined, was: string | null | undefined) => (clear ? null : typed ?? was ?? null)
+    try {
+      await api.put(`/price/extras/${productId}`, {
+        storage: keep(body.storage, savedExtras?.storage),
+        other: keep(body.other, savedExtras?.other),
+        extra_pct: keep(body.extra_pct, savedExtras?.extra_pct),
+      })
+      setOv((o) => ({ ...o, storage: '', other: '', extra_pct: '' }))
+      setSavedNote(clear ? 'Свои расходы убраны — товар считается по общим настройкам' : 'Сохранено — так этот товар считается везде: цены, товары, акции')
+      setExtrasVersion((v) => v + 1)
+      notifyPriceInputsChanged()
+    } catch (err) {
+      setError(errorMessage(err, 'Не сохранилось — попробуйте ещё раз'))
+    }
+  }
 
   async function saveMine() {
     if (!user || !settings) return
@@ -231,8 +259,44 @@ export function PriceCalcBlock({ productId, refreshKey }: { productId: string; r
           )}
           {saved && <p className="text-sm text-ok">{saved}</p>}
 
+          <details className="rounded-lg border border-line px-3 py-2" open={!!savedExtras} data-testid="calc-extras">
+            <summary className="cursor-pointer text-sm text-muted hover:text-fg">
+              Свои расходы товара — сохраняются{savedExtras ? ' · есть свои' : ''}
+            </summary>
+            <p className="mt-2 text-xs text-faint">
+              Расходы, которых нет в начислениях Ozon. Сохранённые входят в минимальную и целевую цену и маржу этого товара везде: на
+              страницах цен, товаров и акций. Для всех товаров сразу — в «Настройках → Цены».
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <Field label="Хранение на 1 шт." value={ov.storage} placeholder={num(i?.storage ?? '0')} onChange={set('storage')} suffix="₽" hint="Ozon не делит хранение по товарам — укажите свою оценку" testid="calc-storage" />
+              <Field label="Прочее на 1 шт." value={ov.other} placeholder={num(i?.other ?? '0')} onChange={set('other')} suffix="₽" hint="упаковка, маркировка, доставка до склада" testid="calc-other" />
+              <Field
+                label="Доп. расходы, % от цены"
+                value={ov.extra_pct}
+                placeholder={num(i?.extra_pct ?? '0')}
+                onChange={set('extra_pct')}
+                suffix="%"
+                hint={i?.sources.extra_pct === 'сохранено для товара' ? 'свои у товара' : `общие: ${num(i?.shop_extra_pct ?? '0')} % — «Настройки → Цены»`}
+                testid="calc-extra"
+              />
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {extrasTyped && !inputError && (
+                <button type="button" onClick={() => saveExtras()} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-90" data-testid="calc-save-extras">
+                  Сохранить для этого товара
+                </button>
+              )}
+              {savedExtras && (
+                <button type="button" onClick={() => saveExtras(true)} className="rounded-lg border border-line px-3 py-1.5 text-sm hover:border-bad hover:text-bad" data-testid="calc-clear-extras">
+                  Убрать свои расходы
+                </button>
+              )}
+              {savedNote && <span className="text-sm text-ok" data-testid="calc-extras-saved">{savedNote}</span>}
+            </div>
+          </details>
+
           <details className="rounded-lg border border-line px-3 py-2" data-testid="calc-more">
-            <summary className="cursor-pointer text-sm text-muted hover:text-fg">Уточнить расчёт — только для этого расчёта</summary>
+            <summary className="cursor-pointer text-sm text-muted hover:text-fg">Проверить другую логистику или цену — только для этого расчёта</summary>
             <div className="mt-3 grid grid-cols-2 gap-3">
               <Field
                 label="Логистика на 1 шт."
@@ -243,8 +307,6 @@ export function PriceCalcBlock({ productId, refreshKey }: { productId: string; r
                 hint={i?.logistics_text}
                 testid="calc-logistics"
               />
-              <Field label="Хранение на 1 шт." value={ov.storage} placeholder="0" onChange={set('storage')} suffix="₽" hint="Ozon не делит хранение по товарам" testid="calc-storage" />
-              <Field label="Прочее на 1 шт." value={ov.other} placeholder="0" onChange={set('other')} suffix="₽" hint="упаковка, маркировка, доставка до склада" testid="calc-other" />
               <Field label="Проверить цену" value={ov.price} placeholder={num(i?.price ?? null)} onChange={set('price')} suffix="₽" hint="сколько останется при другой цене" testid="calc-price" />
             </div>
           </details>
@@ -309,6 +371,7 @@ function BreakdownTable({ b, data }: { b: Breakdown; data: CalculateResponse }) 
           {line(`− Комиссия Ozon ${num(i.commission_pct)} %`, b.commission, { note: i.sources.commission_pct })}
           {line(`− Эквайринг ${num(i.acquiring_pct)} %`, b.acquiring, { hide: zero(b.acquiring) })}
           {line(`− Реклама ${num(i.ad_pct)} %`, b.ad, { hide: zero(b.ad) })}
+          {line(`− Доп. расходы ${num(i.extra_pct ?? '0')} %`, b.extra ?? '0', { hide: zero(b.extra ?? '0') })}
           {line('− Логистика', b.logistics, { note: i.logistics_text })}
           {line('− Хранение', b.storage, { hide: zero(b.storage) })}
           {line('− Прочие расходы', b.other, { hide: zero(b.other) })}
@@ -330,24 +393,33 @@ export function PriceSettingsForm({ onSaved }: { onSaved?: () => void }) {
   const settings = useSettings()
   const [ad, setAd] = useState('')
   const [margin, setMargin] = useState('')
+  const [extra, setExtra] = useState('')
+  const [dirty, setDirty] = useState(false) // начали править — пришедшие настройки не затирают ввод
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
 
   useEffect(() => {
-    if (!settings) return
+    if (!settings || dirty) return
     setAd(num(settings.price_ad_pct))
     setMargin(num(settings.price_target_margin_pct))
-  }, [settings])
+    setExtra(num(settings.price_extra_pct ?? '0'))
+  }, [settings, dirty])
+  const edit = (setter: (v: string) => void) => (v: string) => {
+    setDirty(true)
+    setDone(false)
+    setter(v)
+  }
 
   async function save(e: React.FormEvent) {
     e.preventDefault()
     if (!user) return
     setError(null)
     setDone(false)
-    const { body, error: bad } = overridesBody({ ...EMPTY, ad_pct: ad || '0', target_margin_pct: margin || '0' })
+    const { body, error: bad } = overridesBody({ ...EMPTY, ad_pct: ad || '0', target_margin_pct: margin || '0', extra_pct: extra || '0' })
     if (bad) return setError(bad)
     try {
-      await saveSettings(user.id, { price_ad_pct: body.ad_pct, price_target_margin_pct: body.target_margin_pct })
+      await saveSettings(user.id, { price_ad_pct: body.ad_pct, price_target_margin_pct: body.target_margin_pct, price_extra_pct: body.extra_pct })
+      setDirty(false)
       setDone(true)
       onSaved?.()
     } catch (err) {
@@ -360,12 +432,16 @@ export function PriceSettingsForm({ onSaved }: { onSaved?: () => void }) {
       <FormError message={error} />
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
-          <Field label="Реклама, % от цены" value={ad} placeholder="0" onChange={setAd} suffix="%" testid="settings-ad" />
+          <Field label="Реклама, % от цены" value={ad} placeholder="0" onChange={edit(setAd)} suffix="%" testid="settings-ad" disabled={!settings} />
           <p className="mt-1 text-xs text-faint">{AD_WHY}</p>
         </div>
         <div>
-          <Field label="Целевая маржа" value={margin} placeholder="20" onChange={setMargin} suffix="%" testid="settings-margin" />
+          <Field label="Целевая маржа" value={margin} placeholder="20" onChange={edit(setMargin)} suffix="%" testid="settings-margin" disabled={!settings} />
           <p className="mt-1 text-xs text-faint">{MARGIN_WHY}</p>
+        </div>
+        <div>
+          <Field label="Доп. расходы, % от цены — для всех товаров" value={extra} placeholder="0" onChange={edit(setExtra)} suffix="%" testid="settings-extra" disabled={!settings} />
+          <p className="mt-1 text-xs text-faint">{EXTRA_WHY} У отдельного товара свои расходы — в «Расчёте цены» товара.</p>
         </div>
       </div>
       {settings?.price_defaults && <p className="text-xs text-warn">Пока стоят значения по умолчанию — поставьте свои.</p>}

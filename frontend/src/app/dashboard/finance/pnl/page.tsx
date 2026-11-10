@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Suspense, useEffect, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
 import { type BusinessExpenses, type Statement, StatementTable } from '@/components/pnl-statement'
@@ -14,6 +14,7 @@ import {
   type DayPnL,
   DayChart,
   ManualTotal,
+  OzonApiStatus,
   PROFILE_PARAMS,
   ParamsPanel,
   SourceNote,
@@ -384,6 +385,8 @@ function PeriodView({
   const [days, setDays] = useState<DayPnL[] | null>(null)
   const [busy, setBusy] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [version, setVersion] = useState(0) // «Загрузить новые данные» закончилась — перечитать
+  const reloaded = useCallback(() => setVersion((v) => v + 1), [])
   const seq = useRef(0)
 
   useEffect(() => {
@@ -400,7 +403,7 @@ function PeriodView({
       })
       .catch((err) => id === seq.current && setError(errorMessage(err)))
       .finally(() => id === seq.current && setBusy(false))
-  }, [range.from, range.to, calc, manual])
+  }, [range.from, range.to, calc, manual, version])
 
   useEffect(() => {
     const vat = calc.vat_multiplier
@@ -408,7 +411,7 @@ function PeriodView({
       .get<{ days: DayPnL[] }>('/pnl/by-day', { params: { date_from: range.from, date_to: range.to, ...(vat ? { vat_multiplier: vat } : {}) } })
       .then((r) => setDays(r.data.days))
       .catch(() => setDays(null))
-  }, [range.from, range.to, calc.vat_multiplier])
+  }, [range.from, range.to, calc.vat_multiplier, version])
 
   const st = data?.statement ?? null
   // расходы бизнеса есть — налог, чистая прибыль и рентабельность в цифрах — с ними (как последняя строка P&L)
@@ -429,6 +432,7 @@ function PeriodView({
           {data?.from_snapshot && <span className="text-faint"> · сохранённый итог закрытого месяца</span>}
         </div>
         {data && <SourceNote source={data.data_source} coverage={data.coverage} />}
+        <OzonApiStatus range={range} coverage={data?.coverage} onLoaded={reloaded} />
       </div>
       <FormError message={error} />
       {!data && !error && <p className="text-sm text-muted">Загрузка…</p>}

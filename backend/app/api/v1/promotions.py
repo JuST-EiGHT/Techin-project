@@ -7,10 +7,11 @@ from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.files import attachment
 from app.db.session import get_db
 from app.engine import price_calculator as calc
 from app.engine.price_calculator import margin_at
@@ -21,6 +22,7 @@ from app.models.promotion import Promotion, PromotionProduct
 from app.models.user import User
 from app.schemas.promotion import (
     NO_COST_NOTE,
+    OtherPromotion,
     ActionResponse,
     HistoryResponse,
     PromotionResults,
@@ -36,6 +38,7 @@ from app.schemas.promotion import (
 )
 from app.schemas.sync import utc
 from app.services import audit, pricing, promotion_results
+from app.services.promotion_export import promotion_xlsx
 from app.services import promotion_actions as actions
 from app.services.promotion_history import MAX_DAYS
 from app.services.promotion_history import history as participation_history
@@ -257,16 +260,43 @@ async def get_promotion(promotion_id: uuid.UUID, user: User = Depends(get_curren
     return _promotion(promo, rows[promo.id], await _margins(db, user.id))
 
 
-@router.get("/{promotion_id}/products", response_model=PromotionProductsResponse)
-async def promotion_products(
-    promotion_id: uuid.UUID,
-    participating: bool | None = Query(None, description="true — участвуют, false — кандидаты, без параметра — все"),
-    user: User = Depends(get_current_store),
-    db: AsyncSession = Depends(get_db),
-):
-    promo = await db.get(Promotion, promotion_id)
-    if promo is None or promo.user_id != user.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, _NOT_FOUND)
+async def _other_promotions(
+    db: AsyncSession, user_id: uuid.UUID, promo_id: uuid.UUID, product_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, list[tuple[Promotion, PromotionProduct]]]:
+    """В каких ещё идущих акциях товар участвует сейчас (не кандидат, не вышел)."""
+    out: dict[uuid.UUID, list[tuple[Promotion, PromotionProduct]]] = defaultdict(list)
+    if not product_ids:
+        return out
+    res = await db.execute(
+        select(PromotionProduct, Promotion)
+        .join(Promotion, Promotion.id == PromotionProduct.promotion_id)
+        .where(
+            Promotion.user_id == user_id, Promotion.id != promo_id,
+            or_(Promotion.date_to.is_(None), Promotion.date_to >= _now()),
+            PromotionProduct.product_id.in_(product_ids), PromotionProduct.is_active.is_(True),
+            PromotionProduct.left_at.is_(None),
+        )
+    )
+    for row, promo in res.all():
+        out[row.product_id].append((promo, row))
+    return out
+
+
+def _others(found: list[tuple[Promotion, PromotionProduct]], price: Decimal | None) -> list[OtherPromotion]:
+    items = [
+        OtherPromotion(
+            id=promo.id, title=promo.title, action_price=row.action_price,
+            cheaper=bool(price is not None and row.action_price is not None and row.action_price < price),
+        )
+        for promo, row in found
+    ]
+    items.sort(key=lambda o: (not o.cheaper, o.action_price is None, o.action_price or 0))
+    return items
+
+
+async def _promotion_items(
+    db: AsyncSession, user: User, promo: Promotion, participating: bool | None = None
+) -> PromotionProductsResponse:
     res = await db.execute(
         select(PromotionProduct, Product)
         .join(Product, Product.id == PromotionProduct.product_id)
@@ -277,11 +307,15 @@ async def promotion_products(
     all_rows = [r for r, _ in pairs]
     on_hand = await _on_hand(db, user.id)
     margin_of = await _margins(db, user.id)
+    elsewhere = await _other_promotions(db, user.id, promo.id, [product.id for _, product in pairs])
     items = [
-        PromotionProductResponse(**_product_row(
-            r, product, on_hand.get(product.id, 0), margin_of(r), margin_of.low,
-            participation_prices(margin_of.params(product.id), promo_price(r), on_hand.get(product.id, 0), promo.whole_stock),
-        ))
+        PromotionProductResponse(
+            **_product_row(
+                r, product, on_hand.get(product.id, 0), margin_of(r), margin_of.low,
+                participation_prices(margin_of.params(product.id), promo_price(r), on_hand.get(product.id, 0), promo.whole_stock),
+            ),
+            other_promotions=_others(elsewhere.get(product.id, []), promo_price(r)),
+        )
         for r, product in pairs
         if participating is None or r.is_active == participating
     ]
@@ -289,6 +323,38 @@ async def promotion_products(
     items.sort(key=lambda i: (not i.is_active, i.margin_in_promo is None, i.margin_in_promo or 0))
     return PromotionProductsResponse(
         promotion=_promotion(promo, all_rows, margin_of), margin_note=_margin_note(all_rows, margin_of), items=items
+    )
+
+
+async def _own_promotion(db: AsyncSession, user: User, promotion_id: uuid.UUID) -> Promotion:
+    promo = await db.get(Promotion, promotion_id)
+    if promo is None or promo.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, _NOT_FOUND)
+    return promo
+
+
+@router.get("/{promotion_id}/products", response_model=PromotionProductsResponse)
+async def promotion_products(
+    promotion_id: uuid.UUID,
+    participating: bool | None = Query(None, description="true — участвуют, false — кандидаты, без параметра — все"),
+    user: User = Depends(get_current_store),
+    db: AsyncSession = Depends(get_db),
+):
+    promo = await _own_promotion(db, user, promotion_id)
+    return await _promotion_items(db, user, promo, participating)
+
+
+@router.get("/{promotion_id}/products/export", response_class=Response)
+async def promotion_products_export(
+    promotion_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
+):
+    """Товары акции и кандидаты в Excel — те же цены, минимальная и целевая для участия, маржа и прибыль с 1 шт."""
+    promo = await _own_promotion(db, user, promotion_id)
+    data = await _promotion_items(db, user, promo)
+    stamp = today_msk()
+    return attachment(
+        promotion_xlsx(data, stamp), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        f"Акция {promo.title[:60]} {stamp:%d.%m.%Y}.xlsx", "promotion.xlsx",
     )
 
 

@@ -5,6 +5,7 @@ import axios from 'axios'
 import { useCallback, useEffect, useState } from 'react'
 
 import { Field, FormError, SubmitButton } from '@/components/AuthForm'
+import { OzonKeyGuide } from '@/components/settings/OzonKeyGuide'
 import { notifyCredentialsChanged } from '@/lib/sync'
 import { openStore, type Store, useStores } from '@/contexts/StoreContext'
 import { api, errorMessage } from '@/lib/api'
@@ -194,7 +195,7 @@ function CredentialRow({ cred, onChanged, onDeleted }: { cred: Credential; onCha
 
 const EMPTY_FORM = { label: '', client_id: '', api_key: '', expires_at: '' }
 
-function AddForm({ onAdded }: { onAdded: (c: Credential) => void }) {
+function AddForm({ onAdded, firstKey }: { onAdded: (c: Credential) => void; firstKey: boolean }) {
   const [form, setForm] = useState(EMPTY_FORM)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -253,10 +254,11 @@ function AddForm({ onAdded }: { onAdded: (c: Credential) => void }) {
   return (
     <form onSubmit={onSubmit} noValidate className="bg-card border border-line rounded-xl p-6">
       <h2 className="text-lg font-semibold mb-1">Добавить ключ</h2>
-      <p className="text-sm text-muted mb-5">
-        Ключ создаётся в кабинете Ozon: Настройки → Seller API, живёт 3 месяца. Для аналитики хватает прав на чтение. Перед сохранением
-        ключ проверяется запросом к Ozon и хранится только в зашифрованном виде.
+      <p className="text-sm text-muted mb-3">
+        Ключ создаётся в кабинете Ozon: Настройки → Seller API, живёт 3 месяца. Перед сохранением ключ проверяется запросом к Ozon и
+        хранится только в зашифрованном виде.
       </p>
+      <OzonKeyGuide open={firstKey} />
       <FormError message={error} />
       {otherCabinet && (
         <div className="-mt-2 mb-4" data-testid="add-as-store">
@@ -336,7 +338,7 @@ export function OzonKeysPanel() {
         )}
       </section>
 
-      <AddForm onAdded={(c) => setItems((xs) => [...(xs ?? []), c])} />
+      <AddForm firstKey={items?.length === 0} onAdded={(c) => setItems((xs) => [...(xs ?? []), c])} />
     </div>
   )
 }

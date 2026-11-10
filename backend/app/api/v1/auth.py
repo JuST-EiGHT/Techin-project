@@ -112,7 +112,9 @@ async def refresh(data: RefreshRequest, request: Request, db: AsyncSession = Dep
         payload = decode_token(data.refresh_token, expected_type=REFRESH)
     except InvalidTokenError as e:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(e)) from e
-    if await blacklist.is_revoked(payload["jti"]):
+    # только что обменян другой вкладкой — не кража: окно ротации (token_blacklist.ROTATION_GRACE_SECONDS)
+    reused = await blacklist.is_revoked(payload["jti"])
+    if reused and not await blacklist.rotated_recently(payload["jti"]):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh-токен уже использован или отозван")
 
     user = await crud_user.get_user_by_id(db, uuid.UUID(payload["sub"]))
@@ -127,8 +129,10 @@ async def refresh(data: RefreshRequest, request: Request, db: AsyncSession = Dep
     if payload.get("sid") and (session is None or session.ended_at is not None or session.user_id != user.id):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, SESSION_CLOSED)
 
-    # Ротация: старый refresh больше не работает
-    await blacklist.revoke(payload["jti"], payload["exp"])
+    # Ротация: старый refresh больше не работает (кроме короткого окна для параллельных вкладок)
+    if not reused:
+        await blacklist.revoke(payload["jti"], payload["exp"])
+        await blacklist.mark_rotated(payload["jti"])
     if session is None:  # токен до шага 10.26 — без сеанса: заводим
         session = await account.start(db, user.id, ip, agent)
     else:

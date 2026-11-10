@@ -7,6 +7,7 @@ import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YA
 
 import { FormError } from '@/components/AuthForm'
 import { TipBox, useDrill, type Drill } from '@/components/charts'
+import { Copyable } from '@/components/copy'
 import { useTokenColors } from '@/components/finance'
 import { PriceCalcBlock } from '@/components/price-calc'
 import { PriceChangeModal } from '@/components/price-change'
@@ -152,9 +153,10 @@ export function IdLine({ data }: { data: ProductDetail }) {
   const { item } = data
   return (
     <p className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
-      {item.ozon_sku && <span>SKU {item.ozon_sku}</span>}
+      <Copyable prefix="Артикул" value={item.offer_id} label="артикул" testid="copy-offer" />
+      {item.ozon_sku && <Copyable prefix="SKU" value={item.ozon_sku} label="SKU" testid="copy-sku" />}
       <span>ID товара {item.ozon_product_id}</span>
-      {data.barcode && <span>штрихкод {data.barcode}</span>}
+      {data.barcode && <Copyable prefix="Штрихкод" value={data.barcode} label="штрихкод" testid="copy-barcode" />}
       {item.ozon_sku && (
         <a href={`https://www.ozon.ru/product/${item.ozon_sku}/`} target="_blank" rel="noreferrer" className="text-accent hover:underline">
           Открыть на Ozon ↗

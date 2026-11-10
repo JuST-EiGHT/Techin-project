@@ -23,6 +23,7 @@ export type ProductItem = {
   offer_id: string
   name: string | null
   ozon_sku: number | null
+  barcode?: string | null // штрихкод — копируется одним нажатием
   ozon_product_id: number
   is_archived: boolean
   price: string | null

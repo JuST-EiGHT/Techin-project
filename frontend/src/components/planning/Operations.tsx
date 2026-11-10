@@ -115,6 +115,16 @@ function OperationForm({
         const { data } = await api.patch<{ rule_suggestion: RuleSuggestion | null }>(`/planning/operations/${initial.op_id}`, body)
         onSaved(data.rule_suggestion)
         return
+      } else if (day > today && type !== 'transfer') {
+        // дата в будущем — плановый платёж (как в КУБ24): в журнале — бледнее факта, в календаре и прогнозе денег
+        await api.post('/planning/plans', {
+          kind: type, amount: value, start_date: day, period: 'once', category_id: categoryId || null,
+          account_id: account || null, counterparty: counterparty || null, comment: comment || null,
+        })
+        setAmount('')
+        setCounterparty('')
+        setComment('')
+        setNotice(`Запланировано на ${fmtDay(day)} — в журнале как план; когда оплатите, отметьте «Оплачено»`)
       } else {
         const { data } = await api.post<{ category: { name: string } | null; category_note: 'existing' | 'created' | 'restored' | null }>(
           '/planning/operations',
@@ -178,7 +188,17 @@ function OperationForm({
         </label>
         <label className="block text-sm">
           <span className="text-muted">Дата</span>
-          <input type="date" value={day} max={today} onChange={(e) => setDay(e.target.value)} disabled={lockMoney} required className={`${input} mt-1`} data-testid="op-day" />
+          <input
+            type="date"
+            value={day}
+            max={initial || transfer ? today : undefined}
+            onChange={(e) => setDay(e.target.value)}
+            disabled={lockMoney}
+            required
+            className={`${input} mt-1`}
+            data-testid="op-day"
+          />
+          {!initial && !transfer && day > today && <span className="mt-1 block text-xs text-accent" data-testid="op-planned-hint">в будущем — будет плановым платежом</span>}
         </label>
         {(!initial || !initial.transfer) && (
           <label className="block text-sm">
@@ -671,9 +691,15 @@ function QuickAdd({ accounts, categories, onSaved, onCategoryCreated, onMore }: 
     if (value === null || Number(value) <= 0) return setError('Сумма — числом больше нуля, например 12 000,50')
     setSaving(true)
     try {
-      await api.post('/planning/operations', { type, amount: value, day, account_id: account, category_id: categoryId || null })
+      if (day > today) {
+        // дата в будущем — плановый платёж (как в КУБ24), без банка: виден в журнале как план, в календаре и прогнозе
+        await api.post('/planning/plans', { kind: type, amount: value, start_date: day, period: 'once', category_id: categoryId || null, account_id: account || null })
+        setNotice(`Запланировано на ${fmtDay(day)}: ${type === 'income' ? '+' : '−'}${rub(value)} — в журнале как план`)
+      } else {
+        await api.post('/planning/operations', { type, amount: value, day, account_id: account, category_id: categoryId || null })
+        setNotice(`Добавлено: ${type === 'income' ? '+' : '−'}${rub(value)}`)
+      }
       setAmount('')
-      setNotice(`Добавлено: ${type === 'income' ? '+' : '−'}${rub(value)}`)
       onSaved()
     } catch (err) {
       setError(errorMessage(err))
@@ -728,12 +754,15 @@ function QuickAdd({ accounts, categories, onSaved, onCategoryCreated, onMore }: 
         </label>
         <label className="block text-sm">
           <span className="text-muted">Дата</span>
-          <input type="date" value={day} max={today} onChange={(e) => setDay(e.target.value)} required className={`${input} mt-1`} data-testid="quick-day" />
+          <input type="date" value={day} onChange={(e) => setDay(e.target.value)} required className={`${input} mt-1`} data-testid="quick-day" />
         </label>
         <button type="submit" disabled={saving || active.length === 0} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="quick-save">
-          {saving ? 'Сохраняем…' : 'Добавить'}
+          {saving ? 'Сохраняем…' : day > today ? 'Запланировать' : 'Добавить'}
         </button>
       </div>
+      <p className="mt-2 text-xs text-faint">
+        Банк подключать не нужно: дата сегодня или раньше — операция (факт), дата в будущем — плановый платёж.
+      </p>
       <FormError message={error} />
       {notice && (
         <p className="mt-2 text-sm text-ok" data-testid="quick-notice">
@@ -1137,7 +1166,7 @@ export function OperationsTab({ accounts, categories, onChanged }: { accounts: A
                   <li
                     key={row.id}
                     onClick={() => (op ? setViewing(op) : setPlan(row))}
-                    className={`grid cursor-pointer grid-cols-[1.25rem_2.75rem_minmax(0,1fr)_auto] items-start gap-x-3 px-4 py-2.5 text-sm hover:bg-line/40 sm:grid-cols-[1.25rem_4rem_minmax(0,1fr)_auto_auto] sm:items-center ${op?.before_opening ? 'opacity-60' : ''} ${isPlan ? 'bg-bg/40' : ''} ${op && selected.has(op.op_id) ? 'bg-accent/5' : ''}`}
+                    className={`grid cursor-pointer grid-cols-[1.25rem_2.75rem_minmax(0,1fr)_auto] items-start gap-x-3 px-4 py-2.5 text-sm hover:bg-line/40 sm:grid-cols-[1.25rem_4rem_minmax(0,1fr)_auto_auto] sm:items-center ${op?.before_opening ? 'opacity-60' : ''} ${isPlan ? 'bg-bg/40' : ''} ${row.status === 'planned' ? 'opacity-60' : ''} ${op && selected.has(op.op_id) ? 'bg-accent/5' : ''}`}
                     data-testid={isPlan ? 'plan-row' : 'op-row'}
                   >
                     <span onClick={(e) => e.stopPropagation()}>

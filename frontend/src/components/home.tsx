@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
-import { MetricChart } from '@/components/analytics'
+import { GranularitySwitch, MetricChart } from '@/components/analytics'
 import { type Drill, MoreLink, TipBox, useDrill } from '@/components/charts'
 import { Change, FigureLink, Hint, type OzonDashboard } from '@/components/dashboard'
 import { compact, useTokenColors } from '@/components/finance'
@@ -13,7 +13,7 @@ import { weekdayShort } from '@/components/payouts'
 import { dayTitle, signed } from '@/components/planning/Calendar'
 import { type Overview, type PlanningState, opsHref } from '@/components/planning/types'
 import { fmtDay, rub } from '@/components/reports'
-import { METRICS, type MetricKey, type MetricPoint, type Metrics, formatMetric } from '@/lib/analytics'
+import { type Granularity, METRICS, type MetricKey, type MetricPoint, type Metrics, formatMetric } from '@/lib/analytics'
 import { api } from '@/lib/api'
 import { useSyncStatus } from '@/lib/sync'
 
@@ -24,6 +24,7 @@ const range = (from: string, to: string) => `period=custom&from=${from}&to=${to}
 export const METRIC_LINKS: Partial<Record<MetricKey, (from: string, to: string) => string>> = {
   revenue: (from, to) => `/dashboard/analytics/sales?${range(from, to)}`,
   orders: (from, to) => `/dashboard/analytics/sales?${range(from, to)}`,
+  ordered_amount: (from, to) => `/dashboard/analytics/sales?${range(from, to)}`,
   sold_qty: (from, to) => `/dashboard/analytics/sales?${range(from, to)}`,
   profit: (from, to) => `/dashboard/analytics/profit?${range(from, to)}`,
   margin: (from, to) => `/dashboard/analytics/profit?${range(from, to)}`,
@@ -77,6 +78,13 @@ export function KeyFigures({ data, taxSet, costLabel, fourth = 'orders', query }
       <Card href={link('revenue')} label="Выручка" value={formatMetric(t.revenue, 'rub')} testid="figure-revenue">
         {ch && <Change pct={ch.revenue} against={against} />}
         <Hint>{noData('revenue') ?? was('revenue') ?? `продано ${formatMetric(t.sold_qty, 'qty')}`}</Hint>
+        {t.ordered_amount !== null && (
+          <Hint>
+            <span title="Сумма заказов за период по дню заказа (без отмен). Выручка выше — по доставленным: Ozon начисляет её, когда покупатель получил товар">
+              по заказам — <span data-testid="figure-ordered-amount">{formatMetric(t.ordered_amount, 'rub')}</span>
+            </span>
+          </Hint>
+        )}
       </Card>
       <Card
         href={link('profit')}
@@ -119,7 +127,8 @@ export function KeyFigures({ data, taxSet, costLabel, fourth = 'orders', query }
           <Hint>
             {t.orders === null
               ? 'отправления не загружены — нужен ключ Ozon'
-              : (was('orders') ?? `${formatMetric(t.ordered_qty, 'qty')} в заказах`)}
+              : (was('orders') ??
+                `${formatMetric(t.ordered_qty, 'qty')}${t.ordered_amount !== null ? ` на ${formatMetric(t.ordered_amount, 'rub')}` : ' в заказах'}`)}
           </Hint>
         </Card>
       )}
@@ -129,20 +138,32 @@ export function KeyFigures({ data, taxSet, costLabel, fourth = 'orders', query }
 
 const CHART_METRICS: { key: MetricKey; label: string }[] = [
   { key: 'revenue', label: 'Выручка' },
+  { key: 'ordered_amount', label: 'Заказы, ₽' },
   { key: 'profit', label: 'Прибыль' },
   { key: 'orders', label: 'Заказы' },
   { key: 'sold_qty', label: 'Продажи, шт.' },
 ]
 
 /** Один график с переключением показателя; точка и «Подробнее →» ведут туда же, куда карточка показателя.
- * metrics — какие показатели на выбор («Финансы» — только выручка и прибыль). */
-export function DynamicsChart({ data, query, metrics }: { data: Metrics; query?: string; metrics?: MetricKey[] }) {
+ * metrics — какие показатели на выбор («Финансы» — только выручка и прибыль); granularity — детализация над графиком. */
+export function DynamicsChart({
+  data,
+  query,
+  metrics,
+  granularity,
+}: {
+  data: Metrics
+  query?: string
+  metrics?: MetricKey[]
+  granularity?: { value: Granularity; onChange: (g: Granularity) => void }
+}) {
   const [metric, setMetric] = useState<MetricKey>('revenue')
   const choices = metrics ? CHART_METRICS.filter((m) => metrics.includes(m.key)) : CHART_METRICS
   const base = METRIC_LINKS[metric]
   const link = base ? (from: string, to: string) => withQuery(base(from, to), query) as string : undefined
   return (
     <div className="space-y-2" data-testid="dynamics">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
       <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Показатель на графике">
         {choices.map((m) => (
           <button
@@ -157,10 +178,22 @@ export function DynamicsChart({ data, query, metrics }: { data: Metrics; query?:
           </button>
         ))}
       </div>
+        {granularity && (
+          <div className="sm:ml-auto">
+            <GranularitySwitch value={granularity.value} onChange={granularity.onChange} />
+          </div>
+        )}
+      </div>
       <MetricChart
         data={data}
         metric={metric}
-        title={`${METRICS[metric].label}${metric === 'orders' ? ' — оформлены покупателями' : metric === 'sold_qty' ? ' — начислены Ozon' : ''}`}
+        title={`${METRICS[metric].label}${
+          metric === 'orders' || metric === 'ordered_amount'
+            ? ' — оформлены покупателями'
+            : metric === 'sold_qty' || metric === 'revenue'
+              ? ' — по доставленным (начисления Ozon)'
+              : ''
+        }`}
         pointHref={link ? (p: MetricPoint) => link(p.date_from, p.date_to) : undefined}
         moreHref={link ? link(data.date_from, data.date_to) : undefined}
       />

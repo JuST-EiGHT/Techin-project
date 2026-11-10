@@ -4,14 +4,18 @@
 """
 from typing import Literal
 
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.engine.products import matches
 from app.models.product import Product
 from app.models.user import User
-from app.schemas.pricing import CalculateRequest, CalculateResponse, PricesPage, Suggestions
+from app.models.price_extras import ProductPriceExtras
+from app.schemas.pricing import CalculateRequest, CalculateResponse, ExtrasUpdate, PricesPage, SavedExtras, Suggestions
 from app.services import audit
 from app.services import pricing as svc
 from app.services.stores import get_current_store
@@ -88,3 +92,25 @@ async def suggestions(
     """Самые убыточные (цена ниже минимальной) и недооценённые (ниже целевой) товары в продаже."""
     rows, _ = await svc.table(db, user.id)
     return svc.suggestions(rows, limit)
+
+
+@router.put("/extras/{product_id}", response_model=SavedExtras | None)
+async def save_extras(
+    product_id: uuid.UUID, data: ExtrasUpdate, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)
+):
+    """Свои расходы товара — хранение и прочее на 1 шт., доп. расходы в % — для всех расчётов цены: таблицы цен и
+    товаров, маржа в акциях, подсказки. Пустое поле — убрать своё значение (останется общее). Ответ — что сохранено."""
+    product = await db.get(Product, product_id)
+    if product is None or product.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Товар не найден")
+    row = await db.scalar(select(ProductPriceExtras).where(
+        ProductPriceExtras.user_id == user.id, ProductPriceExtras.product_id == product.id))
+    if row is None:
+        row = ProductPriceExtras(user_id=user.id, product_id=product.id)
+        db.add(row)
+    row.storage, row.other, row.extra_pct = data.storage, data.other, data.extra_pct
+    row.note = (data.note or "").strip() or None
+    await db.commit()
+    if row.storage is None and row.other is None and row.extra_pct is None:
+        return None
+    return SavedExtras(storage=row.storage, other=row.other, extra_pct=row.extra_pct, note=row.note)

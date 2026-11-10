@@ -33,6 +33,11 @@ def price_settings(s: UserSettings) -> tuple[Decimal, Decimal]:
     return ad, margin
 
 
+def price_extra(s: UserSettings) -> Decimal:
+    """Доп. расходы магазина, % от цены, — для всех товаров (правка 06.11.2026); не заданы — 0."""
+    return Decimal(0) if s.price_extra_pct is None else Decimal(s.price_extra_pct)
+
+
 def stock_thresholds(s: UserSettings) -> Thresholds:
     """Пороги статуса остатка (шаг 5.1); не заданы — 7 / 14 / 60 дней."""
     d = DEFAULT_THRESHOLDS

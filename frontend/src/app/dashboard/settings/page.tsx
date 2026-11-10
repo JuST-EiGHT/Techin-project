@@ -9,6 +9,7 @@ import { PriceSettingsForm } from '@/components/price-calc'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { api, errorMessage } from '@/lib/api'
+import { backPath } from '@/lib/section-settings'
 import { type SupplierPayment, saveSettings, useSettings } from '@/lib/settings'
 import { SUPPLIER_OPTIONS, SUPPLIER_WHY } from '@/lib/supplier'
 import { LEAD_WHY, SAFETY_WHY, TARGET_WHY } from '@/lib/supply'
@@ -33,9 +34,10 @@ function Section({ title, children, hint, id }: { title: string; hint?: string; 
 /** Группа настроек по карте сервиса (шаг 10.26): заголовок, якорь для навигации, внутри — разделы. */
 function Group({ id, title, hint, children }: { id: string; title: string; hint: string; children: React.ReactNode }) {
   return (
-    <div id={id} className="scroll-mt-4 space-y-4" data-testid={`group-${id}`}>
-      <div>
-        <h2 className="text-xl font-semibold">{title}</h2>
+    // открыли шестерёнкой раздела (#группа) — заголовок группы подсвечен
+    <div id={id} className="group/settings scroll-mt-4 space-y-4" data-testid={`group-${id}`}>
+      <div className="rounded-lg group-target/settings:bg-accent/10 group-target/settings:px-3 group-target/settings:py-2">
+        <h2 className="text-xl font-semibold group-target/settings:text-accent">{title}</h2>
         <p className="mt-0.5 text-sm text-muted">{hint}</p>
       </div>
       {children}
@@ -54,6 +56,20 @@ const GROUPS = [
   { id: 'accounting', label: 'Налоги и учёт' },
   { id: 'anomalies', label: 'Пороги уведомлений' },
 ]
+
+/** Пришли шестерёнкой из раздела (`?from=`) — ссылка обратно. */
+function BackToSection() {
+  const [from, setFrom] = useState<string | null>(null)
+  useEffect(() => {
+    setFrom(backPath(new URLSearchParams(window.location.search).get('from')))
+  }, [])
+  if (!from) return null
+  return (
+    <Link href={from} className="inline-block text-sm text-accent hover:underline" data-testid="settings-back">
+      ← Вернуться в раздел
+    </Link>
+  )
+}
 
 function GroupNav() {
   return (
@@ -83,15 +99,16 @@ function NumberForm({ fields, testid, saved, extra }: { fields: NumberField[]; t
   const { user } = useAuth()
   const settings = useSettings()
   const [values, setValues] = useState<Record<string, string>>({})
+  const [dirty, setDirty] = useState(false) // начали править — сохранение другой формы не затирает ввод
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
 
   useEffect(() => {
-    if (!settings) return
+    if (!settings || dirty) return
     setValues(Object.fromEntries(fields.map((f) => [f.key, String(Number(settings[f.key] ?? 0)).replace('.', ',')])))
     // fields — постоянный список раздела
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings])
+  }, [settings, dirty])
 
   async function save(e: React.FormEvent) {
     e.preventDefault()
@@ -109,6 +126,7 @@ function NumberForm({ fields, testid, saved, extra }: { fields: NumberField[]; t
     }
     try {
       await saveSettings(user.id, body)
+      setDirty(false)
       setDone(true)
     } catch (err) {
       setError(errorMessage(err, 'Не сохранилось — попробуйте ещё раз'))
@@ -132,6 +150,7 @@ function NumberForm({ fields, testid, saved, extra }: { fields: NumberField[]; t
                 value={values[f.key] ?? ''}
                 onChange={(e) => {
                   setDone(false)
+                  setDirty(true)
                   setValues((v) => ({ ...v, [f.key]: f.decimals ? e.target.value.replace(/[^\d.,\s]/g, '') : e.target.value.replace(/\D/g, '') }))
                 }}
                 className="w-24 rounded-lg border border-line bg-bg px-3 py-1.5 outline-none focus:border-accent disabled:opacity-60"
@@ -802,6 +821,7 @@ export default function SettingsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-8">
       <div className="space-y-3">
+        <BackToSection />
         <h1 className="text-2xl font-semibold">Настройки</h1>
         <GroupNav />
       </div>

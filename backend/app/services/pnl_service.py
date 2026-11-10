@@ -299,7 +299,8 @@ async def get_periods(db: AsyncSession, user_id: uuid.UUID) -> dict:
     res = await db.execute(
         select(Report)
         .where(Report.user_id == user_id, Report.deleted_at.is_(None))
-        .order_by(Report.period_start.desc())
+        # история отчётов — по дате периода, новые сверху; один период — последний загруженный выше
+        .order_by(Report.period_start.desc(), Report.period_end.desc(), Report.uploaded_at.desc())
     )
     reports = [r for r in res.scalars() if r.period_start and r.period_end]
     res = await db.execute(select(AccrualDay.day).where(AccrualDay.user_id == user_id))

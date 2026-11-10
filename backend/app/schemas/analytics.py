@@ -11,6 +11,7 @@ class Values(BaseModel):
     margin: str | None  # маржинальность, %
     orders: int | None  # заказы (отправления без отмен); None — отправления не загружены
     ordered_qty: int | None
+    ordered_amount: str | None = None  # сумма заказов, ₽ (цена в отправлении × штуки), по дню заказа
     sold_qty: int | None  # продано, шт.
     returned_qty: int | None
     returns_amount: str | None  # возвраты, ₽
@@ -66,6 +67,7 @@ class Changes(BaseModel):
     profit: str | None
     orders: str | None
     ordered_qty: str | None
+    ordered_amount: str | None = None
     sold_qty: str | None
     returned_qty: str | None
     returns_amount: str | None

@@ -89,7 +89,7 @@ function Overview() {
           Сколько денег сейчас на Ozon и на счетах и что впереди.
         </p>
       </div>
-      <AnalyticsFilters value={filter} onChange={update} showProduct={false} showCategory={false} kinds={['finance', 'balance']} />
+      <AnalyticsFilters value={filter} onChange={update} showProduct={false} showCategory={false} showGranularity={false} kinds={['finance', 'balance']} />
       <FormError message={error} />
       {!data && !error && <p className="text-sm text-muted">Загрузка…</p>}
       {data && !data.has_data && <Empty />}
@@ -106,7 +106,7 @@ function Overview() {
           <span className="text-xs text-faint">по продажам на Ozon — без расходов бизнеса</span>
         </div>
         <MetricsState error={metrics.error} loading={metrics.loading} empty={!metrics.data} />
-        {metrics.data && metrics.data.coverage.data_source !== 'none' && <DynamicsChart data={metrics.data} metrics={['revenue', 'profit']} />}
+        {metrics.data && metrics.data.coverage.data_source !== 'none' && <DynamicsChart data={metrics.data} metrics={['revenue', 'profit']} granularity={{ value: filter.granularity, onChange: (g) => update({ granularity: g, granularityChosen: true }) }} />}
       </section>
       {board && <MoneyBlock payouts={board.payouts} hasKey={board.setup.has_key} />}
       <AttentionWidget area="finance" />

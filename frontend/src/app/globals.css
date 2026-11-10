@@ -36,3 +36,17 @@ body {
   background: rgb(var(--bg));
   color: rgb(var(--fg));
 }
+
+/* Таблицы (правка владельца 06.11.2026): строки разделены горизонтальными линиями, строка под курсором подсвечена.
+   :where — нулевая специфичность: свои рамки и фон строки (статусы, итоги) в классах таблицы важнее. */
+@layer base {
+  :where(table thead tr, table tbody tr) {
+    border-bottom: 1px solid rgb(var(--line));
+  }
+  :where(table tbody tr:last-child) {
+    border-bottom-width: 0;
+  }
+  :where(table tbody tr:hover) {
+    background-color: rgb(var(--line) / 0.25);
+  }
+}

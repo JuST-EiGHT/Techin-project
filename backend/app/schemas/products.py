@@ -22,6 +22,7 @@ class ProductItem(BaseModel):
     name: str | None
     ozon_sku: int | None
     ozon_product_id: int
+    barcode: str | None = None  # штрихкод — в списке копируется одним нажатием
     is_archived: bool
     price: Decimal | None  # цена продавца; 0 у Ozon («не задана») — null
     old_price: Decimal | None  # цена до скидки (зачёркнутая)

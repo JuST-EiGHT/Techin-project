@@ -7,6 +7,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { Copyable } from '@/components/copy'
 import { BulkBar } from '@/components/products-bulk'
 import { Badge, fmtDay, pctText, rub } from '@/components/reports'
 import { refreshSyncStatus, timeAgo } from '@/lib/sync'
@@ -482,9 +483,11 @@ function Products() {
                             </Link>
                             <Flags flags={r.flags} />
                           </div>
-                          <div className="truncate text-xs text-muted">
-                            {r.name ?? 'Без названия'}
-                            {r.ozon_sku && <span className="text-faint"> · {r.ozon_sku}</span>}
+                          <div className="truncate text-xs text-muted">{r.name ?? 'Без названия'}</div>
+                          {/* как в кабинете Ozon: SKU и штрихкод копируются одним нажатием */}
+                          <div className="flex flex-wrap items-center gap-x-2 text-xs text-faint">
+                            {r.ozon_sku && <Copyable prefix="SKU" value={r.ozon_sku} label="SKU" testid="copy-sku" />}
+                            {r.barcode && <Copyable prefix="ШК" value={r.barcode} label="штрихкод" testid="copy-barcode" />}
                           </div>
                         </td>
                         {visible.map((col) => (

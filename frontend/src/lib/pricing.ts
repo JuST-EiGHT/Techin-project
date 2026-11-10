@@ -15,7 +15,11 @@ export type Breakdown = {
   margin: string | null
   profit_tax: string
   net: string
+  extra?: string // доп. расходы продавца, % от цены → ₽ (правка 06.11.2026)
 }
+
+/** Свои расходы товара, сохранённые для всех расчётов (PUT /price/extras/{id}). */
+export type SavedExtras = { storage: string | null; other: string | null; extra_pct: string | null; note: string | null }
 
 export type CalcTax = { title: string; known: boolean; notes: string[]; profit_tax_pct: string }
 
@@ -33,6 +37,9 @@ export type CalculateResponse = {
     logistics_text: string
     storage: string
     other: string
+    extra_pct?: string // доп. расходы, % от цены: свои у товара или общие магазина
+    shop_extra_pct?: string // общие доп. расходы магазина, %
+    saved?: SavedExtras | null
     target_margin_pct: string
     price: string | null
     promo_price: string | null
@@ -57,7 +64,19 @@ export type CalculateResponse = {
 }
 
 /** Свои значения для расчёта: пустая строка — «как в данных». */
-export type Overrides = { ad_pct: string; target_margin_pct: string; logistics: string; storage: string; other: string; price: string }
+export type Overrides = {
+  ad_pct: string
+  target_margin_pct: string
+  logistics: string
+  storage: string
+  other: string
+  extra_pct: string
+  price: string
+}
+
+/** Доп. расходы — зачем и что войдёт (правило 15). */
+export const EXTRA_WHY =
+  'Ваши расходы долей цены, которых нет в начислениях Ozon: фулфилмент, кредит, бонус менеджеру и т. п. Входят в минимальную и целевую цену и маржу во всех таблицах.'
 
 export type PriceRow = {
   id: string
