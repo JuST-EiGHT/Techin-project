@@ -35,7 +35,7 @@ class SupplyDestination(BaseModel):
 class SupplyItem(BaseModel):
     product: StockProduct
     kind: str  # supply — поставка в кластер Ozon, purchase — закупка на свой склад
-    urgency: str  # critical | urgent | planned
+    urgency: str | None  # critical | urgent | planned; null — везти не нужно (rest)
     destination: SupplyDestination
     sold_30: int | None  # закупка: заказано без отмен за окно; у кластеров Ozon (10.18a) — null, продажи от Ozon
     sold_7: int | None
@@ -61,6 +61,11 @@ class SupplyItem(BaseModel):
     days_after: Decimal | None = None
     ozon_grade: str | None = None
     ozon_reasons: list[str] = []
+    # статус строки (как в Ozon): critical | urgent | planned — везти; enough — «Пока хватает», idle — «Не поставлять»;
+    # почему не везём (covered | no_sales | below_min); впервые — товара в кластере нет и в данных сервиса не было
+    status: str = "planned"
+    status_reason: str | None = None
+    first: bool = False
 
 
 class SupplyTotals(BaseModel):
@@ -70,6 +75,9 @@ class SupplyTotals(BaseModel):
     supply_units: int
     purchase_units: int
     products: int
+    first: int = 0  # 10.18a: «Поставить впервые»
+    enough: int = 0  # «Пока хватает»
+    idle: int = 0  # «Не поставлять»
 
 
 class SupplyReport(BaseModel):
@@ -86,7 +94,8 @@ class SupplyReport(BaseModel):
     min_qty: int = 6  # минимум одного товара на склад, шт.
     totals: SupplyTotals
     today: date
-    items: list[SupplyItem]
+    items: list[SupplyItem]  # что везти
+    rest: list[SupplyItem] = []  # 10.18a: пары товар × кластер Ozon, которые везти не нужно, — для «Все товары»
 
 
 # ── 10.18: планы поставок, заявки Ozon, календарь ──

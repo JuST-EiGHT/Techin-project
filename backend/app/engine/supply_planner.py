@@ -23,6 +23,9 @@
                       советует или за срок продастся не меньше коробки; иначе не везём (лежать будет дольше срока)
     хватит на       = остаток / продажи в день (как idc_cluster); срочность — по порогам остатков, как выше
 Закупка на свой склад (FBS / rFBS) — прежним расчётом `recommend` по заказам.
+
+Пары, которые везти не нужно, тоже показываем (как Ozon, `cluster_skip`): «Пока хватает» — продаётся, запаса хватит на
+срок; «Не поставлять» — продаж в кластере нет или за срок продастся меньше минимума.
 """
 import math
 from dataclasses import dataclass
@@ -39,6 +42,8 @@ DEFAULT_LEAD_TIME_DAYS = 7
 DEFAULT_SAFETY_DAYS = 0  # страховой запас (шаг 10.18) — сверх цели, на случай задержки поставки или всплеска спроса
 DEFAULT_MIN_QTY = 6  # 10.18a: минимум одного товара в поставке на склад, шт. (коробка) — настройка
 OZON, SALES = "ozon", "sales"  # 10.18a: на чём основано «везти» — рекомендация Ozon или продажи в кластере
+ENOUGH, IDLE = "enough", "idle"  # 10.18a: «Пока хватает» / «Не поставлять» — у пар, которые везти не нужно
+COVERED, NO_SALES, BELOW_MIN = "covered", "no_sales", "below_min"  # почему не везём
 MIN_DAYS = 7  # меньше дней с данными о заказах — не считаем: среднее по паре дней обманчиво
 
 _TENTH = Decimal("0.1")
@@ -192,6 +197,37 @@ def cluster_recommend(
         ozon_recommended=point.ozon_rec, own_need=own if ads else None,
         basis=OZON if rec > 0 and rec >= own else SALES, min_applied=min_applied,
         days_after=(Decimal(stock + transit + qty) / ads).quantize(_TENTH, ROUND_HALF_UP) if ads else None,
+    )
+
+
+@dataclass
+class ClusterSkip:
+    """Пара товар × кластер, которую везти не нужно, — для вида «все товары» (как в Ozon)."""
+
+    point: ClusterPoint
+    status: str  # ENOUGH | IDLE
+    reason: str  # COVERED | NO_SALES | BELOW_MIN
+    avg_daily: Decimal
+    days_left: Decimal | None
+    own_need: int | None
+
+
+def cluster_skip(point: ClusterPoint, params: Params = Params(), min_qty: int = DEFAULT_MIN_QTY) -> ClusterSkip:
+    """Почему не везём (вызывать, когда `cluster_recommend` вернул None): продаж нет — «Не поставлять»; продастся за срок
+    меньше минимума — тоже; иначе запаса хватает — «Пока хватает»."""
+    horizon = params.target_days + params.safety_days + params.lead_time_days
+    ads = point.ads if point.ads is not None and point.ads > 0 else None
+    stock, transit = max(point.stock, 0), max(point.in_transit, 0)
+    own = max(0, math.ceil(ads * horizon) - stock - transit) if ads else None
+    if ads is None:
+        status, reason = IDLE, NO_SALES
+    elif own and ads * horizon < min_qty:
+        status, reason = IDLE, BELOW_MIN
+    else:
+        status, reason = ENOUGH, COVERED
+    return ClusterSkip(
+        point=point, status=status, reason=reason, avg_daily=(ads or Decimal(0)).quantize(_RATE, ROUND_HALF_UP),
+        days_left=(Decimal(stock) / ads).quantize(_TENTH, ROUND_HALF_UP) if ads else None, own_need=own,
     )
 
 

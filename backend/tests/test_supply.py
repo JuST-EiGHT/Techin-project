@@ -9,6 +9,7 @@ from openpyxl import load_workbook
 from sqlalchemy import select
 
 from app.engine.stocks import Thresholds
+from app.engine import supply_planner as engine
 from app.engine.supply_planner import (
     CRITICAL,
     OZON,
@@ -251,7 +252,30 @@ async def test_recommendations(client, tokens, seller):
     assert not any(i["product"]["offer_id"] == TH and i["destination"]["name"].startswith("Санкт") for i in data["items"])
     assert not any(i["product"]["offer_id"] == CM for i in data["items"])
     assert data["totals"] == {"critical": 2, "urgent": 1, "planned": 2, "supply_units": 149, "purchase_units": 6,
-                              "products": 3}
+                              "products": 3, "first": 1, "enough": 1, "idle": 1}
+    # как в Ozon: статус у каждой строки; в Новосибирске товара нет и не было — «Поставить впервые»; в Краснодар уже
+    # едет — не впервые
+    assert [(i["status"], i["first"]) for i in data["items"]] == [
+        ("critical", False), ("critical", False), ("urgent", True), ("planned", False), ("planned", False)]
+    # что везти не нужно — тоже видно: TH в СПб — «Пока хватает», CM — «Не поставлять» (за срок меньше коробки)
+    assert [(i["product"]["offer_id"], i["destination"]["name"], i["status"], i["status_reason"], i["to_order"],
+             i["urgency"], i["days_left"]) for i in data["rest"]] == [
+        (TH, "Санкт-Петербург и СЗО", "enough", "covered", 0, None, "50.0"),
+        (CM, "Екатеринбург", "idle", "below_min", 0, None, "0.0"),
+    ]
+    spb = data["rest"][0]
+    assert (spb["avg_daily"], spb["stock"], spb["in_transit"], spb["own_need"], spb["ozon_recommended"]) == (
+        "0.200", 10, 4, 0, 0)
+
+
+def test_cluster_skip():
+    """Почему не везём: продаж нет — «Не поставлять»; за срок продастся меньше коробки — тоже; запаса хватает — «Пока
+    хватает»."""
+    assert (s := engine.cluster_skip(cpoint(5, None, 0))).status == engine.IDLE and s.reason == engine.NO_SALES
+    assert (s.days_left, s.own_need) == (None, None)
+    assert (s := engine.cluster_skip(cpoint(0, "0.05", 0))).reason == engine.BELOW_MIN and s.own_need == 3
+    s = engine.cluster_skip(cpoint(120, "2", 0))  # ⌈2 × 52⌉ = 104 ≤ 120
+    assert (s.status, s.reason, s.days_left, s.own_need) == (engine.ENOUGH, engine.COVERED, Decimal("60.0"), 0)
 
 
 async def test_preferred_warehouse_and_minimum(client, tokens, seller):

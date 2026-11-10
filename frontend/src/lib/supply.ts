@@ -17,7 +17,10 @@ export type Coverage = {
 export type SupplyItem = {
   product: StockProduct
   kind: SupplyKind
-  urgency: Urgency
+  urgency: Urgency | null // null — везти не нужно (rest)
+  status: RowStatus
+  status_reason: 'covered' | 'no_sales' | 'below_min' | null
+  first: boolean // товара в кластере нет и не было — «Поставить впервые»
   destination: {
     key: string
     name: string
@@ -70,10 +73,55 @@ export type SupplyReport = {
   has_own_warehouses: boolean
   ozon_data: OzonData
   min_qty: number
-  totals: { critical: number; urgent: number; planned: number; supply_units: number; purchase_units: number; products: number }
+  totals: {
+    critical: number
+    urgent: number
+    planned: number
+    supply_units: number
+    purchase_units: number
+    products: number
+    first: number
+    enough: number
+    idle: number
+  }
   today: string
-  items: SupplyItem[]
+  items: SupplyItem[] // что везти
+  rest: SupplyItem[] // пары товар × кластер Ozon, которые везти не нужно
 }
+
+// ── 10.18a: вид как в Ozon — по кластерам или по товарам, статус у каждой строки ──
+export type RowStatus = Urgency | 'enough' | 'idle'
+export type SupplyView = 'clusters' | 'products'
+export type SupplyShow = 'all' | 'needed' | 'critical' | 'urgent' | 'planned' | 'first'
+
+export const STATUS: Record<RowStatus, { label: string; text: string; badge: string; border: string }> = {
+  critical: { label: 'Срочно поставить', text: 'text-bad', badge: 'bg-bad/15 text-bad', border: 'border-l-bad' },
+  urgent: { label: 'Скоро поставить', text: 'text-warn', badge: 'bg-warn/15 text-warn', border: 'border-l-warn' },
+  planned: { label: 'Плановая поставка', text: 'text-accent', badge: 'bg-accent/15 text-accent', border: 'border-l-accent' },
+  enough: { label: 'Пока хватает', text: 'text-ok', badge: 'bg-ok/15 text-ok', border: 'border-l-ok' },
+  idle: { label: 'Не поставлять', text: 'text-muted', badge: 'bg-line text-muted', border: 'border-l-line' },
+}
+export const STATUS_ORDER: RowStatus[] = ['critical', 'urgent', 'planned', 'enough', 'idle']
+
+export const SHOW: { value: SupplyShow; label: string }[] = [
+  { value: 'all', label: 'Все товары' },
+  { value: 'needed', label: 'Нужно везти' },
+  { value: 'critical', label: 'Срочно' },
+  { value: 'urgent', label: 'Скоро' },
+  { value: 'planned', label: 'Плановые' },
+  { value: 'first', label: 'Поставить впервые' },
+]
+
+/** Почему не везём — простыми словами. */
+export function skipText(item: SupplyItem, minQty: number): string | null {
+  if (item.status_reason === 'covered') return 'запаса хватит на срок'
+  if (item.status_reason === 'no_sales') return 'Ozon не видит продаж в кластере'
+  if (item.status_reason === 'below_min') return `за срок продастся меньше ${minQty} шт. — меньше минимума`
+  return null
+}
+
+export const VIEW_WHY =
+  'По кластерам — что везти в каждый кластер: одна строка — одна поставка. По товарам — куда разложить каждый товар. «Все товары» показывает и то, что везти не нужно: «Пока хватает» и «Не поставлять».'
 
 export const URGENCY: Record<Urgency, { label: string; text: string; badge: string; border: string }> = {
   critical: { label: 'Срочно', text: 'text-bad', badge: 'bg-bad/15 text-bad', border: 'border-l-bad' },
