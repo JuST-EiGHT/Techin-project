@@ -22,6 +22,7 @@ class Warehouse(Base):
     type: Mapped[str] = mapped_column(String(8), nullable=False)  # FBO | FBS | rFBS
     cluster_id: Mapped[int | None] = mapped_column(BigInteger)  # кластер Ozon — только у FBO
     cluster_name: Mapped[str | None] = mapped_column(String(255))
+    macrolocal_cluster_id: Mapped[int | None] = mapped_column(BigInteger)  # кластер размещения (10.18a) — у FBO
     # FBO: склад есть в последней выгрузке остатков; FBS/rFBS: статус Ozon «created» (активный)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

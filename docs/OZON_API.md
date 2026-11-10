@@ -126,6 +126,26 @@ HTTP-коды для этих текстов в документации не у
 Seller API нельзя: есть только отчёты по вывозу и утилизации FBO (`/v1/removal/from-supply/list`, `/v1/removal/from-stock/list`,
 бета) — заявка делается в кабинете.
 
+С шага 10.18a поставки FBO считаются по этим полям (`services/sync/stocks.py` → таблица `cluster_stock_metrics`, снимок
+при изменении): `ads_cluster` — продажи в день в кластере за 28 дней, `idc_cluster`, `days_without_sales_cluster`,
+`turnover_grade_cluster` (`DEFICIT`, `POPULAR`, `ACTUAL`, `SURPLUS`, `NO_SALES`, `WAITING_FOR_SUPPLY`,
+`RESTRICTED_NO_SALES`, `COLLECTING_DATA`), `macrolocal_cluster_id` — у склада (`warehouses.macrolocal_cluster_id`). Строки
+одного товара в кластере повторяют одни и те же `*_cluster` — берём первое значение.
+
+### Рекомендованная поставка по кластерам (шаг 10.18a, бета, сверено с выгрузкой 2026-10)
+
+«Аналитика → Планирование поставок → Локальность продаж», `services/sync/supply_recs.py`, загружается с заявками на
+поставку (вид `supplies`, раз в 3 часа):
+- `/v1/analytics/local-sale/items-clusters/info`: `filter{delivery_schema, period{from, to}, supply_period}`, `limit`
+  (до 1000), `offset`, `sort_by`, `sort_dir` → `items[]{sku, macrolocal_cluster_to_id, metrics{recommended_supply,
+  attention_level, overpayment_reasons[{reason, quantity, amount}]}}`, `total`.
+- Передаём `delivery_schema: ALL`, период — 28 дней до вчера, `supply_period: ONE_WEEK` (другие значения в документации
+  не описаны). **Формат дат периода в выгрузке не раскрыт** — передаём `YYYY-MM-DD`, как в других методах аналитики;
+  проверить на реальном ключе (сбой метода пишется в `ozon_supply_rec_syncs` и не мешает заявкам).
+- `macrolocal_cluster_to_id` — кластер покупателя, тот же id, что `macrolocal_cluster_id` у склада и в `/v1/cluster/list`;
+  названия — из `/v1/cluster/list`. Причины переплаты (`NO_SUPPLIES_TO_CLUSTER`, `NOT_ENOUGH_STOCK` …) показываем простыми
+  словами (`services/supply.REASON_TEXT`), неизвестные — как пришли.
+
 ### Начисления (шаг 1.4; по реальным ответам — 20.10.2026)
 
 Методы `/v1/finance/accrual/*` в документации помечены как **бета**, вложенные поля by-day свёрнуты в выгрузке. Формат
@@ -189,7 +209,8 @@ Seller API нельзя: есть только отчёты по вывозу и
   `scanit`, у FBO — коды активации (`digital_codes`), у FBS — `imei`. Это не храним: `raw_json` — только разрешённые поля,
   из `analytics_data` убираем город и регион. Сборку FBS сервис не делает, поэтому `scanit` и штрихкоды не нужны.
 - Кластер покупателя приходит названием (`"Екатеринбург"`), остатки (`/v1/analytics/stocks`) — названием и id; сопоставляем
-  по названию без учёта регистра, «ё» и пробелов. Поставку FBO Ozon принимает в кластер (`/v1/draft/*/create` —
+  по названию без учёта регистра, «ё» и пробелов. С 10.18a отправления нужны только закупке на свои склады (FBS / rFBS):
+  поставки FBO — по `ads_cluster` и рекомендациям Ozon (выше), названия кластеров разных отчётов не совпадали. Поставку FBO Ozon принимает в кластер (`/v1/draft/*/create` —
   обязательный `cluster_info`), поэтому рекомендации — по кластеру. Заявки на поставку и их создание по плану — шаг 10.18,
   раздел «Заявки на поставку FBO» ниже.
 
@@ -356,3 +377,4 @@ FBS-отправлений хранить `scanit` рядом со штрихк�
 | ~~Черновики поставок и таймслоты (изменение в Ozon — правило 6)~~ | сверено: `/v1/draft/direct/create`, `/v2/draft/create/info`, `/v2/draft/timeslot/info`, `/v2/draft/supply/create`, `/v2/draft/supply/create/status` — там же | 10.18 ✅ |
 | ~~Вывозы со складов (только списки)~~ | `/v1/removal/from-stock/list` — сверено (выгрузка 2026-10, бета): `date_from`, `date_to` (YYYY-MM-DD), `last_id`, `limit` 1–500 → `returns_summary_report_rows[]` (`offer_id`, `name`, `sku`, `quantity_for_return`, `return_created_at`, `return_state`, `box_state`, `stock_type`, `delivery_type`, `is_auto_return`, `clearing_warehouse_name`, `destination_warehouse_name` …), `last_id`; соответствует разделу кабинета «FBO → Вывоз и утилизация»; создать заявку нельзя. `/v1/removal/from-supply/list` (вывоз с поставки) — не используем | 10.17 ✅ |
 | ~~Кластеры~~ | `/v1/cluster/list` — сверено (10.18): кластер склада хранения заявки и `macrolocal_cluster_id` для черновика | 10.18 ✅ |
+| ~~Рекомендованная поставка по кластерам~~ | `/v1/analytics/local-sale/items-clusters/info` (бета) — сверено, раздел выше; формат дат периода — проверить на реальном ключе | 10.18a ✅ |

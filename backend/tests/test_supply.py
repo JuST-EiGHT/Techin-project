@@ -9,7 +9,23 @@ from openpyxl import load_workbook
 from sqlalchemy import select
 
 from app.engine.stocks import Thresholds
-from app.engine.supply_planner import CRITICAL, PLANNED, PURCHASE, SUPPLY, URGENT, Demand, Params, Point, plan, recommend
+from app.engine.supply_planner import (
+    CRITICAL,
+    OZON,
+    PLANNED,
+    PURCHASE,
+    SALES,
+    SUPPLY,
+    URGENT,
+    ClusterPoint,
+    Demand,
+    Params,
+    Point,
+    cluster_recommend,
+    plan,
+    recommend,
+)
+from app.models.cluster_metrics import ClusterStockMetric, OzonSupplyRec, OzonSupplyRecSync
 from app.models.posting import Posting, PostingItem, PostingSync
 from app.models.product import Product
 from app.services.sync.finance import today_msk
@@ -77,14 +93,59 @@ def test_plan_order():
     ]
 
 
+# ── 10.18a: склады Ozon по данным Ozon о кластере ──
+def cpoint(stock: int, ads: str | None, rec: int | None, transit: int = 0, attention: str | None = None,
+           offer: str = "A", dest: str = "москва") -> ClusterPoint:
+    return ClusterPoint(offer, offer, dest, stock, transit, None if ads is None else Decimal(ads), rec, attention)
+
+
+def test_cluster_by_sales_when_more_than_ozon():
+    """2 в день по Ozon, на складах кластера 30, в пути 10: по продажам ⌈2 × (45 + 7)⌉ − 40 = 64; Ozon советует 20 — везём
+    64 (рекомендация Ozon — нижняя планка). Хватит на 15 дней — плановая; после поставки — (30 + 10 + 64) / 2 = 52 дня."""
+    r = cluster_recommend(cpoint(30, "2", 20, transit=10))
+    assert (r.to_order, r.own_need, r.ozon_recommended, r.basis, r.min_applied) == (64, 64, 20, SALES, False)
+    assert (r.days_left, r.days_after, r.urgency, r.need, r.trend) == (Decimal("15.0"), Decimal("52.0"), PLANNED, 104, None)
+
+
+def test_cluster_ozon_floor():
+    """По продажам почти не нужно (0,1 в день: ⌈5,2⌉ = 6, лежит 5 и едет 1), но Ozon советует 8 — везём 8: это
+    необходимый минимум."""
+    r = cluster_recommend(cpoint(5, "0.1", 8, transit=1))
+    assert (r.to_order, r.own_need, r.basis) == (8, 0, OZON)
+    assert cluster_recommend(cpoint(5, "0.1", 0, transit=1)) is None  # Ozon не советует, запаса хватает — не везём
+    assert cluster_recommend(cpoint(500, "2", 0)) is None  # затоварен — не везём
+
+
+def test_cluster_minimum_per_warehouse():
+    """Меньше коробки (6 шт.) не возим: Ozon советует 3 — довозим до 6; по продажам 3 и продаётся меньше 6 за весь срок
+    (0,05 × 52 = 2,6) — не везём; продаётся достаточно — довозим до 6."""
+    r = cluster_recommend(cpoint(0, None, 3, attention="HIGH"))
+    assert (r.to_order, r.min_applied, r.basis, r.days_left, r.urgency) == (6, True, OZON, None, URGENT)
+    assert cluster_recommend(cpoint(0, "0.05", 0)) is None
+    r = cluster_recommend(cpoint(50, "1", None))  # 52 − 50 = 2 по продажам, рекомендаций Ozon нет
+    assert (r.to_order, r.min_applied, r.ozon_recommended) == (6, True, None)
+    assert cluster_recommend(cpoint(0, None, 3), min_qty=1).to_order == 3  # минимум — настройка
+
+
+def test_cluster_urgency_and_params():
+    r = cluster_recommend(cpoint(0, "1", 0, transit=20))
+    assert (r.urgency, r.days_left, r.arrives_late, r.to_order) == (CRITICAL, Decimal("0.0"), True, 32)
+    r = cluster_recommend(cpoint(10, "1", 0), Params(target_days=30, lead_time_days=0, safety_days=5))
+    assert (r.need, r.to_order, r.urgency) == (35, 25, URGENT)  # 10 дней — «скоро»
+
+
 # ── API ──
 TH, ACB, RS, CM = "6001-2RS.C3.SRL.NAC.TH", "ACB305523.NAC.JP", "6000-2RS.C3.SRL.NAC.JP", "6000.CM.NAC.JP"
 URL = "/api/v1/supply/recommendations"
+EKB, SPB, KRD, NSK = 154, 2, 999, 777  # кластеры размещения Ozon (macrolocal_cluster_id), как в cluster_list
 # Остатки после синхронизации (test_sync_stocks): TH — Екатеринбург 9, СПб 10 (в пути 4), свой склад 12 (резерв 2);
-# ACB — СПб 5 (в пути 1); RS — Краснодар 0 (в пути 20); CM — свой склад 1.
+# ACB — СПб 5 (в пути 1); RS — Краснодар 0 (в пути 20); CM — свой склад 1. Продажи Ozon в кластере (ads_cluster, в той же
+# выгрузке): TH — Екатеринбург 2 в день, СПб 0,2; ACB — СПб 0,1; RS — Краснодар 1.
 
 
 class Orders:
+    """Заказы своего склада (FBS) — закупка считается по ним, как в 5.2."""
+
     def __init__(self, sessions, user_id: uuid.UUID) -> None:
         self.sessions, self.user_id, self.n = sessions, user_id, 0
         self.end = today_msk() - timedelta(days=1)
@@ -108,30 +169,43 @@ class Orders:
                                synced_at=datetime.now(timezone.utc)))
             await db.commit()
 
+    async def ozon_recs(self, recs: list[tuple[str, int, int, str | None]], names: dict[int, str]) -> None:
+        """Рекомендованная поставка Ozon: (артикул, кластер, шт., внимание) — как после загрузки 10.18a."""
+        now = datetime.now(timezone.utc)
+        async with self.sessions() as db:
+            products = {p.offer_id: p for p in (await db.execute(
+                select(Product).where(Product.user_id == self.user_id))).scalars()}
+            for offer, cluster, qty, attention in recs:
+                p = products[offer]
+                db.add(OzonSupplyRec(user_id=self.user_id, product_id=p.id, sku=p.ozon_sku, macrolocal_cluster_id=cluster,
+                                     cluster_name=names.get(cluster), recommended=qty, attention_level=attention,
+                                     reasons=[{"reason": "NO_SUPPLIES_TO_CLUSTER", "quantity": 3, "amount": "120.00"}]
+                                     if cluster == NSK else None, snapshot_at=now))
+            db.add(OzonSupplyRecSync(user_id=self.user_id, synced_at=now, attempted_at=now, ok=True, items=len(recs)))
+            await db.commit()
+
+    async def metric(self, offer: str, cluster_id: int, macro: int, name: str, ads: str) -> None:
+        async with self.sessions() as db:
+            pid = (await db.execute(select(Product.id).where(Product.user_id == self.user_id,
+                                                             Product.offer_id == offer))).scalar_one()
+            db.add(ClusterStockMetric(user_id=self.user_id, product_id=pid, cluster_id=cluster_id,
+                                      macrolocal_cluster_id=macro, cluster_name=name, ads=Decimal(ads),
+                                      snapshot_at=datetime.now(timezone.utc)))
+            await db.commit()
+
 
 @pytest.fixture
 async def seller(sessions, client, tokens, stocks_ozon):  # noqa: F811
     user_id = await api_user(sessions, client, tokens, stocks_ozon)
     orders = Orders(sessions, user_id)
-    await orders.loaded("FBO")
+    # Ozon советует: TH в Екатеринбург 30 (по продажам больше — 95), ACB в СПб 8 (по продажам не нужно — везём 8),
+    # ACB в Новосибирск 3 (склада там нет — до коробки 6), RS в Краснодар 40 (по продажам 32 — берём 40)
+    await orders.ozon_recs([(TH, EKB, 30, None), (ACB, SPB, 8, None), (ACB, NSK, 3, "HIGH"), (RS, KRD, 40, None)],
+                           {NSK: "Новосибирск", KRD: "Краснодар"})
+    # CM продаётся в Екатеринбурге 0,05 в день: за 52 дня — 2,6 шт., меньше коробки — не везём
+    await orders.metric(CM, 154, EKB, "Екатеринбург", "0.05")
+    # свой склад: TH 9 шт. за 30 дней, 3 за неделю; свободно 12 − 2 = 10 — закупка по заказам, как в 5.2
     await orders.loaded("FBS")
-    # TH в Екатеринбурге: 60 шт. за 30 дней (2 в день), из них 21 за последние 7 (3 в день)
-    await orders.add("FBO", 0, {TH: 21}, cluster="Екатеринбург")
-    await orders.add("FBO", 10, {TH: 39}, cluster="Екатеринбург")
-    # TH в СПб: 6 шт. — на складе 10 и в пути 4, этого хватает
-    await orders.add("FBO", 3, {TH: 2}, cluster="Санкт-Петербург и СЗО")
-    await orders.add("FBO", 20, {TH: 4}, cluster="Санкт-Петербург и СЗО")
-    # ACB покупают в Новосибирске, где товара нет: 15 шт., 7 из них за неделю; отменённый заказ не считается
-    await orders.add("FBO", 2, {ACB: 7}, cluster="Новосибирск")
-    await orders.add("FBO", 15, {ACB: 8}, cluster="Новосибирск")
-    await orders.add("FBO", 1, {ACB: 10}, cluster="Санкт-Петербург и СЗО", status="cancelled")
-    # RS — кластер в заказах написан иначе («краснодар »); на складе 0, в пути 20
-    await orders.add("FBO", 4, {RS: 7}, cluster="краснодар ")
-    await orders.add("FBO", 12, {RS: 23}, cluster="Краснодар")
-    # старое (за окном) и чужое — не считаются
-    await orders.add("FBO", 40, {CM: 50}, cluster="Екатеринбург")
-    await orders.add("FBO", 1, {"UNKNOWN": 5}, cluster="Екатеринбург")
-    # свой склад: TH 9 шт. за 30 дней, 3 за неделю; свободно 12 − 2 = 10
     await orders.add("FBS", 1, {TH: 3}, warehouse=FBS_WH, status="awaiting_packaging")
     await orders.add("FBS", 9, {TH: 6}, warehouse=FBS_WH)
     return orders
@@ -142,6 +216,10 @@ def rows(data) -> list[tuple]:
             for i in data["items"]]
 
 
+def item(data, offer, cluster) -> dict:
+    return next(i for i in data["items"] if i["product"]["offer_id"] == offer and i["destination"]["name"] == cluster)
+
+
 async def test_requires_auth(client):
     assert (await client.get(URL)).status_code == 401
     assert (await client.get("/api/v1/supply/export")).status_code == 401
@@ -150,30 +228,63 @@ async def test_requires_auth(client):
 async def test_recommendations(client, tokens, seller):
     data = (await client.get(URL, headers=auth(tokens))).json()
     assert data["params"] == {"target_days": 45, "lead_time_days": 7, "safety_days": 0} == data["saved"] and data["is_saved"] is True
-    assert data["postings_known"] is True and data["fbo"]["days"] == 30 and data["fbo"]["enough"] is True
-    assert data["fbo"]["window_to"] == (today_msk() - timedelta(days=1)).isoformat()
+    assert data["ozon_data"]["clusters_known"] is True and data["ozon_data"]["recs_known"] is True
+    assert data["min_qty"] == 6
     assert rows(data) == [
-        (RS, "supply", "Краснодар", "critical", "0.0", 32),  # ⌈1 × 52⌉ − 0 − 20 в пути
-        (ACB, "supply", "Новосибирск", "critical", "0.0", 26),  # ⌈0,5 × 52⌉, склада там нет
-        (TH, "supply", "Екатеринбург", "critical", "3.0", 95),  # 9 / 3 в день; ⌈2 × 52⌉ − 9
-        (TH, "purchase", "Склад Подольск", "planned", "23.3", 6),  # 10 / (3 / 7); ⌈0,3 × 52⌉ − 10
+        (RS, "supply", "Краснодар", "critical", "0.0", 40),  # по продажам ⌈1 × 52⌉ − 20 в пути = 32, Ozon — 40
+        (TH, "supply", "Екатеринбург", "critical", "4.5", 95),  # 9 / 2 в день; ⌈2 × 52⌉ − 9 = 95, Ozon — 30
+        (ACB, "supply", "Новосибирск", "urgent", None, 6),  # Ozon — 3, склада нет — до коробки
+        (TH, "purchase", "Склад Подольск", "planned", "23.3", 6),  # свой склад — по заказам, как в 5.2
+        (ACB, "supply", "Санкт-Петербург и СЗО", "planned", "50.0", 8),  # по продажам 0, Ozon — 8
     ]
-    th = data["items"][2]
-    assert (th["sold_30"], th["sold_7"], th["avg_daily"], th["rate"], th["trend"]) == (60, 21, "2.000", "3.000", "1.50")
-    assert (th["stock"], th["in_transit"], th["target_stock"], th["need"], th["arrives_late"]) == (9, 0, 90, 104, True)
-    assert th["destination"]["warehouses"] == ["ЕКАТЕРИНБУРГ_РФЦ_НОВЫЙ"]
-    rs = data["items"][0]
-    assert (rs["stock"], rs["in_transit"], rs["destination"]["warehouses"]) == (0, 20, [])
-    own = data["items"][3]
-    assert (own["stock"], own["destination"]["warehouse_type"]) == (10, "FBS")  # свободно: 12 − 2 в резерве
-    assert data["totals"] == {"critical": 3, "urgent": 0, "planned": 1, "supply_units": 153, "purchase_units": 6,
+    th = item(data, TH, "Екатеринбург")
+    assert (th["avg_daily"], th["sold_30"], th["stock"], th["in_transit"], th["need"]) == ("2.000", None, 9, 0, 104)
+    assert (th["ozon_recommended"], th["own_need"], th["basis"], th["days_after"]) == (30, 95, "sales", "52.0")
+    assert th["destination"]["warehouses"] == ["ЕКАТЕРИНБУРГ_РФЦ_НОВЫЙ"] and th["ozon_grade"] == "DEFICIT"
+    rs = item(data, RS, "Краснодар")
+    assert (rs["basis"], rs["own_need"], rs["ozon_recommended"], rs["stock"], rs["in_transit"]) == ("ozon", 32, 40, 0, 20)
+    nsk = item(data, ACB, "Новосибирск")
+    assert (nsk["min_applied"], nsk["ozon_recommended"], nsk["own_need"], nsk["destination"]["warehouses"]) == (
+        True, 3, None, [])
+    assert nsk["ozon_reasons"] == ["в кластер не возили — заказы едут издалека"]
+    # TH в СПб: продаётся 0,2 в день, лежит 10 и едет 4 — запаса хватает, Ozon не советует — не везём; CM — меньше коробки
+    assert not any(i["product"]["offer_id"] == TH and i["destination"]["name"].startswith("Санкт") for i in data["items"])
+    assert not any(i["product"]["offer_id"] == CM for i in data["items"])
+    assert data["totals"] == {"critical": 2, "urgent": 1, "planned": 2, "supply_units": 149, "purchase_units": 6,
                               "products": 3}
+
+
+async def test_preferred_warehouse_and_minimum(client, tokens, seller):
+    """Склад кластера (у владельца — СПб → Бугры) и минимум на склад — настройки."""
+    r = await client.patch("/api/v1/settings", json={"supply_cluster_warehouses": {"санкт-петербург и сзо": 1020000000000202},
+                                                    "supply_min_qty": 9}, headers=auth(tokens))
+    assert (r.json()["supply_cluster_warehouses"], r.json()["supply_min_qty"]) == (
+        {"санкт-петербург и сзо": 1020000000000202}, 9)
+    data = (await client.get(URL, headers=auth(tokens))).json()
+    spb = item(data, ACB, "Санкт-Петербург и СЗО")
+    assert spb["destination"]["warehouse"] == {"id": 1020000000000202, "name": "СПБ_БУГРЫ_РФЦ"}
+    assert (spb["to_order"], spb["min_applied"]) == (9, True)  # Ozon советует 8 — до минимума 9
+    assert item(data, TH, "Екатеринбург")["destination"]["warehouse"] is None  # не задан — Ozon выберет сам
+    r = await client.patch("/api/v1/settings", json={"supply_cluster_warehouses": {}}, headers=auth(tokens))
+    assert r.json()["supply_cluster_warehouses"] == {}
+
+
+async def test_cluster_choices(client, tokens, seller):
+    """Кластеры с нашими складами — для настройки «склад кластера»: Новосибирск (только рекомендация Ozon) — нет."""
+    r = await client.get("/api/v1/supply/clusters", headers=auth(tokens))
+    assert r.status_code == 200
+    assert [(c["key"], [w["name"] for w in c["warehouses"]], c["preferred_id"]) for c in r.json()] == [
+        ("екатеринбург", ["ЕКАТЕРИНБУРГ_РФЦ_НОВЫЙ"], None),
+        ("краснодар", ["КРАСНОДАР_2_РФЦ"], None),
+        ("санкт-петербург и сзо", ["СПБ_БУГРЫ_РФЦ"], None),
+    ]
+    assert (await client.get("/api/v1/supply/clusters")).status_code == 401
 
 
 async def test_parameters_override_and_save(client, tokens, seller):
     data = (await client.get(URL, params={"target_days": 30, "lead_time_days": 0}, headers=auth(tokens))).json()
     assert data["is_saved"] is False
-    th = next(i for i in data["items"] if i["product"]["offer_id"] == TH and i["kind"] == "supply")
+    th = item(data, TH, "Екатеринбург")
     assert (th["need"], th["to_order"], th["arrives_late"]) == (60, 51, False)
     r = await client.patch("/api/v1/settings", json={"supply_target_days": 30, "supply_lead_time_days": 0},
                            headers=auth(tokens))
@@ -183,21 +294,28 @@ async def test_parameters_override_and_save(client, tokens, seller):
     # срочность — по порогам остатков пользователя (5.1)
     await client.patch("/api/v1/settings", json={"stock_critical_days": 2, "stock_low_days": 5}, headers=auth(tokens))
     data = (await client.get(URL, headers=auth(tokens))).json()
-    assert {(i["product"]["offer_id"], i["kind"]): i["urgency"] for i in data["items"]}[(TH, "supply")] == "urgent"
+    assert item(data, TH, "Екатеринбург")["urgency"] == "urgent"
 
     r = await client.get(URL, params={"target_days": 0}, headers=auth(tokens))
     assert r.status_code == 400 and r.json()["detail"].startswith("Запас после поставки")
 
 
-async def test_little_or_no_order_data(sessions, client, tokens, stocks_ozon):  # noqa: F811
+async def test_without_ozon_recommendations(sessions, client, tokens, stocks_ozon):  # noqa: F811
+    """Рекомендации Ozon не загружались (или метод не ответил) — считаем по продажам Ozon в кластере, «Ozon» — нет данных."""
     user_id = await api_user(sessions, client, tokens, stocks_ozon)
     data = (await client.get(URL, headers=auth(tokens))).json()
-    assert (data["postings_known"], data["fbo"], data["items"]) == (False, None, [])
-    orders = Orders(sessions, user_id)
-    await orders.loaded("FBO", days=6)  # загружено 5 полных дней — мало, не считаем
-    await orders.add("FBO", 0, {TH: 30}, cluster="Екатеринбург")
+    assert data["ozon_data"]["recs_known"] is False and data["ozon_data"]["clusters_known"] is True
+    assert rows(data) == [
+        (RS, "supply", "Краснодар", "critical", "0.0", 32),
+        (TH, "supply", "Екатеринбург", "critical", "4.5", 95),
+    ]
+    assert item(data, TH, "Екатеринбург")["ozon_recommended"] is None
+    from app.services.sync.supply_recs import record_failure
+
+    async with sessions() as db:
+        await record_failure(db, user_id, "Ozon не ответил")
     data = (await client.get(URL, headers=auth(tokens))).json()
-    assert (data["fbo"]["days"], data["fbo"]["enough"], data["items"]) == (5, False, [])
+    assert (data["ozon_data"]["recs_ok"], data["ozon_data"]["recs_error"]) == (False, "Ozon не ответил")
 
 
 async def test_isolation(client, tokens, seller):
@@ -205,7 +323,8 @@ async def test_isolation(client, tokens, seller):
     await client.post("/api/v1/auth/register", json=other)
     t2 = (await client.post("/api/v1/auth/login", json=other)).json()
     data = (await client.get(URL, headers=auth(t2))).json()
-    assert (data["items"], data["postings_known"], data["has_key"]) == ([], False, False)
+    assert (data["items"], data["postings_known"], data["has_key"], data["ozon_data"]["clusters_known"]) == (
+        [], False, False, False)
 
 
 async def test_export_xlsx(client, tokens, seller):
@@ -214,13 +333,15 @@ async def test_export_xlsx(client, tokens, seller):
     wb = load_workbook(io.BytesIO(r.content))
     assert wb.sheetnames == ["Поставки", "Параметры"]
     table = [list(row) for row in wb["Поставки"].iter_rows(values_only=True)]
-    assert table[0][:6] == ["Тип", "Куда", "Срочность", "Артикул", "Название", "Отправить / закупить, шт."]
-    assert [r[:6] for r in table[1:5]] == [  # по месту — удобно собирать поставку в один кластер
-        ["Поставка в Ozon", "Екатеринбург", "Срочно", TH, None, 95],
-        ["Поставка в Ozon", "Краснодар", "Срочно", RS, None, 32],
-        ["Поставка в Ozon", "Новосибирск", "Срочно", ACB, None, 26],
-        ["Закупка на свой склад", "Склад Подольск", "Плановая", TH, None, 6],
+    assert table[0][:9] == ["Тип", "Куда", "Склад", "Срочность", "Артикул", "Название", "Отправить / закупить, шт.",
+                            "Рекомендует Ozon, шт.", "По продажам, шт."]
+    assert [r[:9] for r in table[1:6]] == [  # кластеры с лучшими продажами — первыми
+        ["Поставка в Ozon", "Екатеринбург", "любой склад кластера", "Срочно", TH, None, 95, 30, 95],
+        ["Поставка в Ozon", "Краснодар", "любой склад кластера", "Срочно", RS, None, 40, 40, 32],
+        ["Поставка в Ozon", "Санкт-Петербург и СЗО", "любой склад кластера", "Плановая", ACB, None, 8, 8, 0],
+        ["Поставка в Ozon", "Новосибирск", "любой склад кластера", "Скоро", ACB, None, 6, 3, None],
+        ["Закупка на свой склад", "Склад Подольск", None, "Плановая", TH, None, 6, None, None],
     ]
-    assert table[-1][0] == "Итого" and table[-1][5] == 159
+    assert table[-1][0] == "Итого" and table[-1][6] == 155
     notes = [c.value for c in wb["Параметры"]["A"] if c.value]
-    assert "Итого: в Ozon — 153 шт., закупить на свои склады — 6 шт." in notes
+    assert "Итого: в Ozon — 149 шт., закупить на свои склады — 6 шт." in notes

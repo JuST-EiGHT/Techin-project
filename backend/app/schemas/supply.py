@@ -29,6 +29,7 @@ class SupplyDestination(BaseModel):
     name: str  # кластер Ozon или свой склад
     warehouse_type: str | None  # FBS | rFBS — у своего склада
     warehouses: list[str]  # склады Ozon кластера, где сейчас лежит этот товар
+    warehouse: dict | None = None  # 10.18a: склад кластера из настроек {id, name}, куда везти; нет — выберет Ozon
 
 
 class SupplyItem(BaseModel):
@@ -36,10 +37,10 @@ class SupplyItem(BaseModel):
     kind: str  # supply — поставка в кластер Ozon, purchase — закупка на свой склад
     urgency: str  # critical | urgent | planned
     destination: SupplyDestination
-    sold_30: int  # заказано без отмен за окно (до 30 дней)
-    sold_7: int
-    avg_daily: Decimal  # продажи в день за 30 дней
-    rate: Decimal  # за 7 дней
+    sold_30: int | None  # закупка: заказано без отмен за окно; у кластеров Ozon (10.18a) — null, продажи от Ozon
+    sold_7: int | None
+    avg_daily: Decimal  # продажи в день: закупка — за период планирования, кластер Ozon — ads_cluster Ozon (28 дней)
+    rate: Decimal  # закупка — за 7 дней; у кластера Ozon — те же продажи Ozon
     trend: Decimal | None
     stock: int  # там сейчас
     in_transit: int
@@ -51,6 +52,15 @@ class SupplyItem(BaseModel):
     in_plans: int = 0  # уже в открытых планах поставки сервиса (10.18)
     in_orders: int = 0  # уже в заявках Ozon, которые ещё готовятся
     still_needed: int = 0  # нужно ещё: to_order − в планах − в заявках
+    # 10.18a — у кластеров Ozon: рекомендует Ozon (null — рекомендации не загружены), по продажам, основа (ozon | sales),
+    # довели до минимума на склад, на сколько дней хватит после поставки, статус ликвидности Ozon, причины Ozon
+    ozon_recommended: int | None = None
+    own_need: int | None = None
+    basis: str | None = None
+    min_applied: bool = False
+    days_after: Decimal | None = None
+    ozon_grade: str | None = None
+    ozon_reasons: list[str] = []
 
 
 class SupplyTotals(BaseModel):
@@ -72,6 +82,8 @@ class SupplyReport(BaseModel):
     fbo: PostingsCoverage | None
     fbs: PostingsCoverage | None
     has_own_warehouses: bool
+    ozon_data: dict = {}  # 10.18a: продажи Ozon по кластерам и рекомендации — загружены ли, когда, ошибка
+    min_qty: int = 6  # минимум одного товара на склад, шт.
     totals: SupplyTotals
     today: date
     items: list[SupplyItem]
@@ -161,6 +173,7 @@ class DraftWarehouse(BaseModel):
     state: str | None
     reason: str | None
     rank: int | None
+    preferred: bool = False  # 10.18a: склад кластера из настроек
 
 
 class DraftRejected(BaseModel):
@@ -176,6 +189,7 @@ class DraftOut(BaseModel):
     status: str  # pending | ready | failed | used
     cluster_name: str | None
     warehouses: list[DraftWarehouse]
+    preferred_warehouse_id: int | None = None  # 10.18a: склад кластера из настроек — выбран заранее, если доступен
     rejected: list[DraftRejected]
     errors: list[str]
     created_at: datetime
@@ -310,3 +324,17 @@ class SupplyCalendar(BaseModel):
     date_from: date
     date_to: date
     events: list[CalendarEvent]
+
+
+class ClusterWarehouse(BaseModel):
+    id: int  # id склада Ozon
+    name: str
+
+
+class ClusterChoice(BaseModel):
+    """Кластер с нашими складами — для настройки «склад кластера, куда везти» (10.18a)."""
+
+    key: str
+    name: str
+    preferred_id: int | None
+    warehouses: list[ClusterWarehouse]

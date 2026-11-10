@@ -352,7 +352,11 @@ function OzonCreate({ plan, onDone }: { plan: PlanDetail; onDone: () => void }) 
     setSlot(null)
     setConfirm(false)
     try {
-      setDraft((await api.post<Draft>(`/supply/plans/${plan.id}/ozon-check`)).data)
+      const { data } = await api.post<Draft>(`/supply/plans/${plan.id}/ozon-check`)
+      setDraft(data)
+      // склад кластера из настроек (10.18a) — выбрать сразу, если Ozon его принимает
+      const preferred = data.warehouses.find((w) => w.preferred && w.available)
+      if (data.status === 'ready' && preferred) pickWarehouseOf(data, preferred.id)
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -369,17 +373,20 @@ function OzonCreate({ plan, onDone }: { plan: PlanDetail; onDone: () => void }) 
     }
   }
 
-  async function pickWarehouse(id: number) {
-    if (!draft) return
+  async function pickWarehouseOf(d: Draft, id: number) {
     setWarehouse(id)
     setSlots(null)
     setSlot(null)
     setError(null)
     try {
-      setSlots((await api.get<Timeslots>(`/supply/drafts/${draft.id}/timeslots`, { params: { warehouse_id: id } })).data)
+      setSlots((await api.get<Timeslots>(`/supply/drafts/${d.id}/timeslots`, { params: { warehouse_id: id } })).data)
     } catch (err) {
       setError(errorMessage(err))
     }
+  }
+
+  async function pickWarehouse(id: number) {
+    if (draft) await pickWarehouseOf(draft, id)
   }
 
   async function create() {
@@ -467,6 +474,7 @@ function OzonCreate({ plan, onDone }: { plan: PlanDetail; onDone: () => void }) 
                       data-testid="ozon-warehouse"
                     >
                       <span className="block font-medium">{w.name}</span>
+                      {w.preferred && <span className="block text-xs text-accent">ваш склад кластера из настроек</span>}
                       <span className="block text-xs text-faint">{w.available ? w.address ?? 'принимает поставки' : `не принимает${w.reason ? `: ${w.reason}` : ''}`}</span>
                     </button>
                   ))}

@@ -8,10 +8,16 @@
 
 10.18: страховой запас (дней, по умолчанию 0) добавляется к цели; у рекомендации — сколько уже в открытых планах сервиса и в
 заявках Ozon, которые ещё готовятся (не в пути — в остатках «в пути» их нет), и сколько нужно ещё.
+
+10.18a: склады Ozon — по данным Ozon о кластере, сведённым по id кластера размещения (`macrolocal_cluster_id`), а не по
+названию: остаток и в пути — последние снимки складов кластера, продажи в день — `ads_cluster` (`cluster_stock_metrics`),
+рекомендованная поставка Ozon — `ozon_supply_recs`; расчёт — `engine.cluster_recommend`. Ключ места в ответе — по названию
+кластера (как раньше: планы и заявки 10.18 им пользуются). Склад кластера, куда везти, и минимум на склад — настройки.
 """
 import uuid
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,13 +30,18 @@ from app.models.warehouse import FBO as WH_FBO
 from app.models.warehouse import FBS as WH_FBS
 from app.models.warehouse import RFBS, Warehouse
 from app.schemas.sync import utc
+from app.models.cluster_metrics import OzonSupplyRecSync
 from app.services.stocks import latest_stocks
 from app.services.sync.finance import MSK, today_msk
 from app.services.sync.postings import is_cancelled
+from app.services.sync.stocks import latest_cluster_metrics
+from app.services.sync.supply_recs import latest_recs
 from app.services.user_settings import (
     get_settings,
     load_thresholds,
+    supply_cluster_warehouses,
     supply_demand_days,
+    supply_min_qty,
     supply_params,
     supply_safety_days,
 )
@@ -168,6 +179,106 @@ async def _destinations(db: AsyncSession, user_id: uuid.UUID) -> tuple[dict[str,
     return clusters, own
 
 
+# ── 10.18a: склады Ozon по данным Ozon о кластере ──
+REASON_TEXT = {
+    "NO_SUPPLIES_TO_CLUSTER": "в кластер не возили — заказы едут издалека",
+    "NOT_ENOUGH_STOCK": "в кластере не хватает остатка",
+}
+
+
+@dataclass
+class OzonCluster:
+    gid: tuple  # ("m", macrolocal_cluster_id) или ("c", cluster_id), если кластера размещения Ozon не сообщил
+    name: str
+    key: str  # cluster_key(name) — как ключи планов и заявок 10.18
+    stock: dict  # товар → [доступно, в пути, склады с остатком]
+    ads: dict  # товар → продажи в день (сумма по кластерам Ozon внутри кластера размещения)
+    grade: dict  # товар → статус ликвидности Ozon в кластере
+    warehouses: dict  # id склада Ozon → название (наши склады этого кластера)
+
+
+async def ozon_clusters(db: AsyncSession, user_id: uuid.UUID) -> tuple[dict[tuple, OzonCluster], dict, dict]:
+    """Кластеры Ozon с остатками и продажами по товарам; рекомендации Ozon — (товар, кластер) → (шт., внимание, причины);
+    сопоставление кластера Ozon (`cluster_id`) с кластером размещения."""
+    macro_of: dict[int, int] = {}
+    names: dict[tuple, str] = {}
+    clusters: dict[tuple, OzonCluster] = {}
+    warehouses = [w for w in (await db.execute(
+        select(Warehouse).where(Warehouse.user_id == user_id, Warehouse.type == WH_FBO)
+    )).scalars()]
+    metrics = await latest_cluster_metrics(db, user_id)
+    for w in warehouses:
+        if w.cluster_id is not None and w.macrolocal_cluster_id is not None:
+            macro_of[w.cluster_id] = w.macrolocal_cluster_id
+    for m in metrics.values():
+        if m.macrolocal_cluster_id is not None:
+            macro_of.setdefault(m.cluster_id, m.macrolocal_cluster_id)
+
+    def gid(macro: int | None, cluster_id: int | None) -> tuple | None:
+        macro = macro if macro is not None else macro_of.get(cluster_id) if cluster_id is not None else None
+        if macro is not None:
+            return ("m", macro)
+        return ("c", cluster_id) if cluster_id is not None else None
+
+    def cluster(g: tuple, name: str | None) -> OzonCluster:
+        if g not in clusters:
+            title = names.get(g) or name or f"Кластер {g[1]}"
+            clusters[g] = OzonCluster(g, title, cluster_key(title) or str(g[1]), {}, {}, {}, {})
+        return clusters[g]
+
+    for w in warehouses:  # название кластера — как у наших складов: так же его пишут заявки 10.18
+        if (g := gid(w.macrolocal_cluster_id, w.cluster_id)) is not None and w.cluster_name:
+            names.setdefault(g, w.cluster_name)
+    for w in warehouses:
+        if (g := gid(w.macrolocal_cluster_id, w.cluster_id)) is not None:
+            cluster(g, w.cluster_name).warehouses[w.ozon_warehouse_id] = w.name
+    for s, p, w in await latest_stocks(db, user_id):
+        if w.type != WH_FBO or (g := gid(w.macrolocal_cluster_id, w.cluster_id)) is None:
+            continue
+        row = cluster(g, w.cluster_name).stock.setdefault(p.id, [0, 0, []])
+        row[0] += max(s.present, 0)
+        row[1] += max(s.in_transit or 0, 0)
+        if s.present > 0:
+            row[2].append(w.name)
+    for m in metrics.values():
+        if (g := gid(m.macrolocal_cluster_id, m.cluster_id)) is None:
+            continue
+        c = cluster(g, m.cluster_name)
+        if m.ads is not None:
+            c.ads[m.product_id] = c.ads.get(m.product_id, Decimal(0)) + Decimal(m.ads)
+        if m.turnover_grade:
+            c.grade.setdefault(m.product_id, m.turnover_grade)
+    recs: dict[tuple, tuple] = {}
+    by_sku = {p.ozon_sku: p.id for p in (await db.execute(select(Product).where(Product.user_id == user_id))).scalars()
+              if p.ozon_sku}
+    for r in (await latest_recs(db, user_id)).values():
+        product_id = r.product_id or by_sku.get(r.sku)
+        if product_id is None:
+            continue
+        g = ("m", r.macrolocal_cluster_id)
+        cluster(g, r.cluster_name)
+        recs[(product_id, g)] = (r.recommended, r.attention_level, [x.get("reason") for x in r.reasons or []])
+    return clusters, recs, macro_of
+
+
+async def macro_for_key(db: AsyncSession, user_id: uuid.UUID, key: str) -> int | None:
+    """Кластер размещения Ozon по ключу места плана — из наших данных, без сравнения названий (для заявки в Ozon)."""
+    oz, _, _ = await ozon_clusters(db, user_id)
+    return next((c.gid[1] for c in oz.values() if c.key == key and c.gid[0] == "m"), None)
+
+
+async def cluster_choices(db: AsyncSession, user_id: uuid.UUID) -> list[dict]:
+    """Кластеры с нашими складами — для настройки «склад кластера, куда везти» (у владельца — СПб → Бугры)."""
+    oz, _, _ = await ozon_clusters(db, user_id)
+    preferred = supply_cluster_warehouses(await get_settings(db, user_id))
+    out = [
+        {"key": c.key, "name": c.name, "preferred_id": preferred.get(c.key),
+         "warehouses": [{"id": wid, "name": name} for wid, name in sorted(c.warehouses.items(), key=lambda x: x[1])]}
+        for c in oz.values() if c.warehouses
+    ]
+    return sorted(out, key=lambda c: c["name"])
+
+
 async def report(db: AsyncSession, user_id: uuid.UUID, params: engine.Params) -> dict:
     today = today_msk()
     thresholds = await load_thresholds(db, user_id)
@@ -178,28 +289,49 @@ async def report(db: AsyncSession, user_id: uuid.UUID, params: engine.Params) ->
         "by_offer": {p.offer_id: p.id for p in products.values()},
     }
     states = {s.scheme: s for s in (await db.execute(select(PostingSync).where(PostingSync.user_id == user_id))).scalars()}
-    window = supply_demand_days(await get_settings(db, user_id))
-    covs = {scheme: coverage(state, today, window) for scheme, state in states.items()}
-    clusters, own = await _destinations(db, user_id)
+    settings = await get_settings(db, user_id)
+    covs = {scheme: coverage(state, today, supply_demand_days(settings)) for scheme, state in states.items()}
+    _, own = await _destinations(db, user_id)  # кластеры Ozon — ниже, по id; отсюда — свои склады
+
+    min_qty = supply_min_qty(settings)
+    preferred = supply_cluster_warehouses(settings)
+    oz, ozon_recs, _ = await ozon_clusters(db, user_id)
+    rec_state = await db.get(OzonSupplyRecSync, user_id)
+    cluster_points: list[engine.ClusterPoint] = []
+    by_key: dict[str, OzonCluster] = {}
+    for c in oz.values():
+        by_key.setdefault(c.key, c)
+        for product_id in set(c.ads) | {pid for pid, g in ozon_recs if g == c.gid}:
+            if product_id not in products:
+                continue
+            stock, transit, _ = c.stock.get(product_id, [0, 0, []])
+            rec = ozon_recs.get((product_id, c.gid))
+            cluster_points.append(engine.ClusterPoint(
+                product=product_id, offer_id=products[product_id].offer_id, destination=c.key, stock=stock,
+                in_transit=transit, ads=c.ads.get(product_id),
+                ozon_rec=rec[0] if rec else (0 if rec_state is not None and rec_state.ok else None),
+                attention=rec[1] if rec else None,
+            ))
 
     points: list[engine.Point] = []
     places: dict[tuple[str, str], Destination] = {}
     for scheme, cov in covs.items():
-        if cov is None or cov.days_30 < engine.MIN_DAYS:
-            continue
-        known = clusters if scheme == FBO else own
-        kind = engine.SUPPLY if scheme == FBO else engine.PURCHASE
+        if scheme == FBO or cov is None or cov.days_30 < engine.MIN_DAYS:
+            continue  # 10.18a: склады Ozon — по данным Ozon о кластере, заказы — только для своих складов
+        kind = engine.PURCHASE
         for (product_id, key), (sold, sold_7, name) in (await _demand(db, user_id, cov, catalog)).items():
-            dest = known.get(key)
-            if dest is None:  # покупают там, где товара нет и склада нет — везти туда с нуля
-                dest = known.setdefault(key, Destination(kind, key, name or key, stock={}))
+            dest = own.get(key)
+            if dest is None:  # отгружали со склада, которого в остатках уже нет
+                dest = own.setdefault(key, Destination(kind, key, name or key, stock={}))
             stock, transit, _ = dest.stock.get(product_id, (0, 0, []))
             places[(kind, key)] = dest
             points.append(engine.Point(
                 product=product_id, offer_id=products[product_id].offer_id, kind=kind, destination=key,
                 stock=stock, in_transit=transit, demand=engine.Demand(sold, sold_7, cov.days_30, cov.days_7),
             ))
-    recs = engine.plan(points, params, thresholds)
+    recs = engine.sort_recs(
+        engine.plan(points, params, thresholds) + engine.plan_clusters(cluster_points, params, thresholds, min_qty)
+    )
     from app.services import supply_plans  # планы и заявки — свой модуль, он считает по этому же расчёту (10.18)
 
     in_plans = await supply_plans.open_plan_qty(db, user_id)
@@ -208,19 +340,32 @@ async def report(db: AsyncSession, user_id: uuid.UUID, params: engine.Params) ->
     items = []
     for r in recs:
         p = products[r.point.product]
-        dest = places[(r.point.kind, r.point.destination)]
-        lying = dest.stock.get(p.id, (0, 0, []))[2] if r.point.kind == engine.SUPPLY else []
+        extra: dict = {}
+        if r.point.kind == engine.SUPPLY:
+            c = by_key[r.point.destination]
+            lying = c.stock.get(p.id, [0, 0, []])[2]
+            wid = preferred.get(c.key)
+            rec = ozon_recs.get((p.id, c.gid))
+            dest = {"key": c.key, "name": c.name, "warehouse_type": None, "warehouses": sorted(lying),
+                    "warehouse": {"id": wid, "name": c.warehouses.get(wid) or f"склад {wid}"} if wid else None}
+            extra = {
+                "ozon_recommended": r.ozon_recommended, "own_need": r.own_need, "basis": r.basis,
+                "min_applied": r.min_applied, "days_after": r.days_after, "ozon_grade": c.grade.get(p.id),
+                "ozon_reasons": [REASON_TEXT.get(x, x) for x in (rec[2] if rec else []) if x],
+            }
+        else:
+            d = places[(r.point.kind, r.point.destination)]
+            dest = {"key": d.key, "name": d.name, "warehouse_type": d.warehouse_type, "warehouses": [], "warehouse": None}
+        demand = r.point.demand
         items.append({
             "product": {"id": p.id, "offer_id": p.offer_id, "name": p.name, "ozon_sku": p.ozon_sku},
-            "kind": r.point.kind, "urgency": r.urgency,
-            "destination": {"key": dest.key, "name": dest.name, "warehouse_type": dest.warehouse_type,
-                            "warehouses": sorted(lying)},
-            "sold_30": r.point.demand.sold_30, "sold_7": r.point.demand.sold_7,
+            "kind": r.point.kind, "urgency": r.urgency, "destination": dest, **extra,
+            "sold_30": demand.sold_30 if demand else None, "sold_7": demand.sold_7 if demand else None,
             "avg_daily": r.avg_daily, "rate": r.rate, "trend": r.trend, "stock": r.point.stock,
             "in_transit": r.point.in_transit, "days_left": r.days_left, "target_stock": r.target_stock,
             "need": r.need, "to_order": r.to_order, "arrives_late": r.arrives_late,
-            "in_plans": (planned := in_plans.get((r.point.kind, dest.key, p.id), 0)),
-            "in_orders": (ordered := in_orders.get((dest.key, p.id), 0) if r.point.kind == engine.SUPPLY else 0),
+            "in_plans": (planned := in_plans.get((r.point.kind, dest["key"], p.id), 0)),
+            "in_orders": (ordered := in_orders.get((dest["key"], p.id), 0) if r.point.kind == engine.SUPPLY else 0),
             "still_needed": max(0, r.to_order - planned - ordered),
         })
     totals = {u: sum(1 for r in recs if r.urgency == u) for u in engine.URGENCIES}
@@ -235,6 +380,15 @@ async def report(db: AsyncSession, user_id: uuid.UUID, params: engine.Params) ->
         "fbo": fbo.out() if fbo else None,
         "fbs": fbs.out() if fbs else None,
         "has_own_warehouses": bool(own),
+        # 10.18a: данные Ozon для складов Ozon — продажи по кластерам (из остатков) и рекомендации поставки
+        "ozon_data": {
+            "clusters_known": any(c.ads for c in oz.values()),
+            "recs_known": rec_state is not None and rec_state.synced_at is not None,
+            "recs_ok": rec_state.ok if rec_state else None,
+            "recs_synced_at": utc(rec_state.synced_at) if rec_state and rec_state.synced_at else None,
+            "recs_error": rec_state.error if rec_state and not rec_state.ok else None,
+        },
+        "min_qty": min_qty,
         "totals": {**totals, "supply_units": sum(r.to_order for r in recs if r.point.kind == engine.SUPPLY),
                    "purchase_units": sum(r.to_order for r in recs if r.point.kind == engine.PURCHASE),
                    "products": len({r.point.product for r in recs})},
@@ -245,44 +399,52 @@ async def report(db: AsyncSession, user_id: uuid.UUID, params: engine.Params) ->
 
 # ── Excel для логиста ──
 COLUMNS = [
-    Col("Тип", 22), Col("Куда", 30), Col("Срочность", 11), Col("Артикул", 26), Col("Название", 36),
-    Col("Отправить / закупить, шт.", 14, "int"), Col("Сейчас там, шт.", 11, "int"), Col("В пути, шт.", 10, "int"),
-    Col("Хватит на, дн.", 10, "number"), Col("Продажи в день (30 дн.)", 12, "number"),
-    Col("Продажи в день (7 дн.)", 12, "number"), Col("Запас после поставки, шт.", 13, "int"),
+    Col("Тип", 22), Col("Куда", 30), Col("Склад", 24), Col("Срочность", 11), Col("Артикул", 26), Col("Название", 36),
+    Col("Отправить / закупить, шт.", 14, "int"), Col("Рекомендует Ozon, шт.", 12, "int"), Col("По продажам, шт.", 12, "int"),
+    Col("Сейчас там, шт.", 11, "int"), Col("В пути, шт.", 10, "int"), Col("Хватит на, дн.", 10, "number"),
+    Col("Продажи в день", 11, "number"), Col("Хватит после поставки, дн.", 13, "number"),
     Col("Уже в планах, шт.", 11, "int"), Col("Уже в заявках Ozon, шт.", 12, "int"), Col("Нужно ещё, шт.", 11, "int"),
 ]
 
 
 def to_xlsx(data: dict) -> bytes:
-    """Строки — по типу и месту (удобно собирать поставку в один кластер), внутри — срочные первыми."""
+    """Строки — по типу и месту (удобно собирать поставку в один кластер): кластеры с лучшими продажами — первыми, внутри —
+    срочные первыми."""
     rank = {u: i for i, u in enumerate(engine.URGENCIES)}
+    sales: dict[str, Decimal] = {}
+    for i in data["items"]:
+        sales[i["destination"]["key"]] = sales.get(i["destination"]["key"], Decimal(0)) + Decimal(i["avg_daily"] or 0)
     items = sorted(data["items"], key=lambda i: (
-        i["kind"] != engine.SUPPLY, i["destination"]["name"], rank[i["urgency"]], i["product"]["offer_id"],
+        i["kind"] != engine.SUPPLY, -sales[i["destination"]["key"]], i["destination"]["name"], rank[i["urgency"]],
+        i["product"]["offer_id"],
     ))
     rows = [
-        [KIND_TEXT[i["kind"]], i["destination"]["name"], URGENCY_TEXT[i["urgency"]], i["product"]["offer_id"],
-         i["product"]["name"], i["to_order"], i["stock"], i["in_transit"], i["days_left"], i["avg_daily"], i["rate"],
-         i["target_stock"], i["in_plans"], i["in_orders"], i["still_needed"]]
+        [KIND_TEXT[i["kind"]], i["destination"]["name"],
+         (i["destination"].get("warehouse") or {}).get("name") or ("любой склад кластера" if i["kind"] == engine.SUPPLY else ""),
+         URGENCY_TEXT[i["urgency"]], i["product"]["offer_id"], i["product"]["name"], i["to_order"],
+         i.get("ozon_recommended"), i.get("own_need"), i["stock"], i["in_transit"], i["days_left"], i["avg_daily"],
+         i.get("days_after"), i["in_plans"], i["in_orders"], i["still_needed"]]
         for i in items
     ]
     prm, t = data["params"], data["thresholds"]
     supply, purchase = data["totals"]["supply_units"], data["totals"]["purchase_units"]
+    horizon = prm["target_days"] + prm["safety_days"] + prm["lead_time_days"]
     notes = [
         f"Планирование поставок — {data['today']:%d.%m.%Y}",
         "",
         f"Запас после поставки: на {prm['target_days']} дн. продаж, страховой — {prm['safety_days']} дн.; поставка в "
-        f"пути: {prm['lead_time_days']} дн.",
+        f"пути: {prm['lead_time_days']} дн.; минимум одного товара на склад — {data['min_qty']} шт.",
         f"Срочно — запаса меньше чем на {t['critical']} дн., скоро — меньше чем на {t['low']} дн.",
         "",
-        "Продажи — заказы без отмен за последние 30 дней (и 7 дней — тренд): для складов Ozon — по кластеру покупателя, "
-        "для своих складов — по складу отгрузки.",
-        "Хватит на — остаток сейчас / продажи в день за 7 дней. Отправить — продажи в день за 30 дней × (запас + дни в "
-        "пути) минус остаток и то, что уже в пути.",
-        "Поставка в Ozon — в кластер (Ozon сам распределит по складам кластера); закупка — на свой склад (FBS / rFBS).",
+        f"Склады Ozon: продажи в день — по данным Ozon в кластере (28 дней). По продажам = продажи в день × {horizon} дн. "
+        "минус остаток в кластере и то, что уже едет. Отправить — не меньше, чем рекомендует Ozon (это необходимый "
+        "минимум), и не меньше минимума на склад.",
+        "Поставка в Ozon — в кластер; склад — если задан в настройках, иначе Ozon выберет сам. Закупка на свой склад "
+        "(FBS / rFBS) — по заказам за период планирования.",
         "Уже в планах — в открытых планах поставки сервиса; уже в заявках — в заявках Ozon, которые ещё готовятся. "
         "Нужно ещё = отправить − в планах − в заявках.",
         f"Итого: в Ozon — {supply} шт., закупить на свои склады — {purchase} шт.",
     ]
-    total = ["Итого", None, None, None, None, supply + purchase, None, None, None, None, None, None, None, None,
-             sum(i["still_needed"] for i in items)]
+    total = ["Итого", None, None, None, None, None, supply + purchase, None, None, None, None, None, None, None, None,
+             None, sum(i["still_needed"] for i in items)]
     return table_xlsx("Поставки", COLUMNS, rows, total=total, notes_title="Параметры", notes=notes)

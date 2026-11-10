@@ -5,21 +5,24 @@
 // 10.18: вкладки (?tab=) — «Рекомендации» (+ страховой запас, «уже в планах и заявках», выбор товаров → план поставки с
 // вашими количествами), «Планы» (components/supply-plans.tsx: правка, дата, Excel, заявка в Ozon), «Заявки Ozon» и
 // «Календарь» (components/supply-orders.tsx).
+// 10.18a: склады Ozon — по данным Ozon о кластере (продажи за 28 дн. из остатков, рекомендованная поставка), «Обновить
+// данные» — остатки, рекомендации (вместе с заявками) и заказы одной кнопкой.
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
-import { fmtDay } from '@/components/reports'
+import { fmtDateTime, fmtDay } from '@/components/reports'
 import { CalendarTab, OrdersTab } from '@/components/supply-orders'
 import { PlansTab } from '@/components/supply-plans'
-import { refreshSyncStatus, timeAgo } from '@/lib/sync'
+import { syncAll, timeAgo } from '@/lib/sync'
 import { useAuth } from '@/contexts/AuthContext'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
 import { saveSettings } from '@/lib/settings'
 import { num, perDay, productHref } from '@/lib/stocks'
 import {
+  GRADE_TEXT,
   KIND,
   LEAD_WHY,
   type PlanDetail,
@@ -34,10 +37,8 @@ import {
   urgencyHint,
 } from '@/lib/supply'
 
-type SyncState = {
-  has_active_key: boolean
-  postings: { last_run: { status: string; error: string | null } | null; last_success_at: string | null } | null
-}
+type KindState = { last_run: { status: string; error: string | null } | null; last_success_at: string | null } | null
+type SyncState = { has_active_key: boolean; stocks: KindState; postings: KindState; supplies?: KindState }
 type Form = { target_days: string; lead_time_days: string; safety_days: string }
 type Tab = 'recommendations' | 'plans' | 'orders' | 'calendar'
 /** Выбранные в план: ключ — тип|куда|товар. */
@@ -56,6 +57,16 @@ const toForm = (p: SupplyParams): Form => ({
   lead_time_days: String(p.lead_time_days),
   safety_days: String(p.safety_days ?? 0),
 })
+/** От чего зависит расчёт: остатки и продажи Ozon по кластерам, рекомендации Ozon (грузятся с заявками), заказы. */
+const DATA_KINDS = ['stocks', 'supplies', 'postings'] as const
+const kindsOf = (s: SyncState | null) => DATA_KINDS.map((k) => s?.[k] ?? null)
+const isActive = (s: SyncState | null) => kindsOf(s).some((k) => ['queued', 'running'].includes(k?.last_run?.status ?? ''))
+/** Самое старое из обновлений; что-то не загружалось — null. */
+const oldestSuccess = (s: SyncState | null) => {
+  const at = kindsOf(s).map((k) => k?.last_success_at ?? null)
+  return at.some((t) => t === null) ? null : (at as string[]).reduce((a, b) => (a < b ? a : b))
+}
+const failedRun = (s: SyncState | null) => kindsOf(s).find((k) => k?.last_run?.status === 'failed')?.last_run ?? null
 const pickKey = (i: SupplyItem) => `${i.kind}|${i.destination.key}|${i.product.id}`
 const defaultQty = (i: SupplyItem) => String(i.still_needed > 0 ? i.still_needed : i.to_order)
 
@@ -187,10 +198,10 @@ function Recommendations({ onPlans }: { onPlans: (id: string | null) => void }) 
   const loadSync = useCallback(async () => {
     try {
       const { data: s } = await api.get<SyncState>('/sync/status')
-      const nowActive = ['queued', 'running'].includes(s.postings?.last_run?.status ?? '')
+      const nowActive = isActive(s)
       if (wasActive.current && !nowActive && form) {
         const q = query(form)
-        if (q.params) load(q.params).catch((err) => setError(errorMessage(err))) // заказы загрузились — пересчитать
+        if (q.params) load(q.params).catch((err) => setError(errorMessage(err))) // данные загрузились — пересчитать
       }
       wasActive.current = nowActive
       setSync(s)
@@ -202,7 +213,7 @@ function Recommendations({ onPlans }: { onPlans: (id: string | null) => void }) 
   useEffect(() => {
     loadSync()
   }, [loadSync])
-  const active = ['queued', 'running'].includes(sync?.postings?.last_run?.status ?? '')
+  const active = isActive(sync)
   useEffect(() => {
     if (!active) return
     const t = setInterval(loadSync, POLL_MS)
@@ -213,10 +224,9 @@ function Recommendations({ onPlans }: { onPlans: (id: string | null) => void }) 
     setStarting(true)
     setError(null)
     try {
-      await api.post('/sync/postings')
-      refreshSyncStatus() // кнопка «Синхронизация» в шапке сразу покажет загрузку
+      await syncAll([...DATA_KINDS]) // только что обновлённое пропустит; шапка сразу покажет загрузку
     } catch (err) {
-      if ((err as { response?: { status?: number } }).response?.status !== 409) setError(errorMessage(err))
+      setError(errorMessage(err))
     } finally {
       setStarting(false)
       await loadSync()
@@ -296,16 +306,19 @@ function Recommendations({ onPlans }: { onPlans: (id: string | null) => void }) 
     }
   }
 
-  const lastRun = sync?.postings?.last_run
-  const lastSuccess = sync?.postings?.last_success_at
+  const lastRun = failedRun(sync)
+  const lastSuccess = oldestSuccess(sync)
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
-        <p className="min-w-0 flex-1 text-sm text-muted">По заказам за 30 дней и текущим остаткам; отметьте товары, поправьте количество и создайте план поставки.</p>
+        <p className="min-w-0 flex-1 text-sm text-muted">
+          Склады Ozon — по продажам и рекомендациям Ozon в каждом кластере, свои склады — по заказам; отметьте товары, поправьте
+          количество и создайте план поставки.
+        </p>
         {sync?.has_active_key && (
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <span className="text-muted" data-testid="postings-synced">
-              {active || starting ? 'Заказы загружаются…' : lastSuccess ? `Заказы обновлены ${timeAgo(lastSuccess)}` : 'Заказы ещё не загружались'}
+              {active || starting ? 'Данные загружаются…' : lastSuccess ? `Данные обновлены ${timeAgo(lastSuccess)}` : 'Данные ещё не загружались'}
             </span>
             <button
               type="button"
@@ -314,13 +327,13 @@ function Recommendations({ onPlans }: { onPlans: (id: string | null) => void }) 
               className="rounded-lg border border-line px-3 py-1.5 hover:border-accent hover:text-accent disabled:opacity-60"
               data-testid="postings-sync"
             >
-              Обновить заказы
+              Обновить данные
             </button>
           </div>
         )}
       </div>
 
-      <FormError message={error ?? (lastRun?.status === 'failed' ? `Заказы не загрузились: ${lastRun.error}` : null)} />
+      <FormError message={error ?? (lastRun ? `Данные не загрузились: ${lastRun.error}` : null)} />
 
       {form && data && (
         <section className="rounded-xl border border-line bg-card p-5" data-testid="supply-params">
@@ -460,28 +473,23 @@ function Result({ data, busy, onExport, onSync, syncing, picked, onToggle, onQty
   if (!data.has_key)
     return (
       <Empty testid="supply-empty">
-        Продажи по кластерам берём из заказов Ozon — они приходят только по API.{' '}
+        Продажи по кластерам и рекомендации поставок Ozon отдаёт только по API.{' '}
         <Link href="/dashboard/settings/integrations" className="text-accent hover:underline">
           Подключите API-ключ Ozon →
         </Link>
       </Empty>
     )
-  if (!data.postings_known)
+  if (!data.ozon_data.clusters_known && data.items.length === 0)
     return (
       <Empty testid="supply-empty">
-        Заказы ещё не загружены. Первый раз загрузим за 90 дней, дальше они обновляются сами каждые 6 часов.{' '}
+        Ozon ещё не посчитал продажи по кластерам — они приходят вместе с остатками (каждые 30 минут) и рекомендациями
+        поставок (каждые 3 часа).{' '}
         <button type="button" onClick={onSync} disabled={syncing} className="text-accent hover:underline disabled:opacity-60">
-          Загрузить заказы →
+          Обновить данные →
         </button>
       </Empty>
     )
-  if (data.fbo && !data.fbo.enough)
-    return (
-      <Empty testid="supply-empty">
-        Заказы загружены только за {data.fbo.days} дн. — для расчёта нужно хотя бы 7. Подождите, пока загрузится больше, или
-        нажмите «Обновить заказы».
-      </Empty>
-    )
+  const od = data.ozon_data
   const t = data.thresholds
   const groups = URGENCY_ORDER.map((u) => ({ u, items: data.items.filter((i) => i.urgency === u) }))
   return (
@@ -511,11 +519,15 @@ function Result({ data, busy, onExport, onSync, syncing, picked, onToggle, onQty
       </div>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-faint">
-        {data.fbo && (
-          <span data-testid="supply-window">
-            Заказы за {fmtDay(data.fbo.window_from)} – {fmtDay(data.fbo.window_to)} ({data.fbo.days} дн.)
-          </span>
-        )}
+        <span data-testid="supply-window">
+          Склады Ozon — продажи по данным Ozon за 28 дн.;{' '}
+          {od.recs_known && od.recs_synced_at ? `рекомендации Ozon обновлены ${fmtDateTime(od.recs_synced_at)}` : 'рекомендаций Ozon пока нет — только по продажам'}
+          {data.has_own_warehouses && data.fbs && ` · свои склады — заказы за ${data.fbs.days} дн.`}
+          {' · '}минимум {data.min_qty} шт. на склад ·{' '}
+          <Link href="/dashboard/settings#supply" className="text-accent hover:underline">
+            склады кластеров →
+          </Link>
+        </span>
         {data.items.length > 0 && (
           <button
             type="button"
@@ -528,22 +540,30 @@ function Result({ data, busy, onExport, onSync, syncing, picked, onToggle, onQty
         )}
       </div>
 
+      {od.recs_ok === false && od.recs_error && (
+        <p className="rounded-lg border border-warn/40 bg-warn/10 px-4 py-2 text-sm text-warn" data-testid="recs-error">
+          Рекомендации Ozon в последний раз не загрузились ({od.recs_error}) — считаем по продажам; при следующем обновлении
+          попробуем снова.
+        </p>
+      )}
+
       {data.items.length === 0 ? (
         <Empty testid="supply-none">
-          Везти ничего не нужно: у всех товаров с заказами за 30 дней запаса хватает на {data.params.target_days} дн. и дорогу.
+          Везти ничего не нужно: Ozon не советует поставок, а запаса в кластерах хватает на {data.params.target_days} дн. и дорогу.
         </Empty>
       ) : (
         groups.map(({ u, items }) => (
-          <Group key={u} urgency={u} items={items} hint={urgencyHint(u, t)} lead={data.params.lead_time_days} picked={picked} onToggle={onToggle} onQty={onQty} />
+          <Group key={u} urgency={u} items={items} hint={urgencyHint(u, t)} lead={data.params.lead_time_days} minQty={data.min_qty} picked={picked} onToggle={onToggle} onQty={onQty} />
         ))
       )}
 
       <p className="text-xs text-faint">
-        Продажи — заказы без отмен: для складов Ozon — по кластеру покупателя (Ozon принимает поставку в кластер и сам
-        раскладывает по его складам), для своих складов — по складу отгрузки. «Хватит на» — остаток сейчас / продажи в день за
-        последние 7 дней. «Отправить» — продажи в день за 30 дней × (запас после поставки + дни в пути) минус остаток и то, что
-        уже едет; со страховым запасом — ещё на столько дней продаж. «Нужно ещё» — за вычетом того, что уже в ваших планах и в
-        заявках Ozon, которые готовятся. Пороги «Срочно» и «Скоро» — те же, что у остатков, меняются в{' '}
+        Склады Ozon — по данным Ozon о кластере: продажи в день и остаток на складах кластера. «По продажам» — продажи в день ×
+        (запас после поставки + страховой + дни в пути) минус остаток и то, что уже едет. «Отправить» — не меньше, чем
+        рекомендует Ozon (это необходимый минимум), и не меньше {data.min_qty} шт. одного товара на склад. Кластер уже затоварен
+        и Ozon не советует — не везём. Свои склады (FBS / rFBS) — закупка по заказам. «Хватит на» — остаток сейчас / продажи в
+        день. «Нужно ещё» — за вычетом того, что уже в ваших планах и в заявках Ozon, которые готовятся. Пороги «Срочно» и
+        «Скоро» — те же, что у остатков, меняются в{' '}
         <Link href="/dashboard/settings" className="text-accent hover:underline">
           «Настройках»
         </Link>
@@ -554,7 +574,8 @@ function Result({ data, busy, onExport, onSync, syncing, picked, onToggle, onQty
 }
 
 function Days({ item, lead }: { item: SupplyItem; lead: number }) {
-  if (item.days_left === null) return <span className="text-muted">не продавался 7 дн.</span>
+  if (item.days_left === null)
+    return <span className="text-muted">{item.kind === 'supply' ? 'Ozon не видит продаж здесь' : 'не продавался 7 дн.'}</span>
   return (
     <>
       <span className={`font-medium ${URGENCY[item.urgency].text}`}>{item.stock === 0 ? 'нет на складе' : `${num(item.days_left)} дн.`}</span>
@@ -573,13 +594,48 @@ function Where({ item }: { item: SupplyItem }) {
     <>
       <span className="block">{d.name}</span>
       <span className="block text-xs text-faint">
-        {item.kind === 'supply' ? (d.warehouses.length ? `кластер · ${d.warehouses.join(', ')}` : 'кластер · товара там нет') : `${KIND.purchase} · ${d.warehouse_type}`}
+        {item.kind === 'supply' ? (d.warehouses.length ? `кластер · лежит: ${d.warehouses.join(', ')}` : 'кластер · товара там нет') : `${KIND.purchase} · ${d.warehouse_type}`}
       </span>
+      {d.warehouse && (
+        <span className="block text-xs text-accent" data-testid="preferred-warehouse">
+          → склад {d.warehouse.name}
+        </span>
+      )}
+      {item.ozon_grade && GRADE_TEXT[item.ozon_grade] && <span className="block text-xs text-faint">{GRADE_TEXT[item.ozon_grade]}</span>}
+      {item.ozon_reasons.map((r) => (
+        <span key={r} className="block text-xs text-warn">
+          Ozon: {r}
+        </span>
+      ))}
+    </>
+  )
+}
+
+/** Откуда число «отправить»: рекомендация Ozon (нижняя планка) или продажи, и довели ли до минимума на склад. */
+function Basis({ item, minQty }: { item: SupplyItem; minQty: number }) {
+  if (item.kind !== 'supply') return <span className="block text-xs text-faint">закупить</span>
+  const ozon = item.ozon_recommended === null ? 'Ozon — нет данных' : `Ozon советует ${item.ozon_recommended}`
+  const own = item.own_need === null ? 'продаж здесь нет' : `по продажам ${item.own_need}`
+  return (
+    <>
+      <span className="block text-xs text-faint" data-testid="supply-basis">
+        <span className={item.basis === 'ozon' ? 'font-medium text-fg' : ''}>{ozon}</span> ·{' '}
+        <span className={item.basis === 'sales' ? 'font-medium text-fg' : ''}>{own}</span>
+      </span>
+      {item.min_applied && <span className="block text-xs text-warn">до минимума {minQty} шт. на склад</span>}
+      {item.days_after !== null && <span className="block text-xs text-faint">хватит на {num(item.days_after)} дн. после</span>}
     </>
   )
 }
 
 function Sales({ item }: { item: SupplyItem }) {
+  if (item.kind === 'supply')
+    return (
+      <>
+        <span className="tabular-nums">{perDay(item.avg_daily)}</span>
+        <span className="block text-xs text-faint">в кластере, Ozon</span>
+      </>
+    )
   // стрелка — только при заметной разнице (больше 10 %): иначе 0,57 ↑ 0,57 после округления
   const up = Number(item.rate) > Number(item.avg_daily) * 1.1
   const down = Number(item.rate) < Number(item.avg_daily) * 0.9
@@ -625,11 +681,12 @@ function Pick({ item, picked, onToggle, onQty }: { item: SupplyItem; picked: Pic
   )
 }
 
-function Group({ urgency, items, hint, lead, picked, onToggle, onQty }: {
+function Group({ urgency, items, hint, lead, minQty, picked, onToggle, onQty }: {
   urgency: Urgency
   items: SupplyItem[]
   hint: string
   lead: number
+  minQty: number
   picked: Picked
   onToggle: (items: SupplyItem[], on: boolean) => void
   onQty: (item: SupplyItem, qty: string) => void
@@ -666,6 +723,9 @@ function Group({ urgency, items, hint, lead, picked, onToggle, onQty }: {
                     <div className="text-xs text-faint">{i.kind === 'supply' ? 'отправить' : 'закупить'}</div>
                   </div>
                 </div>
+                <div className="text-right">
+                  <Basis item={i} minQty={minQty} />
+                </div>
                 <div className="mt-1 flex flex-wrap items-center gap-x-3 text-sm">
                   <Pick item={i} picked={picked} onToggle={onToggle} onQty={onQty} />
                   <Planned item={i} />
@@ -679,7 +739,7 @@ function Group({ urgency, items, hint, lead, picked, onToggle, onQty }: {
                     <Days item={i} lead={lead} />
                   </span>
                   <span className="text-muted">
-                    {perDay(i.avg_daily)} в день (7 дн.: {perDay(i.rate)})
+                    {i.kind === 'supply' ? `${perDay(i.avg_daily)} в день по Ozon` : `${perDay(i.avg_daily)} в день (7 дн.: ${perDay(i.rate)})`}
                   </span>
                   <span className="text-muted">
                     там {i.stock}
@@ -699,11 +759,11 @@ function Group({ urgency, items, hint, lead, picked, onToggle, onQty }: {
                   <th className="px-4 py-2 font-normal" title="Остаток сейчас / продажи в день за последние 7 дней">
                     Хватит на
                   </th>
-                  <th className="px-4 py-2 text-right font-normal" title="Продажи в день за 30 дней и за последние 7">
+                  <th className="px-4 py-2 text-right font-normal" title="Склады Ozon — продажи в день в кластере по Ozon; свой склад — по заказам за период и за 7 дней">
                     Продажи/день
                   </th>
                   <th className="px-4 py-2 text-right font-normal">Сейчас там</th>
-                  <th className="px-4 py-2 text-right font-normal" title="Продажи в день × (запас после поставки + дни в пути) − остаток − в пути">
+                  <th className="px-4 py-2 text-right font-normal" title="Не меньше рекомендации Ozon и минимума на склад; по продажам — продажи в день × (запас + страховой + дни в пути) − остаток − в пути">
                     Отправить
                   </th>
                 </tr>
@@ -735,7 +795,7 @@ function Group({ urgency, items, hint, lead, picked, onToggle, onQty }: {
                     </td>
                     <td className="px-4 py-2 text-right">
                       <span className="font-semibold tabular-nums">{pieces(i.to_order)}</span>
-                      <span className="block text-xs text-faint">{i.kind === 'supply' ? `станет ${i.stock + i.in_transit + i.to_order}` : 'закупить'}</span>
+                      <Basis item={i} minQty={minQty} />
                       <Planned item={i} />
                     </td>
                   </tr>

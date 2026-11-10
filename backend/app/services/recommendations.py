@@ -60,8 +60,8 @@ async def gather(db: AsyncSession, user_id: uuid.UUID) -> engine.Inputs:
 
     params = await supply.load_params(db, user_id)
     plan = await supply.report(db, user_id, params)
-    # отправлений с данными за 30 дней: поставки — FBO, закупки на свой склад — FBS
-    days = {supply_planner.SUPPLY: (plan["fbo"] or {}).get("days", 0),
+    # дней с данными: поставки в Ozon (10.18a) — продажи Ozon по кластеру за 28 дней, закупки на свой склад — заказы FBS
+    days = {supply_planner.SUPPLY: 28 if plan["ozon_data"]["clusters_known"] else 0,
             supply_planner.PURCHASE: (plan["fbs"] or {}).get("days", 0)}
     lines = [
         engine.SupplyLine(i["product"]["id"], i["kind"], i["urgency"], i["destination"]["name"], i["to_order"],

@@ -18,9 +18,15 @@ export type SupplyItem = {
   product: StockProduct
   kind: SupplyKind
   urgency: Urgency
-  destination: { key: string; name: string; warehouse_type: string | null; warehouses: string[] }
-  sold_30: number
-  sold_7: number
+  destination: {
+    key: string
+    name: string
+    warehouse_type: string | null
+    warehouses: string[]
+    warehouse: { id: number; name: string } | null // 10.18a: склад кластера из настроек; нет — выберет Ozon
+  }
+  sold_30: number | null // закупка: заказы за период; у кластеров Ozon — null (продажи от Ozon)
+  sold_7: number | null
   avg_daily: string
   rate: string
   trend: string | null
@@ -34,6 +40,22 @@ export type SupplyItem = {
   in_plans: number // уже в открытых планах сервиса (10.18)
   in_orders: number // уже в заявках Ozon, которые ещё готовятся
   still_needed: number // нужно ещё
+  // 10.18a — у кластеров Ozon
+  ozon_recommended: number | null // рекомендует Ozon; null — рекомендации не загружены
+  own_need: number | null // по продажам в кластере
+  basis: 'ozon' | 'sales' | null
+  min_applied: boolean // довели до минимума на склад (коробка)
+  days_after: string | null // хватит после поставки, дней
+  ozon_grade: string | null
+  ozon_reasons: string[]
+}
+
+export type OzonData = {
+  clusters_known: boolean // Ozon посчитал продажи по кластерам (из остатков)
+  recs_known: boolean
+  recs_ok: boolean | null
+  recs_synced_at: string | null
+  recs_error: string | null
 }
 
 export type SupplyReport = {
@@ -46,6 +68,8 @@ export type SupplyReport = {
   fbo: Coverage | null
   fbs: Coverage | null
   has_own_warehouses: boolean
+  ozon_data: OzonData
+  min_qty: number
   totals: { critical: number; urgent: number; planned: number; supply_units: number; purchase_units: number; products: number }
   today: string
   items: SupplyItem[]
@@ -70,6 +94,23 @@ export const KIND: Record<SupplyKind, string> = {
   supply: 'Поставка в Ozon',
   purchase: 'Закупка на свой склад',
 }
+
+/** Статус ликвидности Ozon в кластере (`turnover_grade_cluster`) — простыми словами. */
+export const GRADE_TEXT: Record<string, string> = {
+  DEFICIT: 'Ozon: дефицит — хватит до 28 дн.',
+  POPULAR: 'Ozon: очень популярный',
+  ACTUAL: 'Ozon: популярный',
+  SURPLUS: 'Ozon: избыток — больше 120 дн.',
+  NO_SALES: 'Ozon: нет продаж 28 дн.',
+  WAITING_FOR_SUPPLY: 'Ozon: ждёт поставки',
+  RESTRICTED_NO_SALES: 'Ozon: в поставку нельзя',
+  COLLECTING_DATA: 'Ozon: собирает данные',
+}
+
+export const MIN_QTY_WHY =
+  'Меньше скольких штук одного товара не возить на склад — обычно столько, сколько в одной коробке. Меньше — довезём до этого числа, если Ozon советует поставку или столько продастся за срок; иначе не повезём.'
+export const CLUSTER_WAREHOUSE_WHY =
+  'Ozon принимает поставку в кластер и сам выбирает склад. Если в кластере вам важен конкретный склад, выберите его: он будет в рекомендациях и в Excel и выбран заранее при создании заявки.'
 
 export const TARGET_WHY =
   'На сколько дней продаж должно хватать товара, когда поставка приедет. Больше — реже возить, но дольше платить за хранение.'
@@ -112,13 +153,23 @@ export type PlanItem = {
 
 export type PlanDetail = Plan & { items: PlanItem[]; editable: boolean; can_create_in_ozon: boolean }
 
-export type DraftWarehouse = { id: number; name: string; address: string | null; available: boolean; state: string | null; reason: string | null; rank: number | null }
+export type DraftWarehouse = {
+  id: number
+  name: string
+  address: string | null
+  available: boolean
+  state: string | null
+  reason: string | null
+  rank: number | null
+  preferred?: boolean // склад кластера из настроек (10.18a)
+}
 export type Draft = {
   id: string
   plan_id: string
   status: 'pending' | 'ready' | 'failed' | 'used'
   cluster_name: string | null
   warehouses: DraftWarehouse[]
+  preferred_warehouse_id?: number | null
   rejected: { sku: number; offer_id: string | null; product_id: string | null; reasons: string[] }[]
   errors: string[]
   created_at: string

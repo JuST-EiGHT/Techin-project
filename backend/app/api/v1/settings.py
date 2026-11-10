@@ -29,6 +29,7 @@ def _response(s: UserSettings, theme: str) -> SettingsResponse:
         stock_critical_days=t.critical, stock_low_days=t.low, stock_excess_days=t.excess,
         supply_target_days=target, supply_lead_time_days=lead, supply_safety_days=svc.supply_safety_days(s),
         supply_demand_days=svc.supply_demand_days(s), min_profit_rub=svc.min_profit(s),
+        supply_min_qty=svc.supply_min_qty(s), supply_cluster_warehouses=svc.supply_cluster_warehouses(s),
         low_margin_pct=a.low_margin, anomaly_sales_drop_pct=a.sales_drop, anomaly_sales_drop_red_pct=a.sales_drop_red,
         anomaly_sales_growth_pct=a.sales_growth, anomaly_price_pct=a.price, anomaly_price_red_pct=a.price_red,
         anomaly_commission_pp=a.commission_pp, anomaly_payout_diff_pct=a.payout_diff,

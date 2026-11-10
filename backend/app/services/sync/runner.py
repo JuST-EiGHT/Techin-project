@@ -123,7 +123,26 @@ async def _postings_job(db: AsyncSession, user_id: uuid.UUID, client: OzonClient
 
 
 async def _supplies_job(db: AsyncSession, user_id: uuid.UUID, client: OzonClient) -> dict:
-    return (await sync_supply_orders(db, user_id, client)).as_dict()
+    stats = (await sync_supply_orders(db, user_id, client)).as_dict()
+    # 10.18a: рекомендованная поставка Ozon по кластерам — бета-метод: его сбой не мешает заявкам, расчёт пойдёт по продажам
+    from app.services.sync.supply_orders import fetch_clusters
+    from app.services.sync.supply_recs import record_failure, sync_supply_recs
+
+    try:
+        try:
+            names, _, _ = await fetch_clusters(client)
+        except (OzonAuthError, OzonNotConfiguredError):
+            raise
+        except OzonAPIError:
+            names = {}
+        stats.update(await sync_supply_recs(db, user_id, client, names))
+    except (OzonAuthError, OzonNotConfiguredError):
+        raise
+    except OzonAPIError as exc:
+        await db.rollback()
+        await record_failure(db, user_id, exc.message)
+        stats["ozon_recs_failed"] = exc.message
+    return stats
 
 
 async def _bank_job(db: AsyncSession, user_id: uuid.UUID, connection_id: str | None = None) -> dict:

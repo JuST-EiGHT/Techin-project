@@ -1,0 +1,49 @@
+{
+  "items": [
+    {
+      "macrolocal_cluster_to_id": 154,
+      "metrics": {
+        "attention_level": "MEDIUM",
+        "impact_share": 0.4,
+        "local_data": {"index": 60, "local_quantity": 6, "total_quantity": 10},
+        "overpayment": {"delta": 40, "non_local_delivery": 120, "total": 160},
+        "overpayment_reasons": [{"amount": 120, "quantity": 4, "reason": "NOT_ENOUGH_STOCK"}],
+        "price": 1290,
+        "recommended_supply": 30
+      },
+      "sku": 900001001
+    },
+    {
+      "macrolocal_cluster_to_id": 777,
+      "metrics": {
+        "attention_level": "HIGH",
+        "impact_share": 0.3,
+        "local_data": {"index": 0, "local_quantity": 0, "total_quantity": 5},
+        "overpayment": {"delta": 60, "non_local_delivery": 150, "total": 210},
+        "overpayment_reasons": [{"amount": 150, "quantity": 5, "reason": "NO_SUPPLIES_TO_CLUSTER"}],
+        "price": 4890,
+        "recommended_supply": 3
+      },
+      "sku": 900001002
+    },
+    {
+      "macrolocal_cluster_to_id": 2,
+      "metrics": {
+        "attention_level": "LOW",
+        "impact_share": 0.1,
+        "local_data": {"index": 100, "local_quantity": 3, "total_quantity": 3},
+        "overpayment": {"delta": 0, "non_local_delivery": 0, "total": 0},
+        "overpayment_reasons": [],
+        "price": 1290,
+        "recommended_supply": 0
+      },
+      "sku": 900001001
+    },
+    {
+      "macrolocal_cluster_to_id": 154,
+      "metrics": {"attention_level": "LOW", "recommended_supply": 2},
+      "sku": 900009999
+    }
+  ],
+  "total": 4
+}

@@ -16,20 +16,26 @@ FBS/rFBS (склады продавца) — /v2/warehouse/list (пагинац�
 Снепшот остатка пишется только при изменении. Если пара товар × склад пропала из
 ответа, а последний снепшот был ненулевым, — пишем нулевой (товар со склада ушёл).
 Всё — одной транзакцией: ошибка посередине ничего не меняет в БД.
+
+Шаг 10.18a: из тех же строк — то, что Ozon сам считает по товару в кластере (продажи в день `ads_cluster`, на сколько
+дней хватит `idc_cluster`, дни без продаж, статус ликвидности `turnover_grade_cluster`) — в `cluster_stock_metrics`
+(снимок при изменении), и кластер размещения склада (`macrolocal_cluster_id`) — в него Ozon принимает поставку.
 """
 import logging
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.integrations.ozon.client import OzonClient
+from app.models.cluster_metrics import ClusterStockMetric
 from app.models.product import Product
 from app.models.warehouse import FBO, FBS, RFBS, ProductStock, Warehouse
-from app.services.sync.parsing import to_count, to_id, to_str
+from app.services.sync.parsing import to_count, to_decimal, to_id, to_str
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +59,7 @@ class StockSyncStats:
     stocks_changed: int = 0  # сохранено новых снепшотов (включая обнуления)
     stocks_unchanged: int = 0
     unknown_products: int = 0  # строки Ozon по товарам, которых ещё нет в БД (нужна синхронизация товаров)
+    cluster_metrics_changed: int = 0  # 10.18a: новых снимков показателей Ozon по кластеру
 
     def as_dict(self) -> dict[str, int]:
         return asdict(self)
@@ -65,6 +72,43 @@ class _WarehouseInfo:
     is_active: bool
     cluster_id: int | None = None
     cluster_name: str | None = None
+    macrolocal_cluster_id: int | None = None
+
+
+Metric = tuple  # (macrolocal_cluster_id, cluster_name, ads, idc, days_without_sales, turnover_grade)
+_ADS, _IDC = Decimal("0.001"), Decimal("0.1")
+
+
+def cluster_metric(row: dict) -> Metric:
+    """Показатели Ozon по товару в кластере из строки /v1/analytics/stocks (одинаковы у всех складов кластера)."""
+    days = row.get("days_without_sales_cluster")
+    return (
+        to_id(row.get("macrolocal_cluster_id")), to_str(row.get("cluster_name"), 255),
+        to_decimal(row.get("ads_cluster"), _ADS), to_decimal(row.get("idc_cluster"), _IDC),
+        None if days is None else to_count(days), to_str(row.get("turnover_grade_cluster"), 32),
+    )
+
+
+def _metric_of(m: ClusterStockMetric) -> Metric:
+    ads = None if m.ads is None else Decimal(m.ads).quantize(_ADS)
+    idc = None if m.idc is None else Decimal(m.idc).quantize(_IDC)
+    return (m.macrolocal_cluster_id, m.cluster_name, ads, idc, m.days_without_sales, m.turnover_grade)
+
+
+async def latest_cluster_metrics(db: AsyncSession, user_id: uuid.UUID) -> dict[tuple[uuid.UUID, int], ClusterStockMetric]:
+    """Последний снимок показателей по каждой паре товар × кластер."""
+    latest = (
+        select(ClusterStockMetric.product_id, ClusterStockMetric.cluster_id,
+               func.max(ClusterStockMetric.snapshot_at).label("mx"))
+        .where(ClusterStockMetric.user_id == user_id)
+        .group_by(ClusterStockMetric.product_id, ClusterStockMetric.cluster_id)
+        .subquery()
+    )
+    res = await db.execute(select(ClusterStockMetric).join(latest, and_(
+        ClusterStockMetric.product_id == latest.c.product_id, ClusterStockMetric.cluster_id == latest.c.cluster_id,
+        ClusterStockMetric.snapshot_at == latest.c.mx,
+    )).where(ClusterStockMetric.user_id == user_id))
+    return {(m.product_id, m.cluster_id): m for m in res.scalars()}
 
 
 def _has_next(value: Any) -> bool:
@@ -155,6 +199,7 @@ async def sync_stocks(db: AsyncSession, user_id: uuid.UUID, client: OzonClient) 
 
     infos: dict[int, _WarehouseInfo] = {}
     readings: dict[tuple[uuid.UUID, int], Reading] = {}
+    metrics: dict[tuple[uuid.UUID, int], Metric] = {}
 
     # FBO: склады Ozon с кластерами
     for row in await fetch_fbo(client, sorted(by_sku)):
@@ -165,10 +210,14 @@ async def sync_stocks(db: AsyncSession, user_id: uuid.UUID, client: OzonClient) 
         if product is None:
             stats.unknown_products += 1
             continue
+        cluster_id = to_id(row.get("cluster_id"))
         infos.setdefault(wid, _WarehouseInfo(
             name=to_str(row.get("warehouse_name"), 255) or str(wid), type=FBO, is_active=True,
-            cluster_id=to_id(row.get("cluster_id")), cluster_name=to_str(row.get("cluster_name"), 255),
+            cluster_id=cluster_id, cluster_name=to_str(row.get("cluster_name"), 255),
+            macrolocal_cluster_id=to_id(row.get("macrolocal_cluster_id")),
         ))
+        if cluster_id is not None:
+            metrics.setdefault((product.id, cluster_id), cluster_metric(row))
         present, _, transit = readings.get((product.id, wid), (0, None, 0))
         # одна пара может прийти несколькими строками (теги, зоны) — складываем
         readings[(product.id, wid)] = (
@@ -237,6 +286,19 @@ async def sync_stocks(db: AsyncSession, user_id: uuid.UUID, client: OzonClient) 
             db.add(ProductStock(product_id=key[0], warehouse_id=key[1], snapshot_at=now,
                                 present=zero[0], reserved=zero[1], in_transit=zero[2]))
             stats.stocks_changed += 1
+
+    # 10.18a: показатели Ozon по кластеру — снимок только при изменении
+    last_metrics = await latest_cluster_metrics(db, user_id)
+    for (product_id, cluster_id), metric in metrics.items():
+        last = last_metrics.get((product_id, cluster_id))
+        if last is not None and _metric_of(last) == metric:
+            continue
+        macro, name, ads, idc, days, grade = metric
+        db.add(ClusterStockMetric(
+            user_id=user_id, product_id=product_id, cluster_id=cluster_id, macrolocal_cluster_id=macro,
+            cluster_name=name, ads=ads, idc=idc, days_without_sales=days, turnover_grade=grade, snapshot_at=now,
+        ))
+        stats.cluster_metrics_changed += 1
 
     await db.commit()
     log.info("Синхронизация остатков: пользователь %s → %s", user_id, stats.as_dict())

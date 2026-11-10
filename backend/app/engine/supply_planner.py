@@ -13,6 +13,16 @@
 
 Только пары с продажами за 30 дней. Нечего везти (to_order = 0) — рекомендации нет. Продаж за 7 дней нет — тренд 0,
 остаток не убывает: срочности нет (planned), но запас до цели всё равно довозим.
+
+Шаг 10.18a — склады Ozon (FBO) считаются по данным Ozon о кластере (`cluster_recommend`, решения владельца 10.11.2026):
+    продажи в день  = ads_cluster Ozon (28 дней, как в «Управлении остатками»); остаток и в пути — склады этого кластера
+    по продажам     = max(0, ⌈продажи в день × (target + safety + lead)⌉ − остаток − в пути) — не больше запаса на срок
+    везти           = max(по продажам, рекомендованная поставка Ozon) — рекомендация Ozon — нижняя планка, «прямо
+                      необходимое»; кластер уже затоварен и Ozon не советует — ничего не везём
+    минимум         = `min_qty` одного товара на склад (коробка, по умолчанию 6): меньше — довозим до минимума, если Ozon
+                      советует или за срок продастся не меньше коробки; иначе не везём (лежать будет дольше срока)
+    хватит на       = остаток / продажи в день (как idc_cluster); срочность — по порогам остатков, как выше
+Закупка на свой склад (FBS / rFBS) — прежним расчётом `recommend` по заказам.
 """
 import math
 from dataclasses import dataclass
@@ -27,6 +37,8 @@ URGENCIES = (CRITICAL, URGENT, PLANNED)
 DEFAULT_TARGET_DAYS = 45
 DEFAULT_LEAD_TIME_DAYS = 7
 DEFAULT_SAFETY_DAYS = 0  # страховой запас (шаг 10.18) — сверх цели, на случай задержки поставки или всплеска спроса
+DEFAULT_MIN_QTY = 6  # 10.18a: минимум одного товара в поставке на склад, шт. (коробка) — настройка
+OZON, SALES = "ozon", "sales"  # 10.18a: на чём основано «везти» — рекомендация Ozon или продажи в кластере
 MIN_DAYS = 7  # меньше дней с данными о заказах — не считаем: среднее по паре дней обманчиво
 
 _TENTH = Decimal("0.1")
@@ -73,6 +85,13 @@ class SupplyRecommendation:
     to_order: int
     urgency: str
     arrives_late: bool  # кончится раньше, чем доедет поставка
+    # 10.18a — только у кластеров Ozon: что советует Ozon, сколько выходит по продажам, на чём основано, довезли ли до
+    # минимума и на сколько дней хватит после поставки
+    ozon_recommended: int | None = None
+    own_need: int | None = None
+    basis: str | None = None
+    min_applied: bool = False
+    days_after: Decimal | None = None
 
 
 def recommend(
@@ -113,4 +132,82 @@ def plan(
     return sorted(out, key=lambda r: (
         URGENCIES.index(r.urgency), never if r.days_left is None else r.days_left, -r.to_order, r.point.offer_id,
         r.point.destination,
+    ))
+
+
+# ── 10.18a: склады Ozon — по данным Ozon о кластере ──
+@dataclass
+class ClusterPoint:
+    """Товар и кластер Ozon: остаток и в пути на складах кластера, продажи в день по Ozon, рекомендация Ozon."""
+
+    product: Any
+    offer_id: str
+    destination: str  # ключ кластера
+    stock: int
+    in_transit: int
+    ads: Decimal | None  # продажи в день в кластере по Ozon (ads_cluster); None — Ozon по кластеру не считал
+    ozon_rec: int | None  # рекомендованная поставка Ozon, шт.; None — рекомендации не загружены
+    attention: str | None = None  # attention_level Ozon
+    kind: str = SUPPLY
+    demand: Demand | None = None  # заказов по кластеру больше не считаем — продажи от Ozon
+
+
+def _urgency(days_left: Decimal | None, thresholds: Thresholds, attention: str | None = None) -> str:
+    if days_left is not None and days_left < thresholds.critical:
+        return CRITICAL
+    if days_left is not None and days_left < thresholds.low:
+        return URGENT
+    if days_left is None and (attention or "").upper() in ("HIGH", "CRITICAL"):
+        return URGENT  # продаж Ozon по кластеру нет, но Ozon считает поставку важной
+    return PLANNED
+
+
+def cluster_recommend(
+    point: ClusterPoint, params: Params = Params(), thresholds: Thresholds = DEFAULT_THRESHOLDS,
+    min_qty: int = DEFAULT_MIN_QTY,
+) -> SupplyRecommendation | None:
+    horizon = params.target_days + params.safety_days + params.lead_time_days
+    ads = point.ads if point.ads is not None and point.ads > 0 else None
+    stock, transit = max(point.stock, 0), max(point.in_transit, 0)
+    need = math.ceil(ads * horizon) if ads else 0
+    own = max(0, need - stock - transit)
+    rec = max(point.ozon_rec or 0, 0)
+    qty = max(own, rec)
+    if qty <= 0:
+        return None
+    min_applied = False
+    if qty < min_qty:
+        if rec > 0 or (ads is not None and ads * horizon >= min_qty):
+            qty, min_applied = min_qty, True
+        else:
+            return None  # за весь срок продастся меньше коробки — товар пролежит дольше срока
+    days_left = (Decimal(stock) / ads).quantize(_TENTH, ROUND_HALF_UP) if ads else None
+    return SupplyRecommendation(
+        point=point,  # type: ignore[arg-type]
+        avg_daily=(ads or Decimal(0)).quantize(_RATE, ROUND_HALF_UP),
+        rate=(ads or Decimal(0)).quantize(_RATE, ROUND_HALF_UP), trend=None, days_left=days_left,
+        target_stock=math.ceil(ads * (params.target_days + params.safety_days)) if ads else 0,
+        need=need, to_order=qty, urgency=_urgency(days_left, thresholds, point.attention),
+        arrives_late=days_left is not None and days_left < params.lead_time_days,
+        ozon_recommended=point.ozon_rec, own_need=own if ads else None,
+        basis=OZON if rec > 0 and rec >= own else SALES, min_applied=min_applied,
+        days_after=(Decimal(stock + transit + qty) / ads).quantize(_TENTH, ROUND_HALF_UP) if ads else None,
+    )
+
+
+def plan_clusters(
+    points: list[ClusterPoint], params: Params = Params(), thresholds: Thresholds = DEFAULT_THRESHOLDS,
+    min_qty: int = DEFAULT_MIN_QTY,
+) -> list[SupplyRecommendation]:
+    out = [r for r in (cluster_recommend(p, params, thresholds, min_qty) for p in points) if r is not None]
+    return sort_recs(out)
+
+
+def sort_recs(recs: list[SupplyRecommendation]) -> list[SupplyRecommendation]:
+    """Сначала срочные; внутри — у кого запас кончится раньше; при равных — кластер с лучшими продажами (туда — больше),
+    потом больше везти."""
+    never = Decimal(10 ** 9)
+    return sorted(recs, key=lambda r: (
+        URGENCIES.index(r.urgency), never if r.days_left is None else r.days_left, -r.avg_daily, -r.to_order,
+        r.point.offer_id, r.point.destination,
     ))

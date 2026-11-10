@@ -218,7 +218,10 @@ async def test_create_order_only_after_check_and_confirm(sessions, client, token
     }, headers=auth(tokens))).json()
     pid = plan["id"]
 
-    # проверка: черновик в Ozon — кластер по названию, SKU и количество; заявку не создаёт
+    # склад кластера из настроек (10.18a) — выбран заранее, если Ozon его принимает
+    await client.patch("/api/v1/settings", json={"supply_cluster_warehouses": {"екатеринбург": EKB_WH}},
+                       headers=auth(tokens))
+    # проверка: черновик в Ozon — кластер по id из наших данных (10.18a), SKU и количество; заявку не создаёт
     r = await client.post(f"{URL}/plans/{pid}/ozon-check", headers=auth(tokens))
     assert r.status_code == 200, r.text
     check = r.json()
@@ -226,8 +229,9 @@ async def test_create_order_only_after_check_and_confirm(sessions, client, token
                                                                  {"sku": 900001004, "quantity": 4}],
                                                        "macrolocal_cluster_id": 154}, "deletion_sku_mode": "PARTIAL"}]
     assert (check["status"], check["cluster_name"]) == ("ready", "Екатеринбург")
-    assert [(w["name"], w["available"], w["reason"]) for w in check["warehouses"]] == [
-        ("ЕКАТЕРИНБУРГ_РФЦ_НОВЫЙ", True, None), ("ЕКАТЕРИНБУРГ_2", False, "WAREHOUSE_OVERLOADED")]
+    assert [(w["name"], w["available"], w["reason"], w["preferred"]) for w in check["warehouses"]] == [
+        ("ЕКАТЕРИНБУРГ_РФЦ_НОВЫЙ", True, None, True), ("ЕКАТЕРИНБУРГ_2", False, "WAREHOUSE_OVERLOADED", False)]
+    assert check["preferred_warehouse_id"] == EKB_WH
     assert [(x["offer_id"], x["reasons"]) for x in check["rejected"]] == [(CM, ["SKU_IS_NOT_ALLOWED_FOR_SUPPLY"])]
     assert drafts.calls["create"] == []
 
@@ -293,8 +297,8 @@ async def test_create_order_rejected_by_ozon_and_purchase(sessions, client, toke
         "items": [{"product_id": str(ids[TH]), "qty": 6}]}, headers=auth(tokens))).json()
     r = await client.post(f"{URL}/plans/{purchase['id']}/ozon-check", headers=auth(tokens))
     assert r.status_code == 400 and "закупка" in r.json()["detail"]
-    nowhere = (await client.post(f"{URL}/plans", json={
-        "kind": "supply", "destination_key": "новосибирск", "destination_name": "Новосибирск",
+    nowhere = (await client.post(f"{URL}/plans", json={  # ни в наших данных, ни в списке кластеров Ozon
+        "kind": "supply", "destination_key": "владивосток", "destination_name": "Владивосток",
         "items": [{"product_id": str(ids[ACB]), "qty": 26}]}, headers=auth(tokens))).json()
     r = await client.post(f"{URL}/plans/{nowhere['id']}/ozon-check", headers=auth(tokens))
     assert r.status_code == 400 and "не найден в Ozon" in r.json()["detail"]
