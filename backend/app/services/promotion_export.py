@@ -37,7 +37,8 @@ def _others(r: PromotionProductResponse) -> str:
     parts = []
     for o in r.other_promotions:
         price = f"{o.action_price:.2f} ₽" if o.action_price is not None else "цена неизвестна"
-        parts.append(f"{o.title} — {price}{' (дешевле)' if o.cheaper else ''}")
+        till = f", до {o.date_to:%d.%m.%Y}" if o.date_to else ""
+        parts.append(f"{o.title} — {price}{' (дешевле)' if o.cheaper else ''}{till}{', заморожена' if o.is_frozen else ''}")
     return "; ".join(parts)
 
 

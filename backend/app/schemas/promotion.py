@@ -52,12 +52,16 @@ class PromoProduct(BaseModel):
 
 
 class OtherPromotion(BaseModel):
-    """Товар уже участвует в другой акции (правка владельца): название, цена там и ниже ли она, чем здесь."""
+    """Товар уже участвует в другой акции (правка владельца): название, цена там и ниже ли она, чем здесь; с 10.11 —
+    до какого дня идёт, заморожена ли (тогда из неё не выйти и цену не поднять) и с какого дня товар в ней."""
 
     id: uuid.UUID
     title: str
     action_price: Decimal | None
     cheaper: bool  # цена там ниже цены в этой акции (у кандидата — цены входа)
+    date_to: datetime | None = None
+    is_frozen: bool = False
+    since: datetime | None = None  # с какого дня товар в той акции (первая синхронизация участия или вход через сервис)
 
 
 class PromotionProductResponse(BaseModel):

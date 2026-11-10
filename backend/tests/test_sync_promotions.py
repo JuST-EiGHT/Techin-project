@@ -496,6 +496,8 @@ async def test_api_other_promotions_and_export(sessions, client, tokens, ozon):
     other = candidate["other_promotions"][0]
     entry = candidate["max_action_price"] if Decimal(candidate["max_action_price"] or 0) > 0 else candidate["action_price"]
     assert other["cheaper"] is (Decimal(other["action_price"]) < Decimal(entry))
+    # столбец «Уже участвует» (10.11): до какого дня идёт та акция, заморожена ли, с какого дня товар в ней
+    assert other["date_to"] and other["since"] and isinstance(other["is_frozen"], bool)
     assert by_offer["6001-2RS.C3.SRL.NAC.TH"]["other_promotions"] == []
 
     r = await client.get(f"/api/v1/promotions/{promo_id}/products/export", headers=auth(tokens))

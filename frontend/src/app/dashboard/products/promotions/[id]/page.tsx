@@ -179,7 +179,7 @@ function PromotionPage() {
       ) : (
         <section className="overflow-hidden rounded-xl border border-line bg-card">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[54rem] text-[13px]" data-testid="promo-table">
+            <table className="w-full min-w-[66rem] text-[13px]" data-testid="promo-table">
               <thead className="border-b border-line text-left text-xs text-muted">
                 <tr>
                   <th className="px-3 py-2 font-normal">Товар</th>
@@ -193,6 +193,10 @@ function PromotionPage() {
                   >
                     {tab === 'candidates' ? 'Цена входа' : 'Цена в акции'}
                     <div className="text-[11px] text-faint">ваша цена · скидка</div>
+                  </th>
+                  <th className="px-3 py-2 font-normal" title="В каких ещё идущих акциях товар уже участвует: цена там, до какого дня акция; дешевле, чем здесь, — жёлтым">
+                    Уже участвует
+                    <div className="text-[11px] text-faint">цена · до какого дня</div>
                   </th>
                   <th className="px-3 py-2 text-right font-normal" title="Калькулятор цены: ниже — каждая продажа в минус; под ней — цена с вашей целевой маржой">
                     Мин. для участия
@@ -243,29 +247,28 @@ function PromotionPage() {
   )
 }
 
-/** Товар уже в других акциях: дешевле — заметно (покупатель может увидеть ту цену), остальные — списком в подсказке. */
+/** «Уже участвует»: все другие идущие акции товара — цена там (дешевле, чем здесь, — жёлтым: покупатель увидит ту
+ * цену), до какого дня акция и заморожена ли. По ним видно, где товар в цикле акций и когда освободится. */
 function OtherPromos({ items }: { items: OtherPromotion[] }) {
-  if (items.length === 0) return null
-  const cheaper = items.filter((o) => o.cheaper)
-  const list = items.map((o) => `«${o.title}»${o.action_price ? ` — ${rub(o.action_price)}` : ''}`).join('\n')
-  if (cheaper.length > 0) {
-    const o = cheaper[0]
-    return (
-      <Link
-        href={`/dashboard/products/promotions/${o.id}`}
-        className="mt-0.5 block truncate text-xs text-warn hover:underline"
-        title={`Уже участвует:\n${list}`}
-        data-testid="promo-other-cheaper"
-      >
-        уже в «{o.title}» дешевле{o.action_price ? ` — ${rub(o.action_price)}` : ''}
-        {items.length > 1 && ` (+${items.length - 1})`}
-      </Link>
-    )
-  }
+  if (items.length === 0) return <span className="text-faint">нет</span>
   return (
-    <div className="mt-0.5 truncate text-xs text-faint" title={`Уже участвует:\n${list}`} data-testid="promo-other">
-      ещё в {items.length === 1 ? `«${items[0].title}»` : `${items.length} акциях`}
-    </div>
+    <ul className="space-y-1" data-testid="promo-other">
+      {items.map((o) => (
+        <li key={o.id} className="max-w-[15rem]" data-testid={o.cheaper ? 'promo-other-cheaper' : undefined}>
+          <div className="flex items-baseline gap-1.5">
+            <Link href={`/dashboard/products/promotions/${o.id}`} className={`truncate hover:underline ${o.cheaper ? 'text-warn' : 'hover:text-accent'}`} title={o.title}>
+              {o.title}
+            </Link>
+            <span className={`shrink-0 tabular-nums ${o.cheaper ? 'font-medium text-warn' : ''}`}>{o.action_price ? rub(o.action_price) : '—'}</span>
+          </div>
+          <div className="text-[11px] text-faint">
+            {o.cheaper && <span className="text-warn">дешевле, чем здесь · </span>}
+            {o.date_to ? `до ${fmtDate(o.date_to)}` : 'без даты окончания'}
+            {o.is_frozen && ' · заморожена'}
+          </div>
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -297,7 +300,8 @@ function PricesHelp() {
           <b className="text-fg">Маржа в акции</b> и <b className="text-fg">прибыль с 1 шт.</b> — при цене в акции, до налога на прибыль.
         </li>
         <li>
-          <b className="text-fg">«уже в … дешевле»</b> — товар участвует в другой акции по цене ниже, чем здесь.
+          <b className="text-fg">Уже участвует</b> — в каких ещё идущих акциях товар: цена там, до какого дня акция, заморожена ли.
+          Жёлтым — там дешевле, чем здесь: покупатель увидит ту цену.
         </li>
       </ul>
     </details>
@@ -331,7 +335,6 @@ function Row({ r, wholeStock, frozen, onAction }: { r: PromoProductRow; wholeSto
           <span className="truncate">{r.product.name}</span>
           {r.added_automatically && <Badge tone="accent">авто</Badge>}
         </div>
-        <OtherPromos items={r.other_promotions ?? []} />
       </td>
       <td className={td} data-testid="promo-price">
         <span className="font-medium">{r.is_active ? rub(price) : `до ${rub(price)}`}</span>
@@ -339,6 +342,9 @@ function Row({ r, wholeStock, frozen, onAction }: { r: PromoProductRow; wholeSto
           ваша {rub(r.price)}
           {r.discount_pct !== null && r.is_active && ` · −${r.discount_pct} %`}
         </div>
+      </td>
+      <td className="px-3 py-2 align-top text-xs" data-testid="promo-other-cell">
+        <OtherPromos items={r.other_promotions ?? []} />
       </td>
       <td className={`${td} ${r.below_breakeven ? 'font-semibold text-bad' : ''}`} data-testid="promo-breakeven">
         {r.breakeven_price === null ? <span className="text-muted">нет данных</span> : rub(r.breakeven_price)}

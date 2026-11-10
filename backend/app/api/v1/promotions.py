@@ -287,6 +287,8 @@ def _others(found: list[tuple[Promotion, PromotionProduct]], price: Decimal | No
         OtherPromotion(
             id=promo.id, title=promo.title, action_price=row.action_price,
             cheaper=bool(price is not None and row.action_price is not None and row.action_price < price),
+            date_to=utc(promo.date_to), is_frozen=bool(promo.freeze_date and utc(promo.freeze_date) <= _now()),
+            since=utc(row.first_seen_at),
         )
         for promo, row in found
     ]
