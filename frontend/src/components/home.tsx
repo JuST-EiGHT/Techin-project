@@ -7,7 +7,7 @@ import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Too
 
 import { GranularitySwitch, MetricChart } from '@/components/analytics'
 import { FilterButton, FilterField } from '@/components/filters'
-import { type Drill, MoreLink, TipBox, useDrill } from '@/components/charts'
+import { type Drill, MoreLink, Sparkline, TipBox, useDrill } from '@/components/charts'
 import { Change, FigureLink, Hint, type OzonDashboard } from '@/components/dashboard'
 import { compact, useTokenColors } from '@/components/finance'
 import { weekdayShort } from '@/components/payouts'
@@ -16,6 +16,7 @@ import { type Overview, type PlanningState, opsHref } from '@/components/plannin
 import { fmtDay, rub } from '@/components/reports'
 import { type Granularity, METRICS, type MetricKey, type MetricPoint, type Metrics, formatMetric } from '@/lib/analytics'
 import { api } from '@/lib/api'
+import { useLowMargin, useSettings } from '@/lib/settings'
 import { useSyncStatus } from '@/lib/sync'
 
 const range = (from: string, to: string) => `period=custom&from=${from}&to=${to}`
@@ -41,14 +42,14 @@ export function Card({ href, label, value, testid, tone, children }: {
   label: string
   value: string
   testid: string
-  tone?: 'ok' | 'bad'
+  tone?: 'ok' | 'bad' | 'warn'
   children?: React.ReactNode
 }) {
   if (href) return <FigureLink href={href} label={label} value={value} tone={tone} testid={testid}>{children}</FigureLink>
   return (
     <div className="bg-card px-4 py-3" data-testid={testid}>
       <div className="text-[11px] uppercase tracking-wider text-muted">{label}</div>
-      <div className={`mt-1 text-lg font-bold tabular-nums ${tone === 'ok' ? 'text-ok' : tone === 'bad' ? 'text-bad' : ''}`}>{value}</div>
+      <div className={`mt-1 text-lg font-bold tabular-nums ${tone === 'ok' ? 'text-ok' : tone === 'bad' ? 'text-bad' : tone === 'warn' ? 'text-warn' : ''}`}>{value}</div>
       <div className="mt-0.5 space-y-0.5">{children}</div>
     </div>
   )
@@ -74,6 +75,15 @@ export function KeyFigures({ data, taxSet, costLabel, fourth = 'orders', query }
   const profit = t.profit === null ? null : Number(t.profit)
   const noData = (k: MetricKey) => (t[k] === null ? 'нет данных за период' : null)
   const byProducts = data.filter.product_count !== null // товар или категория — прибыль до налога, как «Прибыль по товарам»
+  // Dashboard Design Patterns (10.28): число + стрелка тренда + мини-график + порог — «хорошо / плохо» с одного взгляда
+  const series = (k: MetricKey) => data.points.map((p) => (p[k] === null ? null : Number(p[k])))
+  const low = useLowMargin()
+  const targetRaw = useSettings()?.price_target_margin_pct
+  const target = targetRaw === undefined || targetRaw === null ? null : Number(targetRaw)
+  const margin = t.margin === null ? null : Number(t.margin)
+  const marginTone: 'ok' | 'bad' | 'warn' | undefined =
+    margin === null ? undefined : margin < 0 ? 'bad' : margin < low ? 'warn' : target !== null && margin >= target ? 'ok' : undefined
+  const pp = (v: number) => `${v.toLocaleString('ru-RU', { maximumFractionDigits: 1 })} п.п.`
   return (
     <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line lg:grid-cols-4" data-testid="key-figures">
       <Card href={link('revenue')} label="Выручка" value={formatMetric(t.revenue, 'rub')} testid="figure-revenue">
@@ -86,6 +96,7 @@ export function KeyFigures({ data, taxSet, costLabel, fourth = 'orders', query }
             </span>
           </Hint>
         )}
+        <Sparkline values={series('revenue')} testid="spark-revenue" />
       </Card>
       <Card
         href={link('profit')}
@@ -112,15 +123,29 @@ export function KeyFigures({ data, taxSet, costLabel, fourth = 'orders', query }
         )}
         {/* решение 10.22: главная и аналитика — прибыль от продаж на Ozon; с расходами бизнеса — «Финансы» */}
         {t.profit !== null && !byProducts && <Hint>от продаж на Ozon, без расходов бизнеса</Hint>}
+        <Sparkline values={series('profit')} zero tone={profit !== null && profit < 0 ? 'bad' : 'ok'} testid="spark-profit" />
       </Card>
-      <Card href={link('margin')} label="Маржинальность" value={formatMetric(t.margin, 'pct')} testid="figure-margin">
+      <Card href={link('margin')} label="Маржинальность" value={formatMetric(t.margin, 'pct')} tone={marginTone} testid="figure-margin">
         {ch && <Change pct={ch.margin_pp} against={against} unit="п.п." />}
         <Hint>{noData('margin') ?? was('margin') ?? 'прибыль / выручка'}</Hint>
+        {margin !== null && (
+          <span data-testid="margin-threshold">
+            {margin < 0 ? (
+              <Hint tone="warn">ниже нуля — продажи в убыток</Hint>
+            ) : margin < low ? (
+              <Hint tone="warn">ниже порога низкой маржи {String(low).replace('.', ',')} %</Hint>
+            ) : target !== null ? (
+              <Hint>{margin >= target ? `цель ${String(target).replace('.', ',')} % достигнута` : `до цели ${String(target).replace('.', ',')} % — ${pp(target - margin)}`}</Hint>
+            ) : null}
+          </span>
+        )}
+        <Sparkline values={series('margin')} zero tone={marginTone === 'bad' ? 'bad' : marginTone === 'warn' ? 'warn' : 'accent'} testid="spark-margin" />
       </Card>
       {fourth === 'sold_qty' ? (
         <Card href={link('sold_qty')} label="Продажи, шт." value={formatMetric(t.sold_qty, 'qty')} testid="figure-sold_qty">
           {ch && <Change pct={ch.sold_qty} against={against} />}
           <Hint>{noData('sold_qty') ?? was('sold_qty') ?? `возвратов ${formatMetric(t.returned_qty, 'qty')}`}</Hint>
+          <Sparkline values={series('sold_qty')} testid="spark-sold_qty" />
         </Card>
       ) : (
         <Card href={link('orders')} label="Заказы" value={formatMetric(t.orders, 'count')} testid="figure-orders">
@@ -131,6 +156,7 @@ export function KeyFigures({ data, taxSet, costLabel, fourth = 'orders', query }
               : (was('orders') ??
                 `${formatMetric(t.ordered_qty, 'qty')}${t.ordered_amount !== null ? ` на ${formatMetric(t.ordered_amount, 'rub')}` : ' в заказах'}`)}
           </Hint>
+          <Sparkline values={series('orders')} testid="spark-orders" />
         </Card>
       )}
     </div>

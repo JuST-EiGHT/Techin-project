@@ -65,7 +65,7 @@ export function FigureLink({
   href: string
   label: string
   value: string
-  tone?: 'ok' | 'bad'
+  tone?: 'ok' | 'bad' | 'warn'
   children?: React.ReactNode
   testid: string
   highlight?: string
@@ -79,7 +79,7 @@ export function FigureLink({
             →
           </span>
         </div>
-        <div className={`mt-1 text-lg font-bold tabular-nums ${tone === 'ok' ? 'text-ok' : tone === 'bad' ? 'text-bad' : ''}`}>{value}</div>
+        <div className={`mt-1 text-lg font-bold tabular-nums ${tone === 'ok' ? 'text-ok' : tone === 'bad' ? 'text-bad' : tone === 'warn' ? 'text-warn' : ''}`}>{value}</div>
         <div className="mt-0.5 space-y-0.5">{children}</div>
       </div>
     </Link>
