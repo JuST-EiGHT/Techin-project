@@ -47,6 +47,7 @@ class CalcInputs(BaseModel):
     sources: dict[str, str]  # поле → откуда значение
     returns: Decimal = Decimal(0)  # возвраты и невыкупы на 1 шт. (4.2a)
     facts: "CalcFacts | None" = None
+    for_all: "AllExtras | None" = None  # что задано для всех товаров (правка 11.11.2026)
 
 
 class CalcFacts(BaseModel):
@@ -84,6 +85,15 @@ class ExtrasUpdate(BaseModel):
     extra_pct: Decimal | None = Field(None, ge=0, le=90)
     ad_pct: Decimal | None = Field(None, ge=0, le=90)  # реклама, % — своя у товара (4.2a)
     note: str | None = Field(None, max_length=200)
+
+
+class AllExtras(BaseModel):
+    """Расходы для всех товаров (правка 11.11.2026): пусто — реклама и хранение по начислениям, прочее и доп. — 0."""
+
+    ad_pct: Decimal | None = None
+    storage: Decimal | None = None
+    other: Decimal | None = None
+    extra_pct: Decimal | None = None
 
 
 class CalcTax(BaseModel):
@@ -184,6 +194,7 @@ class PriceSettingsOut(BaseModel):
     ad_pct: Decimal
     target_margin_pct: Decimal
     defaults: bool
+    for_all: AllExtras | None = None  # для всех товаров (правка 11.11.2026)
 
 
 class ShopLogistics(BaseModel):

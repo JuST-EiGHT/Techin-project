@@ -16,11 +16,14 @@ from app.engine.products import matches
 from app.models.product import Product
 from app.models.user import User
 from app.models.price_extras import ProductPriceExtras
-from app.schemas.pricing import CalculateRequest, CalculateResponse, ExtrasUpdate, PricesPage, SavedExtras, Suggestions
+from app.models.user_settings import UserSettings
+from app.schemas.pricing import (
+    AllExtras, CalculateRequest, CalculateResponse, ExtrasUpdate, PricesPage, SavedExtras, Suggestions,
+)
 from app.services import audit
 from app.services import pricing as svc
 from app.services.stores import get_current_store
-from app.services.user_settings import get_settings
+from app.services.user_settings import defaults, get_settings, price_all
 
 router = APIRouter(prefix="/price", tags=["price"])
 
@@ -81,7 +84,7 @@ async def price_table(
     return {
         "items": found[offset:offset + limit], "total": len(found), "limit": limit, "offset": offset, "counts": counts,
         "settings": {"ad_pct": ctx.ad_pct, "target_margin_pct": ctx.target_margin_pct,
-                     "defaults": s.price_ad_pct is None and s.price_target_margin_pct is None},
+                     "defaults": s.price_ad_pct is None and s.price_target_margin_pct is None, "for_all": ctx.for_all},
         "tax": _tax(ctx), "shop_logistics": {
             "per_unit": ctx.shop.per_unit, "text": ctx.shop.text, "returns": ctx.shop_facts.returns,
             "storage": ctx.shop_facts.storage, "ads_pct": ctx.shop_facts.ads_pct,
@@ -121,3 +124,18 @@ async def save_extras(
     if all(v is None for v in (row.storage, row.other, row.extra_pct, row.ad_pct)):
         return None
     return SavedExtras(storage=row.storage, other=row.other, extra_pct=row.extra_pct, ad_pct=row.ad_pct, note=row.note)
+
+
+@router.put("/extras-all", response_model=AllExtras)
+async def save_extras_all(data: ExtrasUpdate, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
+    """Расходы для всех товаров (правка 11.11.2026): реклама, % от цены, и хранение на 1 шт. — вместо начислений Ozon,
+    прочее на 1 шт. и доп. расходы, % — сверху. Своё значение у товара важнее. Пустое поле — убрать (реклама и
+    хранение снова по начислениям, прочее и доп. — 0). Ответ — что задано."""
+    s = await db.get(UserSettings, user.id)
+    if s is None:
+        s = defaults(user.id)
+        db.add(s)
+    s.price_ad_all_pct, s.price_storage_rub = data.ad_pct, data.storage
+    s.price_other_rub, s.price_extra_pct = data.other, data.extra_pct
+    await db.commit()
+    return AllExtras(**price_all(s))

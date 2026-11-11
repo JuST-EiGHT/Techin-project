@@ -277,3 +277,33 @@ async def test_ad_setting_only_without_data(client, tokens, sessions):
     # товар без продаж за 90 дней в магазине с продажами — средняя по магазину (0), а не настройка
     c = (await calc(client, tokens, p["C"].id))["inputs"]
     assert D(c["ad_pct"]) == 0 and "товар не продавался" in c["sources"]["ad_pct"]
+
+
+async def test_extras_for_all_products(client, tokens, sessions):
+    """Правка 11.11.2026: расходы из «Своих расходов» — для этого товара или для всех; своё у товара важнее общего, общее
+    — важнее начислений; пустое — убрать."""
+    uid = await user_id_of(client, tokens)
+    p = await seed(sessions, uid)
+    r = await client.put("/api/v1/price/extras-all", json={"other": "15", "ad_pct": "5"}, headers=auth(tokens))
+    assert r.status_code == 200 and (D(r.json()["other"]), D(r.json()["ad_pct"]), r.json()["storage"]) == (15, 5, None)
+    d = await calc(client, tokens, p["A"].id)
+    i = d["inputs"]
+    assert (D(i["ad_pct"]), D(i["other"])) == (5, 15)
+    assert i["sources"]["ad_pct"] == i["sources"]["other"] == "для всех товаров" and D(i["for_all"]["other"]) == 15
+    # α = 1 − 0,38 − 0,015 − 0,05 = 0,555; β = 200,08 + 60 + 15 = 275,08 → 495,64
+    assert d["result"]["min_price"] == "495.64"
+    assert D((await calc(client, tokens, p["B"].id))["inputs"]["other"]) == 15  # и у других товаров
+    # своё у товара важнее общего: реклама 3 % у A, прочее — по-прежнему общее
+    await client.put(f"/api/v1/price/extras/{p['A'].id}", json={"ad_pct": "3"}, headers=auth(tokens))
+    d = await calc(client, tokens, p["A"].id)
+    assert (D(d["inputs"]["ad_pct"]), d["inputs"]["sources"]["ad_pct"], d["result"]["min_price"]) == (
+        3, "сохранено для товара", "478.40")  # 275,08 / 0,575
+    s = (await client.get("/api/v1/settings", headers=auth(tokens))).json()
+    assert (D(s["price_other_rub"]), D(s["price_ad_all_pct"]), s["price_storage_rub"]) == (15, 5, None)
+    # убрать — снова начисления: реклама у B по факту 0, прочее 0
+    assert (await client.put("/api/v1/price/extras-all", json={}, headers=auth(tokens))).json() == {
+        "ad_pct": None, "storage": None, "other": None, "extra_pct": None}
+    b = (await calc(client, tokens, p["B"].id))["inputs"]
+    assert (D(b["ad_pct"]), D(b["other"]), b["sources"]["ad_pct"]) == (0, 0, "по начислениям за 30 дн.")
+    bad = await client.put("/api/v1/price/extras-all", json={"ad_pct": "95"}, headers=auth(tokens))
+    assert bad.status_code == 400

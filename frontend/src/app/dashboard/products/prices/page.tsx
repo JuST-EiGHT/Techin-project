@@ -145,7 +145,11 @@ function Prices() {
         <section className="rounded-xl border border-line bg-card p-4 text-sm" data-testid="price-params">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <span>
-              {data.shop_logistics.ads_pct != null ? (
+              {data.settings.for_all?.ad_pct != null ? (
+                <>
+                  Реклама <b className="tabular-nums">{num(data.settings.for_all.ad_pct)} %</b> — для всех товаров, вместо начислений
+                </>
+              ) : data.shop_logistics.ads_pct != null ? (
                 <>
                   Реклама — по начислениям, в среднем <b className="tabular-nums">{num(data.shop_logistics.ads_pct)} %</b> продаж
                 </>

@@ -18,6 +18,10 @@ class SettingsResponse(BaseModel):
     price_ad_pct: Decimal  # калькулятор цены: реклама, % от цены
     price_target_margin_pct: Decimal  # целевая маржа, %
     price_extra_pct: Decimal = Decimal(0)  # доп. расходы магазина, % от цены, для всех товаров (правка 06.11.2026)
+    # для всех товаров вместо начислений (правка 11.11.2026; меняются PUT /price/extras-all): null — не задано
+    price_ad_all_pct: Decimal | None = None
+    price_storage_rub: Decimal | None = None
+    price_other_rub: Decimal | None = None
     price_defaults: bool  # реклама и маржа ещё не заданы — показаны значения по умолчанию
     # пороги статуса остатка, дней запаса (шаг 5.1): меньше critical — «Критично», меньше low — «Мало»,
     # больше excess — «Избыток»

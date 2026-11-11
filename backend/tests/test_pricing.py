@@ -194,7 +194,8 @@ async def test_price_table_and_suggestions(client, tokens, sessions):
     assert (c["min_price"], c["logistics_source"], c["below_min"], c["below_target"]) == ("413.36", "shop", False, False)
     assert d["min_price"] is None and d["missing"] and d["margin"] is None
     assert data["counts"] == {"all": 5, "below_min": 0, "below_target": 3, "no_data": 1, "promo_loss": 0}
-    assert data["settings"] == {"ad_pct": "0", "target_margin_pct": "20", "defaults": True}
+    assert data["settings"] == {"ad_pct": "0", "target_margin_pct": "20", "defaults": True, "for_all": {
+        "ad_pct": None, "storage": None, "other": None, "extra_pct": None}}
     assert D(data["shop_logistics"]["per_unit"]) == 50 and data["tax"]["known"] is False
     # настройка «реклама» — только когда данных нет: продажи есть, рекламы в начислениях нет — 0 %
     await client.patch("/api/v1/settings", json={"price_ad_pct": "20"}, headers=auth(tokens))
@@ -233,7 +234,7 @@ async def test_extra_expenses_shop_and_product(client, tokens, sessions):
     r = await client.patch("/api/v1/settings", json={"price_extra_pct": "5"}, headers=auth(tokens))
     assert r.status_code == 200 and D(r.json()["price_extra_pct"]) == 5
     d = await calc(client, tokens, a)
-    assert D(d["inputs"]["extra_pct"]) == 5 and d["inputs"]["sources"]["extra_pct"] == "ваша настройка"
+    assert D(d["inputs"]["extra_pct"]) == 5 and d["inputs"]["sources"]["extra_pct"] == "для всех товаров"
     assert d["result"]["min_price"] == "468.62" and d["result"]["current"]["profit"] == "72.92"
     assert d["result"]["current"]["extra"] == "30.00" and d["inputs"]["saved"] is None
     rows = {x["offer_id"]: x for x in (await client.get("/api/v1/price", headers=auth(tokens))).json()["items"]}
