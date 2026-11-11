@@ -222,7 +222,7 @@ export type ClusterStock = {
     to_order: number
     target_stock: number
     arrives_late: boolean
-    sold_30: number
+    sold_30: number | null
   } | null
 }
 export type RiskLevel = 'critical' | 'low' | 'ok' | 'excess' | 'unknown'

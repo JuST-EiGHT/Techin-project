@@ -118,6 +118,8 @@ _FIELD_NAMES = {
     "excluded": "Исключённые кластеры",
     "supply_target_days": "Запас после поставки",
     "supply_lead_time_days": "Дней в пути",
+    "supply_min_qty": "Минимум на склад",
+    "supply_cluster_warehouses": "Склад кластера",
     "target_days": "Запас после поставки",
     "lead_time_days": "Дней в пути",
     "action": "Действие",

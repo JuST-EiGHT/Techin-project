@@ -39,10 +39,11 @@ from app.models.supply import (
 )
 from app.schemas.sync import utc
 from app.services import audit
-from app.services.supply import cluster_key
+from app.services.supply import cluster_key, macro_for_key
 from app.services.supply_plans import PlanError, current_items, items_key, mark_ordered
 from app.services.sync.finance import today_msk
 from app.services.sync.supply_orders import fetch_clusters
+from app.services.user_settings import get_settings, supply_cluster_warehouses
 
 DRAFT_CREATE = "/v1/draft/direct/create"
 DRAFT_INFO = "/v2/draft/create/info"
@@ -106,8 +107,9 @@ async def _plan_for_ozon(db: AsyncSession, user_id: uuid.UUID, plan_id: uuid.UUI
     return plan, items
 
 
-def draft_out(d: SupplyDraft, skus: dict[int, dict] | None = None) -> dict:
-    """Что ответил Ozon по черновику: склады кластера, отказы по товарам, ошибки."""
+def draft_out(d: SupplyDraft, skus: dict[int, dict] | None = None, preferred_id: int | None = None) -> dict:
+    """Что ответил Ozon по черновику: склады кластера, отказы по товарам, ошибки. `preferred_id` — склад кластера из
+    настроек (10.18a): он первым и отмечен, если Ozon его принимает."""
     resp = d.response_json or {}
     skus = skus or {}
     warehouses, cluster_name = [], None
@@ -125,6 +127,7 @@ def draft_out(d: SupplyDraft, skus: dict[int, dict] | None = None) -> dict:
                 "id": int(sw["warehouse_id"]), "name": sw.get("name") or str(sw["warehouse_id"]),
                 "address": sw.get("address"), "available": reason is None and "NOT" not in state and "UNAVAILABLE" not in state,
                 "state": state or None, "reason": reason, "rank": w.get("total_rank"),
+                "preferred": preferred_id is not None and int(sw["warehouse_id"]) == preferred_id,
             })
     rejected, errors = [], []
     for e in resp.get("errors") or []:
@@ -138,9 +141,11 @@ def draft_out(d: SupplyDraft, skus: dict[int, dict] | None = None) -> dict:
                 p = skus.get(sku, {})
                 rejected.append({"sku": sku, "offer_id": p.get("offer_id"), "product_id": p.get("id"),
                                  "reasons": [x for x in r.get("reasons") or [] if x != "UNSPECIFIED"]})
-    warehouses.sort(key=lambda w: (not w["available"], w["rank"] if w["rank"] is not None else 10 ** 6, w["name"]))
+    warehouses.sort(key=lambda w: (not w["available"], not w["preferred"], w["rank"] if w["rank"] is not None else 10 ** 6,
+                                   w["name"]))
     return {
         "id": d.id, "plan_id": d.plan_id, "status": d.status, "cluster_name": cluster_name, "warehouses": warehouses,
+        "preferred_warehouse_id": preferred_id,
         "rejected": rejected, "errors": errors or ([d.error] if d.error else []), "created_at": utc(d.created_at),
         "expires_at": utc(d.expires_at), "ozon_order_id": d.ozon_order_id,
     }
@@ -177,8 +182,11 @@ async def check(db: AsyncSession, user_id: uuid.UUID, plan_id: uuid.UUID) -> dic
     now = _now()
     try:
         async with await get_ozon_client(user_id, db) as client:
-            _, _, by_name = await fetch_clusters(client)
-            cluster_id = by_name.get(cluster_key(plan.destination_name) or "") or by_name.get(plan.destination_key)
+            # 10.18a: кластер — по id из наших данных; не нашёлся — по названию из списка кластеров Ozon
+            cluster_id = await macro_for_key(db, user_id, plan.destination_key)
+            if cluster_id is None:
+                _, _, by_name = await fetch_clusters(client)
+                cluster_id = by_name.get(cluster_key(plan.destination_name) or "") or by_name.get(plan.destination_key)
             if cluster_id is None:
                 raise PlanError(f"Кластер «{plan.destination_name}» не найден в Ozon — создайте поставку в кабинете Ozon")
             lines = sorted(({"sku": by_product[i.product_id], "quantity": i.qty} for i in items), key=lambda x: x["sku"])
@@ -200,7 +208,11 @@ async def check(db: AsyncSession, user_id: uuid.UUID, plan_id: uuid.UUID) -> dic
         raise _ozon_error(exc) from None
     db.add(draft)
     await db.commit()
-    return draft_out(draft, skus)
+    return draft_out(draft, skus, await _preferred(db, user_id, plan.destination_key))
+
+
+async def _preferred(db: AsyncSession, user_id: uuid.UUID, key: str) -> int | None:
+    return supply_cluster_warehouses(await get_settings(db, user_id)).get(key)
 
 
 async def _draft(db: AsyncSession, user_id: uuid.UUID, draft_id: uuid.UUID) -> SupplyDraft:
@@ -221,7 +233,8 @@ async def refresh(db: AsyncSession, user_id: uuid.UUID, draft_id: uuid.UUID) -> 
         except OzonAPIError as exc:
             raise _ozon_error(exc) from None
         await db.commit()
-    return draft_out(d, await _sku_map(db, items))
+    plan = await db.get(SupplyPlan, d.plan_id)
+    return draft_out(d, await _sku_map(db, items), await _preferred(db, user_id, plan.destination_key if plan else ""))
 
 
 def _usable(d: SupplyDraft) -> None:

@@ -156,6 +156,7 @@ async def test_first_sync(sessions, ozon):
     assert stats.as_dict() == {
         "warehouses_created": 5, "warehouses_updated": 0,
         "stocks_changed": 6, "stocks_unchanged": 0, "unknown_products": 0,  # чужой SKU мы у Ozon не запрашиваем
+        "cluster_metrics_changed": 4,  # 10.18a: TH — Екатеринбург и СПб, ACB — СПб, RS — Краснодар
     }
 
     whs = await warehouses(sessions, user_id)
@@ -186,7 +187,7 @@ async def test_resync_without_changes(sessions, ozon):
     stats = await sync(sessions, user_id)
     assert stats.as_dict() == {
         "warehouses_created": 0, "warehouses_updated": 0,
-        "stocks_changed": 0, "stocks_unchanged": 6, "unknown_products": 0,
+        "stocks_changed": 0, "stocks_unchanged": 6, "unknown_products": 0, "cluster_metrics_changed": 0,
     }
     assert await snapshot_count(sessions) == 6
 

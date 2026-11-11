@@ -12,6 +12,7 @@ from app.db.session import get_db
 from app.engine.supply_planner import Params
 from app.models.user import User
 from app.schemas.supply import (
+    ClusterChoice,
     CreateOrderIn,
     CreateOrderOut,
     DraftOut,
@@ -76,6 +77,12 @@ async def export(q: _ParamsQuery = Depends(), user: User = Depends(get_current_s
 
 
 # ── планы ──
+@router.get("/clusters", response_model=list[ClusterChoice])
+async def clusters(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
+    """Кластеры Ozon с нашими складами — для «склада кластера» в настройках поставок (10.18a)."""
+    return await svc.cluster_choices(db, user.id)
+
+
 @router.get("/plans", response_model=list[PlanOut])
 async def list_plans(
     status: str | None = Query(None, pattern="^(draft|ordered|cancelled)$"),

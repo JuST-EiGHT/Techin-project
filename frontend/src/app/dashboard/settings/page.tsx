@@ -12,7 +12,7 @@ import { api, errorMessage } from '@/lib/api'
 import { backPath } from '@/lib/section-settings'
 import { type SupplierPayment, saveSettings, useSettings } from '@/lib/settings'
 import { SUPPLIER_OPTIONS, SUPPLIER_WHY } from '@/lib/supplier'
-import { LEAD_WHY, SAFETY_WHY, TARGET_WHY } from '@/lib/supply'
+import { CLUSTER_WAREHOUSE_WHY, LEAD_WHY, MIN_QTY_WHY, SAFETY_WHY, TARGET_WHY } from '@/lib/supply'
 import type { ThemePreference } from '@/lib/theme'
 
 const THEMES: { value: ThemePreference; label: string; hint: string; Icon: React.ComponentType<{ className?: string }> }[] = [
@@ -92,7 +92,7 @@ type NumberField = {
   max: number
   decimals?: boolean // дробное (₽, %); иначе — целое
 }
-type NumberKey = 'supply_target_days' | 'supply_lead_time_days' | 'supply_safety_days' | 'supply_demand_days' | 'low_margin_pct' | 'min_profit_rub' | 'recommendation_hide_days'
+type NumberKey = 'supply_target_days' | 'supply_lead_time_days' | 'supply_safety_days' | 'supply_demand_days' | 'supply_min_qty' | 'low_margin_pct' | 'min_profit_rub' | 'recommendation_hide_days'
 
 /** Поля-числа одной формой: проверка диапазона по каждому, одно «Сохранить». */
 function NumberForm({ fields, testid, saved, extra }: { fields: NumberField[]; testid: string; saved: string; extra?: React.ReactNode }) {
@@ -487,11 +487,12 @@ const TARGET_FIELD: NumberField = {
 const SUPPLY_FIELDS: NumberField[] = [
   { key: 'supply_lead_time_days', label: 'Срок поставки — в пути', unit: 'дн.', why: LEAD_WHY, min: 0, max: 180 },
   { key: 'supply_safety_days', label: 'Страховой запас', unit: 'дн.', why: SAFETY_WHY, min: 0, max: 180 },
+  { key: 'supply_min_qty', label: 'Минимум на склад', unit: 'шт. одного товара', why: MIN_QTY_WHY, min: 1, max: 1000 },
   {
     key: 'supply_demand_days',
-    label: 'Период планирования',
+    label: 'Период планирования — свои склады',
     unit: 'дн.',
-    why: 'За сколько последних дней брать заказы, чтобы оценить продажи в день. Короче — быстрее заметит рост и спад, длиннее — спокойнее к случайным всплескам. Обычно 30.',
+    why: 'Для закупки на свой склад (FBS / rFBS): за сколько последних дней брать заказы, чтобы оценить продажи в день. Склады Ozon считаются по продажам, которые показывает Ozon (28 дней). Обычно 30.',
     min: 7,
     max: 90,
   },
@@ -499,8 +500,76 @@ const SUPPLY_FIELDS: NumberField[] = [
 
 function SupplySection() {
   return (
-    <Section title="Параметры поставки" hint="По ним «Поставки» считают, сколько везти в каждый кластер Ozon и что закупить на свой склад.">
-      <NumberForm fields={SUPPLY_FIELDS} testid="supply-settings" saved="Сохранено — поставки пересчитаны" />
+    <>
+      <Section title="Параметры поставки" hint="По ним «Поставки» считают, сколько везти в каждый кластер Ozon и что закупить на свой склад.">
+        <NumberForm fields={SUPPLY_FIELDS} testid="supply-settings" saved="Сохранено — поставки пересчитаны" />
+      </Section>
+      <ClusterWarehouseSection />
+    </>
+  )
+}
+
+type ClusterChoice = { key: string; name: string; preferred_id: number | null; warehouses: { id: number; name: string }[] }
+
+/** Склад кластера, куда везти (10.18a): по умолчанию — любой, Ozon выберет сам. */
+function ClusterWarehouseSection() {
+  const { user } = useAuth()
+  const [clusters, setClusters] = useState<ClusterChoice[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
+
+  useEffect(() => {
+    api
+      .get<ClusterChoice[]>('/supply/clusters')
+      .then(({ data }) => setClusters(data))
+      .catch((err) => setError(errorMessage(err)))
+  }, [])
+
+  async function choose(key: string, id: number | null) {
+    if (!user || !clusters) return
+    setError(null)
+    setDone(false)
+    const next = clusters.map((c) => (c.key === key ? { ...c, preferred_id: id } : c))
+    const map = Object.fromEntries(next.filter((c) => c.preferred_id).map((c) => [c.key, c.preferred_id as number]))
+    try {
+      await saveSettings(user.id, { supply_cluster_warehouses: map })
+      setClusters(next)
+      setDone(true)
+    } catch (err) {
+      setError(errorMessage(err, 'Не сохранилось — попробуйте ещё раз'))
+    }
+  }
+
+  return (
+    <Section title="Склад кластера" hint={CLUSTER_WAREHOUSE_WHY}>
+      <FormError message={error} />
+      {clusters === null ? (
+        <p className="text-sm text-muted">Загрузка…</p>
+      ) : clusters.length === 0 ? (
+        <p className="text-sm text-muted">Складов Ozon пока нет — они появятся после загрузки остатков.</p>
+      ) : (
+        <div className="space-y-2" data-testid="cluster-warehouses">
+          {clusters.map((c) => (
+            <label key={c.key} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+              <span className="min-w-[12rem] flex-1">{c.name}</span>
+              <select
+                value={c.preferred_id ?? ''}
+                onChange={(e) => choose(c.key, e.target.value ? Number(e.target.value) : null)}
+                className="w-full rounded-lg border border-line bg-bg px-3 py-1.5 sm:w-72"
+                data-testid={`cluster-warehouse-${c.key}`}
+              >
+                <option value="">любой — выберет Ozon</option>
+                {c.warehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+          {done && <p className="text-sm text-ok">Сохранено — склад будет в рекомендациях, Excel и заявке</p>}
+        </div>
+      )}
     </Section>
   )
 }

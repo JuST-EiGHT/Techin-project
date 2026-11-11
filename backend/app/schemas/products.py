@@ -183,7 +183,7 @@ class ClusterSupply(BaseModel):
     to_order: int
     target_stock: int
     arrives_late: bool
-    sold_30: int
+    sold_30: int | None = None  # закупка — по заказам; у кластеров Ozon (10.18a) — null: продажи — от Ozon
 
 
 class ClusterStock(BaseModel):
