@@ -30,7 +30,7 @@ async def test_settings_defaults_and_update(client, tokens):
     # калькулятор цены (шаг 4.2): реклама 0 % и маржа 20 % — по умолчанию, не цифры владельца
     assert (await get()).json() == {"theme": "dark", "supplier_payment": "upfront", "supplier_deferral_days": None,
                                     "cost_label": "Себестоимость с НДС", "price_ad_pct": "0",
-                                    "price_target_margin_pct": "20", "price_extra_pct": "0", "price_defaults": True,
+                                    "price_target_margin_pct": "20", "price_extra_pct": "0", "price_ad_all_pct": None, "price_storage_rub": None, "price_other_rub": None, "price_defaults": True,
                                     "stock_critical_days": 7, "stock_low_days": 14, "stock_excess_days": 60,
                                     "supply_target_days": 45, "supply_lead_time_days": 7, "supply_safety_days": 0, "supply_demand_days": 30, "min_profit_rub": "0",
                                     "supply_min_qty": 6, "supply_cluster_warehouses": {}, **ANOMALY_DEFAULTS}
@@ -49,7 +49,7 @@ async def test_supplier_payment_names_cost_in_pnl(client, tokens):
     """Поставщик получает деньги после продажи — себестоимость с НДС в P&L называется «долг поставщику» (шаг 3.3)."""
     r = await client.patch("/api/v1/settings", json={"supplier_payment": "after_sale"}, headers=auth(tokens))
     assert r.json() == {"theme": "dark", "supplier_payment": "after_sale", "supplier_deferral_days": None,
-                        "cost_label": "Долг поставщику", "price_ad_pct": "0", "price_target_margin_pct": "20", "price_extra_pct": "0",
+                        "cost_label": "Долг поставщику", "price_ad_pct": "0", "price_target_margin_pct": "20", "price_extra_pct": "0", "price_ad_all_pct": None, "price_storage_rub": None, "price_other_rub": None,
                         "price_defaults": True, "stock_critical_days": 7, "stock_low_days": 14, "stock_excess_days": 60,
                         "supply_target_days": 45, "supply_lead_time_days": 7, "supply_safety_days": 0, "supply_demand_days": 30, "min_profit_rub": "0",
                                     "supply_min_qty": 6, "supply_cluster_warehouses": {}, **ANOMALY_DEFAULTS}

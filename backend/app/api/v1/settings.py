@@ -24,7 +24,8 @@ def _response(s: UserSettings, theme: str) -> SettingsResponse:
     return SettingsResponse(
         theme=theme, supplier_payment=s.supplier_payment, supplier_deferral_days=s.supplier_deferral_days,
         cost_label=COST_LABELS[s.supplier_payment], price_ad_pct=ad, price_target_margin_pct=margin,
-        price_extra_pct=svc.price_extra(s),
+        price_extra_pct=svc.price_extra(s), price_ad_all_pct=svc.price_all(s)["ad_pct"],
+        price_storage_rub=svc.price_all(s)["storage"], price_other_rub=svc.price_all(s)["other"],
         price_defaults=s.price_ad_pct is None and s.price_target_margin_pct is None,
         stock_critical_days=t.critical, stock_low_days=t.low, stock_excess_days=t.excess,
         supply_target_days=target, supply_lead_time_days=lead, supply_safety_days=svc.supply_safety_days(s),

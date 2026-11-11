@@ -28,6 +28,12 @@ export type SavedExtras = {
   note: string | null
 }
 
+/** Расходы для всех товаров (правка 11.11.2026); null — не задано. */
+export type AllExtras = { ad_pct: string | null; storage: string | null; other: string | null; extra_pct: string | null }
+
+/** Откуда значение «для всех товаров» в sources расчёта. */
+export const FOR_ALL = 'для всех товаров'
+
 /** Факт по начислениям Ozon за окно продаж (4.2a): выкуп, из чего реклама, оценки магазина. */
 export type CalcFacts = {
   days: number | null
@@ -65,6 +71,7 @@ export type CalculateResponse = {
     saved?: SavedExtras | null
     returns?: string // возвраты и невыкупы на 1 шт. (4.2a)
     facts?: CalcFacts | null
+    for_all?: AllExtras | null // что задано для всех товаров (правка 11.11.2026)
     target_margin_pct: string
     price: string | null
     promo_price: string | null
@@ -133,7 +140,7 @@ export type PricesPage = {
   limit: number
   offset: number
   counts: { all: number } & Record<PriceFilter, number>
-  settings: { ad_pct: string; target_margin_pct: string; defaults: boolean }
+  settings: { ad_pct: string; target_margin_pct: string; defaults: boolean; for_all?: AllExtras | null }
   tax: CalcTax
   shop_logistics: {
     per_unit: string | null

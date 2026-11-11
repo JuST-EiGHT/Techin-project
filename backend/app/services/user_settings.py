@@ -38,6 +38,16 @@ def price_extra(s: UserSettings) -> Decimal:
     return Decimal(0) if s.price_extra_pct is None else Decimal(s.price_extra_pct)
 
 
+def price_all(s: UserSettings) -> dict[str, Decimal | None]:
+    """Расходы для всех товаров (правка 11.11.2026): реклама %, хранение и прочее на 1 шт., доп. расходы %; пусто — None
+    (реклама и хранение — по начислениям, прочее и доп. — 0)."""
+    def d(v):
+        return None if v is None else Decimal(v)
+
+    return {"ad_pct": d(s.price_ad_all_pct), "storage": d(s.price_storage_rub), "other": d(s.price_other_rub),
+            "extra_pct": d(s.price_extra_pct)}
+
+
 def stock_thresholds(s: UserSettings) -> Thresholds:
     """Пороги статуса остатка (шаг 5.1); не заданы — 7 / 14 / 60 дней."""
     d = DEFAULT_THRESHOLDS
