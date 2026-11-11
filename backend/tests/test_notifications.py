@@ -370,8 +370,9 @@ def test_bot_app_and_main(monkeypatch, caplog):
     with respx.mock(assert_all_called=False) as router:
         router.post(f"{API}/getMe").respond(401, json={"ok": False, "error_code": 401, "description": "Unauthorized"})
         router.post(f"{API}/deleteWebhook").respond(json={"ok": True, "result": True})
-        assert bot_main.main() == 1  # токен не принят — выходим с ошибкой
-    assert "Бот остановлен: InvalidToken" in caplog.text and TOKEN not in caplog.text
+        # токен не принят — бот останавливается без ошибки: перезапуск не поможет, Docker не крутит его по кругу
+        assert bot_main.main() == 0
+    assert "Бот остановлен: Telegram не принял TELEGRAM_BOT_TOKEN" in caplog.text and TOKEN not in caplog.text
 
 
 def test_schedule():

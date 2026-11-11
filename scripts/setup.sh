@@ -62,11 +62,9 @@ JSON
   fi
   systemctl enable --now docker >/dev/null
 
-  if [ -z "$(swapon --show 2>/dev/null)" ]; then
-    say "Файл подкачки 2 ГБ (сборка фронтенда требует памяти)"
-    fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile
-    grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
-  fi
+  # Файл подкачки: сборка при обновлении требует памяти. Swap провайдера (часто 512 МБ) доводится до 2,5 ГБ, плюс
+  # настройка памяти для Redis — без неё на сервере с 2 ГБ Redis перестаёт принимать запись (10.11.2026)
+  ./scripts/swap.sh || warn "Swap не настроен — на сервере с 2 ГБ памяти обновления могут падать. Позже: sudo ./scripts/swap.sh"
 
   say "Файрвол: открыты только SSH, 80 и 443"
   ufw allow OpenSSH >/dev/null
