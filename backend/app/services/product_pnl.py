@@ -11,13 +11,15 @@ import uuid
 from dataclasses import dataclass, replace
 from decimal import Decimal
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine import product_pnl as engine
 from app.integrations.xlsx.common import norm
 from app.models.accrual import SOURCE_XLSX
+from app.models.product import Product
 from app.models.report import Report
-from app.services import pnl_data
+from app.services import pnl_data, storage_report
 from app.services.costs import load_cost_history
 from app.services.pnl_cache import cache
 from app.services.pnl_service import PnLRequest, PnLRequestError, coverage_out, coverage_warnings
@@ -41,12 +43,13 @@ class Runner:
     cost_of: engine.CostLookup
     with_vat: bool
     default_vat: Decimal
+    storage_shares: engine.StorageShares | None = None  # доли хранения по отчёту Ozon о размещении (4.2a)
 
     def __call__(self, lines: list[pnl_data.Line]) -> engine.ProductPnL:
         return engine.compute(
             [engine.LineIn(ln.day, ln.type_name, ln.amount, ln.quantity, ln.offer_id, ln.sku, ln.name, ln.posting_number)
              for ln in lines],
-            self.posting_offers, self.cost_of, self.with_vat, self.default_vat,
+            self.posting_offers, self.cost_of, self.with_vat, self.default_vat, self.storage_shares,
         )
 
 
@@ -66,7 +69,9 @@ async def runner(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest, lines: l
         return Decimal(rec.cost_price), Decimal(rec.vat_multiplier) if rec.vat_multiplier is not None else None
 
     numbers = {ln.posting_number for ln in lines if not ln.offer_id and ln.posting_number}
-    return Runner(await pnl_data.posting_offers(db, user_id, numbers), cost_of, with_vat, default_vat)
+    days = [ln.day for ln in lines] or [req.date_from]
+    shares = await storage_report.shares(db, user_id, min(days), max(days))
+    return Runner(await pnl_data.posting_offers(db, user_id, numbers), cost_of, with_vat, default_vat, shares)
 
 
 async def compute(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest, report: Report | None = None) -> dict:
@@ -91,6 +96,7 @@ async def compute(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest, report:
     run = await runner(db, user_id, req, lines)
     with_vat, default_vat = run.with_vat, run.default_vat
     result = run(lines)
+    await _fill_names(db, user_id, result.rows)
 
     warnings = coverage_warnings(cov)
     missing = [r for r in result.rows if r.cost_missing]
@@ -110,6 +116,7 @@ async def compute(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest, report:
         )
     if any(r.manual_total is not None for r in cov.reports):
         warnings.append("Суммы — по начислениям Ozon, без ручных правок «сколько пришло» из отчётов.")
+    storage = _storage_note(result)
 
     with_cost = [r for r in result.rows if r.profit is not None]
     profit = sum((r.profit for r in with_cost), Decimal(0))
@@ -120,8 +127,14 @@ async def compute(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest, report:
         "revenue": _s(sum((r.revenue for r in result.rows), Decimal(0))),
         "commission": _s(sum((r.commission for r in result.rows), Decimal(0))),
         "logistics": _s(sum((r.logistics for r in result.rows), Decimal(0))),
+        "returns": _s(sum((r.returns for r in result.rows), Decimal(0))),
+        "ads": _s(sum((r.ads for r in result.rows), Decimal(0))),
+        "storage": _s(sum((r.storage for r in result.rows), Decimal(0))),
         "other": _s(sum((r.other for r in result.rows), Decimal(0))),
         "total": _s(sum((r.total for r in result.rows), Decimal(0))),
+        "sales": _s(sum((r.sales for r in result.rows), Decimal(0))),
+        "not_bought": sum(r.not_bought for r in result.rows),
+        "returned_qty": sum(r.returned_qty for r in result.rows),
         "cost": _s(sum((r.cost for r in with_cost), Decimal(0))),
         "profit": _s(profit),
         "margin": _s(profit / revenue_with_cost * 100) if revenue_with_cost > 0 else None,
@@ -143,7 +156,9 @@ async def compute(db: AsyncSession, user_id: uuid.UUID, req: PnLRequest, report:
             "lines": result.unallocated.lines,
             "multi_product": _s(result.unallocated.multi_product),
             "by_type": {k: _s(v) for k, v in sorted(result.unallocated.by_type.items(), key=lambda kv: kv[1])},
+            "by_group": {k: _s(v) for k, v in result.unallocated.by_group.items()},
         },
+        "storage": storage,
         "period_total": _s(result.period_total),
         # «на что ушли деньги»: все начисления периода по статьям — сначала самые большие удержания
         "period_by_type": {k: _s(v) for k, v in sorted(_by_type(lines).items(), key=lambda kv: kv[1])},
@@ -160,11 +175,34 @@ def _by_type(lines) -> dict[str, Decimal]:
     return out
 
 
+async def _fill_names(db: AsyncSession, user_id: uuid.UUID, rows: list[engine.ProductRow]) -> None:
+    """Товар попал в таблицу только хранением по отчёту о размещении (продаж нет) — название и SKU из каталога."""
+    empty = {r.offer_id: r for r in rows if not r.name}
+    if not empty:
+        return
+    for offer, name, sku in (await db.execute(
+        select(Product.offer_id, Product.name, Product.ozon_sku)
+        .where(Product.user_id == user_id, Product.offer_id.in_(empty))
+    )).all():
+        empty[offer].name = name or ""
+        empty[offer].sku = empty[offer].sku or (str(sku) if sku else "")
+
+
+def _storage_note(result: engine.ProductPnL) -> dict:
+    """Хранение: сколько поделено по отчёту Ozon о размещении, сколько осталось без товара (отчёта за эти дни нет)."""
+    by_report = sum((r.storage_by_report for r in result.rows), Decimal(0))
+    left = result.unallocated.by_group.get("storage", Decimal(0))
+    return {"by_report": _s(by_report), "unallocated": _s(left), "has_report": by_report != 0}
+
+
 def _row(r: engine.ProductRow) -> dict:
     return {
         "offer_id": r.offer_id, "name": r.name, "sku": r.sku, "qty": r.qty, "returned_qty": r.returned_qty,
-        "revenue": _s(r.revenue), "avg_price": _s(r.avg_price), "commission": _s(r.commission),
-        "logistics": _s(r.logistics), "other": _s(r.other), "total": _s(r.total), "by_posting": _s(r.by_posting),
+        "not_bought": r.not_bought, "buyout_pct": str(r.buyout_pct) if r.buyout_pct is not None else None,
+        "revenue": _s(r.revenue), "sales": _s(r.sales), "avg_price": _s(r.avg_price), "commission": _s(r.commission),
+        "logistics": _s(r.logistics), "returns": _s(r.returns), "ads": _s(r.ads), "storage": _s(r.storage),
+        "storage_by_report": _s(r.storage_by_report),
+        "other": _s(r.other), "total": _s(r.total), "by_posting": _s(r.by_posting),
         "cost": _s(r.cost), "unit_cost": _s(r.unit_cost), "cost_missing": r.cost_missing,
         "profit": _s(r.profit), "margin": _s(r.margin),
         "by_type": {k: _s(v) for k, v in sorted(r.by_type.items(), key=lambda kv: -abs(kv[1]))},
@@ -211,7 +249,8 @@ def filter_counts(items: list[dict], low_margin: Decimal, offers: set[str] | Non
 CSV_COLUMNS = [
     ("offer_id", "Артикул"), ("name", "Название"), ("sku", "SKU"), ("qty", "Продано, шт."),
     ("revenue", "Выручка, руб."), ("avg_price", "Средняя цена, руб."), ("commission", "Комиссия, руб."),
-    ("logistics", "Логистика, руб."), ("other", "Прочие начисления, руб."), ("total", "Начислено Ozon, руб."),
+    ("logistics", "Логистика, руб."), ("returns", "Возвраты и невыкупы, руб."), ("ads", "Реклама, руб."),
+    ("storage", "Хранение, руб."), ("other", "Прочие начисления, руб."), ("total", "Начислено Ozon, руб."),
     ("cost", "Себестоимость, руб."), ("profit", "Прибыль до налога, руб."), ("margin", "Маржа, %"),
 ]
 
@@ -231,9 +270,12 @@ def to_csv(value: dict, rows: list[dict], cost_title: str) -> bytes:
     for r in rows:
         w.writerow([cell("нет себестоимости" if key == "cost" and r["cost_missing"] else r[key]) for key, _ in CSV_COLUMNS])
     un = value["unallocated"]
-    w.writerow([cell(v) for v in ["", "Не распределено (хранение, подписки и др.)", "", "", "", "", "", "", "",
-                                  un["total"], "", "", ""]])
+    blank = {key: "" for key, _ in CSV_COLUMNS}
+    w.writerow([cell(v) for v in {**blank, "name": "Не распределено (реклама по кампаниям, подписки, хранение без отчёта "
+                                                  "о размещении и др.)", "total": un["total"]}.values()])
     t = value["totals"]
-    w.writerow([cell(v) for v in ["", "Итого за период", "", t["qty"], t["revenue"], "", t["commission"],
-                                  t["logistics"], t["other"], value["period_total"], t["cost"], "", ""]])
+    w.writerow([cell(v) for v in {**blank, "name": "Итого за период", "qty": t["qty"], "revenue": t["revenue"],
+                                  "commission": t["commission"], "logistics": t["logistics"], "returns": t["returns"],
+                                  "ads": t["ads"], "storage": t["storage"], "other": t["other"],
+                                  "total": value["period_total"], "cost": t["cost"]}.values()])
     return ("﻿" + out.getvalue()).encode("utf-8")

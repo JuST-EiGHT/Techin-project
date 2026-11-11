@@ -39,3 +39,4 @@ from app.models.withdrawal import WithdrawalDecision  # noqa: F401
 from app.models.supply import SupplyDraft, SupplyOrder, SupplyOrderEvent, SupplyOrderItem, SupplyPlan, SupplyPlanItem  # noqa: F401
 from app.models.user_session import UserSession  # noqa: F401
 from app.models.price_extras import ProductPriceExtras  # noqa: F401
+from app.models.storage import StorageCost  # noqa: F401

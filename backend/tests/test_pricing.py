@@ -7,6 +7,7 @@ from app.models.accrual import Accrual, AccrualDay
 from app.models.product import Product, ProductPrice
 from app.models.product_cost import BEGINNING, ProductCost
 from app.models.promotion import Promotion, PromotionProduct
+from app.services.pnl_cache import cache as pnl_cache
 from app.services.sync.finance import today_msk
 
 D = Decimal
@@ -72,12 +73,14 @@ async def test_calculate_with_ozon_data(client, tokens, sessions):
     p = await seed(sessions, await user_id_of(client, tokens))
     d = await calc(client, tokens, p["A"].id)
     i = d["inputs"]
-    # реклама — 0 и маржа — 20 % по умолчанию (не цифры владельца), налог не задан
+    # реклама — по начислениям (её нет — 0), маржа — 20 % по умолчанию (не цифры владельца), налог не задан
     assert D(i["cost_with_vat"]) == D("200.08") and D(i["commission_pct"]) == 38 and D(i["ad_pct"]) == 0
     assert D(i["target_margin_pct"]) == 20 and D(i["price"]) == 600 and D(i["promo_price"]) == 500
     assert (D(i["logistics"]), i["logistics_source"]) == (D("60"), "product")
     assert "4 шт." in i["logistics_text"] and "30 дн." in i["logistics_text"]
-    assert i["sources"]["commission_pct"] == "из Ozon (FBO)" and i["sources"]["ad_pct"] == "ваша настройка"
+    assert i["sources"]["commission_pct"] == "из Ozon (FBO)" and i["sources"]["ad_pct"] == "по начислениям за 30 дн."
+    # 4.2a: возвратов и хранения в начислениях нет — 0, а не пропуск; выкуп — все проданы
+    assert (D(i["returns"]), D(i["storage"]), i["facts"]["own"], i["facts"]["buyout_pct"]) == (0, 0, True, "100.0")
     assert d["tax"]["known"] is False and d["missing"] == [] and d["promo_title"] == "Распродажа"
     # α = 1 − 0,38 − 0,015 = 0,605; β = 200,08 + 60 = 260,08 → 429,884… и 260,08 / 0,405 = 642,172…
     r = d["result"]
@@ -146,8 +149,13 @@ async def test_overrides_settings_and_tax(client, tokens, sessions):
     assert (D(s["price_ad_pct"]), D(s["price_target_margin_pct"]), s["price_defaults"]) == (0, 20, True)
     r = await client.patch("/api/v1/settings", json={"price_ad_pct": "6", "price_target_margin_pct": "25"}, headers=auth(tokens))
     assert r.status_code == 200 and r.json()["price_defaults"] is False
+    # 4.2a: реклама по начислениям важнее настройки (настройка — когда данных нет); своя у товара — важнее факта
+    d = await calc(client, tokens, p["A"].id)
+    assert D(d["inputs"]["ad_pct"]) == 0 and d["result"]["min_price"] == "429.89"
+    assert (await client.put(f"/api/v1/price/extras/{p['A'].id}", json={"ad_pct": "6"}, headers=auth(tokens))).status_code == 200
     d = await calc(client, tokens, p["A"].id)
     assert D(d["inputs"]["ad_pct"]) == 6 and d["result"]["min_price"] == "477.22"  # 260,08 / 0,545
+    assert d["inputs"]["sources"]["ad_pct"] == "сохранено для товара" and D(d["inputs"]["saved"]["ad_pct"]) == 6
     bad = await client.patch("/api/v1/settings", json={"price_target_margin_pct": "95"}, headers=auth(tokens))
     assert bad.status_code == 400 and "Целевая маржа: не больше 90" in bad.json()["detail"]
     # налоговый профиль: УСН «Доходы» 6 % — доля в знаменателе: 260,08 / (0,545 − 0,06) = 536,25
@@ -172,7 +180,8 @@ async def test_calculate_errors(client, tokens, sessions):
 
 
 async def test_price_table_and_suggestions(client, tokens, sessions):
-    await seed(sessions, await user_id_of(client, tokens))
+    uid = await user_id_of(client, tokens)
+    await seed(sessions, uid)
     get = lambda **q: client.get("/api/v1/price", params=q, headers=auth(tokens))  # noqa: E731
     data = (await get()).json()
     rows = {r["offer_id"]: r for r in data["items"]}
@@ -187,9 +196,18 @@ async def test_price_table_and_suggestions(client, tokens, sessions):
     assert data["counts"] == {"all": 5, "below_min": 0, "below_target": 3, "no_data": 1, "promo_loss": 0}
     assert data["settings"] == {"ad_pct": "0", "target_margin_pct": "20", "defaults": True}
     assert D(data["shop_logistics"]["per_unit"]) == 50 and data["tax"]["known"] is False
-    # реклама 20 %: α = 0,405 — ниже минимальной A (642,17), B (568,10) и E (691,56), акция A — в минус
+    # настройка «реклама» — только когда данных нет: продажи есть, рекламы в начислениях нет — 0 %
     await client.patch("/api/v1/settings", json={"price_ad_pct": "20"}, headers=auth(tokens))
+    assert (await get()).json()["counts"]["below_min"] == 0
+    # реклама без товара (оплата за клик по кампании) — 527,20 ₽ = 20 % продаж магазина за 30 дней (4 × 459 + 2 × 400)
+    # делится по доле в продажах: α = 0,405 — ниже минимальной A (642,17), B (568,10) и E (691,56), акция A — в минус
+    async with sessions() as db:
+        db.add(Accrual(user_id=uid, type_name="Оплата за клик", accrual_date=today_msk() - timedelta(days=3),
+                       amount=D("-527.20"), quantity=0, source="api", sync_scope="campaign:1", line_no=1))
+        await db.commit()
+    await pnl_cache.invalidate(uid)
     data = (await get()).json()
+    assert D(data["shop_logistics"]["unattributed_ads_pct"]) == 20
     assert data["counts"]["below_min"] == 3 and data["counts"]["promo_loss"] == 1
     below = (await get(filters="below_min", sort="margin")).json()
     assert [r["offer_id"] for r in below["items"]] == ["ART-B", "ART-E", "ART-A"]  # хуже маржа — выше

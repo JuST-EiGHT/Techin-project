@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine import report_catalog as rc
 from app.engine import report_coverage as cov
+from app.integrations.ozon.client import OzonClient
 from app.integrations.ozon.errors import OzonAPIError, OzonAuthError, OzonNotConfiguredError
 from app.integrations.ozon.factory import get_ozon_client
 from app.integrations.ozon_reports import REALIZATION_SUFFIX
@@ -133,9 +134,10 @@ async def _download(url: str) -> bytes:
     return r.content
 
 
-async def refresh_document(db: AsyncSession, doc: OzonDocument, force: bool = False) -> OzonDocument:
+async def refresh_document(db: AsyncSession, doc: OzonDocument, force: bool = False,
+                           client: OzonClient | None = None) -> OzonDocument:
     """Спросить Ozon о готовности: готов — скачать файл; не вышло — ошибка простыми словами. Готовый и с ошибкой — как
-    есть; чаще раза в 10 секунд не спрашиваем."""
+    есть; чаще раза в 10 секунд не спрашиваем. client — уже открытый клиент (синхронизация, 4.2a), иначе — свой."""
     now = _now()
     if doc.status != REQUESTED or (not force and doc.checked_at and now - _utc(doc.checked_at) < POLL_EVERY):
         return doc
@@ -145,8 +147,11 @@ async def refresh_document(db: AsyncSession, doc: OzonDocument, force: bool = Fa
         return doc
     doc.checked_at = now
     try:
-        async with await get_ozon_client(doc.user_id, db) as client:
+        if client is not None:
             resp = await client.request("POST", "/v1/report/info", {"code": doc.ozon_code})
+        else:
+            async with await get_ozon_client(doc.user_id, db) as own:
+                resp = await own.request("POST", "/v1/report/info", {"code": doc.ozon_code})
     except OzonAPIError as exc:  # временная ошибка — спросим ещё раз при следующем открытии
         doc.error = exc.message
         await db.commit()
@@ -180,8 +185,8 @@ async def refresh_document(db: AsyncSession, doc: OzonDocument, force: bool = Fa
 
 async def list_documents(db: AsyncSession, store_id: uuid.UUID, limit: int = 50) -> list[OzonDocument]:
     """Документы — новые сверху; ждущие ответа Ozon — заодно спрашиваем (не больше 5 за раз)."""
-    docs = list((await db.execute(
-        select(OzonDocument).where(OzonDocument.user_id == store_id)
+    docs = list((await db.execute(  # отчёты о размещении (4.2a) сервис просит сам — в списке документов их нет
+        select(OzonDocument).where(OzonDocument.user_id == store_id, OzonDocument.doc_type.in_(list(DOCUMENT_PATHS)))
         .order_by(OzonDocument.requested_at.desc()).limit(limit)
     )).scalars())
     for doc in [d for d in docs if d.status == REQUESTED][:5]:

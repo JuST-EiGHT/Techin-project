@@ -3,10 +3,18 @@
 Откуда что (правило 13 — данные продавца, а не владельца):
 - себестоимость и её НДС — справочник на сегодня (2.3), НДС поставщика по умолчанию — налоговый профиль;
 - комиссия FBO и эквайринг — последний снимок цен Ozon (1.2);
-- логистика на 1 шт. — фактические начисления по товару (3.4: логистика / проданные штуки, с обратной логистикой)
-  за 30 дней, товар не продавался — за 90; не продавался и тогда — средняя по магазину (оценка); данных нет совсем —
-  «нет данных», а не 0 (правило 12): Ozon в ценах отдаёт только последнюю милю, без логистики FBO;
-- реклама и целевая маржа — настройки пользователя; налог и НДС — налоговый профиль на сегодня.
+- логистика на 1 шт. — фактические начисления по товару (3.4: логистика / проданные штуки) за 30 дней, товар не
+  продавался — за 90; не продавался и тогда — средняя по магазину (оценка); данных нет совсем — «нет данных», а не 0
+  (правило 12): Ozon в ценах отдаёт только последнюю милю, без логистики FBO;
+- юнит-экономика как у Ozon (шаг 4.2a) — из тех же начислений и окон:
+  возвраты и невыкупы на 1 шт. — обратная логистика и обработка возвратов товара (нет продаж — средние по магазину);
+  реклама, % от цены — своя реклама товара («Звёздные товары» и др. с артикулом) / его продажи + реклама без товара
+  (оплата за клик и за заказ: Ozon начисляет её по кампании) / продажи магазина — делим по доле в продажах, это оценка;
+  товар не продавался — вся реклама магазина / его продажи; нет продаж и у магазина — настройка «реклама %»;
+  хранение на 1 шт. — хранение товара по отчёту Ozon о размещении / проданные штуки; отчёта нет или товар не
+  продавался — всё хранение магазина / проданные штуки (оценка);
+  своё значение у товара (product_price_extras: реклама %, хранение) важнее факта;
+- целевая маржа — настройка пользователя; налог и НДС — налоговый профиль на сегодня.
 Чего не хватает — расчёта нет, а в ответе сказано, что указать.
 """
 import uuid
@@ -49,12 +57,40 @@ class Logistics:
     @property
     def text(self) -> str:
         if self.source == "product":
-            return f"по продажам товара за {self.days} дн. ({self.qty} шт.), с обратной логистикой"
+            return f"по продажам товара за {self.days} дн. ({self.qty} шт.)"
         if self.source == "shop":
             return f"средняя по магазину за {self.days} дн. — товар не продавался, оценка"
         if self.source == "manual":
             return "указана вручную"
         return "нет данных"
+
+
+@dataclass(frozen=True)
+class Facts:
+    """Факт товара по начислениям Ozon за окно продаж (30 дней, не продавался — 90), на 1 проданную шт. (4.2a)."""
+
+    days: int
+    qty: int
+    returns: Decimal  # возвраты и невыкупы, ₽ на шт.
+    storage: Decimal | None  # хранение по отчёту о размещении, ₽ на шт.; None — отчёта за эти дни нет
+    ads_pct: Decimal  # своя реклама товара, % от продаж
+    not_bought: int = 0
+    returned: int = 0
+    buyout_pct: Decimal | None = None
+
+
+@dataclass(frozen=True)
+class ShopFacts:
+    """Магазин за окно: средние на 1 проданную шт. и доли продаж — для товаров без продаж и того, что Ozon по товарам не
+    делит (реклама по кампаниям, хранение без отчёта о размещении)."""
+
+    days: int | None = None
+    qty: int = 0
+    returns: Decimal | None = None
+    storage: Decimal | None = None  # всё хранение магазина / проданные шт.
+    ads_pct: Decimal | None = None  # вся реклама / продажи
+    unattributed_ads_pct: Decimal = Decimal(0)  # реклама без товара / продажи магазина
+    storage_by_report: bool = False  # хранение в окне поделено по отчёту о размещении
 
 
 @dataclass(frozen=True)
@@ -73,6 +109,7 @@ class Overrides:
     price: Decimal | None = None
     promo_price: Decimal | None = None
     extra_pct: Decimal | None = None
+    returns: Decimal | None = None
 
 
 @dataclass
@@ -90,6 +127,10 @@ class Inputs:
     target_margin_pct: Decimal
     price: Decimal | None
     extra_pct: Decimal = Decimal(0)
+    returns: Decimal = Decimal(0)
+    facts: Facts | None = None  # факт товара за окно; None — товар не продавался 90 дней
+    ad_own_pct: Decimal | None = None  # из рекламы: своя у товара (по факту) и без товара (доля магазина)
+    ad_shared_pct: Decimal | None = None
     sources: dict[str, str] = field(default_factory=dict)  # поле → «из Ozon», «из справочника», «ваше» …
     missing: list[str] = field(default_factory=list)
 
@@ -110,9 +151,39 @@ class PricingContext:
     min_profit: Decimal = Decimal(0)  # минимальная допустимая прибыль с продажи, ₽ (настройка, шаг 10.26)
     extra_pct: Decimal = Decimal(0)  # доп. расходы магазина, % от цены (настройка, правка 06.11.2026)
     extras: dict[uuid.UUID, ProductPriceExtras] = field(default_factory=dict)  # свои расходы товаров
+    facts: dict[str, Facts] = field(default_factory=dict)  # 4.2a: возвраты, хранение, реклама товара
+    shop_facts: ShopFacts = field(default_factory=ShopFacts)
 
     def logistics_for(self, offer_id: str) -> Logistics:
         return self.logistics.get(offer_id) or self.shop
+
+    def ad_for(self, offer_id: str) -> tuple[Decimal, str, Decimal | None, Decimal | None]:
+        """Реклама, % от цены: (значение, откуда, своя у товара, без товара). Своя — по факту товара; без товара —
+        доля продаж магазина; товар не продавался — вся реклама магазина; данных нет — настройка."""
+        own, shop = self.facts.get(offer_id), self.shop_facts
+        if own is not None:
+            shared = shop.unattributed_ads_pct
+            return own.ads_pct + shared, f"по начислениям за {own.days} дн.", own.ads_pct, shared
+        if shop.ads_pct is not None:
+            return shop.ads_pct, f"средняя по магазину за {shop.days} дн. — товар не продавался", None, None
+        return self.ad_pct, "ваша настройка — данных о рекламе ещё нет", None, None
+
+    def storage_for(self, offer_id: str) -> tuple[Decimal, str]:
+        own, shop = self.facts.get(offer_id), self.shop_facts
+        if own is not None and own.storage is not None:
+            return own.storage, f"по отчёту Ozon о размещении за {own.days} дн."
+        if shop.storage is not None:
+            why = "товар не продавался" if own is None else "отчёта Ozon о размещении за эти дни нет"
+            return shop.storage, f"среднее по магазину за {shop.days} дн. — {why}, оценка"
+        return Decimal(0), "нет данных"
+
+    def returns_for(self, offer_id: str) -> tuple[Decimal, str]:
+        own, shop = self.facts.get(offer_id), self.shop_facts
+        if own is not None:
+            return own.returns, f"по продажам товара за {own.days} дн."
+        if shop.returns is not None:
+            return shop.returns, f"среднее по магазину за {shop.days} дн. — товар не продавался"
+        return Decimal(0), "нет данных"
 
     def inputs(self, product: Product, ov: Overrides | None = None) -> Inputs:
         ov = ov or Overrides()
@@ -133,9 +204,17 @@ class PricingContext:
         commission = pick("commission_pct", ov.commission_pct, snap.commission_pct if snap else None, "из Ozon (FBO)")
         acquiring = pick("acquiring_pct", ov.acquiring_pct, acquiring_pct(snap.acquiring, snap.price) if snap else None,
                          "из Ozon")
-        ad = pick("ad_pct", ov.ad_pct, self.ad_pct, "ваша настройка")
         own = self.extras.get(product.id)
+        ad_fact, ad_text, ad_own, ad_shared = self.ad_for(product.offer_id)
+        ad = pick("ad_pct", ov.ad_pct, own.ad_pct if own and own.ad_pct is not None else None, "сохранено для товара")
+        if ad is None:
+            ad, sources["ad_pct"] = ad_fact, ad_text
         storage = pick("storage", ov.storage, own.storage if own else None, "сохранено для товара")
+        if storage is None:
+            storage, sources["storage"] = self.storage_for(product.offer_id)
+        returns = pick("returns", ov.returns, None, "")
+        if returns is None:
+            returns, sources["returns"] = self.returns_for(product.offer_id)
         other = pick("other", ov.other, own.other if own else None, "сохранено для товара")
         extra = pick("extra_pct", ov.extra_pct, own.extra_pct if own and own.extra_pct is not None else None,
                      "сохранено для товара")
@@ -158,7 +237,8 @@ class PricingContext:
         return Inputs(
             cost=cost, supplier_vat=vat, commission_pct=commission, acquiring_pct=acquiring or Decimal(0), ad_pct=ad,
             logistics=logistics, storage=storage or Decimal(0), other=other or Decimal(0),
-            target_margin_pct=margin, price=price, extra_pct=extra, sources=sources, missing=missing,
+            target_margin_pct=margin, price=price, extra_pct=extra, returns=returns, sources=sources, missing=missing,
+            facts=self.facts.get(product.offer_id), ad_own_pct=ad_own, ad_shared_pct=ad_shared,
         )
 
     def params(self, inputs: Inputs) -> calc.PriceParams | None:
@@ -168,35 +248,64 @@ class PricingContext:
             cost=inputs.cost, supplier_vat=inputs.supplier_vat, commission_pct=inputs.commission_pct,
             acquiring_pct=inputs.acquiring_pct, ad_pct=inputs.ad_pct, logistics=inputs.logistics.per_unit,
             storage=inputs.storage, other=inputs.other, target_margin_pct=inputs.target_margin_pct, tax=self.tax,
-            extra_pct=inputs.extra_pct,
+            extra_pct=inputs.extra_pct, returns=inputs.returns,
         )
 
     def product_params(self, product: Product) -> calc.PriceParams | None:
         return self.params(self.inputs(product))
 
 
+def _unit(amount: str | None, qty: int) -> Decimal:
+    """Расход на штуку: в начислениях он со знаком минус; не меньше 0."""
+    return max(-Decimal(amount or 0) / qty, Decimal(0)).quantize(CENT, ROUND_HALF_UP)
+
+
+def _share(amount: Decimal, sales: Decimal) -> Decimal:
+    """Расход в % от продаж: 0, если продаж в рублях нет."""
+    return max(-amount / sales * 100, Decimal(0)).quantize(CENT, ROUND_HALF_UP) if sales > 0 else Decimal(0)
+
+
+def _d(value) -> Decimal:
+    return Decimal(value or 0)
+
+
 async def load_logistics(
     db: AsyncSession, user_id: uuid.UUID, offers: set[str], today: date
-) -> tuple[dict[str, Logistics], Logistics]:
-    """Логистика на проданную штуку по товарам и в среднем по магазину: 30 дней, кому не хватило — 90."""
+) -> tuple[dict[str, Logistics], Logistics, dict[str, Facts], ShopFacts]:
+    """Логистика, возвраты, хранение и реклама по товарам и в среднем по магазину: 30 дней, кому не хватило — 90."""
     by_offer: dict[str, Logistics] = {}
+    facts: dict[str, Facts] = {}
     shop = Logistics(None)
+    shop_facts = ShopFacts()
     for days in WINDOWS:
         if offers <= set(by_offer) and shop.per_unit is not None:
             break
         data = await product_pnl.compute(db, user_id, PnLRequest(today - timedelta(days=days), today - timedelta(days=1)))
+        by_report = bool((data.get("storage") or {}).get("has_report"))
         for item in data["items"]:
-            if item["qty"] > 0 and item["offer_id"] not in by_offer:
-                by_offer[item["offer_id"]] = Logistics(_per_unit(item["logistics"], item["qty"]), "product", days, item["qty"])
+            qty = item["qty"]
+            if qty > 0 and item["offer_id"] not in by_offer:
+                by_offer[item["offer_id"]] = Logistics(_unit(item["logistics"], qty), "product", days, qty)
+                facts[item["offer_id"]] = Facts(
+                    days=days, qty=qty, returns=_unit(item.get("returns"), qty),
+                    storage=_unit(item.get("storage"), qty) if by_report else None,
+                    ads_pct=_share(_d(item.get("ads")), _d(item.get("sales"))),
+                    not_bought=item.get("not_bought", 0), returned=item.get("returned_qty", 0),
+                    buyout_pct=Decimal(item["buyout_pct"]) if item.get("buyout_pct") is not None else None,
+                )
         totals = data["totals"]
         if shop.per_unit is None and totals["qty"] > 0:
-            shop = Logistics(_per_unit(totals["logistics"], totals["qty"]), "shop", days, totals["qty"])
-    return by_offer, shop
-
-
-def _per_unit(logistics: str, qty: int) -> Decimal:
-    """Логистика в начислениях — со знаком минус; на штуку — расход, не меньше 0."""
-    return max(-Decimal(logistics) / qty, Decimal(0)).quantize(CENT, ROUND_HALF_UP)
+            qty, un = totals["qty"], data["unallocated"].get("by_group") or {}
+            sales = _d(totals.get("sales"))
+            shop = Logistics(_unit(totals["logistics"], qty), "shop", days, qty)
+            shop_facts = ShopFacts(
+                days=days, qty=qty,
+                returns=_unit(str(_d(totals.get("returns")) + _d(un.get("returns"))), qty),
+                storage=_unit(str(_d(totals.get("storage")) + _d(un.get("storage"))), qty),
+                ads_pct=_share(_d(totals.get("ads")) + _d(un.get("ads")), sales),
+                unattributed_ads_pct=_share(_d(un.get("ads")), sales), storage_by_report=by_report,
+            )
+    return by_offer, shop, facts, shop_facts
 
 
 async def load(db: AsyncSession, user_id: uuid.UUID, products: list[Product] | None = None) -> PricingContext:
@@ -207,13 +316,13 @@ async def load(db: AsyncSession, user_id: uuid.UUID, products: list[Product] | N
     s = await get_settings(db, user_id)
     ad, margin = price_settings(s)
     extras = await load_extras(db, user_id, [p.id for p in products])
-    by_offer, shop = await load_logistics(db, user_id, {p.offer_id for p in products}, today)
+    by_offer, shop, facts, shop_facts = await load_logistics(db, user_id, {p.offer_id for p in products}, today)
     return PricingContext(
         today=today, ad_pct=ad, target_margin_pct=margin,
         tax=calc.unit_tax(row.to_engine() if row else None, today),
         default_vat=await supplier_vat_multiplier(db, user_id, today), history=await load_cost_history(db, user_id),
         prices=await latest_prices(db, [p.id for p in products]), logistics=by_offer, shop=shop,
-        min_profit=min_profit(s), extra_pct=price_extra(s), extras=extras,
+        min_profit=min_profit(s), extra_pct=price_extra(s), extras=extras, facts=facts, shop_facts=shop_facts,
     )
 
 
@@ -250,9 +359,23 @@ async def current_promotions(
 # ── расчёт товара: панель и POST /price/calculate ──
 def _saved(own: ProductPriceExtras | None) -> dict | None:
     """Что сохранено для товара (пусто — ничего своего)."""
-    if own is None or (own.storage is None and own.other is None and own.extra_pct is None):
+    if own is None or all(v is None for v in (own.storage, own.other, own.extra_pct, own.ad_pct)):
         return None
-    return {"storage": own.storage, "other": own.other, "extra_pct": own.extra_pct, "note": own.note}
+    return {"storage": own.storage, "other": own.other, "extra_pct": own.extra_pct, "ad_pct": own.ad_pct,
+            "note": own.note}
+
+
+def _facts(ctx: PricingContext, inputs: Inputs) -> dict:
+    """Факт по начислениям для подсказок в расчёте: окно, выкуп, из чего реклама; что Ozon по товарам не делит."""
+    f, shop = inputs.facts, ctx.shop_facts
+    return {
+        "days": f.days if f else shop.days, "qty": f.qty if f else 0, "own": f is not None,
+        "not_bought": f.not_bought if f else 0, "returned": f.returned if f else 0,
+        "buyout_pct": f.buyout_pct if f else None,
+        "ad_own_pct": inputs.ad_own_pct, "ad_shared_pct": inputs.ad_shared_pct,
+        "storage_by_report": shop.storage_by_report, "shop_storage": shop.storage, "shop_returns": shop.returns,
+        "shop_ads_pct": shop.ads_pct,
+    }
 
 
 def _breakdown(b: calc.Breakdown | None) -> dict | None:
@@ -282,8 +405,8 @@ def calculate(ctx: PricingContext, product: Product, ov: Overrides | None = None
             "commission_pct": inputs.commission_pct, "acquiring_pct": inputs.acquiring_pct, "ad_pct": inputs.ad_pct,
             "logistics": inputs.logistics.per_unit, "logistics_source": inputs.logistics.source,
             "logistics_text": inputs.logistics.text, "storage": inputs.storage, "other": inputs.other,
-            "extra_pct": inputs.extra_pct, "shop_extra_pct": ctx.extra_pct,
-            "saved": _saved(ctx.extras.get(product.id)),
+            "extra_pct": inputs.extra_pct, "shop_extra_pct": ctx.extra_pct, "returns": inputs.returns,
+            "saved": _saved(ctx.extras.get(product.id)), "facts": _facts(ctx, inputs),
             "target_margin_pct": inputs.target_margin_pct, "price": inputs.price, "promo_price": promo,
             "sources": inputs.sources,
         },

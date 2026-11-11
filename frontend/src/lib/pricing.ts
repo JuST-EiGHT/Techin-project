@@ -16,10 +16,33 @@ export type Breakdown = {
   profit_tax: string
   net: string
   extra?: string // доп. расходы продавца, % от цены → ₽ (правка 06.11.2026)
+  returns?: string // возвраты и невыкупы на 1 шт. (4.2a)
 }
 
 /** Свои расходы товара, сохранённые для всех расчётов (PUT /price/extras/{id}). */
-export type SavedExtras = { storage: string | null; other: string | null; extra_pct: string | null; note: string | null }
+export type SavedExtras = {
+  storage: string | null
+  other: string | null
+  extra_pct: string | null
+  ad_pct?: string | null // реклама, % — своя у товара вместо факта (4.2a)
+  note: string | null
+}
+
+/** Факт по начислениям Ozon за окно продаж (4.2a): выкуп, из чего реклама, оценки магазина. */
+export type CalcFacts = {
+  days: number | null
+  qty: number
+  own: boolean // у товара свои продажи за окно
+  not_bought: number
+  returned: number
+  buyout_pct: string | null
+  ad_own_pct: string | null // реклама с артикулом товара, % его продаж
+  ad_shared_pct: string | null // реклама без товара (кампании), % продаж магазина
+  storage_by_report: boolean
+  shop_storage: string | null
+  shop_returns: string | null
+  shop_ads_pct: string | null
+}
 
 export type CalcTax = { title: string; known: boolean; notes: string[]; profit_tax_pct: string }
 
@@ -40,6 +63,8 @@ export type CalculateResponse = {
     extra_pct?: string // доп. расходы, % от цены: свои у товара или общие магазина
     shop_extra_pct?: string // общие доп. расходы магазина, %
     saved?: SavedExtras | null
+    returns?: string // возвраты и невыкупы на 1 шт. (4.2a)
+    facts?: CalcFacts | null
     target_margin_pct: string
     price: string | null
     promo_price: string | null
@@ -71,6 +96,7 @@ export type Overrides = {
   storage: string
   other: string
   extra_pct: string
+  returns: string
   price: string
 }
 
@@ -109,7 +135,15 @@ export type PricesPage = {
   counts: { all: number } & Record<PriceFilter, number>
   settings: { ad_pct: string; target_margin_pct: string; defaults: boolean }
   tax: CalcTax
-  shop_logistics: { per_unit: string | null; text: string }
+  shop_logistics: {
+    per_unit: string | null
+    text: string
+    returns?: string | null // 4.2a: средние магазина за окно
+    storage?: string | null
+    ads_pct?: string | null
+    unattributed_ads_pct?: string | null
+    storage_by_report?: boolean
+  }
 }
 
 export type Suggestion = {
@@ -134,7 +168,10 @@ export const PRICE_FILTERS: { value: PriceFilter; label: string; hint: string }[
 ]
 
 export const AD_WHY =
-  'Реклама — доля цены, которую вы тратите на продвижение в Ozon (трафареты, поиск). Ozon не делит её по товарам, поэтому указываете вы: она входит в минимальную цену. Не рекламируетесь — оставьте 0.'
+  'Реклама — по начислениям Ozon: своя реклама товара («Звёздные товары») и реклама без товара — оплата за клик и за заказ, её Ozon начисляет по кампании, а не по товару, поэтому делим её по доле в продажах (оценка). Своё значение, сохранённое для товара, заменит факт.'
+/** Настройка «реклама %» магазина — когда данных нет (4.2a). */
+export const AD_SETTING_WHY =
+  'Только пока данных нет: магазин ещё ничего не продавал или начисления не загружены. Как только начисления появятся, реклама считается по ним — по каждому товару.'
 export const MARGIN_WHY =
   'Целевая маржа — сколько процентов от цены вы хотите оставлять себе (до налога на прибыль). По ней считается целевая цена; минимальная — при марже 0.'
 

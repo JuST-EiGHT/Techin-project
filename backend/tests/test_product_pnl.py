@@ -19,10 +19,18 @@ def ln(type_name, amount, offer=None, qty=None, posting=None, day=D):
 def test_groups_by_type_name():
     assert group_of("Выручка") == "revenue"
     assert group_of("Вознаграждение за продажу") == group_of("Возврат вознаграждения") == "commission"
-    for name in ("Логистика", "Обратная логистика", "Доставка до места выдачи", "Упаковка товара партнёрами",
-                 "Обработка возвратов, отмен и невыкупов партнёрами", "Обеспечение материалами для упаковки товара"):
+    for name in ("Логистика", "Доставка до места выдачи", "Упаковка товара партнёрами",
+                 "Обеспечение материалами для упаковки товара", "Кросс-докинг", "Дополнительная упаковка на складе Ozon"):
         assert group_of(name) == "logistics", name
-    for name in ("Баллы за скидки", "Эквайринг", "Возврат выручки", "Звёздные товары", "Размещение на складе"):
+    # 4.2a — как юнит-экономика Ozon: возвраты, реклама и хранение — своими группами
+    for name in ("Обратная логистика", "Обработка возвратов, отмен и невыкупов партнёрами"):
+        assert group_of(name) == "returns", name
+    for name in ("Звёздные товары", "Оплата за клик", "Продвижение с оплатой за заказ", "Продвижение товара"):
+        assert group_of(name) == "ads", name
+    for name in ("Размещение на складе", "Размещение товаров на складах Ozon"):
+        assert group_of(name) == "storage", name
+    for name in ("Баллы за скидки", "Эквайринг", "Возврат выручки", "Вывоз товара со склада силами Ozon",
+                 "Страхование товара от массовых повреждений"):
         assert group_of(name) == "other", name
 
 
@@ -164,10 +172,11 @@ async def test_csv_export(client, tokens):
     assert "filename*=UTF-8''%D0%9F%D1%80%D0%B8%D0%B1%D1%8B%D0%BB%D1%8C" in r.headers["content-disposition"]
     assert r.content.startswith(b"\xef\xbb\xbf")  # BOM — Excel откроет кириллицу
     rows = list(csv.reader(io.StringIO(r.content.decode("utf-8-sig")), delimiter=";"))
-    assert rows[0][0] == "Артикул" and rows[0][10] == "Долг поставщику, руб."  # подпись — по настройке
-    assert rows[1][0] == "6004-2RS.CM.SRL.NAC.TH" and rows[1][11] == "3166,22" and rows[1][12] == "30,19"
-    assert rows[-2][1].startswith("Не распределено") and rows[-2][9] == "-5411,18"
-    assert rows[-1][1] == "Итого за период" and rows[-1][9] == "10955,83" and len(rows) == 22 + 3
+    assert rows[0][0] == "Артикул" and rows[0][13] == "Долг поставщику, руб."  # подпись — по настройке
+    assert rows[0][8:11] == ["Возвраты и невыкупы, руб.", "Реклама, руб.", "Хранение, руб."]  # 4.2a
+    assert rows[1][0] == "6004-2RS.CM.SRL.NAC.TH" and rows[1][14] == "3166,22" and rows[1][15] == "30,19"
+    assert rows[-2][1].startswith("Не распределено") and rows[-2][12] == "-5411,18"
+    assert rows[-1][1] == "Итого за период" and rows[-1][12] == "10955,83" and len(rows) == 22 + 3
 
 
 async def test_cache_reset_after_cost_change(client, tokens):

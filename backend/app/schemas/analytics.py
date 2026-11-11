@@ -291,6 +291,7 @@ class ProfitLine(BaseModel):
     quantity: int | None
     posting_number: str | None  # ID начисления / номер отправления Ozon
     via_posting: bool  # товар определён по номеру отправления
+    by_report: bool = False  # доля хранения магазина по отчёту Ozon о размещении (4.2a)
     source: str | None  # api | xlsx
     report: ProfitLineReport | None
 

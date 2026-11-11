@@ -19,10 +19,17 @@ export type ProductRow = {
   sku: string
   qty: number
   returned_qty: number
+  not_bought?: number // невыкуплено (4.2a)
+  buyout_pct?: string | null // выкуп, %
   revenue: string
+  sales?: string // «Продажи» Ozon: выручка + баллы + партнёры
   avg_price: string | null
   commission: string
   logistics: string
+  returns?: string // возвраты и невыкупы (4.2a)
+  ads?: string // реклама с артикулом (4.2a)
+  storage?: string // хранение, в т. ч. доля по отчёту о размещении (4.2a)
+  storage_by_report?: string
   other: string
   total: string
   by_posting: string
@@ -42,6 +49,12 @@ export type PerUnit = {
   commission_pct: string | null
   logistics: string
   logistics_pct: string | null
+  returns?: string
+  returns_pct?: string | null
+  ads?: string
+  ads_pct?: string | null
+  storage?: string
+  storage_pct?: string | null
   other: string
   other_pct: string | null
   total: string
@@ -67,6 +80,9 @@ type ProductsPage = {
     revenue: string
     commission: string
     logistics: string
+    returns?: string
+    ads?: string
+    storage?: string
     other: string
     total: string
     cost: string
@@ -74,7 +90,8 @@ type ProductsPage = {
     margin: string | null
     missing_cost: number
   }
-  unallocated: { total: string; lines: number; multi_product: string; by_type: Record<string, string> }
+  unallocated: { total: string; lines: number; multi_product: string; by_type: Record<string, string>; by_group?: Record<string, string> }
+  storage?: { by_report: string; unallocated: string; has_report: boolean } | null // хранение по отчёту о размещении (4.2a)
   period_total: string
   period_by_type: Record<string, string> // все начисления периода по статьям, удержания — первыми
   warnings: string[]
@@ -211,7 +228,9 @@ export function ProductsView({
             <button type="button" onClick={() => setSelected('unallocated')} className="bg-card px-4 py-3 text-left hover:bg-line/40" data-testid="unallocated-stat">
               <div className="text-[11px] uppercase tracking-wider text-muted">Не распределено</div>
               <div className={`mt-1 text-lg font-bold tabular-nums ${signTone(data.unallocated.total)}`}>{rub(data.unallocated.total)}</div>
-              <div className="mt-0.5 text-xs text-faint">хранение, подписки и др. — подробнее</div>
+              <div className="mt-0.5 text-xs text-faint">
+                реклама по кампаниям, подписки{data.storage?.has_report && Number(data.storage.unallocated) === 0 ? '' : ', хранение'} и др. — подробнее
+              </div>
             </button>
           </div>
 
@@ -285,7 +304,7 @@ export function ProductsView({
 
           <section className="overflow-hidden rounded-xl border border-line bg-card">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[60rem] text-[13px]" data-testid="products-table" data-view={unit ? 'unit' : 'total'}>
+              <table className="w-full min-w-[72rem] text-[13px]" data-testid="products-table" data-view={unit ? 'unit' : 'total'}>
                 <thead className="border-b border-line text-left text-xs text-muted">
                   {unit ? (
                     <tr>
@@ -294,7 +313,16 @@ export function ProductsView({
                       <th className={`${th} text-right`}>Цена</th>
                       <th className={`${th} text-right`}>Комиссия</th>
                       <th className={`${th} text-right`}>Логистика</th>
-                      <th className={`${th} text-right`} title="Баллы за скидки, эквайринг, возвраты, продвижение и др.">
+                      <th className={`${th} text-right`} title="Обратная логистика, обработка возвратов, отмен и невыкупов">
+                        Возвраты
+                      </th>
+                      <th className={`${th} text-right`} title="Реклама и продвижение с артикулом: «Звёздные товары» и др. Оплата за клик и за заказ — по кампании, в «Не распределено»">
+                        Реклама
+                      </th>
+                      <th className={`${th} text-right`} title="Хранение: доля товара по отчёту Ozon о размещении">
+                        Хранение
+                      </th>
+                      <th className={`${th} text-right`} title="Баллы за скидки, эквайринг, возврат выручки и др.">
                         Прочее
                       </th>
                       <th className={`${th} text-right`} title="Сколько Ozon начислил за штуку после удержаний">
@@ -312,7 +340,16 @@ export function ProductsView({
                       <th className={`${th} text-right`}>Ср. цена</th>
                       <th className={`${th} text-right`}>Комиссия</th>
                       <th className={`${th} text-right`}>Логистика</th>
-                      <th className={`${th} text-right`} title="Баллы за скидки, эквайринг, возвраты, продвижение и др.">
+                      <th className={`${th} text-right`} title="Обратная логистика, обработка возвратов, отмен и невыкупов">
+                        Возвраты
+                      </th>
+                      <th className={`${th} text-right`} title="Реклама и продвижение с артикулом: «Звёздные товары» и др. Оплата за клик и за заказ — по кампании, в «Не распределено»">
+                        Реклама
+                      </th>
+                      <th className={`${th} text-right`} title="Хранение: доля товара по отчёту Ozon о размещении">
+                        Хранение
+                      </th>
+                      <th className={`${th} text-right`} title="Баллы за скидки, эквайринг, возврат выручки и др.">
                         Прочее
                       </th>
                       <th className={`${th} text-right`}>{costTitle}</th>
@@ -344,6 +381,9 @@ export function ProductsView({
                             <Num v={u?.price ?? null} />
                             <Num v={u?.commission ?? null} share={u?.commission_pct} />
                             <Num v={u?.logistics ?? null} share={u?.logistics_pct} />
+                            <Num v={u?.returns ?? null} share={u?.returns_pct} />
+                            <Num v={u?.ads ?? null} share={u?.ads_pct} />
+                            <Num v={u?.storage ?? null} share={u?.storage_pct} />
                             <Num v={u?.other ?? null} share={u?.other_pct} />
                             <Num v={u?.total ?? null} share={u?.total_pct} />
                             <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${r.cost_missing ? 'text-warn' : ''}`}>
@@ -363,6 +403,9 @@ export function ProductsView({
                             <Num v={r.avg_price} muted />
                             <Num v={r.commission} />
                             <Num v={r.logistics} />
+                            <Num v={r.returns ?? '0'} />
+                            <Num v={r.ads ?? '0'} />
+                            <Num v={r.storage ?? '0'} />
                             <Num v={r.other} />
                             <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${r.cost_missing ? 'text-warn' : ''}`}>
                               {r.cost_missing ? 'нет' : rub(r.cost)}
@@ -380,7 +423,7 @@ export function ProductsView({
                   })}
                   {data.items.length === 0 && (
                     <tr>
-                      <td colSpan={10} className="px-3 py-4 text-center text-sm text-muted" data-testid="products-none">
+                      <td colSpan={13} className="px-3 py-4 text-center text-sm text-muted" data-testid="products-none">
                         Нет товаров по этому фильтру
                       </td>
                     </tr>
@@ -395,6 +438,9 @@ export function ProductsView({
                         <Num v={perQty(t.revenue, t.qty)} />
                         <Num v={perQty(t.commission, t.qty)} />
                         <Num v={perQty(t.logistics, t.qty)} />
+                        <Num v={perQty(t.returns ?? '0', t.qty)} />
+                        <Num v={perQty(t.ads ?? '0', t.qty)} />
+                        <Num v={perQty(t.storage ?? '0', t.qty)} />
                         <Num v={perQty(t.other, t.qty)} />
                         <Num v={perQty(t.total, t.qty)} />
                         {/* не у всех товаров есть себестоимость — среднее было бы занижено */}
@@ -403,9 +449,9 @@ export function ProductsView({
                         <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${marginTone(t.margin, low)}`}>{pctText(t.margin)}</td>
                       </tr>
                       <tr className="text-xs text-muted">
-                        <td className="px-3 py-2" colSpan={10}>
+                        <td className="px-3 py-2" colSpan={13}>
                           На 1 шт. — суммы товара за период, делённые на проданные штуки; под суммой — доля от цены. «Не распределено»
-                          (хранение, подписки) на штуки не делится — оно в режиме «Всего».
+                          (реклама по кампаниям, подписки, хранение без отчёта о размещении) на штуки не делится — оно в режиме «Всего».
                         </td>
                       </tr>
                     </>
@@ -418,14 +464,17 @@ export function ProductsView({
                         <td />
                         <Num v={t.commission} />
                         <Num v={t.logistics} />
+                        <Num v={t.returns ?? '0'} />
+                        <Num v={t.ads ?? '0'} />
+                        <Num v={t.storage ?? '0'} />
                         <Num v={t.other} />
                         <Num v={t.cost} />
                         <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${signTone(t.profit)}`}>{rub(t.profit)}</td>
                         <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${marginTone(t.margin, low)}`}>{pctText(t.margin)}</td>
                       </tr>
                       <tr onClick={() => setSelected('unallocated')} className="cursor-pointer text-muted hover:bg-line/40" data-testid="unallocated-row">
-                        <td className="px-3 py-2" colSpan={8}>
-                          − Не распределено: начисления без товара — хранение, подписки и др. ({data.unallocated.lines} строк) →
+                        <td className="px-3 py-2" colSpan={11}>
+                          − Не распределено: начисления без товара — реклама по кампаниям, подписки, страхование и др. ({data.unallocated.lines} строк) →
                         </td>
                         <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${signTone(data.unallocated.total)}`}>
                           {rub(data.unallocated.total)}
@@ -434,7 +483,7 @@ export function ProductsView({
                       </tr>
                       {t.missing_cost === 0 && (
                         <tr className="font-semibold" data-testid="period-profit-row">
-                          <td className="px-3 py-2" colSpan={8}>
+                          <td className="px-3 py-2" colSpan={11}>
                             = Прибыль периода до налога (как на вкладке P&amp;L)
                           </td>
                           <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${signTone(periodProfit)}`}>{rub(periodProfit)}</td>
@@ -618,9 +667,12 @@ function ProductCard({
 
         {un ? (
           <p className="mt-3 text-sm text-muted">
-            Начисления, у которых нет товара: хранение, подписки, страхование, продвижение по кампаниям
+            Начисления, у которых нет товара: реклама по кампаниям (оплата за клик и за заказ), подписки, страхование
+            {data.storage?.has_report ? ', хранение за дни без отчёта о размещении' : ', хранение'}
             {Number(data.unallocated.multi_product) !== 0 && ', отправления с несколькими товарами'}. Они относятся ко всему магазину — мы
             не делим их между товарами, чтобы не исказить прибыль каждого. В P&amp;L периода они учтены.
+            {data.storage?.has_report &&
+              ` Хранение за дни, где есть отчёт Ozon «Стоимость размещения по товарам», поделено между товарами: ${rub(data.storage.by_report)}.`}
           </p>
         ) : (
           <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
@@ -632,6 +684,22 @@ function ProductCard({
               <>
                 <dt className="text-muted">Возвращено</dt>
                 <dd className="text-right tabular-nums text-warn">{row.returned_qty} шт.</dd>
+              </>
+            )}
+            {(row.not_bought ?? 0) > 0 && (
+              <>
+                <dt className="text-muted">Не выкупили</dt>
+                <dd className="text-right tabular-nums text-warn">{row.not_bought} шт.</dd>
+              </>
+            )}
+            {row.buyout_pct != null && (
+              <>
+                <dt className="text-muted" title="Из доехавших до покупателя — сколько купили: продано / (продано + не выкупили)">
+                  Выкуп
+                </dt>
+                <dd className={`text-right tabular-nums ${Number(row.buyout_pct) < 80 ? 'text-warn' : ''}`} data-testid="card-buyout">
+                  {pctText(row.buyout_pct)}
+                </dd>
               </>
             )}
             <dt className="text-muted">Начислено Ozon</dt>
@@ -716,7 +784,11 @@ export function UnitEconomics({ u, costTitle }: { u: PerUnit; costTitle: string 
           {line('Цена (средняя)', u.price, '100')}
           {line('Комиссия Ozon', u.commission, u.commission_pct, { tone: signTone(u.commission) })}
           {line('Логистика', u.logistics, u.logistics_pct, { tone: signTone(u.logistics) })}
-          {line('Прочее: баллы, эквайринг, возвраты', u.other, u.other_pct, { tone: signTone(u.other) })}
+          {u.returns !== undefined && Number(u.returns) !== 0 &&
+            line('Возвраты и невыкупы', u.returns, u.returns_pct ?? null, { tone: signTone(u.returns), testid: 'card-unit-returns' })}
+          {u.ads !== undefined && Number(u.ads) !== 0 && line('Реклама и продвижение', u.ads, u.ads_pct ?? null, { tone: signTone(u.ads) })}
+          {u.storage !== undefined && Number(u.storage) !== 0 && line('Хранение', u.storage, u.storage_pct ?? null, { tone: signTone(u.storage) })}
+          {line('Прочее: баллы, эквайринг, возврат выручки', u.other, u.other_pct, { tone: signTone(u.other) })}
           {line('= Начислено Ozon', u.total, u.total_pct, { strong: true })}
           {line(`− ${costTitle}`, u.cost, u.cost_pct)}
           {line('= Прибыль до налога', u.profit, u.profit_pct, {
@@ -726,7 +798,10 @@ export function UnitEconomics({ u, costTitle }: { u: PerUnit; costTitle: string 
           })}
         </tbody>
       </table>
-      <p className="mt-1 text-xs text-faint">Суммы за период, делённые на проданные штуки; справа — доля от цены.</p>
+      <p className="mt-1 text-xs text-faint">
+        Суммы за период, делённые на проданные штуки; справа — доля от цены. Реклама по кампаниям (оплата за клик и за заказ) Ozon
+        начисляет без товара — она в «Не распределено»; в расчёте цены её доля учтена.
+      </p>
     </>
   )
 }
@@ -739,6 +814,7 @@ type AccrualLine = {
   quantity: number | null
   posting_number: string | null
   via_posting: boolean
+  by_report?: boolean // доля хранения магазина по отчёту о размещении (4.2a)
   source: 'api' | 'xlsx' | null
   report: { id: string; filename: string; period: string } | null
 }
@@ -789,6 +865,11 @@ export function ProductLines({ offerId, from, to, group, groupTitle }: { offerId
                   <span title={l.via_posting ? 'Артикула в строке нет — товар определён по номеру отправления' : 'ID начисления / номер отправления Ozon'}>
                     № {l.posting_number}
                     {l.via_posting && ' · по отправлению'}
+                  </span>
+                )}
+                {l.by_report && (
+                  <span title="Ozon начисляет хранение одной строкой на весь магазин — здесь доля товара по отчёту «Стоимость размещения по товарам»">
+                    доля по отчёту о размещении
                   </span>
                 )}
                 {l.report ? (
