@@ -14,6 +14,7 @@
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 
+from app.engine import product_pnl
 from app.engine import profit_structure as ps
 
 ZERO = Decimal(0)
@@ -50,7 +51,11 @@ _FROM_STRUCTURE = {
 
 def line_of(type_name: str, amount: Decimal) -> str:
     """Строка P&L для статьи начислений Ozon. Из «прочего» доплаты Ozon (баллы за скидки, компенсации, выплаты
-    партнёров — сумма за период в плюс) — корректировки, удержания — прочие услуги Ozon."""
+    партнёров — сумма за период в плюс) — корректировки, удержания — прочие услуги Ozon. Обратная логистика и обработка
+    возвратов в P&L — в «Логистике», как в отчёте Ozon («Услуги доставки»); «Возвраты покупателей» — только возврат
+    выручки (юнит-экономика и «Аналитика прибыльности» показывают их вместе — 4.2a)."""
+    if product_pnl.group_of(type_name) == "returns":
+        return LOGISTICS
     key = ps.group_of(type_name)
     if key == ps.OTHER:
         return ADJUSTMENTS if amount > 0 else OTHER

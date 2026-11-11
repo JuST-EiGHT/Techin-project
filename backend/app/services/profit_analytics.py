@@ -11,6 +11,7 @@
 Таблица товаров — API «Прибыли по товарам» (`/pnl/by-product`, фильтры 10.9). Кэш — вместе с P&L.
 """
 import uuid
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 
@@ -151,21 +152,27 @@ async def product_lines(db: AsyncSession, store_id: uuid.UUID, date_from: date, 
     for ln in lines:
         offer, via_posting, _ = product_engine.attribute(ln.offer_id, ln.posting_number, run.posting_offers)
         if offer == offer_id:
-            mine.append((ln, via_posting))
+            mine.append((ln, via_posting, False))
+        elif offer is None and not ln.posting_number and product_engine.group_of(ln.type_name) == "storage":
+            # хранение магазина за день — доля товара по отчёту о размещении (4.2a), как в «Прибыли по товарам»
+            weights = product_engine.shares_for(run.storage_shares, ln.day)
+            part = dict(product_engine.split(ln.amount, weights)).get(offer_id) if weights else None
+            if part:
+                mine.append((replace(ln, amount=part), False, True))
     # по дням, внутри — по отправлению: сначала выручка, потом удержания по нему
     mine.sort(key=lambda x: (x[0].day, x[0].posting_number or "", ps.group_of(x[0].type_name) != ps.REVENUE,
                              x[0].type_name, x[0].amount))
     reports = {r.id: r for r in cov.reports}
-    missing = {rid for ln, _ in mine if (rid := ln.report_id) and rid not in reports}
+    missing = {rid for ln, _, _ in mine if (rid := ln.report_id) and rid not in reports}
     if missing:
         reports |= {r.id: r for r in (await db.execute(select(Report).where(Report.id.in_(missing)))).scalars()}
-    total = sum((ln.amount for ln, _ in mine), Decimal(0))
+    total = sum((ln.amount for ln, _, _ in mine), Decimal(0))
     out_lines = [{
         "day": ln.day, "type_name": ln.type_name, "group": ps.group_of(ln.type_name), "amount": ln.amount,
-        "quantity": ln.quantity, "posting_number": ln.posting_number, "via_posting": via,
+        "quantity": ln.quantity, "posting_number": ln.posting_number, "via_posting": via, "by_report": by_report,
         "source": ln.source, "report": {"id": str(ln.report_id), "filename": reports[ln.report_id].filename,
                                         "period": reports[ln.report_id].period}
         if ln.report_id and ln.report_id in reports else None,
-    } for ln, via in mine[:MAX_LINES]]
+    } for ln, via, by_report in mine[:MAX_LINES]]
     return _out({"offer_id": offer_id, "date_from": date_from, "date_to": date_to, "total": total,
                  "count": len(mine), "lines": out_lines})

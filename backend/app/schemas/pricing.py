@@ -18,6 +18,7 @@ class CalculateRequest(BaseModel):
     storage: Decimal | None = Field(None, ge=0, le=1_000_000)
     other: Decimal | None = Field(None, ge=0, le=1_000_000)
     extra_pct: Decimal | None = Field(None, ge=0, le=90)  # доп. расходы, % от цены
+    returns: Decimal | None = Field(None, ge=0, le=1_000_000)  # возвраты и невыкупы на 1 шт. (4.2a)
     target_margin_pct: Decimal | None = Field(None, ge=0, le=90)
     price: Decimal | None = Field(None, gt=0, le=100_000_000)  # проверить другую цену
     promo_price: Decimal | None = Field(None, gt=0, le=100_000_000)
@@ -44,14 +45,34 @@ class CalcInputs(BaseModel):
     price: Decimal | None
     promo_price: Decimal | None
     sources: dict[str, str]  # поле → откуда значение
+    returns: Decimal = Decimal(0)  # возвраты и невыкупы на 1 шт. (4.2a)
+    facts: "CalcFacts | None" = None
+
+
+class CalcFacts(BaseModel):
+    """Факт по начислениям Ozon за окно продаж (4.2a) — для подсказок: выкуп, из чего реклама, оценки магазина."""
+
+    days: int | None  # окно: 30 или 90 дней; None — продаж нет и у магазина
+    qty: int  # продано товара за окно
+    own: bool  # у товара свои продажи за окно (иначе — средние магазина)
+    not_bought: int  # невыкуплено
+    returned: int  # вернули после покупки
+    buyout_pct: Decimal | None  # выкуп, %
+    ad_own_pct: Decimal | None  # реклама товара («Звёздные товары» и др.), % от его продаж
+    ad_shared_pct: Decimal | None  # реклама без товара (кампании), % от продаж магазина
+    storage_by_report: bool  # хранение поделено по отчёту Ozon о размещении
+    shop_storage: Decimal | None
+    shop_returns: Decimal | None
+    shop_ads_pct: Decimal | None
 
 
 class SavedExtras(BaseModel):
-    """Свои расходы товара в расчёте цены; пусто — общее значение."""
+    """Свои расходы товара в расчёте цены; пусто — общее значение или факт по начислениям."""
 
     storage: Decimal | None = None
     other: Decimal | None = None
     extra_pct: Decimal | None = None
+    ad_pct: Decimal | None = None  # реклама, % — вместо факта (4.2a)
     note: str | None = None
 
 
@@ -61,6 +82,7 @@ class ExtrasUpdate(BaseModel):
     storage: Decimal | None = Field(None, ge=0, le=1_000_000)
     other: Decimal | None = Field(None, ge=0, le=1_000_000)
     extra_pct: Decimal | None = Field(None, ge=0, le=90)
+    ad_pct: Decimal | None = Field(None, ge=0, le=90)  # реклама, % — своя у товара (4.2a)
     note: str | None = Field(None, max_length=200)
 
 
@@ -89,6 +111,7 @@ class Breakdown(BaseModel):
     profit_tax: Decimal
     net: Decimal  # после налога на прибыль
     extra: Decimal = Decimal(0)  # доп. расходы продавца, ₽
+    returns: Decimal = Decimal(0)  # возвраты и невыкупы на 1 шт. (4.2a)
 
 
 class CalcResult(BaseModel):
@@ -166,6 +189,12 @@ class PriceSettingsOut(BaseModel):
 class ShopLogistics(BaseModel):
     per_unit: Decimal | None
     text: str
+    # 4.2a: средние магазина за окно — возвраты и хранение на 1 шт., реклама — % от продаж (всего и без товара)
+    returns: Decimal | None = None
+    storage: Decimal | None = None
+    ads_pct: Decimal | None = None
+    unattributed_ads_pct: Decimal | None = None
+    storage_by_report: bool = False
 
 
 class PricesPage(BaseModel):
@@ -200,3 +229,6 @@ class Suggestions(BaseModel):
 
 CalcInputs.model_rebuild()
 CalculateResponse.model_rebuild()
+
+
+CalcInputs.model_rebuild()

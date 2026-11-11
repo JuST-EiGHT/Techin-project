@@ -66,6 +66,10 @@ class UserSettings(Base):
     supply_safety_days: Mapped[int | None] = mapped_column(Integer)  # страховой запас, дней (10.18); нет — 0
     # период планирования поставок (10.26): спрос — по заказам за столько дней; нет — 30
     supply_demand_days: Mapped[int | None] = mapped_column(Integer)
+    # 10.18a: минимум одного товара в поставке на склад, шт. (коробка; пусто — 6) и склад кластера, куда везти, —
+    # {ключ кластера: id склада Ozon}; нет кластера — Ozon выберет склад сам
+    supply_min_qty: Mapped[int | None] = mapped_column(Integer)
+    supply_cluster_warehouses: Mapped[dict | None] = mapped_column(JSON)
     # минимальная допустимая прибыль с продажи, ₽ (10.26): в расчёте цены — «цена с минимальной прибылью»; нет — 0
     min_profit_rub: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     # порог «низкой маржи», % (шаг 7.1): акции, страница товаров, прибыль по товарам и аномалия «маржа ниже порога»;

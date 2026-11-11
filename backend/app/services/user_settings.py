@@ -95,6 +95,18 @@ def min_profit(s: UserSettings) -> Decimal:
     return Decimal(0) if s.min_profit_rub is None else Decimal(s.min_profit_rub)
 
 
+def supply_min_qty(s: UserSettings) -> int:
+    """Минимум одного товара в поставке на склад, шт. (шаг 10.18a, коробка); не задан — 6."""
+    from app.engine.supply_planner import DEFAULT_MIN_QTY
+
+    return DEFAULT_MIN_QTY if s.supply_min_qty is None else s.supply_min_qty
+
+
+def supply_cluster_warehouses(s: UserSettings) -> dict[str, int]:
+    """Склад кластера, куда везти (10.18a): {ключ кластера: id склада Ozon}; нет кластера — склад выберет Ozon."""
+    return {str(k): int(v) for k, v in (s.supply_cluster_warehouses or {}).items() if v}
+
+
 def supply_safety_days(s: UserSettings) -> int:
     """Страховой запас для поставок (шаг 10.18), дней; не задан — 0."""
     return DEFAULT_SAFETY_DAYS if s.supply_safety_days is None else s.supply_safety_days

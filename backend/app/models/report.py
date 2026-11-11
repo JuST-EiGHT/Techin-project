@@ -90,7 +90,8 @@ class OzonDocument(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    doc_type: Mapped[str] = mapped_column(String(32), nullable=False)  # mutual_settlement | compensation | decompensation
+    # mutual_settlement | compensation | decompensation | placement_by_products (4.2a, отчёт о размещении)
+    doc_type: Mapped[str] = mapped_column(String(32), nullable=False)
     period_start: Mapped[date] = mapped_column(Date, nullable=False)
     period_end: Mapped[date] = mapped_column(Date, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)  # requested | ready | error

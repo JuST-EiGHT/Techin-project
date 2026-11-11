@@ -2,7 +2,7 @@
 одним событием, акции, остатки, аномалии, действия, отчёты, ошибки загрузки), повторы и служебное — нет; фильтры по виду,
 товару и периоду; ссылки; страницы по курсору без пропусков и повторов; каждый изменяющий эндпоинт описан."""
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from decimal import Decimal
 
 from app.engine import event_feed as ef
@@ -20,7 +20,10 @@ from app.models.warehouse import ProductStock, Warehouse
 from tests.test_products import user_id_of
 
 D = Decimal
-BASE = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(days=5)
+MSK = timezone(timedelta(hours=3))
+# 01:00 по Москве пять дней назад: события сида (до +13,5 ч) — всегда в одних московских сутках, в любое время запуска
+# (от «сейчас − 5 дней» вечером по Москве часть событий уходила на следующие сутки и проверка периода падала)
+BASE = datetime.combine(datetime.now(MSK).date() - timedelta(days=5), time(1), MSK).astimezone(timezone.utc)
 
 
 def t(hours: float) -> datetime:
