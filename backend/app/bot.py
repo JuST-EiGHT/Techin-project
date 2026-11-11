@@ -7,11 +7,12 @@ python-telegram-bot 22.8: Application с долгим опросом (run_pollin
 """
 import logging
 import sys
+import time
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from telegram import BotCommand, Update
 from telegram.constants import ChatType, ParseMode
-from telegram.error import TelegramError
+from telegram.error import InvalidToken, NetworkError, TelegramError
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from app.core.config import settings
@@ -101,19 +102,37 @@ def build(token: str) -> Application:
     return app
 
 
-def main() -> int:
+# Telegram недоступен с сервера (сеть, блокировка) — ждём внутри процесса, а не выходим: перезапуск контейнера заново
+# загружает всё приложение, и сотни перезапусков держат процессор на 100 % (11.2026). Паузы растут до 10 минут.
+RETRY_DELAYS = (30, 60, 120, 300, 600)
+
+
+def main(sleep=time.sleep) -> int:
     logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s", level=logging.INFO)
     protect_logs()
     if not configured():
         log.warning("TELEGRAM_BOT_TOKEN не задан — бот не запущен (уведомления только на сайте)")
         return 0
     init_sentry("bot")
-    try:
-        build(settings.TELEGRAM_BOT_TOKEN).run_polling(allowed_updates=["message"])
-    except TelegramError as e:  # например, токен не принят — текст ошибки PTB содержит токен
-        log.error("Бот остановлен: %s: %s", type(e).__name__, redact(str(e)))
-        return 1
-    return 0
+    failures = 0
+    while True:
+        try:
+            # close_loop=False — тот же цикл событий для следующей попытки
+            build(settings.TELEGRAM_BOT_TOKEN).run_polling(allowed_updates=["message"], close_loop=False)
+            return 0
+        except InvalidToken:
+            # перезапуск не поможет — нужен новый токен; выход без ошибки, чтобы Docker не перезапускал по кругу
+            log.error("Бот остановлен: Telegram не принял TELEGRAM_BOT_TOKEN — проверьте токен в .env.prod (docs/TELEGRAM.md)")
+            return 0
+        except NetworkError as e:  # в т. ч. TimedOut: api.telegram.org не отвечает
+            delay = RETRY_DELAYS[min(failures, len(RETRY_DELAYS) - 1)]
+            failures += 1
+            log.warning("Telegram недоступен (%s: %s) — попытка %d, следующая через %d с",
+                        type(e).__name__, redact(str(e)), failures, delay)
+            sleep(delay)
+        except TelegramError as e:  # текст ошибки PTB может содержать токен
+            log.error("Бот остановлен: %s: %s", type(e).__name__, redact(str(e)))
+            return 1
 
 
 if __name__ == "__main__":
