@@ -106,7 +106,7 @@ function Overview() {
           <span className="text-xs text-faint">по продажам на Ozon — без расходов бизнеса</span>
         </div>
         <MetricsState error={metrics.error} loading={metrics.loading} empty={!metrics.data} />
-        {metrics.data && metrics.data.coverage.data_source !== 'none' && <DynamicsChart data={metrics.data} metrics={['revenue', 'profit']} granularity={{ value: filter.granularity, onChange: (g) => update({ granularity: g, granularityChosen: true }) }} />}
+        {metrics.data && metrics.data.coverage.data_source !== 'none' && <DynamicsChart data={metrics.data} metrics={['revenue', 'profit']} granularity={{ value: filter.granularity, chosen: filter.granularityChosen, onChange: (g) => update({ granularity: g, granularityChosen: true }) }} />}
       </section>
       {board && <MoneyBlock payouts={board.payouts} hasKey={board.setup.has_key} />}
       <AttentionWidget area="finance" />

@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { ChipOptions, DateRangePicker, FilterBar, FilterButton, FilterField, SearchBox, selectClass } from '@/components/filters'
 import { CategoryOptions, CategoryPicker } from '@/components/planning/Categories'
 import { Modal, input } from '@/components/planning/ui'
 import {
@@ -22,7 +23,7 @@ import {
 import { Badge, fmtDateTime, fmtDay, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
-import { addDays, todayMsk } from '@/lib/period'
+import { addDays, presetRange, todayMsk } from '@/lib/period'
 
 type OpType = 'expense' | 'income' | 'transfer'
 const TYPES: { value: OpType; label: string }[] = [
@@ -1023,67 +1024,99 @@ export function OperationsTab({ accounts, categories, onChanged }: { accounts: A
     <div className="space-y-4">
       <QuickAdd accounts={accounts} categories={categories} onSaved={changed} onCategoryCreated={onChanged} onMore={() => setAdding(true)} />
 
-      <div className="space-y-2 text-sm" data-testid="ops-filters">
-        <div className="flex flex-wrap items-center gap-2">
-          <input type="date" value={range.from} max={range.to} onChange={(e) => e.target.value && setRange({ ...range, from: e.target.value })} className={select} aria-label="С" data-testid="ops-from" />
-          <span className="text-muted">—</span>
-          <input type="date" value={range.to} min={range.from} onChange={(e) => e.target.value && setRange({ ...range, to: e.target.value })} className={select} aria-label="По" data-testid="ops-to" />
-          <div className="flex flex-wrap gap-1 rounded-lg border border-line bg-card p-1" role="group" aria-label="Факт или план" data-testid="ops-status">
-            {STATUS_FILTERS.map((f) => (
-              <button
-                key={f.value}
-                type="button"
-                aria-pressed={status === f.value}
-                onClick={() => setStatus(f.value)}
-                className={`rounded-md px-2.5 py-1 ${status === f.value ? 'bg-accent text-white' : f.value === 'overdue' && page?.counts.overdue ? 'text-bad hover:text-fg' : 'text-muted hover:text-fg'}`}
-                data-testid={`ops-status-${f.value || 'all'}`}
+      {/* правка 11.11: поиск и период снаружи; факт / план, тип, статья, счёт, источник, сортировка — в «Фильтрах» */}
+      <div className="text-sm" data-testid="ops-filters">
+        <FilterBar
+          end={
+            <>
+              <FilterButton
+                count={(status ? 1 : 0) + (type ? 1 : 0) + (categoryId ? 1 : 0) + (accountId ? 1 : 0) + (source ? 1 : 0) + (sort !== 'day:desc' ? 1 : 0)}
+                onReset={() => {
+                  setStatus('')
+                  setType('')
+                  setCategoryId('')
+                  setAccountId('')
+                  setSource('')
+                  setSort('day:desc')
+                }}
+                testid="ops-filter"
               >
-                {f.label}
-                {page && f.value && <span className="ml-1 tabular-nums opacity-80">{page.counts[f.value]}</span>}
+                <FilterField label="Факт или план">
+                  <div data-testid="ops-status">
+                    <ChipOptions
+                      options={STATUS_FILTERS.map((f) => ({ value: f.value, label: f.label, count: page && f.value ? page.counts[f.value] : undefined }))}
+                      value={status}
+                      onChange={setStatus}
+                      testid="ops-status"
+                    />
+                  </div>
+                </FilterField>
+                <FilterField label="Тип">
+                  <select value={type} onChange={(e) => setType(e.target.value)} className={selectClass} aria-label="Тип" data-testid="ops-type">
+                    <option value="">Все типы</option>
+                    <option value="income">Поступления</option>
+                    <option value="expense">Платежи</option>
+                    <option value="transfer">Переводы</option>
+                  </select>
+                </FilterField>
+                <FilterField label="Статья">
+                  <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={selectClass} aria-label="Статья" data-testid="ops-category">
+                    <option value="">Все статьи</option>
+                    <option value={NO_CATEGORY}>Без статьи</option>
+                    <CategoryOptions categories={categories} keepId={categoryId || null} />
+                  </select>
+                </FilterField>
+                <FilterField label="Счёт">
+                  <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className={selectClass} aria-label="Счёт" data-testid="ops-account">
+                    <option value="">Все счета</option>
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </select>
+                </FilterField>
+                <FilterField label="Источник">
+                  <select value={source} onChange={(e) => setSource(e.target.value)} className={selectClass} aria-label="Источник" data-testid="ops-source">
+                    <option value="">Все источники</option>
+                    {SOURCES.map((x) => (
+                      <option key={x.value} value={x.value}>
+                        {x.label}
+                      </option>
+                    ))}
+                  </select>
+                </FilterField>
+                <FilterField label="Сортировка">
+                  <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className={selectClass} aria-label="Сортировка" data-testid="ops-sort">
+                    {SORTS.map((x) => (
+                      <option key={x.value} value={x.value}>
+                        {x.label}
+                      </option>
+                    ))}
+                  </select>
+                </FilterField>
+              </FilterButton>
+              <button type="button" onClick={exportXlsx} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line bg-card px-3 hover:border-accent hover:text-accent" data-testid="ops-export">
+                <Download className="h-4 w-4" /> Excel
               </button>
-            ))}
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
-          <select value={type} onChange={(e) => setType(e.target.value)} className={select} aria-label="Тип" data-testid="ops-type">
-            <option value="">Все типы</option>
-            <option value="income">Поступления</option>
-            <option value="expense">Платежи</option>
-            <option value="transfer">Переводы</option>
-          </select>
-          <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={select} aria-label="Статья" data-testid="ops-category">
-            <option value="">Все статьи</option>
-            <option value={NO_CATEGORY}>Без статьи</option>
-            <CategoryOptions categories={categories} keepId={categoryId || null} />
-          </select>
-          <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className={select} aria-label="Счёт" data-testid="ops-account">
-            <option value="">Все счета</option>
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-          <select value={source} onChange={(e) => setSource(e.target.value)} className={select} aria-label="Источник" data-testid="ops-source">
-            <option value="">Все источники</option>
-            {SOURCES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-          <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className={select} aria-label="Сортировка" data-testid="ops-sort">
-            {SORTS.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-          <button type="button" onClick={exportXlsx} className={`${select} inline-flex items-center justify-center gap-1.5 hover:border-accent hover:text-accent`} data-testid="ops-export">
-            <Download className="h-4 w-4" /> Excel
-          </button>
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Контрагент, описание, платёж" aria-label="Поиск" className={`${select} col-span-2 min-w-0 sm:flex-1`} data-testid="ops-search" />
-        </div>
+            </>
+          }
+        >
+          <SearchBox value={search} onChange={setSearch} placeholder="Контрагент, описание, платёж" testid="ops-search" className="w-full sm:w-72" />
+          <DateRangePicker
+            value={range}
+            presets={[
+              { value: 'around', label: 'Месяц назад и вперёд', range: { from: addDays(today, -29), to: addDays(today, 30) } },
+              { value: 'month', label: 'Этот месяц', range: presetRange('month', today) },
+              { value: 'prev_month', label: 'Прошлый месяц', range: presetRange('prev_month', today) },
+              { value: 'next30', label: 'Следующие 30 дней', range: { from: today, to: addDays(today, 29) } },
+              { value: 'year', label: 'Год', range: { from: addDays(today, -364), to: today } },
+            ]}
+            max={addDays(today, 730)}
+            onChange={({ range: r }) => setRange(r)}
+            testid="ops-period"
+          />
+        </FilterBar>
       </div>
 
       {ruleId && (

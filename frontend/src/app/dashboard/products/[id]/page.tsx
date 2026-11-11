@@ -137,7 +137,7 @@ function ProductPage() {
             <>
               <KeyFigures data={metrics.data} taxSet costLabel={costLabel} fourth="sold_qty" query={`product=${id}`} />
               <CoverageNote data={metrics.data} />
-              {metrics.data.coverage.data_source !== 'none' && <DynamicsChart data={metrics.data} query={`product=${id}`} granularity={{ value: filter.granularity, onChange: (g) => update({ granularity: g, granularityChosen: true }) }} />}
+              {metrics.data.coverage.data_source !== 'none' && <DynamicsChart data={metrics.data} query={`product=${id}`} granularity={{ value: filter.granularity, chosen: filter.granularityChosen, onChange: (g) => update({ granularity: g, granularityChosen: true }) }} />}
             </>
           )}
 

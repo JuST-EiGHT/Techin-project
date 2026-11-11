@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { ChipOptions, DateRangePicker, FilterBar, FilterButton, FilterField, SearchBox, lastDays } from '@/components/filters'
 import { PricesTabs } from '@/components/prices-tabs'
 import { RollbackModal, signedPct } from '@/components/price-history'
 import { Badge, fmtDateTime, rub } from '@/components/reports'
@@ -49,7 +50,8 @@ function PriceHistory() {
   const router = useRouter()
   const pathname = usePathname()
   const product = params.get('product')
-  const [days, setDays] = useState(30)
+  const [range, setRange] = useState(() => lastDays(30))
+  const [preset, setPreset] = useState<string | null>('30')
   const [status, setStatus] = useState('')
   const [kind, setKind] = useState('')
   const [searchText, setSearchText] = useState('')
@@ -72,12 +74,11 @@ function PriceHistory() {
     async (offset: number) => {
       const id = ++seq.current
       setBusy(true)
-      const from = new Date()
-      from.setDate(from.getDate() - (days - 1))
       try {
         const { data } = await api.get<PriceHistoryPage>('/prices/history', {
           params: {
-            date_from: isoDay(from),
+            date_from: range.from,
+            date_to: range.to,
             limit: PAGE,
             offset,
             ...(status ? { status } : {}),
@@ -96,7 +97,7 @@ function PriceHistory() {
         if (id === seq.current) setBusy(false)
       }
     },
-    [days, status, kind, search, product],
+    [range.from, range.to, status, kind, search, product],
   )
 
   useEffect(() => {
@@ -127,34 +128,45 @@ function PriceHistory() {
         </div>
       )}
 
+      {/* правка 11.11: поиск и период снаружи, итог и способ — в «Фильтрах» */}
       <div className="space-y-2" data-testid="history-filters">
-        <div className="flex flex-wrap gap-2">
-          {PERIODS.map((p) => (
-            <button key={p.days} type="button" onClick={() => setDays(p.days)} className={chip(days === p.days)}>
-              {p.label}
-            </button>
-          ))}
-          <input
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            placeholder="Артикул или название"
-            className="w-full rounded-lg border border-line bg-bg px-3 py-1.5 text-sm text-fg outline-none placeholder:text-faint focus:border-accent sm:ml-auto sm:w-56"
+        <FilterBar
+          end={
+            <FilterButton
+              count={(status ? 1 : 0) + (kind ? 1 : 0)}
+              onReset={() => {
+                setStatus('')
+                setKind('')
+              }}
+              testid="history-filter"
+            >
+              <FilterField label="Итог">
+                <ChipOptions
+                  options={STATUS_FILTERS.map((f) => ({ value: f.value, label: f.label, count: data ? (data.counts[f.count] ?? 0) : undefined }))}
+                  value={status}
+                  onChange={setStatus}
+                  testid="status"
+                />
+              </FilterField>
+              <FilterField label="Способ">
+                <ChipOptions options={KIND_FILTERS.map((f) => ({ value: f.value, label: f.label }))} value={kind} onChange={setKind} testid="kind" />
+              </FilterField>
+            </FilterButton>
+          }
+        >
+          <SearchBox value={searchText} onChange={setSearchText} testid="history-search" className="w-full sm:w-72" />
+          <DateRangePicker
+            value={range}
+            preset={preset}
+            presets={PERIODS.map((p) => ({ value: String(p.days), label: p.label, range: lastDays(p.days) }))}
+            maxDays={366}
+            onChange={({ range: r, preset: pr }) => {
+              setRange(r)
+              setPreset(pr)
+            }}
+            testid="history-period"
           />
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {STATUS_FILTERS.map((f) => (
-            <button key={f.value} type="button" onClick={() => setStatus(f.value)} className={chip(status === f.value)} data-testid={`status-${f.value || 'all'}`}>
-              {f.label}
-              {data && <span className="ml-1 text-faint">{data.counts[f.count] ?? 0}</span>}
-            </button>
-          ))}
-          <span className="mx-1 hidden w-px bg-line sm:block" />
-          {KIND_FILTERS.map((f) => (
-            <button key={f.value} type="button" onClick={() => setKind(f.value)} className={chip(kind === f.value)} data-testid={`kind-${f.value || 'all'}`}>
-              {f.label}
-            </button>
-          ))}
-        </div>
+        </FilterBar>
         {product && (
           <p className="text-sm">
             Товар: <b>{productName ?? 'выбранный'}</b>{' '}

@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { CheckOption, ChipOptions, FilterBar, FilterButton, FilterField, SearchBox } from '@/components/filters'
 import { type AnalyticsFilter, formatMetric } from '@/lib/analytics'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
@@ -308,35 +309,35 @@ export function AbcTable({ data, filter, pick, onPick }: { data: AbcData; filter
   )
   return (
     <section className="rounded-xl border border-line bg-card" data-testid="abc-table">
-      <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
-        <h2 className="mr-2 font-semibold">Товары</h2>
-        {chips.map((f) => (
-          <button
-            key={f.value}
-            type="button"
-            onClick={() => onPick(f.value)}
-            aria-pressed={pick === f.value}
-            className={`rounded-lg border px-2.5 py-1 text-xs ${pick === f.value ? 'border-accent bg-accent/10 text-accent' : 'border-line text-muted hover:text-fg'}`}
-            data-testid={`abc-pick-${f.value}`}
-          >
-            {f.label} <span className="text-faint">{f.n}</span>
-          </button>
-        ))}
-        {cellChip && (
-          <button type="button" onClick={() => onPick('all')} className="rounded-lg border border-accent bg-accent/10 px-2.5 py-1 text-xs text-accent" data-testid="abc-pick-cell">
-            {cellChip} ✕
-          </button>
-        )}
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Артикул или название"
-          className="min-w-0 flex-1 basis-full rounded-lg border border-line bg-bg px-3 py-1 text-sm outline-none focus:border-accent sm:max-w-xs sm:basis-auto"
-          data-testid="abc-search"
-        />
-        <button type="button" onClick={exportXlsx} className="rounded-lg border border-line px-3 py-1 text-sm hover:border-accent hover:text-accent" data-testid="abc-export">
-          Excel
-        </button>
+      <div className="space-y-2 border-b border-line px-4 py-3">
+        <h2 className="font-semibold">Товары</h2>
+        <FilterBar
+          end={
+            <>
+              <FilterButton count={pick !== 'all' ? 1 : 0} onReset={() => onPick('all')} testid="abc-filters">
+                <FilterField label="Группа">
+                  <ChipOptions
+                    options={chips.map((f) => ({ value: f.value, label: f.label, count: f.n }))}
+                    value={pick}
+                    onChange={onPick}
+                    testid="abc-pick"
+                  />
+                </FilterField>
+                {cellChip && (
+                  <FilterField label="Ячейка матрицы">
+                    <CheckOption checked onChange={() => onPick('all')} label={cellChip} testid="abc-pick-cell" />
+                  </FilterField>
+                )}
+              </FilterButton>
+              <button type="button" onClick={exportXlsx} className="h-9 rounded-lg border border-line px-3 text-sm hover:border-accent hover:text-accent" data-testid="abc-export">
+                Excel
+              </button>
+            </>
+          }
+        >
+          <SearchBox value={search} onChange={setSearch} testid="abc-search" className="w-full sm:w-72" />
+          {cellChip && <span className="text-xs text-muted">{cellChip}</span>}
+        </FilterBar>
       </div>
       <FormError message={error} />
       <div className="overflow-x-auto">

@@ -7,6 +7,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { CheckOption, FilterBar, FilterButton, FilterField, SearchBox } from '@/components/filters'
 import { PriceSettingsForm } from '@/components/price-calc'
 import { PricesTabs } from '@/components/prices-tabs'
 import { ProductPanel } from '@/components/product-panel'
@@ -227,42 +228,32 @@ function Prices() {
         </section>
       ) : (
         <div className={`space-y-4 transition-opacity ${busy ? 'opacity-60' : ''}`} aria-busy={busy}>
-          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Фильтры">
-            {PRICE_FILTERS.map((f) => {
-              const on = filters.includes(f.value)
-              return (
-                <button
-                  key={f.value}
-                  type="button"
-                  title={f.hint}
-                  aria-pressed={on}
-                  onClick={() => toggle(f.value)}
-                  className={`rounded-full border px-3 py-1 text-sm ${on ? 'border-accent bg-accent text-white' : 'border-line bg-card text-muted hover:border-accent hover:text-fg'}`}
-                  data-testid={`filter-${f.value}`}
-                >
-                  {f.label} <span className={on ? '' : f.value === 'below_min' && data.counts.below_min ? 'text-bad' : 'text-faint'}>{data.counts[f.value]}</span>
-                </button>
-              )
-            })}
-            {filters.length > 0 && (
-              <button type="button" onClick={() => setUrl({ filter: [] })} className="px-2 text-sm text-muted hover:text-fg">
-                Сбросить
-              </button>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <input
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              placeholder="Артикул, название или SKU"
-              aria-label="Поиск товара"
-              className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm outline-none focus:border-accent sm:max-w-xs"
-              data-testid="prices-search"
-            />
+          {/* правка 11.11: поиск снаружи, отборы — в «Фильтрах» */}
+          <FilterBar
+            end={
+              <FilterButton count={filters.length} onReset={() => setUrl({ filter: [] })}>
+                <FilterField label="Показать только">
+                  <div className="space-y-2" role="group" aria-label="Фильтры">
+                    {PRICE_FILTERS.map((f) => (
+                      <CheckOption
+                        key={f.value}
+                        checked={filters.includes(f.value)}
+                        onChange={() => toggle(f.value)}
+                        label={`${f.label} — ${data.counts[f.value]}`}
+                        hint={f.hint}
+                        testid={`filter-${f.value}`}
+                      />
+                    ))}
+                  </div>
+                </FilterField>
+              </FilterButton>
+            }
+          >
+            <SearchBox value={searchText} onChange={setSearchText} testid="prices-search" className="w-full sm:w-72" />
             <span className="text-xs text-muted" data-testid="prices-found">
               {search || filters.length ? `найдено ${data.total}` : `${data.total} товаров`}
             </span>
-          </div>
+          </FilterBar>
 
           {data.total === 0 ? (
             <section className="rounded-xl border border-line bg-card p-6 text-sm text-muted">Под выбранные фильтры товаров нет.</section>

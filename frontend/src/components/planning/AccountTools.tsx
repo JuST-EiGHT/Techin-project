@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { ChipOptions, DateRangePicker, FilterBar, FilterButton, FilterField } from '@/components/filters'
 import { CategoryOptions } from '@/components/planning/Categories'
 import type { AccountHistory, Category, Reconcile, UnrecognizedPage } from '@/components/planning/types'
 import { input } from '@/components/planning/ui'
@@ -154,23 +155,22 @@ const KINDS = [
 
 export function AccountHistoryPanel({ accountId }: { accountId: string }) {
   const today = todayMsk()
-  const [period, setPeriod] = useState<Period>('30')
+  const [range, setRange] = useState(() => ({ from: addDays(today, -29), to: today }))
   const [kind, setKind] = useState('')
   const [data, setData] = useState<AccountHistory | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    const from = period === '30' ? addDays(today, -29) : period === '90' ? addDays(today, -89) : `${today.slice(0, 8)}01`
     try {
       const { data: body } = await api.get<AccountHistory>(`/planning/accounts/${accountId}/history`, {
-        params: { date_from: from, date_to: today, ...(kind ? { type: kind } : {}) },
+        params: { date_from: range.from, date_to: range.to, ...(kind ? { type: kind } : {}) },
       })
       setData(body)
       setError(null)
     } catch (err) {
       setError(errorMessage(err))
     }
-  }, [accountId, period, kind, today])
+  }, [accountId, range, kind])
 
   useEffect(() => {
     load()
@@ -179,22 +179,28 @@ export function AccountHistoryPanel({ accountId }: { accountId: string }) {
   const pill = (active: boolean) => `rounded-md px-2.5 py-1 text-xs ${active ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`
   return (
     <div className="mt-3 space-y-2 border-t border-line pt-3" data-testid="account-history">
-      <div className="flex flex-wrap gap-2">
-        <div className="flex gap-1 rounded-lg border border-line bg-bg p-1" role="group" aria-label="Период">
-          {PERIODS.map((p) => (
-            <button key={p.value} type="button" aria-pressed={period === p.value} onClick={() => setPeriod(p.value)} className={pill(period === p.value)}>
-              {p.label}
-            </button>
-          ))}
-        </div>
-        <div className="flex gap-1 rounded-lg border border-line bg-bg p-1" role="group" aria-label="Что показать">
-          {KINDS.map((k) => (
-            <button key={k.value} type="button" aria-pressed={kind === k.value} onClick={() => setKind(k.value)} className={pill(kind === k.value)} data-testid={`history-kind-${k.value || 'all'}`}>
-              {k.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* правка 11.11: период одной кнопкой, что показать — в «Фильтрах» */}
+      <FilterBar
+        end={
+          <FilterButton count={kind ? 1 : 0} onReset={() => setKind('')} testid="history-kind-filter">
+            <FilterField label="Что показать">
+              <ChipOptions options={KINDS} value={kind} onChange={setKind} testid="history-kind" />
+            </FilterField>
+          </FilterButton>
+        }
+      >
+        <DateRangePicker
+          value={range}
+          presets={PERIODS.map((p) => ({
+            value: p.value,
+            label: p.label,
+            range: p.value === 'month' ? { from: `${today.slice(0, 8)}01`, to: today } : { from: addDays(today, -(Number(p.value) - 1)), to: today },
+          }))}
+          maxDays={366}
+          onChange={({ range: r }) => setRange(r)}
+          testid="history-period"
+        />
+      </FilterBar>
       <FormError message={error} />
       {data && (
         <>

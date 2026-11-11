@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { CheckOption, ChipOptions, FilterButton, FilterField, SearchBox, selectClass } from '@/components/filters'
 import { fmtDay, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
@@ -224,58 +225,45 @@ export function StockTablePanel({
               </button>
             ))}
           </div>
-          <select
-            aria-label="Склад"
-            value={warehouseId}
-            onChange={(e) => onUrl({ warehouse: e.target.value })}
-            className="min-w-0 max-w-full flex-1 rounded-lg border border-line bg-bg px-3 py-1.5 text-sm sm:flex-none"
-            data-testid="filter-warehouse"
-          >
-            <option value="">Все склады</option>
-            {warehouses.map((w) => (
-              <option key={w.id} value={w.id}>
-                {warehouseLabel(w)}
-                {w.is_active ? '' : ' — неактивен'}
-              </option>
-            ))}
-          </select>
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Артикул, название, SKU"
-            aria-label="Поиск"
-            className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-1.5 text-sm outline-none focus:border-accent sm:max-w-xs"
-            data-testid="stock-search"
-          />
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Быстрые фильтры" data-testid="stock-filters">
-          <button
-            type="button"
-            aria-pressed={!status}
-            onClick={() => onUrl({ status: '' })}
-            className={`rounded-full border px-3 py-1 text-sm ${!status ? 'border-accent bg-accent/10 text-accent' : 'border-line hover:border-muted'}`}
-          >
-            Все
-          </button>
-          {t &&
-            TABLE_STATUSES.map((s) => (
-              <button
-                key={s}
-                type="button"
-                aria-pressed={status === s}
-                title={statusTitle(s, t)}
-                onClick={() => onUrl({ status: status === s ? '' : s })}
-                className={`rounded-full border px-3 py-1 text-sm ${status === s ? 'border-accent bg-accent/10 text-accent' : 'border-line hover:border-muted'}`}
-                data-testid={`quick-${s}`}
-              >
-                {statusLabel(s)}
-              </button>
-            ))}
-          <label className="ml-1 flex items-center gap-2 text-sm text-muted">
-            <input type="checkbox" checked={includeEmpty} onChange={(e) => setIncludeEmpty(e.target.checked)} />
-            Нулевые остатки
-          </label>
+          <SearchBox value={search} onChange={setSearch} placeholder="Артикул, название, штрихкод или SKU" testid="stock-search" className="min-w-0 flex-1 sm:max-w-xs" />
+          {/* правка 11.11: склад, статус и «нулевые» — в «Фильтрах» */}
+          <div className="ml-auto">
+            <FilterButton
+              count={(warehouseId ? 1 : 0) + (status ? 1 : 0) + (includeEmpty ? 1 : 0)}
+              onReset={() => {
+                onUrl({ warehouse: '', status: '' })
+                setIncludeEmpty(false)
+              }}
+              testid="stock-filter"
+            >
+              <FilterField label="Склад">
+                <select aria-label="Склад" value={warehouseId} onChange={(e) => onUrl({ warehouse: e.target.value })} className={selectClass} data-testid="filter-warehouse">
+                  <option value="">Все склады</option>
+                  {warehouses.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {warehouseLabel(w)}
+                      {w.is_active ? '' : ' — неактивен'}
+                    </option>
+                  ))}
+                </select>
+              </FilterField>
+              {t && (
+                <FilterField label="Статус">
+                  <div data-testid="stock-filters">
+                    <ChipOptions
+                      options={[{ value: '', label: 'Все' }, ...TABLE_STATUSES.map((st) => ({ value: st as string, label: statusLabel(st), hint: statusTitle(st, t) }))]}
+                      value={status ?? ''}
+                      onChange={(v) => onUrl({ status: v })}
+                      testid="quick"
+                    />
+                  </div>
+                </FilterField>
+              )}
+              <FilterField label="Строки">
+                <CheckOption checked={includeEmpty} onChange={setIncludeEmpty} label="Показывать нулевые остатки" testid="stock-include-empty" />
+              </FilterField>
+            </FilterButton>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           {totals && (

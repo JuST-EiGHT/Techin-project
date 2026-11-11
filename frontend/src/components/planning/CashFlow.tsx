@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Bar, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { FormError } from '@/components/AuthForm'
+import { ChipOptions, DateRangePicker, FilterBar, FilterButton, FilterField, selectClass } from '@/components/filters'
 import { type Drill, MoreLink, TipBox, useDrill } from '@/components/charts'
 import { compact, useTokenColors } from '@/components/finance'
 import { GapCausesList } from '@/components/planning/Calendar'
@@ -363,63 +364,81 @@ export function CashFlowTab({ accounts }: { accounts: Account[] }) {
         </Link>
         . Выплата Ozon здесь — в день, когда пришли деньги, а в P&amp;L — в неделю продаж. Переводы между своими счетами — не приход и не расход.
       </p>
-      <div className="flex flex-wrap items-center gap-2">
-        <div className={group} role="group" aria-label="Период">
-          {PRESETS.map((p) => (
-            <button key={p.value} type="button" aria-pressed={preset === p.value} onClick={() => choose(p.value)} className={toggle(preset === p.value)} data-testid={`cf-preset-${p.value}`}>
-              {p.label}
-            </button>
-          ))}
-        </div>
-        <div className="flex gap-1 rounded-lg border border-line bg-card p-1" role="group" aria-label="По неделям или месяцам">
-          <button type="button" aria-pressed={granularity === 'week'} onClick={() => setGranularity('week')} className={toggle(granularity === 'week')} data-testid="cf-week">
-            По неделям
-          </button>
-          <button type="button" aria-pressed={granularity === 'month'} onClick={() => setGranularity('month')} className={toggle(granularity === 'month')} data-testid="cf-month">
-            По месяцам
-          </button>
-        </div>
-      </div>
-      {preset === 'custom' && (
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <input type="date" value={range.from} max={range.to} onChange={(e) => e.target.value && setRange({ ...range, from: e.target.value })} className={`${input} w-40`} aria-label="С" data-testid="cf-from" />
-          <span className="text-muted">—</span>
-          <input type="date" value={range.to} min={range.from} onChange={(e) => e.target.value && setRange({ ...range, to: e.target.value })} className={`${input} w-40`} aria-label="По" data-testid="cf-to" />
-        </div>
-      )}
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <select value={account} onChange={(e) => setAccount(e.target.value)} className={`${input} max-w-[16rem]`} aria-label="Счёт" data-testid="cf-account">
-          <option value="">Все счета</option>
-          {accounts
-            .filter((a) => !a.archived || a.id === account)
-            .map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-        </select>
-        <div className={group} role="group" aria-label="Поступления или платежи">
-          {(
-            [
-              ['all', 'Всё'],
-              ['income', 'Поступления'],
-              ['expense', 'Платежи'],
-            ] as const
-          ).map(([v, label]) => (
-            <button key={v} type="button" aria-pressed={side === v} onClick={() => setSide(v)} className={toggle(side === v)} data-testid={`cf-side-${v}`}>
-              {label}
-            </button>
-          ))}
-        </div>
-        <div className={group} role="group" aria-label="Что показать под фактом">
-          <button type="button" aria-pressed={mode === 'forecast'} onClick={() => setMode('forecast')} className={toggle(mode === 'forecast')} data-testid="cf-mode-forecast" title="Под фактом — что ещё ждём по плану с сегодня">
-            Факт и прогноз
-          </button>
-          <button type="button" aria-pressed={mode === 'planfact'} onClick={() => setMode('planfact')} className={toggle(mode === 'planfact')} data-testid="cf-mode-planfact" title="Под фактом — план периода по календарю; красным — хуже плана">
-            План-факт
-          </button>
-        </div>
-      </div>
+      {/* правка 11.11: период — одной кнопкой; детализация, счёт, поступления / платежи, план-факт — в «Фильтрах» */}
+      <FilterBar
+        testid="cf-filters"
+        end={
+          <FilterButton
+            count={(granularity !== 'month' ? 1 : 0) + (account ? 1 : 0) + (side !== 'all' ? 1 : 0) + (mode !== 'forecast' ? 1 : 0)}
+            onReset={() => {
+              setGranularity('month')
+              setAccount('')
+              setSide('all')
+              setMode('forecast')
+            }}
+            testid="cf-filter"
+          >
+            <FilterField label="Детализация">
+              <ChipOptions
+                options={[
+                  { value: 'week', label: 'По неделям' },
+                  { value: 'month', label: 'По месяцам' },
+                ]}
+                value={granularity}
+                onChange={(g) => setGranularity(g as CashFlow['granularity'])}
+                testid="cf"
+              />
+            </FilterField>
+            <FilterField label="Счёт">
+              <select value={account} onChange={(e) => setAccount(e.target.value)} className={selectClass} aria-label="Счёт" data-testid="cf-account">
+                <option value="">Все счета</option>
+                {accounts
+                  .filter((a) => !a.archived || a.id === account)
+                  .map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+              </select>
+            </FilterField>
+            <FilterField label="Показать">
+              <ChipOptions
+                options={[
+                  { value: 'all', label: 'Всё' },
+                  { value: 'income', label: 'Поступления' },
+                  { value: 'expense', label: 'Платежи' },
+                ]}
+                value={side}
+                onChange={(v) => setSide(v as Side)}
+                testid="cf-side"
+              />
+            </FilterField>
+            <FilterField label="Под фактом">
+              <ChipOptions
+                options={[
+                  { value: 'forecast', label: 'Факт и прогноз', hint: 'Под фактом — что ещё ждём по плану с сегодня' },
+                  { value: 'planfact', label: 'План-факт', hint: 'Под фактом — план периода по календарю; красным — хуже плана' },
+                ]}
+                value={mode}
+                onChange={(v) => setMode(v as Mode)}
+                testid="cf-mode"
+              />
+            </FilterField>
+          </FilterButton>
+        }
+      >
+        <DateRangePicker
+          value={range}
+          preset={preset === 'custom' ? null : preset}
+          presets={PRESETS.filter((p) => p.value !== 'custom').map((p) => ({ value: p.value, label: p.label, range: presetRange(p.value as Exclude<Preset, 'custom'>, today) }))}
+          max={addDays(today, 730)}
+          onChange={({ range: r, preset: p }) => {
+            setPreset((p as Preset | null) ?? 'custom')
+            setRange(r)
+          }}
+          testid="cf-period"
+        />
+      </FilterBar>
       <FormError message={error} />
       {!data && !error && <p className="text-sm text-muted">Загрузка…</p>}
       {data && (
