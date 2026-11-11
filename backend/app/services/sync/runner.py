@@ -27,6 +27,7 @@ from app.integrations.ozon.errors import (
 )
 from app.integrations.ozon.factory import get_ozon_client
 from app.models.sync_run import ACTIVE_STATUSES, FAILED, QUEUED, RUNNING, SUCCESS, SyncRun
+from app.services import storage_report
 from app.services.sync.categories import refresh as sync_categories
 from app.services.sync.products import sync_products
 from app.services.sync.promotions import sync_promotions
@@ -100,7 +101,14 @@ async def _finance_job(
     db: AsyncSession, user_id: uuid.UUID, client: OzonClient, date_from: str | None = None, date_to: str | None = None
 ) -> dict:
     period = (date.fromisoformat(date_from), date.fromisoformat(date_to)) if date_from and date_to else (None, None)
-    return (await sync_finance(db, user_id, client, *period)).as_dict()
+    stats = (await sync_finance(db, user_id, client, *period)).as_dict()
+    try:  # хранение по товарам (шаг 4.2a): отчёт о размещении не загрузился — начисления всё равно обновлены
+        stats["storage"] = await storage_report.sync(db, user_id, client)
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+        log.exception("Отчёт о размещении у пользователя %s не загружен", user_id)
+        stats["storage"] = {"error": "не загружен"}
+    return stats
 
 
 async def _balance_job(

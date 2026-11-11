@@ -145,8 +145,16 @@ function Prices() {
         <section className="rounded-xl border border-line bg-card p-4 text-sm" data-testid="price-params">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <span>
-              Реклама <b className="tabular-nums">{num(data.settings.ad_pct)} %</b> · целевая маржа{' '}
-              <b className="tabular-nums">{num(data.settings.target_margin_pct)} %</b>
+              {data.shop_logistics.ads_pct != null ? (
+                <>
+                  Реклама — по начислениям, в среднем <b className="tabular-nums">{num(data.shop_logistics.ads_pct)} %</b> продаж
+                </>
+              ) : (
+                <>
+                  Реклама <b className="tabular-nums">{num(data.settings.ad_pct)} %</b> — данных Ozon пока нет
+                </>
+              )}{' '}
+              · целевая маржа <b className="tabular-nums">{num(data.settings.target_margin_pct)} %</b>
               {data.settings.defaults && <span className="text-warn"> — по умолчанию</span>}
             </span>
             {data.tax.known ? (
@@ -163,9 +171,17 @@ function Prices() {
               {editing ? 'Свернуть' : 'Изменить'}
             </button>
           </div>
-          <p className="mt-1 text-xs text-faint">
-            Комиссия и эквайринг — из Ozon по товару, логистика — по фактическим начислениям товара за 30–90 дней
-            {data.shop_logistics.per_unit && `; товары без продаж — средняя по магазину ${rub(data.shop_logistics.per_unit)} на штуку`}.
+          <p className="mt-1 text-xs text-faint" data-testid="price-params-note">
+            Комиссия и эквайринг — из Ozon по товару; логистика, возвраты и невыкупы, реклама — по фактическим начислениям товара за
+            30–90 дней
+            {data.shop_logistics.per_unit && `; товары без продаж — средние по магазину (логистика ${rub(data.shop_logistics.per_unit)} на штуку)`}.
+            {data.shop_logistics.unattributed_ads_pct != null &&
+              Number(data.shop_logistics.unattributed_ads_pct) > 0 &&
+              ` Реклама без товара (оплата за клик и за заказ — Ozon начисляет её по кампании) — ${num(data.shop_logistics.unattributed_ads_pct)} % продаж: делим по доле в продажах.`}
+            {data.shop_logistics.storage != null &&
+              (data.shop_logistics.storage_by_report
+                ? ' Хранение — по отчёту Ozon о размещении товара.'
+                : ` Хранение — среднее по магазину ${rub(data.shop_logistics.storage)} на штуку: отчёт Ozon о размещении по товарам ещё не загружен.`)}
           </p>
           {editing && (
             <div className="mt-3 border-t border-line pt-3">

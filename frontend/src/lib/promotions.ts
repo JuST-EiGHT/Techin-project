@@ -55,7 +55,15 @@ export type PromoProductRow = {
 }
 
 /** Другая акция, в которой товар уже участвует; cheaper — там цена ниже, чем здесь. */
-export type OtherPromotion = { id: string; title: string; action_price: string | null; cheaper: boolean }
+export type OtherPromotion = {
+  id: string
+  title: string
+  action_price: string | null
+  cheaper: boolean
+  date_to?: string | null // до какого дня идёт та акция
+  is_frozen?: boolean // заморожена: из неё не выйти и цену не поднять
+  since?: string | null // с какого дня товар в ней
+}
 
 export type ProductsResponse = { promotion: Promotion; margin_note: string | null; items: PromoProductRow[] }
 export type AutoAddedRow = PromoProductRow & { promotion: Promotion }

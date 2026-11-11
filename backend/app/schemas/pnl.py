@@ -180,6 +180,12 @@ class PerUnit(BaseModel):
     commission_pct: Decimal | None
     logistics: Decimal
     logistics_pct: Decimal | None
+    returns: Decimal = Decimal(0)  # возвраты и невыкупы (4.2a)
+    returns_pct: Decimal | None = None
+    ads: Decimal = Decimal(0)  # реклама и продвижение с артикулом (4.2a)
+    ads_pct: Decimal | None = None
+    storage: Decimal = Decimal(0)  # хранение (по отчёту о размещении — 4.2a)
+    storage_pct: Decimal | None = None
     other: Decimal
     other_pct: Decimal | None
     total: Decimal  # начислено Ozon на штуку
@@ -198,11 +204,18 @@ class ProductRow(BaseModel):
     sku: str
     qty: int  # продано, шт. (строки «Выручка»)
     returned_qty: int
+    not_bought: int = 0  # невыкуплено: обратная логистика без выручки (4.2a)
+    buyout_pct: Decimal | None = None  # выкуп: продано / (продано + невыкуплено), %
     revenue: Decimal
+    sales: Decimal = Decimal(0)  # «Продажи» Ozon: выручка + баллы за скидки + программы партнёров
     avg_price: Decimal | None
     commission: Decimal  # вознаграждение Ozon (+ его возврат)
     logistics: Decimal
-    other: Decimal  # баллы за скидки, эквайринг, продвижение, возвраты выручки и др.
+    returns: Decimal = Decimal(0)  # обратная логистика, обработка возвратов, отмен и невыкупов (4.2a)
+    ads: Decimal = Decimal(0)  # реклама и продвижение с артикулом: «Звёздные товары» и др. (4.2a)
+    storage: Decimal = Decimal(0)  # хранение: доля строки магазина по отчёту Ozon о размещении (4.2a)
+    storage_by_report: Decimal = Decimal(0)
+    other: Decimal  # баллы за скидки, эквайринг, возвраты выручки и др.
     total: Decimal  # начислено Ozon по товару
     by_posting: Decimal  # из них отнесено к товару по номеру отправления
     cost: Decimal | None
@@ -220,8 +233,14 @@ class ProductTotals(BaseModel):
     revenue: Decimal
     commission: Decimal
     logistics: Decimal
+    returns: Decimal = Decimal(0)
+    ads: Decimal = Decimal(0)
+    storage: Decimal = Decimal(0)
     other: Decimal
     total: Decimal
+    sales: Decimal = Decimal(0)
+    not_bought: int = 0
+    returned_qty: int = 0
     cost: Decimal  # по товарам с себестоимостью
     profit: Decimal
     margin: Decimal | None
@@ -229,12 +248,22 @@ class ProductTotals(BaseModel):
 
 
 class Unallocated(BaseModel):
-    """Начисления без товара (хранение, подписки, страхование, отправления с несколькими товарами)."""
+    """Начисления без товара (реклама по кампаниям, подписки, страхование, хранение без отчёта о размещении,
+    отправления с несколькими товарами)."""
 
     total: Decimal
     lines: int
     multi_product: Decimal
     by_type: dict[str, Decimal]
+    by_group: dict[str, Decimal] = {}  # группа (ads, storage …) → сумма (4.2a)
+
+
+class StorageNote(BaseModel):
+    """Хранение за период (4.2a): поделено по отчёту Ozon о размещении и осталось без товара."""
+
+    by_report: Decimal
+    unallocated: Decimal
+    has_report: bool
 
 
 class ProductsPage(BaseModel):
@@ -252,6 +281,7 @@ class ProductsPage(BaseModel):
     offset: int
     totals: ProductTotals  # по всем товарам периода
     unallocated: Unallocated
+    storage: StorageNote | None = None
     period_total: Decimal  # все начисления периода = товары + не распределено
     period_by_type: dict[str, Decimal] = {}  # все начисления периода по статьям: удержания — первыми
     warnings: list[str]

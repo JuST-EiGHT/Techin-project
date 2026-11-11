@@ -4,9 +4,10 @@
 Ozon — с плюсом, уменьшают расходы), плюс себестоимость проданного (как в P&L: с НДС поставщика или без — по профилю), плюс
 ручная поправка «сколько пришло» из отчётов, если она есть. Сумма групп = выручка − прибыль до налога — проверка в тестах.
 
-Группы — по названию статьи (названия у Ozon меняются — сопоставляем по словам). Комиссии и логистика — ровно как колонки
-«Прибыли по товарам» 3.4 (`engine/product_pnl.group_of`), её «Прочее» делится на рекламу и продвижение, хранение, возвраты
-покупателей и прочее (эквайринг, подписки, страхование, баллы за скидки). Плюс себестоимость и поправка «сколько пришло».
+Группы — по названию статьи (названия у Ozon меняются — сопоставляем по словам) — ровно как колонки «Прибыли по
+товарам» 3.4 (`engine/product_pnl.group_of`, с 4.2a — как юнит-экономика Ozon): комиссии, логистика, возвраты и
+невыкупы (обратная логистика, обработка возвратов и «Возврат выручки»), реклама и продвижение, хранение и прочее
+(эквайринг, подписки, страхование, баллы за скидки). Плюс себестоимость и поправка «сколько пришло».
 """
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
@@ -21,26 +22,20 @@ REVENUE, COMMISSION, LOGISTICS, ADS, STORAGE, RETURNS, COST, OTHER, ADJUSTMENT =
     "revenue", "commission", "logistics", "ads", "storage", "returns", "cost", "other", "adjustment")
 TITLES = {
     COMMISSION: "Комиссии Ozon", LOGISTICS: "Логистика", ADS: "Реклама и продвижение", STORAGE: "Хранение",
-    RETURNS: "Возвраты покупателей", COST: "Себестоимость", OTHER: "Прочее", ADJUSTMENT: "Поправка «сколько пришло»",
+    RETURNS: "Возвраты и невыкупы", COST: "Себестоимость", OTHER: "Прочее", ADJUSTMENT: "Поправка «сколько пришло»",
 }
 ORDER = (COST, COMMISSION, LOGISTICS, ADS, STORAGE, RETURNS, OTHER, ADJUSTMENT)
-ADS_WORDS = ("продвижени", "реклам", "трафарет", "оплата за клик", "оплата за заказ")
-STORAGE_WORDS = ("хранени", "размещени")
 
 
 def group_of(type_name: str) -> str:
-    """Группа статьи начислений Ozon: выручка, комиссии и логистика — как в «Прибыли по товарам»; её «Прочее» — подробнее."""
+    """Группа статьи начислений Ozon — как колонки «Прибыли по товарам» (`engine/product_pnl.group_of`, 4.2a):
+    возвраты (обратная логистика, обработка возвратов) — вместе с «Возвратом выручки», реклама («Звёздные товары»,
+    оплата за заказ и за клик) и хранение — своими группами."""
     base = product_pnl.group_of(type_name)
-    if base != "other":
-        return {"revenue": REVENUE, "commission": COMMISSION, "logistics": LOGISTICS}[base]
-    t = norm(type_name)
-    if t == product_pnl.RETURN:
-        return RETURNS
-    if any(w in t for w in ADS_WORDS):
-        return ADS
-    if any(w in t for w in STORAGE_WORDS):
-        return STORAGE
-    return OTHER
+    if base == "other":
+        return RETURNS if norm(type_name) == product_pnl.RETURN else OTHER
+    return {"revenue": REVENUE, "commission": COMMISSION, "logistics": LOGISTICS, "returns": RETURNS, "ads": ADS,
+            "storage": STORAGE}[base]
 
 
 @dataclass

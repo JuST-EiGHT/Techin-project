@@ -1,16 +1,16 @@
 """Поставки по данным Ozon (шаг 10.18a): показатели товара по кластеру из остатков, рекомендованная поставка Ozon,
 кластер размещения у склада, минимум на склад и склад кластера — настройки
 
-Revision ID: 0047_supply_ozon_clusters
-Revises: 0046_price_extras
+Revision ID: 0048_supply_ozon_clusters
+Revises: 0047_unit_economics
 Create Date: 2026-11-10
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0047_supply_ozon_clusters"
-down_revision = "0046_price_extras"
+revision = "0048_supply_ozon_clusters"
+down_revision = "0047_unit_economics"
 branch_labels = None
 depends_on = None
 
