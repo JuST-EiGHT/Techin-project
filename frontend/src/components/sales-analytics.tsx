@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { ChipOptions, FilterBar, FilterButton, FilterField, SearchBox } from '@/components/filters'
 import { type ChartEvent, EVENT_MARK, MetricChart } from '@/components/analytics'
 import { Change, Hint } from '@/components/dashboard'
 import { Card } from '@/components/home'
@@ -293,30 +294,29 @@ export function SalesTable({ table, filter }: { table: SalesTableData; filter: A
   const t = table.totals
   return (
     <section className="rounded-xl border border-line bg-card" data-testid="sales-table">
-      <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
-        <h2 className="mr-2 font-semibold">Продажи по товарам</h2>
-        {QUICK.map((f) => (
-          <button
-            key={f.value}
-            type="button"
-            onClick={() => setQuick(f.value)}
-            aria-pressed={quick === f.value}
-            className={`rounded-lg border px-2.5 py-1 text-xs ${quick === f.value ? 'border-accent bg-accent/10 text-accent' : 'border-line text-muted hover:text-fg'}`}
-            data-testid={`sales-quick-${f.value}`}
-          >
-            {f.label} <span className="text-faint">{counts[f.value]}</span>
-          </button>
-        ))}
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Артикул или название"
-          className="min-w-0 flex-1 basis-full rounded-lg border border-line bg-bg px-3 py-1 text-sm outline-none focus:border-accent sm:max-w-xs sm:basis-auto"
-          data-testid="sales-search"
-        />
-        <button type="button" onClick={exportXlsx} className="rounded-lg border border-line px-3 py-1 text-sm hover:border-accent hover:text-accent" data-testid="sales-export">
-          Excel
-        </button>
+      <div className="space-y-2 border-b border-line px-4 py-3">
+        <h2 className="font-semibold">Продажи по товарам</h2>
+        <FilterBar
+          end={
+            <>
+              <FilterButton count={quick !== 'all' ? 1 : 0} onReset={() => setQuick('all')} testid="sales-filters">
+                <FilterField label="Показать">
+                  <ChipOptions
+                    options={QUICK.map((f) => ({ value: f.value, label: f.label, count: counts[f.value] }))}
+                    value={quick}
+                    onChange={setQuick}
+                    testid="sales-quick"
+                  />
+                </FilterField>
+              </FilterButton>
+              <button type="button" onClick={exportXlsx} className="h-9 rounded-lg border border-line px-3 text-sm hover:border-accent hover:text-accent" data-testid="sales-export">
+                Excel
+              </button>
+            </>
+          }
+        >
+          <SearchBox value={search} onChange={setSearch} testid="sales-search" className="w-full sm:w-72" />
+        </FilterBar>
       </div>
       <FormError message={error} />
       {!table.compared && (

@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { DateRangePicker, FilterBar, FilterButton, FilterField, selectClass } from '@/components/filters'
 import { type BusinessExpenses, type Statement, StatementTable } from '@/components/pnl-statement'
 import { ProductsView } from '@/components/products-pnl'
 import {
@@ -159,41 +160,46 @@ function Finance() {
         ))}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex flex-wrap gap-1 rounded-lg border border-line bg-card p-1" role="group" aria-label="Период">
-          {PRESETS.map((p) => {
-            const active = !reportId && preset === p.value
-            return (
-              <button
-                key={p.value}
-                type="button"
-                aria-pressed={active}
-                onClick={() => (p.value === 'custom' ? goRange(range) : go(`period=${p.value}`))}
-                className={`rounded-md px-3 py-1.5 text-sm ${active ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`}
-                data-testid={`preset-${p.value}`}
+      {/* правка 11.11: период — одной кнопкой; загруженный отчёт — в «Фильтрах» */}
+      <FilterBar
+        end={
+          <FilterButton count={reportId ? 1 : 0} onReset={() => go(`period=${preset}`)}>
+            <FilterField label="Загруженный отчёт" hint="P&L по одному отчёту Ozon вместо периода">
+              <select
+                value={reportId ?? ''}
+                onChange={(e) => go(e.target.value ? `report=${e.target.value}` : `period=${preset}`)}
+                className={selectClass}
+                aria-label="Открыть загруженный отчёт"
+                data-testid="report-select"
               >
-                {p.label}
-              </button>
-            )
-          })}
-        </div>
-        <select
-          value={reportId ?? ''}
-          onChange={(e) => go(e.target.value ? `report=${e.target.value}` : `period=${preset}`)}
-          className="min-w-0 max-w-full rounded-lg border border-line bg-card px-3 py-2 text-sm outline-none focus:border-accent"
-          aria-label="Открыть загруженный отчёт"
-          data-testid="report-select"
-        >
-          <option value="">Открыть загруженный отчёт…</option>
-          {periods?.reports.map((r) => (
-            <option key={r.id} value={r.id}>
-              {TYPE_SHORT[r.report_type]} · {periodLabel(r)}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {!reportId && preset === 'custom' && <CustomRange range={range} onApply={goRange} />}
+                <option value="">Нет — за период</option>
+                {periods?.reports.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {TYPE_SHORT[r.report_type]} · {periodLabel(r)}
+                  </option>
+                ))}
+              </select>
+            </FilterField>
+          </FilterButton>
+        }
+      >
+        <DateRangePicker
+          value={report?.period_start && report.period_end ? { from: report.period_start, to: report.period_end } : range}
+          preset={reportId || preset === 'custom' ? null : preset}
+          presets={PRESETS.filter((p) => p.value !== 'custom').map((p) => ({
+            value: p.value,
+            label: p.label,
+            range: presetRange(p.value as Exclude<Preset, 'custom'>, today),
+          }))}
+          maxDays={366}
+          onChange={({ range: r, preset: p }) => (p ? go(`period=${p}`) : goRange(r))}
+        />
+        {reportId && (
+          <span className="text-sm text-muted" data-testid="report-mode">
+            {report ? `Отчёт: ${TYPE_SHORT[report.report_type]} · ${periodLabel(report)}` : 'Отчёт'}
+          </span>
+        )}
+      </FilterBar>
 
       {tab === 'products' ? (
         reportId ? (
@@ -257,56 +263,6 @@ function Finance() {
           productsHref={productsHref}
         />
       )}
-    </div>
-  )
-}
-
-function CustomRange({ range, onApply }: { range: Range; onApply: (r: Range) => void }) {
-  const [from, setFrom] = useState(range.from)
-  const [to, setTo] = useState(range.to)
-  const [error, setError] = useState<string | null>(null)
-  useEffect(() => {
-    // период сменили не здесь (месяц из подсказки) — поля показывают его
-    setFrom(range.from)
-    setTo(range.to)
-  }, [range.from, range.to])
-  function apply(next: Range) {
-    if (!DAY.test(next.from) || !DAY.test(next.to)) return
-    if (next.from > next.to) return setError('Начало периода позже конца')
-    if (daysCount(next) > 366) return setError('Период — не длиннее 366 дней')
-    setError(null)
-    onApply(next)
-  }
-  const input = 'rounded-lg border border-line bg-card px-3 py-1.5 text-sm outline-none focus:border-accent'
-  return (
-    <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="custom-range">
-      <label className="flex items-center gap-2">
-        <span className="text-muted">с</span>
-        <input
-          type="date"
-          value={from}
-          onChange={(e) => {
-            setFrom(e.target.value)
-            apply({ from: e.target.value, to })
-          }}
-          className={input}
-          data-testid="range-from"
-        />
-      </label>
-      <label className="flex items-center gap-2">
-        <span className="text-muted">по</span>
-        <input
-          type="date"
-          value={to}
-          onChange={(e) => {
-            setTo(e.target.value)
-            apply({ from, to: e.target.value })
-          }}
-          className={input}
-          data-testid="range-to"
-        />
-      </label>
-      {error && <span className="text-bad">{error}</span>}
     </div>
   )
 }

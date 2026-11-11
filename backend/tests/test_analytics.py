@@ -249,6 +249,16 @@ async def test_category_filter_and_list(client, tokens, sessions):
     r = await client.get("/api/v1/analytics/products", params={"id": ids["B"]}, headers=auth(tokens))
     assert [p["offer_id"] for p in r.json()] == ["B"]
 
+    # поиск по штрихкоду (правка 11.11: «артикул, название или штрихкод») — в фильтре аналитики и в списке товаров
+    async with sessions() as db:
+        b = await db.get(Product, uuid.UUID(ids["B"]))
+        b.barcode = "4607001234567"
+        await db.commit()
+    r = await client.get("/api/v1/analytics/products", params={"search": "460700123"}, headers=auth(tokens))
+    assert [p["offer_id"] for p in r.json()] == ["B"]
+    r = await client.get("/api/v1/products", params={"search": "4607001234567"}, headers=auth(tokens))
+    assert [p["offer_id"] for p in r.json()["items"]] == ["B"]
+
 
 async def test_validation_and_store_isolation(client, tokens, sessions):
     uid = await setup_store(client, tokens, sessions)

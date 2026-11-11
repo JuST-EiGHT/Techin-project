@@ -233,7 +233,7 @@ def select_rows(
     counts = {**count(base), "archived": sum(r["is_archived"] for r in rows)}
     found = [
         r for r in base
-        if (not search or engine.matches(search, r["offer_id"], r["name"], r["ozon_sku"], r["ozon_product_id"]))
+        if (not search or engine.matches(search, r["offer_id"], r["name"], r["ozon_sku"], r["ozon_product_id"], r.get("barcode")))
         and engine.passes(r, filters)
     ]
     return engine.sort_rows(found, sort, order), counts

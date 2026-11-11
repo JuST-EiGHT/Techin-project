@@ -8,6 +8,7 @@ import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { ChipOptions, FilterBar, FilterButton, FilterField, SearchBox, selectClass } from '@/components/filters'
 import { fmtDateTime, fmtDay, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
@@ -372,6 +373,7 @@ function Result({
   onView: (next: Partial<View>) => void
   onDecide: (it: Item, d: DecisionKey) => void
 }) {
+  const [search, setSearch] = useState('')
   if (!data.stocks_known)
     return (
       <p className="rounded-lg border border-line bg-card px-4 py-3 text-sm text-muted" data-testid="withdrawal-empty">
@@ -388,9 +390,13 @@ function Result({
         дней из последних 30 — синхронизацией Ozon API или отчётами по начислениям.
       </p>
     )
-  const products = data.items.length
+  const q = search.trim().toLowerCase()
+  const items = q
+    ? data.items.filter((it) => [it.product.offer_id, it.product.name, it.product.ozon_sku].some((v) => v !== null && String(v).toLowerCase().includes(q)))
+    : data.items
+  const products = items.length
   const total = data.counts.decision.undecided + data.counts.decision.remove + data.counts.decision.keep
-  const filtered = Boolean(view.warehouse_id || view.priority || view.decision)
+  const filtered = Boolean(view.warehouse_id || view.priority || view.decision || q)
   return (
     <section className={`space-y-3 transition-opacity ${busy ? 'opacity-60' : ''}`} aria-busy={busy} data-testid="withdrawal-result">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -434,7 +440,7 @@ function Result({
           </button>
         )}
       </div>
-      {total > 0 && <Filters data={data} view={view} onView={onView} />}
+      {total > 0 && <Filters data={data} view={view} onView={onView} search={search} onSearch={setSearch} />}
       {total > 0 && filtered && (
         <p className="text-sm text-muted" data-testid="withdrawal-shown">
           По фильтру: {data.shown.items} тов., {pieces(data.shown.qty)}
@@ -444,7 +450,7 @@ function Result({
       )}
       {products > 0 && (
         <div className="space-y-3 sm:hidden" data-testid="withdrawal-cards">
-          {data.items.map((it) => (
+          {items.map((it) => (
             <div key={it.product.id} className="rounded-xl border border-line bg-card">
               <div className="flex items-start gap-3 px-4 pb-2 pt-3">
                 <div className="min-w-0 flex-1">
@@ -501,7 +507,7 @@ function Result({
                 </th>
               </tr>
             </thead>
-            {data.items.map((it) => (
+            {items.map((it) => (
               <tbody key={it.product.id} className="border-b border-line last:border-b-0" data-testid="withdrawal-item">
                 <tr className="bg-bg/60">
                   <td colSpan={3} className="px-4 pb-1 pt-3">
@@ -564,49 +570,63 @@ function Chip({ on, onClick, children, testid, title }: { on: boolean; onClick: 
   )
 }
 
-function Filters({ data, view, onView }: { data: Report; view: View; onView: (next: Partial<View>) => void }) {
+function Filters({
+  data,
+  view,
+  onView,
+  search,
+  onSearch,
+}: {
+  data: Report
+  view: View
+  onView: (next: Partial<View>) => void
+  search: string
+  onSearch: (v: string) => void
+}) {
+  // правка 11.11: приоритет, решение и склад — в «Фильтрах»
+  const count = (view.priority ? 1 : 0) + (view.decision ? 1 : 0) + (view.warehouse_id ? 1 : 0)
   return (
-    <div className="space-y-2 rounded-xl border border-line bg-card p-3" data-testid="withdrawal-filters">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="mr-1 text-xs text-muted">Приоритет</span>
-        <Chip on={!view.priority} onClick={() => onView({ priority: '' })}>
-          Все
-        </Chip>
-        {(Object.keys(PRIORITY) as Priority[]).map((p) => (
-          <Chip key={p} on={view.priority === p} onClick={() => onView({ priority: view.priority === p ? '' : p })} title={PRIORITY[p].hint} testid={`priority-${p}`}>
-            {PRIORITY[p].label} · {data.counts.priority[p]}
-          </Chip>
-        ))}
-      </div>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="mr-1 text-xs text-muted">Решение</span>
-        <Chip on={!view.decision} onClick={() => onView({ decision: '' })}>
-          Все
-        </Chip>
-        {DECISIONS.map((d) => (
-          <Chip key={d.key} on={view.decision === d.key} onClick={() => onView({ decision: view.decision === d.key ? '' : d.key })} testid={`decision-filter-${d.key}`}>
-            {d.label} · {data.counts.decision[d.key]}
-          </Chip>
-        ))}
-      </div>
-      {data.warehouses.length > 0 && (
-        <select
-          aria-label="Склад"
-          value={view.warehouse_id}
-          onChange={(e) => onView({ warehouse_id: e.target.value })}
-          className="w-full rounded-lg border border-line bg-bg px-3 py-1.5 text-sm sm:w-auto"
-          data-testid="withdrawal-warehouse"
-        >
-          <option value="">Все склады</option>
-          {data.warehouses.map((w) => (
-            <option key={w.id} value={w.id}>
-              {w.cluster ? `${w.cluster} · ` : ''}
-              {w.name} — {pieces(w.qty)}
-            </option>
-          ))}
-        </select>
-      )}
-    </div>
+    <FilterBar
+      testid="withdrawal-filters"
+      end={
+        <FilterButton count={count} onReset={() => onView(EMPTY_VIEW)} testid="withdrawal-filter">
+          <FilterField label="Приоритет">
+            <ChipOptions
+              options={[
+                { value: '', label: 'Все' },
+                ...(Object.keys(PRIORITY) as Priority[]).map((p) => ({ value: p as string, label: PRIORITY[p].label, count: data.counts.priority[p], hint: PRIORITY[p].hint })),
+              ]}
+              value={view.priority}
+              onChange={(v) => onView({ priority: v as Priority | '' })}
+              testid="priority"
+            />
+          </FilterField>
+          <FilterField label="Решение">
+            <ChipOptions
+              options={[{ value: '', label: 'Все' }, ...DECISIONS.map((d) => ({ value: d.key as string, label: d.label, count: data.counts.decision[d.key] }))]}
+              value={view.decision}
+              onChange={(v) => onView({ decision: v as DecisionKey | '' })}
+              testid="decision-filter"
+            />
+          </FilterField>
+          {data.warehouses.length > 0 && (
+            <FilterField label="Склад">
+              <select aria-label="Склад" value={view.warehouse_id} onChange={(e) => onView({ warehouse_id: e.target.value })} className={selectClass} data-testid="withdrawal-warehouse">
+                <option value="">Все склады</option>
+                {data.warehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.cluster ? `${w.cluster} · ` : ''}
+                    {w.name} — {pieces(w.qty)}
+                  </option>
+                ))}
+              </select>
+            </FilterField>
+          )}
+        </FilterButton>
+      }
+    >
+      <SearchBox value={search} onChange={onSearch} placeholder="Артикул, название или SKU" testid="withdrawal-search" className="w-full sm:w-72" />
+    </FilterBar>
   )
 }
 

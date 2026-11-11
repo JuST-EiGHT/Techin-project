@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { CheckOption, FilterField } from '@/components/filters'
 import type { AnalyticsFilter } from '@/lib/analytics'
 import { api, errorMessage } from '@/lib/api'
 
@@ -86,32 +87,26 @@ export function useFeed(filter: AnalyticsFilter, kinds: FeedKind[]) {
   return { items, next, loading, error, more: () => next && load(next) }
 }
 
-/** Выбор видов событий: «Все» или несколько. */
+/** Выбор видов событий в панели «Фильтры»: ничего не отмечено — все виды. */
 export function KindFilter({ value, onChange }: { value: FeedKind[]; onChange: (v: FeedKind[]) => void }) {
-  const chip = (active: boolean) =>
-    `rounded-lg border px-2.5 py-1 text-sm ${active ? 'border-accent bg-accent/10 text-accent' : 'border-line text-muted hover:text-fg'}`
   return (
-    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Виды событий" data-testid="feed-kinds">
-      <button type="button" onClick={() => onChange([])} aria-pressed={value.length === 0} className={chip(value.length === 0)} data-testid="feed-kind-all">
-        Все
-      </button>
-      {KINDS.map((k) => {
-        const on = value.includes(k.kind)
-        return (
-          <button
-            key={k.kind}
-            type="button"
-            aria-pressed={on}
-            onClick={() => onChange(on ? value.filter((x) => x !== k.kind) : [...value, k.kind])}
-            className={chip(on)}
-            data-testid={`feed-kind-${k.kind}`}
-          >
-            <span className="mr-1 text-faint">{MARK[k.kind]}</span>
-            {k.title}
-          </button>
-        )
-      })}
-    </div>
+    <FilterField label="Виды событий">
+      <div className="space-y-2" role="group" aria-label="Виды событий" data-testid="feed-kinds">
+        <CheckOption checked={value.length === 0} onChange={() => onChange([])} label="Все" testid="feed-kind-all" />
+        {KINDS.map((k) => {
+          const on = value.includes(k.kind)
+          return (
+            <CheckOption
+              key={k.kind}
+              checked={on}
+              onChange={() => onChange(on ? value.filter((x) => x !== k.kind) : [...value, k.kind])}
+              label={`${MARK[k.kind]} ${k.title}`}
+              testid={`feed-kind-${k.kind}`}
+            />
+          )
+        })}
+      </div>
+    </FilterField>
   )
 }
 

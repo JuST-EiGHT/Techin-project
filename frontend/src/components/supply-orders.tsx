@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { ChipOptions, FilterButton, FilterField, SearchBox } from '@/components/filters'
 import { fmtDateTime, fmtDay } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
@@ -97,27 +98,22 @@ export function OrdersTab({ openId, onOpen, onPlan }: { openId: string | null; o
 
   return (
     <section className="space-y-3" data-testid="orders">
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Статус заявок">
-          <Chip on={!group} onClick={() => setGroup('')}>
-            Все{data ? ` · ${data.total}` : ''}
-          </Chip>
-          {data &&
-            GROUP_ORDER.map((g) => (
-              <Chip key={g} on={group === g} onClick={() => setGroup(group === g ? '' : g)} testid={`orders-${g}`}>
-                {data.group_text[g]} · {data.counts[g]}
-              </Chip>
-            ))}
-      </div>
+      {/* правка 11.11: поиск снаружи, статус — в «Фильтрах» */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Номер, артикул, кластер"
-          aria-label="Поиск заявок"
-          className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-1.5 text-sm outline-none focus:border-accent sm:max-w-xs"
-          data-testid="orders-search"
-        />
+        <SearchBox value={search} onChange={setSearch} placeholder="Номер, артикул, кластер" testid="orders-search" className="min-w-0 flex-1 sm:max-w-xs" />
+        <FilterButton count={group ? 1 : 0} onReset={() => setGroup('')} testid="orders-filter">
+          <FilterField label="Статус заявки">
+            <ChipOptions
+              options={[
+                { value: '', label: 'Все', count: data?.total },
+                ...(data ? GROUP_ORDER.map((g) => ({ value: g as string, label: data.group_text[g], count: data.counts[g] })) : []),
+              ]}
+              value={group}
+              onChange={(v) => setGroup(v as typeof group)}
+              testid="orders"
+            />
+          </FilterField>
+        </FilterButton>
         <div className="flex items-center gap-2 text-sm sm:ml-auto">
           {hasKey && (
             <>

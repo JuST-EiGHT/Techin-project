@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { GranularitySwitch, MetricChart } from '@/components/analytics'
+import { FilterButton, FilterField } from '@/components/filters'
 import { type Drill, MoreLink, TipBox, useDrill } from '@/components/charts'
 import { Change, FigureLink, Hint, type OzonDashboard } from '@/components/dashboard'
 import { compact, useTokenColors } from '@/components/finance'
@@ -155,7 +156,7 @@ export function DynamicsChart({
   data: Metrics
   query?: string
   metrics?: MetricKey[]
-  granularity?: { value: Granularity; onChange: (g: Granularity) => void }
+  granularity?: { value: Granularity; chosen?: boolean; onChange: (g: Granularity) => void }
 }) {
   const [metric, setMetric] = useState<MetricKey>('revenue')
   const choices = metrics ? CHART_METRICS.filter((m) => metrics.includes(m.key)) : CHART_METRICS
@@ -179,8 +180,13 @@ export function DynamicsChart({
         ))}
       </div>
         {granularity && (
-          <div className="sm:ml-auto">
-            <GranularitySwitch value={granularity.value} onChange={granularity.onChange} />
+          <div className="ml-auto">
+            {/* правка 11.11: фильтры графика — за кнопкой «Фильтры» в его углу */}
+            <FilterButton count={granularity.chosen ? 1 : 0} testid="chart-filters">
+              <FilterField label="Детализация">
+                <GranularitySwitch value={granularity.value} onChange={granularity.onChange} />
+              </FilterField>
+            </FilterButton>
           </div>
         )}
       </div>

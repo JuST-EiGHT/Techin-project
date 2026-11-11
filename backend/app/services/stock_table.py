@@ -82,7 +82,7 @@ def _matches(row: Row, search: str | None) -> bool:
         return True
     p = row.info.product
     q = search.casefold()
-    return any(q in (v or "").casefold() for v in (p.offer_id, p.name, str(p.ozon_sku or "")))
+    return any(q in (v or "").casefold() for v in (p.offer_id, p.name, str(p.ozon_sku or ""), p.barcode))
 
 
 async def unit_costs(db: AsyncSession, user_id: uuid.UUID, today: date) -> dict[str, Decimal]:

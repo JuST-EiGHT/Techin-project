@@ -12,6 +12,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { ChipOptions, FilterButton, FilterField } from '@/components/filters'
 import { fmtDateTime, fmtDay } from '@/components/reports'
 import { CalendarTab, OrdersTab } from '@/components/supply-orders'
 import { PlansTab } from '@/components/supply-plans'
@@ -977,20 +978,17 @@ function Grouped({ data, view, show, onView, onShow, lead, picked, onToggle, onQ
               </button>
             ))}
           </div>
-          <div className="flex flex-wrap gap-1">
-            {SHOW.map((s) => (
-              <button
-                key={s.value}
-                type="button"
-                onClick={() => onShow(s.value)}
-                aria-pressed={show === s.value}
-                className={`whitespace-nowrap rounded-lg border px-2.5 py-1 text-xs ${show === s.value ? 'border-accent text-accent' : 'border-line text-muted hover:text-fg'}`}
-                data-testid={`supply-show-${s.value}`}
-              >
-                {s.label} <span className="tabular-nums">{counts[s.value]}</span>
-              </button>
-            ))}
-          </div>
+          {/* правка 11.11 (правило 18): «что показать» — в «Фильтрах»; «по кластерам / по товарам» — вид, на виду */}
+          <FilterButton count={show !== 'all' ? 1 : 0} onReset={() => onShow('all')} testid="supply-filter">
+            <FilterField label="Показать">
+              <ChipOptions
+                options={SHOW.map((x) => ({ value: x.value, label: x.label, count: counts[x.value] }))}
+                value={show}
+                onChange={onShow}
+                testid="supply-show"
+              />
+            </FilterField>
+          </FilterButton>
           {groups.length > 0 && (
             <button
               type="button"

@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { ChipOptions, FilterBar, FilterButton, FilterField, SearchBox } from '@/components/filters'
 import { type Coverage, type DataSource, SourceNote } from '@/components/finance'
 import { Warnings, fmtDay, pctText, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
@@ -234,38 +235,61 @@ export function ProductsView({
             </button>
           </div>
 
-          {withQuick && (
-            <div className="flex flex-wrap gap-2" role="group" aria-label="Быстрые фильтры" data-testid="profit-quick">
-              {QUICK.map((f) => (
-                <button
-                  key={f.value}
-                  type="button"
-                  title={f.title}
-                  aria-pressed={quick === f.value}
-                  onClick={() => {
-                    setQuick(f.value)
+          {/* правка 11.11: поиск снаружи; отборы и «на 1 шт.» — в «Фильтрах» */}
+          <FilterBar
+            end={
+              <>
+                <FilterButton
+                  count={(withQuick && quick !== 'all' ? 1 : 0) + (unit ? 1 : 0)}
+                  onReset={() => {
+                    setQuick('all')
                     setOffset(0)
+                    setUnit(false)
                   }}
-                  className={`rounded-lg border px-2.5 py-1 text-xs ${quick === f.value ? 'border-accent bg-accent/10 text-accent' : 'border-line text-muted hover:text-fg'}`}
-                  data-testid={`profit-quick-${f.value}`}
+                  testid="profit-filters"
                 >
-                  {f.value === 'low_margin' ? `Маржа < ${String(data.low_margin === null ? low : Number(data.low_margin)).replace('.', ',')} %` : f.label}{' '}
-                  <span className="text-faint">{data.filter_counts?.[f.value] ?? ''}</span>
+                  {withQuick && (
+                    <FilterField label="Показать">
+                      <div data-testid="profit-quick">
+                        <ChipOptions
+                          options={QUICK.map((f) => ({
+                            value: f.value,
+                            label: f.value === 'low_margin' ? `Маржа < ${String(data.low_margin === null ? low : Number(data.low_margin)).replace('.', ',')} %` : f.label,
+                            hint: f.title,
+                            count: data.filter_counts?.[f.value],
+                          }))}
+                          value={quick}
+                          onChange={(v) => {
+                            setQuick(v)
+                            setOffset(0)
+                          }}
+                          testid="profit-quick"
+                        />
+                      </div>
+                    </FilterField>
+                  )}
+                  <FilterField label="Суммы" hint="«На 1 шт.» — юнит-экономика: сколько с одной проданной штуки забирает Ozon и сколько остаётся вам">
+                    <ChipOptions
+                      options={[
+                        { value: 'total', label: 'Всего' },
+                        { value: 'unit', label: 'На 1 шт.' },
+                      ]}
+                      value={unit ? 'unit' : 'total'}
+                      onChange={(v) => setUnit(v === 'unit')}
+                      testid="view"
+                    />
+                  </FilterField>
+                </FilterButton>
+                <button type="button" onClick={exportCsv} className="h-9 rounded-lg border border-line px-3 text-sm hover:border-accent hover:text-accent" data-testid="products-export">
+                  Скачать CSV
                 </button>
-              ))}
-            </div>
-          )}
-          <div className="flex flex-wrap items-center gap-3">
-            <input
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              placeholder="Поиск по артикулу или названию"
-              aria-label="Поиск товара"
-              className="w-full max-w-xs rounded-lg border border-line bg-card px-3 py-2 text-sm outline-none focus:border-accent"
-              data-testid="products-search"
-            />
+              </>
+            }
+          >
+            <SearchBox value={searchText} onChange={setSearchText} testid="products-search" className="w-full sm:w-72" />
             <span className="text-xs text-muted">
               {search || quick !== 'all' ? `найдено ${data.total}` : `${data.total} товаров`}
+              {unit && ' · на 1 шт.'}
               {t.missing_cost > 0 && (
                 <>
                   {' · '}
@@ -273,34 +297,7 @@ export function ProductsView({
                 </>
               )}
             </span>
-            <div
-              className="ml-auto flex gap-1 rounded-lg border border-line bg-card p-1"
-              role="group"
-              aria-label="Как показать суммы"
-              title="«На 1 шт.» — юнит-экономика: сколько с одной проданной штуки забирает Ozon и сколько остаётся вам"
-            >
-              {(
-                [
-                  [false, 'Всего', 'view-total'],
-                  [true, 'На 1 шт.', 'view-unit'],
-                ] as const
-              ).map(([value, label, testid]) => (
-                <button
-                  key={label}
-                  type="button"
-                  aria-pressed={unit === value}
-                  onClick={() => setUnit(value)}
-                  className={`rounded-md px-3 py-1 text-sm ${unit === value ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`}
-                  data-testid={testid}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <button type="button" onClick={exportCsv} className="rounded-lg border border-line px-3 py-2 text-sm hover:border-accent hover:text-accent" data-testid="products-export">
-              Скачать CSV
-            </button>
-          </div>
+          </FilterBar>
 
           <section className="overflow-hidden rounded-xl border border-line bg-card">
             <div className="overflow-x-auto">

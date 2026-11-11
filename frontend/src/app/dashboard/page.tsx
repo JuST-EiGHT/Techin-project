@@ -87,7 +87,7 @@ function Dashboard() {
                   Отчёты Ozon →
                 </Link>
               </div>
-              {data.coverage.data_source !== 'none' && <DynamicsChart data={data} granularity={{ value: filter.granularity, onChange: (g) => update({ granularity: g, granularityChosen: true }) }} />}
+              {data.coverage.data_source !== 'none' && <DynamicsChart data={data} granularity={{ value: filter.granularity, chosen: filter.granularityChosen, onChange: (g) => update({ granularity: g, granularityChosen: true }) }} />}
             </>
           )}
           {/* «Требует внимания» (10.5): единый список проблем — аномалии и данные, по важности и деньгам под риском */}

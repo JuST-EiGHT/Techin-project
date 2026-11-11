@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { DateRangePicker, SearchBox, lastDays } from '@/components/filters'
 import { ResultLine } from '@/components/promo-results'
 import { Badge, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
@@ -18,7 +19,8 @@ const PERIODS = [
 ]
 
 export function PromoHistory({ productId, onClearProduct }: { productId: string | null; onClearProduct: () => void }) {
-  const [days, setDays] = useState(90)
+  const [range, setRange] = useState(() => lastDays(90))
+  const [preset, setPreset] = useState<string | null>('90')
   const [search, setSearch] = useState('')
   const [data, setData] = useState<HistoryResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -28,14 +30,14 @@ export function PromoHistory({ productId, onClearProduct }: { productId: string 
     const today = todayMsk()
     api
       .get<HistoryResponse>('/promotions/history', {
-        params: { date_from: addDays(today, -(days - 1)), date_to: today, ...(productId ? { product_id: productId } : {}) },
+        params: { date_from: range.from, date_to: range.to, ...(productId ? { product_id: productId } : {}) },
       })
       .then((r) => {
         setData(r.data)
         setError(null)
       })
       .catch((err) => setError(errorMessage(err)))
-  }, [days, productId])
+  }, [range.from, range.to, productId])
 
   const q = search.trim().toLowerCase()
   const items = (data?.items ?? []).filter(
@@ -45,19 +47,17 @@ export function PromoHistory({ productId, onClearProduct }: { productId: string 
   return (
     <section className="space-y-3" data-testid="promo-history">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex gap-1 rounded-lg border border-line bg-card p-1" role="group" aria-label="Период">
-          {PERIODS.map((p) => (
-            <button
-              key={p.days}
-              type="button"
-              aria-pressed={days === p.days}
-              onClick={() => setDays(p.days)}
-              className={`rounded-md px-3 py-1 text-sm ${days === p.days ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
+        <DateRangePicker
+          value={range}
+          preset={preset}
+          presets={PERIODS.map((p) => ({ value: String(p.days), label: p.label, range: lastDays(p.days) }))}
+          maxDays={366}
+          onChange={({ range: r, preset: pr }) => {
+            setRange(r)
+            setPreset(pr)
+          }}
+          testid="promo-history-period"
+        />
         {productId ? (
           <span className="rounded-full border border-accent px-3 py-1 text-sm text-accent">
             Товар {product ? product.offer_id : ''}{' '}
@@ -66,13 +66,7 @@ export function PromoHistory({ productId, onClearProduct }: { productId: string 
             </button>
           </span>
         ) : (
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Товар или акция"
-            aria-label="Поиск в истории"
-            className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm outline-none focus:border-accent sm:max-w-xs"
-          />
+          <SearchBox value={search} onChange={setSearch} placeholder="Товар или акция" testid="promo-history-search" className="w-full sm:w-72" />
         )}
       </div>
       <FormError message={error} />

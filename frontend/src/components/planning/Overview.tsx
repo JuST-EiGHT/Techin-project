@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Bar, CartesianGrid, Cell, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { FormError } from '@/components/AuthForm'
+import { DateRangePicker } from '@/components/filters'
 import { type Drill, MoreLink, TipBox, useDrill } from '@/components/charts'
 import { compact, useTokenColors } from '@/components/finance'
 import { GapBanner, LineAmount, LineDetails, SOURCE_TONE, STATUS, dayTitle, signed, waiting } from '@/components/planning/Calendar'
@@ -175,18 +176,23 @@ function storePeriod(p: ChartPeriod) {
   }
 }
 
+/** Период графика одной кнопкой (правка 11.11): прошлое — факт по операциям, с сегодня — план и прогноз (не дальше 180 дней). */
 function PeriodControl({ from, to, today, onChange }: { from: string; to: string; today: string; onChange: (from: string, to: string) => void }) {
   return (
-    <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-2 text-xs text-muted" data-testid="ov-period">
-      <span>Период графика:</span>
-      <label className="flex items-center gap-1.5">
-        с
-        <input type="date" value={from} max={to} onChange={(e) => e.target.value && onChange(e.target.value, to)} className={field} aria-label="Начало периода графика" data-testid="ov-period-from" />
-      </label>
-      <label className="flex items-center gap-1.5">
-        по
-        <input type="date" value={to} min={from} max={addDays(today, MAX_AHEAD)} onChange={(e) => e.target.value && onChange(from, e.target.value)} className={field} aria-label="Конец периода графика" data-testid="ov-period-to" />
-      </label>
+    <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted" data-testid="ov-period">
+      <DateRangePicker
+        value={{ from, to }}
+        presets={[
+          { value: '2w', label: '2 недели назад и 2 вперёд', range: { from: addDays(today, -14), to: addDays(today, 14) } },
+          { value: 'm', label: 'Месяц назад и вперёд', range: { from: addDays(today, -30), to: addDays(today, 30) } },
+          { value: 'ahead90', label: '90 дней вперёд', range: { from: today, to: addDays(today, 90) } },
+          { value: 'ahead180', label: 'Полгода вперёд', range: { from: today, to: addDays(today, MAX_AHEAD) } },
+          { value: 'past90', label: '90 дней назад', range: { from: addDays(today, -89), to: today } },
+        ]}
+        max={addDays(today, MAX_AHEAD)}
+        onChange={({ range }) => onChange(range.from, range.to)}
+        testid="ov-period-picker"
+      />
       <span className="text-faint">до сегодня — факт по операциям, с сегодня — план и прогноз (не дальше 180 дней)</span>
     </div>
   )
