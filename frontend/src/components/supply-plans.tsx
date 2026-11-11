@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { ChipOptions, FilterBar, FilterButton, FilterField } from '@/components/filters'
 import { fmtDateTime, fmtDay } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
@@ -48,19 +49,18 @@ function PlanList({ onOpen }: { onOpen: (id: string) => void }) {
   }, [status])
   return (
     <section className="space-y-3" data-testid="plans">
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Какие планы">
-        {FILTERS.map((f) => (
-          <button
-            key={f.value || 'all'}
-            type="button"
-            aria-pressed={status === f.value}
-            onClick={() => setStatus(f.value)}
-            className={`rounded-full border px-3 py-1 text-sm ${status === f.value ? 'border-accent bg-accent/10 text-accent' : 'border-line hover:border-muted'}`}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
+      {/* правка 11.11: какие планы показать — в «Фильтрах» */}
+      <FilterBar
+        end={
+          <FilterButton count={status !== 'draft' ? 1 : 0} onReset={() => setStatus('draft')} testid="plans-filter">
+            <FilterField label="Какие планы">
+              <ChipOptions options={FILTERS.map((f) => ({ value: f.value as string, label: f.label }))} value={status} onChange={(v) => setStatus(v as PlanStatus | '')} testid="plans-status" />
+            </FilterField>
+          </FilterButton>
+        }
+      >
+        <span className="text-sm text-muted">{FILTERS.find((f) => f.value === status)?.label}</span>
+      </FilterBar>
       <FormError message={error} />
       {plans === null ? (
         <p className="text-sm text-muted">Загрузка…</p>

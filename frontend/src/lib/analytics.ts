@@ -109,7 +109,7 @@ export type AnalyticsFilter = {
 
 const DEFAULT_PRESET: PeriodPreset = '30d' // у страницы может быть свой (главная — «Этот месяц»)
 const DAY = /^\d{4}-\d{2}-\d{2}$/
-const MAX_DAYS = 366
+export const MAX_DAYS = 366
 
 /** Детализация по умолчанию: до 45 дней — по дням, до полугода — по неделям, дальше — по месяцам. */
 export function autoGranularity(range: Range): Granularity {

@@ -40,8 +40,16 @@ function Events() {
         </p>
       </div>
       <AnalyticsTabs />
-      <AnalyticsFilters value={filter} onChange={update} kinds={['products', 'stocks', 'promotions', 'finance']} showCompare={false} showGranularity={false} />
-      <KindFilter value={kinds} onChange={setKinds} />
+      <AnalyticsFilters
+        value={filter}
+        onChange={update}
+        kinds={['products', 'stocks', 'promotions', 'finance']}
+        showCompare={false}
+        showGranularity={false}
+        extra={<KindFilter value={kinds} onChange={setKinds} />}
+        extraCount={kinds.length ? 1 : 0}
+        onResetExtra={() => setKinds([])}
+      />
       <FeedList items={feed.items} next={feed.next} loading={feed.loading} error={feed.error} onMore={() => feed.more()} />
     </div>
   )

@@ -2,7 +2,7 @@
 // Основа аналитики (шаг 10.3): общие фильтры (период, товар, категория, детализация, сравнение, «обновлено …»), их
 // состояние — в адресе страницы; загрузка показателей; график показателя через charts.tsx (правило 16). Страницы —
 // главная (10.4), «Аналитика» (10.7 и дальше), «Товары», «Финансы» — берут их отсюда, а не пишут свои.
-import { X } from 'lucide-react'
+import { Search, X } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -11,6 +11,15 @@ import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Too
 import { FormError } from '@/components/AuthForm'
 import { type Drill, MoreLink, TipBox, useDrill } from '@/components/charts'
 import { compact, useTokenColors } from '@/components/finance'
+import {
+  CheckOption,
+  ChipOptions,
+  DateRangePicker,
+  FilterBar,
+  FilterButton,
+  FilterField,
+  selectClass,
+} from '@/components/filters'
 import { UpdatedAt } from '@/components/sync'
 import { useDismiss } from '@/hooks/useDismiss'
 import {
@@ -22,6 +31,7 @@ import {
   type MetricKey,
   type MetricPoint,
   type Metrics,
+  MAX_DAYS,
   PERIOD_PRESETS,
   type PeriodPreset,
   type ProductOption,
@@ -122,7 +132,7 @@ function ProductPicker({ value, onChange }: { value: string | null; onChange: (i
 
   if (value) {
     return (
-      <span className="flex max-w-full items-center gap-1 rounded-lg border border-accent bg-accent/10 px-2.5 py-1 text-sm text-accent" data-testid="filter-product">
+      <span className="flex h-9 max-w-full items-center gap-1 rounded-lg border border-accent bg-accent/10 px-2.5 text-sm text-accent" data-testid="filter-product">
         <span className="truncate">{selected ? `${selected.offer_id}${selected.name ? ` · ${selected.name}` : ''}` : 'Товар'}</span>
         <button type="button" onClick={() => onChange(null)} aria-label="Все товары" className="shrink-0 hover:text-fg">
           <X className="h-4 w-4" />
@@ -131,17 +141,19 @@ function ProductPicker({ value, onChange }: { value: string | null; onChange: (i
     )
   }
   return (
-    <div ref={box} className="relative">
+    <div ref={box} className="relative w-72 max-w-full">
+      <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted" aria-hidden />
       <input
+        type="search"
         value={text}
         onChange={(e) => {
           setText(e.target.value)
           setOpen(true)
         }}
         onFocus={() => setOpen(true)}
-        placeholder="Все товары — найти артикул или название"
-        aria-label="Товар"
-        className={`${input} w-64 max-w-full`}
+        placeholder="Артикул, название или штрихкод"
+        aria-label="Товар: артикул, название или штрихкод"
+        className="h-9 w-full rounded-lg border border-line bg-card pl-8 pr-2.5 text-sm outline-none placeholder:text-faint focus:border-accent"
         data-testid="filter-product-search"
       />
       {open && (
@@ -171,7 +183,9 @@ function ProductPicker({ value, onChange }: { value: string | null; onChange: (i
   )
 }
 
-/** Общие фильтры аналитики. kinds — какие данные показывает страница: по ним «Обновлено …» (кнопка «Синхронизация»). */
+/** Общие фильтры аналитики (правка 11.11.2026): снаружи — товар (артикул, название, штрихкод) и период одной кнопкой,
+ * остальное — категория, детализация, сравнение — за кнопкой «Фильтры». kinds — какие данные показывает страница: по ним
+ * «Обновлено …» (кнопка «Синхронизация»). */
 export function AnalyticsFilters({
   value,
   onChange,
@@ -180,6 +194,9 @@ export function AnalyticsFilters({
   showProduct = true,
   showCategory = true,
   showGranularity = true,
+  extra,
+  extraCount = 0,
+  onResetExtra,
 }: {
   value: AnalyticsFilter
   onChange: (patch: Partial<AnalyticsFilter>) => void
@@ -190,6 +207,10 @@ export function AnalyticsFilters({
   /** Главная — без товара и категории: там магазин целиком. */
   showProduct?: boolean
   showCategory?: boolean
+  /** Свои фильтры страницы — в ту же панель «Фильтры» (виды событий, критерий ABC …), extraCount — сколько выбрано. */
+  extra?: React.ReactNode
+  extraCount?: number
+  onResetExtra?: () => void
 }) {
   const [categories, setCategories] = useState<CategoryOption[]>([])
   useEffect(() => {
@@ -197,57 +218,86 @@ export function AnalyticsFilters({
     api.get<CategoryOption[]>('/analytics/categories').then(({ data }) => setCategories(data)).catch(() => setCategories([]))
   }, [showCategory])
 
+  const presets = PERIOD_PRESETS.filter((p) => p.value !== 'custom').map((p) => ({
+    value: p.value,
+    label: p.label,
+    range: rangeOf(p.value as Exclude<PeriodPreset, 'custom'>),
+  }))
+  // в панели: категория, детализация, вкл. сравнения выключено — то, что отличается от умолчаний
+  const count =
+    (showCategory && value.category !== null ? 1 : 0) +
+    (showGranularity && value.granularityChosen ? 1 : 0) +
+    (showCompare && !value.compare ? 1 : 0) +
+    extraCount
+  const hasPanel = showCategory || showGranularity || showCompare || !!extra
   return (
-    <section className="space-y-3 rounded-xl border border-line bg-card p-3 sm:p-4" data-testid="analytics-filters">
-      <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Период">
-        {PERIOD_PRESETS.map((p) => (
-          <button key={p.value} type="button" onClick={() => onChange({ preset: p.value as PeriodPreset })} className={chip(value.preset === p.value)} aria-pressed={value.preset === p.value} data-testid={`period-${p.value}`}>
-            {p.label}
-          </button>
-        ))}
-        {value.preset === 'custom' && (
-          <span className="flex flex-wrap items-center gap-1.5">
-            <input type="date" value={value.range.from} max={value.range.to} onChange={(e) => e.target.value && onChange({ range: { ...value.range, from: e.target.value } })} aria-label="С" className={input} data-testid="period-from" />
-            <span className="text-muted">—</span>
-            <input type="date" value={value.range.to} min={value.range.from} onChange={(e) => e.target.value && onChange({ range: { ...value.range, to: e.target.value } })} aria-label="По" className={input} data-testid="period-to" />
-          </span>
-        )}
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
+    <section className="space-y-2" data-testid="analytics-filters">
+      <FilterBar
+        end={
+          <>
+            <UpdatedAt kinds={kinds} />
+            {hasPanel && (
+              <FilterButton
+                count={count}
+                onReset={() => {
+                  onChange({ category: null, granularityChosen: false, compare: true })
+                  onResetExtra?.()
+                }}
+              >
+                {extra}
+                {showCategory && (
+                  <FilterField label="Категория">
+                    <select
+                      value={value.category ?? ''}
+                      onChange={(e) => onChange({ category: e.target.value === '' ? null : Number(e.target.value) })}
+                      aria-label="Категория"
+                      className={selectClass}
+                      data-testid="filter-category"
+                    >
+                      <option value="">Все категории</option>
+                      {categories.map((c) => (
+                        <option key={c.id} value={c.id} title={c.path ?? undefined}>
+                          {c.name} ({c.products})
+                        </option>
+                      ))}
+                    </select>
+                  </FilterField>
+                )}
+                {showGranularity && (
+                  <FilterField label="Детализация графика">
+                    <ChipOptions
+                      options={GRANULARITIES}
+                      value={value.granularity}
+                      onChange={(g) => onChange({ granularity: g, granularityChosen: true })}
+                      testid="granularity"
+                    />
+                  </FilterField>
+                )}
+                {showCompare && (
+                  <FilterField label="Сравнение">
+                    <CheckOption
+                      checked={value.compare}
+                      onChange={(compare) => onChange({ compare })}
+                      label="Сравнить с прошлым периодом"
+                      hint="Прошлый сопоставимый период: месяц — прошлый месяц, неделя — прошлая неделя, иначе столько же дней перед периодом"
+                      testid="filter-compare"
+                    />
+                  </FilterField>
+                )}
+              </FilterButton>
+            )}
+          </>
+        }
+      >
         {showProduct && <ProductPicker value={value.product} onChange={(product) => onChange({ product })} />}
-        {showCategory && (
-          <select
-            value={value.category ?? ''}
-            onChange={(e) => onChange({ category: e.target.value === '' ? null : Number(e.target.value) })}
-            aria-label="Категория"
-            className={`${input} max-w-[16rem]`}
-            data-testid="filter-category"
-          >
-            <option value="">Все категории</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id} title={c.path ?? undefined}>
-                {c.name} ({c.products})
-              </option>
-            ))}
-          </select>
-        )}
-        {showGranularity && (
-          <div className="flex gap-1" role="group" aria-label="Детализация">
-            {GRANULARITIES.map((g) => (
-              <button key={g.value} type="button" onClick={() => onChange({ granularity: g.value, granularityChosen: true })} className={chip(value.granularity === g.value)} aria-pressed={value.granularity === g.value} data-testid={`granularity-${g.value}`}>
-                {g.label}
-              </button>
-            ))}
-          </div>
-        )}
-        {showCompare && (
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-muted" title="Прошлый сопоставимый период: месяц — прошлый месяц, неделя — прошлая неделя, иначе столько же дней перед периодом">
-            <input type="checkbox" checked={value.compare} onChange={(e) => onChange({ compare: e.target.checked })} className="accent-accent" data-testid="filter-compare" />
-            Сравнить с прошлым периодом
-          </label>
-        )}
-        <UpdatedAt kinds={kinds} className="ml-auto" />
-      </div>
+        <DateRangePicker
+          value={value.range}
+          preset={value.preset === 'custom' ? null : value.preset}
+          presets={presets}
+          maxDays={MAX_DAYS}
+          onChange={({ range, preset }) => (preset ? onChange({ preset: preset as PeriodPreset }) : onChange({ preset: 'custom', range }))}
+        />
+      </FilterBar>
     </section>
   )
 }

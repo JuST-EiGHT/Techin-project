@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { FormError } from '@/components/AuthForm'
+import { ChipOptions, FilterButton, FilterField } from '@/components/filters'
 import { type Drill, MoreLink, TipBox, useDrill } from '@/components/charts'
 import { compact, useTokenColors } from '@/components/finance'
 import { ImportPanel } from '@/components/planning/Operations'
@@ -548,12 +549,18 @@ function Scenarios({ version }: { version: number }) {
     <section className="space-y-3" data-testid="budget-scenarios">
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-sm font-semibold">Сценарии и прогноз денег</h2>
-        <div className="ml-auto flex gap-1 rounded-lg border border-line bg-card p-1" role="group" aria-label="Горизонт">
-          {[3, 6, 12].map((m) => (
-            <button key={m} type="button" aria-pressed={months === m} onClick={() => setMonths(m)} className={`rounded-md px-2.5 py-1 text-xs ${months === m ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`}>
-              {m} мес.
-            </button>
-          ))}
+        <div className="ml-auto">
+          {/* правка 11.11: горизонт прогноза — в «Фильтрах» графика */}
+          <FilterButton count={months !== 3 ? 1 : 0} onReset={() => setMonths(3)} testid="scenario-filter">
+            <FilterField label="Горизонт прогноза">
+              <ChipOptions
+                options={[3, 6, 12].map((m) => ({ value: String(m), label: `${m} мес.` }))}
+                value={String(months)}
+                onChange={(v) => setMonths(Number(v))}
+                testid="scenario-months"
+              />
+            </FilterField>
+          </FilterButton>
         </div>
       </div>
       <p className="text-xs text-muted">
@@ -734,20 +741,11 @@ export function BudgetsPage({ onChanged }: { onChanged: () => void }) {
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
-        <div className="flex gap-1 rounded-lg border border-line bg-card p-1" role="group" aria-label="Детализация">
-          {GRANULARITY.map((g) => (
-            <button
-              key={g.value}
-              type="button"
-              aria-pressed={granularity === g.value}
-              onClick={() => setGranularity(g.value)}
-              className={`rounded-md px-3 py-1 text-sm ${granularity === g.value ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`}
-              data-testid={`budget-gran-${g.value}`}
-            >
-              {g.label}
-            </button>
-          ))}
-        </div>
+        <FilterButton count={granularity !== 'month' ? 1 : 0} onReset={() => setGranularity('month')} testid="budget-filter">
+          <FilterField label="Детализация">
+            <ChipOptions options={GRANULARITY} value={granularity} onChange={setGranularity} testid="budget-gran" />
+          </FilterField>
+        </FilterButton>
         <button type="button" onClick={() => setFilling(true)} className="rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent sm:ml-auto" data-testid="budget-fill-open">
           Заполнить по факту…
         </button>

@@ -9,6 +9,7 @@ import { Suspense, useCallback, useEffect, useState } from 'react'
 
 import { AlertCard } from '@/components/alerts'
 import { FormError } from '@/components/AuthForm'
+import { CheckOption, FilterBar, FilterButton, FilterField } from '@/components/filters'
 import { api, errorMessage } from '@/lib/api'
 import {
   type AlertGroup,
@@ -173,67 +174,84 @@ function Alerts() {
         ))}
       </div>
 
-      <div className="space-y-2">
-        <div className="flex flex-wrap gap-2" role="group" aria-label="Важность">
-          <button type="button" className={chip(severity === null)} onClick={() => setParam('severity', null)} data-testid="alerts-severity-all">
-            Все
-          </button>
-          <button type="button" className={chip(severity === 'red')} onClick={() => setParam('severity', 'red')} data-testid="alerts-severity-red">
-            <span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-bad" aria-hidden />
-            Красные{status === 'active' && counts ? ` ${unreadOnly ? counts.red : counts.red_active}` : ''}
-          </button>
-          <button type="button" className={chip(severity === 'yellow')} onClick={() => setParam('severity', 'yellow')} data-testid="alerts-severity-yellow">
-            <span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-warn" aria-hidden />
-            Жёлтые{status === 'active' && counts ? ` ${unreadOnly ? counts.yellow : counts.yellow_active}` : ''}
-          </button>
-          {status === 'active' && (
-            <label className="ml-auto flex cursor-pointer items-center gap-2 text-sm text-muted">
-              <input
-                type="checkbox"
-                checked={unreadOnly}
-                onChange={(e) => setParam('unread', e.target.checked ? '1' : null)}
-                className="accent-accent"
-                data-testid="alerts-unread"
-              />
-              Только без «Ок»
-            </label>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-2" role="group" aria-label="Разделы">
-          <button
-            type="button"
-            className={chip(section === null && group === null)}
-            onClick={() => setParam('section', null, ['group'])}
-            data-testid="alerts-section-all"
+      {/* правка 11.11: важность, «без Ок» и разделы — в «Фильтрах» */}
+      <FilterBar
+        testid="alerts-filters"
+        end={
+          <FilterButton
+            count={(severity ? 1 : 0) + (status === 'active' && unreadOnly ? 1 : 0) + (section || group ? 1 : 0)}
+            onReset={() => setParam('severity', null, ['unread', 'section', 'group'])}
+            testid="alerts-filter"
           >
-            Все разделы
-          </button>
-          {SECTIONS.map((g) =>
-            g.soon ? (
-              <span key={g.value} title={g.hint} className="rounded-full border border-dashed border-line px-3 py-1 text-sm text-faint" data-testid={`alerts-section-${g.value}`}>
-                {g.label} <span className="text-xs">· скоро</span>
-              </span>
-            ) : (
-              <button
-                key={g.value}
-                type="button"
-                title={g.hint}
-                className={chip(section === g.value)}
-                onClick={() => setParam('section', g.value)}
-                data-testid={`alerts-section-${g.value}`}
-              >
-                {g.label}
-                <span className="text-faint"> {data?.by_section[g.value] ?? 0}</span>
-              </button>
-            ),
-          )}
-          {group && (
-            <button type="button" className={chip(true)} onClick={() => setParam('group', null)} title="Фильтр по старой группе — снять">
-              {GROUPS.find((g) => g.value === group)?.label} ×
-            </button>
-          )}
-        </div>
-      </div>
+            <FilterField label="Важность">
+              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Важность">
+                <button type="button" className={chip(severity === null)} onClick={() => setParam('severity', null)} data-testid="alerts-severity-all">
+                  Все
+                </button>
+                <button type="button" className={chip(severity === 'red')} onClick={() => setParam('severity', 'red')} data-testid="alerts-severity-red">
+                  <span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-bad" aria-hidden />
+                  Красные{status === 'active' && counts ? ` ${unreadOnly ? counts.red : counts.red_active}` : ''}
+                </button>
+                <button type="button" className={chip(severity === 'yellow')} onClick={() => setParam('severity', 'yellow')} data-testid="alerts-severity-yellow">
+                  <span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-warn" aria-hidden />
+                  Жёлтые{status === 'active' && counts ? ` ${unreadOnly ? counts.yellow : counts.yellow_active}` : ''}
+                </button>
+              </div>
+            </FilterField>
+            {status === 'active' && (
+              <FilterField label="Прочитанные">
+                <CheckOption checked={unreadOnly} onChange={(v) => setParam('unread', v ? '1' : null)} label="Только без «Ок»" testid="alerts-unread" />
+              </FilterField>
+            )}
+            <FilterField label="Раздел">
+              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Разделы">
+                <button
+                  type="button"
+                  className={chip(section === null && group === null)}
+                  onClick={() => setParam('section', null, ['group'])}
+                  data-testid="alerts-section-all"
+                >
+                  Все разделы
+                </button>
+                {SECTIONS.map((g) =>
+                  g.soon ? (
+                    <span key={g.value} title={g.hint} className="rounded-full border border-dashed border-line px-3 py-1 text-sm text-faint" data-testid={`alerts-section-${g.value}`}>
+                      {g.label} <span className="text-xs">· скоро</span>
+                    </span>
+                  ) : (
+                    <button
+                      key={g.value}
+                      type="button"
+                      title={g.hint}
+                      className={chip(section === g.value)}
+                      onClick={() => setParam('section', g.value)}
+                      data-testid={`alerts-section-${g.value}`}
+                    >
+                      {g.label}
+                      <span className="text-faint"> {data?.by_section[g.value] ?? 0}</span>
+                    </button>
+                  ),
+                )}
+                {group && (
+                  <button type="button" className={chip(true)} onClick={() => setParam('group', null)} title="Фильтр по старой группе — снять">
+                    {GROUPS.find((g) => g.value === group)?.label} ×
+                  </button>
+                )}
+              </div>
+            </FilterField>
+          </FilterButton>
+        }
+      >
+        <span className="text-sm text-muted" data-testid="alerts-filter-summary">
+          {[
+            severity === 'red' ? 'красные' : severity === 'yellow' ? 'жёлтые' : null,
+            section ? SECTIONS.find((g) => g.value === section)?.label : null,
+            status === 'active' && unreadOnly ? 'без «Ок»' : null,
+          ]
+            .filter(Boolean)
+            .join(' · ') || 'Все уведомления'}
+        </span>
+      </FilterBar>
 
       <FormError message={error} />
       {notice && (

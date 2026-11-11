@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { DateRangePicker } from '@/components/filters'
 import type { PlanFactOp, PlanFactPage, PlanFactRow } from '@/components/planning/types'
 import { Badge, fmtDay, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
@@ -98,13 +99,13 @@ function Suggestion({ row, onDone }: { row: PlanFactRow; onDone: (text: string) 
 
 export function PlanFact() {
   const today = todayMsk()
-  const [preset, setPreset] = useState<Preset>('around')
+  const [period, setPeriod] = useState(() => range('around', today))
   const [page, setPage] = useState<PlanFactPage | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    const r = range(preset, today)
+    const r = period
     try {
       const { data } = await api.get<PlanFactPage>('/planning/plan-fact', { params: { date_from: r.from, date_to: r.to } })
       setPage(data)
@@ -112,7 +113,7 @@ export function PlanFact() {
     } catch (err) {
       setError(errorMessage(err))
     }
-  }, [preset, today])
+  }, [period])
 
   useEffect(() => {
     load()
@@ -129,19 +130,14 @@ export function PlanFact() {
         и что их оплатило. Операция закрывает платёж сама, если сумма отличается не больше чем на 10 %, дата — не больше чем на 3 дня, а статья и контрагент
         совпадают. Похожие, но не такие точные — ниже предложениями: подтвердите или отклоните.
       </p>
-      <div className="flex flex-wrap gap-1 rounded-lg border border-line bg-card p-1 sm:w-fit" role="group" aria-label="Период">
-        {PRESETS.map((p) => (
-          <button
-            key={p.value}
-            type="button"
-            aria-pressed={preset === p.value}
-            onClick={() => setPreset(p.value)}
-            className={`rounded-md px-3 py-1 text-sm ${preset === p.value ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
+      <DateRangePicker
+        value={period}
+        presets={PRESETS.map((p) => ({ value: p.value, label: p.label, range: range(p.value, today) }))}
+        max={addDays(today, 366)}
+        maxDays={366}
+        onChange={({ range: r }) => setPeriod(r)}
+        testid="pf-period"
+      />
       <FormError message={error} />
       {notice && <p className="text-sm text-ok" data-testid="pf-notice">{notice}</p>}
       {page && (

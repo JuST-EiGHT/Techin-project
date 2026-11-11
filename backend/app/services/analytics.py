@@ -412,14 +412,14 @@ async def categories(db: AsyncSession, store_id: uuid.UUID) -> list[dict]:
 
 async def search_products(db: AsyncSession, store_id: uuid.UUID, text: str | None, limit: int = 20,
                           ids: list[uuid.UUID] | None = None) -> list[dict]:
-    """Товары для фильтра: по артикулу, названию или SKU (сначала не архивные) или по id — подписать выбранные."""
+    """Товары для фильтра: по артикулу, названию, штрихкоду или SKU (сначала не архивные) или по id — подписать выбранные."""
     q = select(Product).where(Product.user_id == store_id)
     if ids:
         q = q.where(Product.id.in_(ids))
     text = (text or "").strip()
     if text:
         like = f"%{text.lower()}%"
-        cond = [func.lower(Product.offer_id).like(like), func.lower(Product.name).like(like)]
+        cond = [func.lower(Product.offer_id).like(like), func.lower(Product.name).like(like), Product.barcode.like(f"%{text}%")]
         if text.isdigit():
             cond.append(Product.ozon_sku == int(text))
         q = q.where(or_(*cond))

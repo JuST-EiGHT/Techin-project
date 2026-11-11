@@ -7,6 +7,7 @@ import { Suspense, useState } from 'react'
 
 import { AbcDistribution, AbcGroups, AbcMatrix, AbcTable, CRITERIA, type Criterion, useAbc } from '@/components/abc-analytics'
 import { AnalyticsFilters, AnalyticsTabs, MetricsState, useAnalyticsFilter } from '@/components/analytics'
+import { ChipOptions, FilterField } from '@/components/filters'
 
 export default function AbcPage() {
   return (
@@ -53,22 +54,17 @@ function Abc() {
         kinds={['finance', 'products']}
         showCompare={false}
         showGranularity={false}
+        extra={
+          <FilterField label="Делить по" hint="По чему считать вклад товара: выручке, прибыли или проданным штукам">
+            <ChipOptions options={CRITERIA} value={by} onChange={setBy} testid="abc-by" />
+          </FilterField>
+        }
+        extraCount={by !== 'revenue' ? 1 : 0}
+        onResetExtra={() => setBy('revenue')}
       />
-      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Критерий">
-        <span className="text-sm text-muted">Делить по:</span>
-        {CRITERIA.map((c) => (
-          <button
-            key={c.value}
-            type="button"
-            onClick={() => setBy(c.value)}
-            aria-pressed={by === c.value}
-            className={`rounded-lg border px-3 py-1 text-sm ${by === c.value ? 'border-accent bg-accent/10 text-accent' : 'border-line text-muted hover:text-fg'}`}
-            data-testid={`abc-by-${c.value}`}
-          >
-            {c.label}
-          </button>
-        ))}
-      </div>
+      <p className="text-sm text-muted" data-testid="abc-by-note">
+        Делим по: <span className="text-fg">{CRITERIA.find((c) => c.value === by)?.label}</span>
+      </p>
       <MetricsState error={error} loading={loading} empty={!data} />
       {data && data.items.length === 0 && (
         <p className="rounded-xl border border-line bg-card p-6 text-sm text-muted" data-testid="abc-empty">

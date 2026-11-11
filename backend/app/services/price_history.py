@@ -96,9 +96,9 @@ async def _search(db: AsyncSession, user_id: uuid.UUID, search: str | None) -> l
     if not search:
         return None
     rows = await db.execute(
-        select(Product.id, Product.offer_id, Product.name, Product.ozon_sku).where(Product.user_id == user_id)
+        select(Product.id, Product.offer_id, Product.name, Product.ozon_sku, Product.barcode).where(Product.user_id == user_id)
     )
-    return [pid for pid, offer, name, sku in rows.all() if matches(search, offer, name, sku)]
+    return [pid for pid, offer, name, sku, barcode in rows.all() if matches(search, offer, name, sku, barcode)]
 
 
 async def history(

@@ -16,6 +16,7 @@ import { rangeOf, type PeriodPreset } from '@/lib/analytics'
 import { saveFile } from '@/lib/download'
 import { productHref } from '@/lib/stocks'
 import { todayMsk } from '@/lib/period'
+import { CheckOption, DateRangePicker, FilterButton, FilterField, SearchBox } from '@/components/filters'
 import {
   COLUMNS,
   DEFAULT_HIDDEN,
@@ -43,7 +44,7 @@ const POLL_MS = 3000
 const ACTIVE = ['queued', 'running']
 const COLUMNS_KEY = 'products.hidden-columns'
 const ALL_FILTERS: QuickFilter[] = ['negative', 'low_stock', 'critical_stock', 'in_promo', 'no_cost']
-type Period = Exclude<PeriodPreset, 'custom' | 'week' | '365d'>
+type Period = Exclude<PeriodPreset, 'week' | '365d'>
 // период для «Продано», «Выручка», «Прибыль»: по умолчанию 30 дней — в адресе не пишется
 const PERIODS: { value: Period; label: string }[] = [
   { value: '7d', label: '7 дней' },
@@ -52,7 +53,8 @@ const PERIODS: { value: Period; label: string }[] = [
   { value: 'prev_month', label: 'Прошлый месяц' },
   { value: '90d', label: '90 дней' },
 ]
-const parsePeriod = (text: string | null): Period => PERIODS.find((p) => p.value === text)?.value ?? '30d'
+const parsePeriod = (text: string | null): Period => (text === 'custom' ? 'custom' : (PERIODS.find((p) => p.value === text)?.value ?? '30d'))
+const DAY = /^\d{4}-\d{2}-\d{2}$/
 
 function readHidden(): ColumnKey[] {
   try {
@@ -89,11 +91,14 @@ function Products() {
   const router = useRouter()
   const pathname = usePathname()
   const filters = parseFilters(params.get('filter'))
-  const period = parsePeriod(params.get('period'))
-  const range = rangeOf(period)
+  let period = parsePeriod(params.get('period'))
+  const customFrom = params.get('from') ?? ''
+  const customTo = params.get('to') ?? ''
+  if (period === 'custom' && !(DAY.test(customFrom) && DAY.test(customTo) && customFrom <= customTo)) period = '30d'
+  const range = period === 'custom' ? { from: customFrom, to: customTo } : rangeOf(period)
   const periodParams = { date_from: range.from, date_to: range.to }
   const setUrl = useCallback(
-    (next: { filter?: QuickFilter[]; period?: Period }) => {
+    (next: { filter?: QuickFilter[]; period?: Period; range?: { from: string; to: string } }) => {
       const q = new URLSearchParams(params.toString())
       if (next.filter !== undefined) {
         if (next.filter.length) q.set('filter', next.filter.join(','))
@@ -102,6 +107,13 @@ function Products() {
       if (next.period !== undefined) {
         if (next.period !== '30d') q.set('period', next.period)
         else q.delete('period')
+        if (next.period === 'custom' && next.range) {
+          q.set('from', next.range.from)
+          q.set('to', next.range.to)
+        } else {
+          q.delete('from')
+          q.delete('to')
+        }
       }
       const s = q.toString()
       router.replace(s ? `${pathname}?${s}` : pathname, { scroll: false })
@@ -324,75 +336,58 @@ function Products() {
             />
           </div>
 
-          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Быстрые фильтры">
-            {QUICK_FILTERS.map((f) => {
-              const on = filters.includes(f.value)
-              return (
-                <button
-                  key={f.value}
-                  type="button"
-                  title={f.value === 'low_stock' ? `Запаса меньше чем на ${lowDays} дн. продаж` : f.hint}
-                  aria-pressed={on}
-                  onClick={() => toggleFilter(f.value)}
-                  className={`rounded-full border px-3 py-1 text-sm ${on ? 'border-accent bg-accent text-white' : 'border-line bg-card text-muted hover:border-accent hover:text-fg'}`}
-                  data-testid={`filter-${f.value}`}
-                >
-                  {f.label} <span className={on ? '' : 'text-faint'}>{c![f.count]}</span>
-                </button>
-              )
-            })}
-            {filters.includes('critical_stock') && (
-              <button type="button" aria-pressed onClick={() => toggleFilter('critical_stock')} className="rounded-full border border-accent bg-accent px-3 py-1 text-sm text-white">
-                {FILTER_LABEL.critical_stock} ✕
-              </button>
-            )}
-            {filters.length > 0 && (
-              <button type="button" onClick={() => setUrl({ filter: [] })} className="px-2 text-sm text-muted hover:text-fg" data-testid="filters-reset">
-                Сбросить
-              </button>
-            )}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <input
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              placeholder="Артикул, название или SKU"
-              aria-label="Поиск товара"
-              className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm outline-none focus:border-accent sm:max-w-xs"
-              data-testid="products-search"
+          {/* правка 11.11: снаружи — поиск и период; быстрые фильтры и архив — в «Фильтрах» */}
+          <div className="flex flex-wrap items-center gap-2" data-testid="products-filters">
+            <SearchBox value={searchText} onChange={setSearchText} testid="products-search" className="w-full sm:w-72" />
+            <DateRangePicker
+              value={range}
+              preset={period === 'custom' ? null : period}
+              presets={PERIODS.map((p) => ({ value: p.value, label: p.label, range: rangeOf(p.value as Exclude<Period, 'custom'>) }))}
+              maxDays={366}
+              onChange={({ range: r, preset: p }) => (p ? setUrl({ period: p as Period }) : setUrl({ period: 'custom', range: r }))}
+              testid="products-period"
             />
             <span className="text-xs text-muted" data-testid="products-found">
               {search || filters.length ? `найдено ${data.total}` : `${data.total} товаров`}
             </span>
-            <label className="flex items-center gap-2 text-sm text-muted" title="За какой период показать «Продано», «Выручку» и «Прибыль»">
-              Продажи за
-              <select
-                value={period}
-                onChange={(e) => setUrl({ period: e.target.value as Period })}
-                className="rounded-lg border border-line bg-card px-2 py-1.5 text-sm text-fg outline-none focus:border-accent"
-                data-testid="products-period"
-              >
-                {PERIODS.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex items-center gap-2 text-sm text-muted">
-              <input
-                type="checkbox"
-                checked={archived}
-                onChange={(e) => {
-                  setArchived(e.target.checked)
+            <div className="ml-auto flex flex-wrap gap-2">
+              <FilterButton
+                count={filters.length + (archived ? 1 : 0)}
+                onReset={() => {
+                  setUrl({ filter: [] })
+                  setArchived(false)
                   setOffset(0)
                 }}
-                data-testid="products-archived"
-              />
-              Архив Ozon{c!.archived ? ` (${c!.archived})` : ''}
-            </label>
-            <div className="ml-auto flex gap-2">
+              >
+                <FilterField label="Показать только">
+                  <div className="space-y-2" role="group" aria-label="Быстрые фильтры">
+                    {QUICK_FILTERS.map((f) => (
+                      <CheckOption
+                        key={f.value}
+                        checked={filters.includes(f.value)}
+                        onChange={() => toggleFilter(f.value)}
+                        label={`${f.label} — ${c![f.count]}`}
+                        hint={f.value === 'low_stock' ? `Запаса меньше чем на ${lowDays} дн. продаж` : f.hint}
+                        testid={`filter-${f.value}`}
+                      />
+                    ))}
+                    {filters.includes('critical_stock') && (
+                      <CheckOption checked onChange={() => toggleFilter('critical_stock')} label={FILTER_LABEL.critical_stock} testid="filter-critical_stock" />
+                    )}
+                  </div>
+                </FilterField>
+                <FilterField label="Архив">
+                  <CheckOption
+                    checked={archived}
+                    onChange={(v) => {
+                      setArchived(v)
+                      setOffset(0)
+                    }}
+                    label={`Товары в архиве Ozon${c!.archived ? ` (${c!.archived})` : ''}`}
+                    testid="products-archived"
+                  />
+                </FilterField>
+              </FilterButton>
               <ColumnsMenu hidden={hidden} onToggle={toggleColumn} />
               <button type="button" onClick={exportCsv} className="rounded-lg border border-line px-3 py-2 text-sm hover:border-accent hover:text-accent" data-testid="products-export">
                 Скачать CSV

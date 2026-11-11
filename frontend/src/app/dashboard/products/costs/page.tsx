@@ -7,6 +7,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { CheckOption, FilterBar, FilterButton, FilterField, SearchBox } from '@/components/filters'
 import { CostTemplateButton } from '@/components/CostTemplateButton'
 import { AliasesBlock, BindCell, CoverageBlock } from '@/components/cost-tools'
 import { Badge, fmtDateTime, fmtDay, rub } from '@/components/reports'
@@ -550,30 +551,25 @@ export default function CostsPage() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex gap-2 border-b border-line">
-          {[
-            { value: false, label: 'Все' },
-            { value: true, label: `Без себестоимости${page ? ` (${page.missing_count})` : ''}` },
-          ].map((t) => (
-            <button
-              key={String(t.value)}
-              onClick={() => setMissingOnly(t.value)}
-              className={`-mb-px border-b-2 px-3 py-2 text-sm ${missingOnly === t.value ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-fg'}`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <input
-          type="search"
-          placeholder="Артикул или название"
-          aria-label="Поиск"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="ml-auto w-64 rounded-lg border border-line bg-bg px-3 py-1.5 text-sm outline-none focus:border-accent"
-        />
-      </div>
+      {/* правка 11.11: поиск снаружи, «только без себестоимости» — в «Фильтрах» */}
+      <FilterBar
+        end={
+          <FilterButton count={missingOnly ? 1 : 0} onReset={() => setMissingOnly(false)}>
+            <FilterField label="Показать только">
+              <CheckOption
+                checked={missingOnly}
+                onChange={setMissingOnly}
+                label={`Без себестоимости${page ? ` — ${page.missing_count}` : ''}`}
+                hint="Артикулы из отчётов и каталога, у которых себестоимость не задана"
+                testid="costs-missing-only"
+              />
+            </FilterField>
+          </FilterButton>
+        }
+      >
+        <SearchBox value={search} onChange={setSearch} testid="costs-search" className="w-full sm:w-72" />
+        {missingOnly && <span className="text-xs text-muted">только без себестоимости</span>}
+      </FilterBar>
 
       {!page && !error && <p className="text-sm text-muted">Загрузка…</p>}
       {page && page.items.length === 0 && (
