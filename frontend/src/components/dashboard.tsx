@@ -62,7 +62,7 @@ export function FigureLink({
   href: string
   label: string
   value: string
-  tone?: 'ok' | 'bad'
+  tone?: 'ok' | 'bad' | 'warn'
   children?: React.ReactNode
   testid: string
   highlight?: string
@@ -86,10 +86,10 @@ export function FigureLink({
 /** Рамка карточки показателя (дизайн-система 10.27a — как `Stat` в components/ui.tsx). */
 export const STAT_BOX = 'block h-full rounded-xl border border-line bg-card p-4 shadow-card'
 
-/** Цифра показателя: крупно, ровными цифрами; прибыль — зелёным, убыток — красным. */
-export function StatValue({ value, tone }: { value: string; tone?: 'ok' | 'bad' }) {
+/** Цифра показателя: крупно, ровными цифрами; прибыль — зелёным, убыток — красным, ниже порога — жёлтым. */
+export function StatValue({ value, tone }: { value: string; tone?: 'ok' | 'bad' | 'warn' }) {
   return (
-    <div className={`mt-1.5 text-xl font-semibold tracking-tight tabular-nums sm:text-2xl ${tone === 'ok' ? 'text-ok' : tone === 'bad' ? 'text-bad' : ''}`}>{value}</div>
+    <div className={`mt-1.5 text-xl font-semibold tracking-tight tabular-nums sm:text-2xl ${tone === 'ok' ? 'text-ok' : tone === 'bad' ? 'text-bad' : tone === 'warn' ? 'text-warn' : ''}`}>{value}</div>
   )
 }
 

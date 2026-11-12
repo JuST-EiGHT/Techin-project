@@ -103,3 +103,65 @@ export function MoreLink({ href, testid = 'chart-more' }: { href?: string | null
     </Link>
   )
 }
+
+
+/**
+ * Мини-график без осей и подписей (паттерн «signature chart», Dashboard Design Patterns): тренд с одного взгляда рядом
+ * с числом и стрелкой. Пропуски (null) — бледный точечный пунктир между соседними точками, как на больших графиках
+ * (решение владельца 12.11.2026: линия не рвётся; это не ноль — правило 12); zero — красная пунктирная линия нуля,
+ * если ряд уходит в минус. Точных значений не даёт — их показывает подробный график раздела.
+ */
+export function Sparkline({
+  values,
+  tone = 'accent',
+  zero = false,
+  testid,
+}: {
+  values: (number | null)[]
+  tone?: 'accent' | 'ok' | 'bad' | 'warn' | 'muted'
+  zero?: boolean
+  testid?: string
+}) {
+  const known = values.filter((v): v is number => v !== null)
+  if (known.length < 2) return null
+  let min = Math.min(...known)
+  let max = Math.max(...known)
+  if (zero) {
+    min = Math.min(min, 0)
+    max = Math.max(max, 0)
+  }
+  if (max === min) {
+    max += 1
+    min -= 1
+  }
+  const W = 100
+  const H = 24
+  const x = (i: number) => (values.length === 1 ? 0 : (i / (values.length - 1)) * W)
+  const y = (v: number) => H - 2 - ((v - min) / (max - min)) * (H - 4)
+  let d = ''
+  let gaps = '' // пунктир через пропуски: от последней известной точки до следующей
+  let open = false
+  let last = -1
+  values.forEach((v, i) => {
+    if (v === null) {
+      open = false
+      return
+    }
+    if (!open && last >= 0) gaps += `M${x(last).toFixed(2)},${y(values[last] as number).toFixed(2)} L${x(i).toFixed(2)},${y(v).toFixed(2)} `
+    d += `${open ? 'L' : 'M'}${x(i).toFixed(2)},${y(v).toFixed(2)} `
+    open = true
+    last = i
+  })
+  const color = { accent: 'text-accent', ok: 'text-ok', bad: 'text-bad', warn: 'text-warn', muted: 'text-faint' }[tone]
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className={`mt-1.5 h-6 w-full ${color}`} aria-hidden data-testid={testid}>
+      {zero && min < 0 && (
+        <line x1="0" x2={W} y1={y(0)} y2={y(0)} className="text-bad" stroke="currentColor" strokeWidth="1" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
+      )}
+      {gaps && (
+        <path d={gaps.trim()} fill="none" stroke="currentColor" strokeOpacity="0.55" strokeWidth="1.5" strokeDasharray="1.5 3" strokeLinecap="round" vectorEffect="non-scaling-stroke" data-testid="sparkline-gap" />
+      )}
+      <path d={d.trim()} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+    </svg>
+  )
+}

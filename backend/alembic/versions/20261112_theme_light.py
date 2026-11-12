@@ -4,7 +4,7 @@
 выбор «тёмная» не отличить от значения по умолчанию, а сервис ещё не открыт другим продавцам. Кто хочет тёмную —
 одно нажатие в «Основных настройках». Тема — настройка вида, не исходные данные (DATA_HISTORY не затрагивается).
 
-Revision ID: 0050_theme_light_default
+Revision ID: 20261112_theme_light
 Revises: 0049_price_extras_all
 Create Date: 2026-11-12
 """
@@ -12,7 +12,7 @@ Create Date: 2026-11-12
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0050_theme_light_default"
+revision = "20261112_theme_light"
 down_revision = "0049_price_extras_all"
 branch_labels = None
 depends_on = None
