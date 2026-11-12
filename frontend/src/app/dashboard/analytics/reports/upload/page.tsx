@@ -108,7 +108,7 @@ export default function UploadReportPage() {
           type="button"
           onClick={() => input.current?.click()}
           disabled={busy}
-          className="mt-4 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+          className="mt-4 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60"
         >
           Выбрать файл
         </button>
@@ -156,7 +156,7 @@ export default function UploadReportPage() {
               >
                 Загрузить ещё
               </button>
-              <Link href={`/dashboard/analytics/reports/${report.id}`} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90">
+              <Link href={`/dashboard/analytics/reports/${report.id}`} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90">
                 Открыть отчёт
               </Link>
             </div>

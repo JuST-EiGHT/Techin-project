@@ -462,7 +462,7 @@ export function LineDetails({ ln, accounts, planning, onDone, onClose, onEditPla
                   type="button"
                   disabled={busy || value === null}
                   onClick={() => run(() => api.post('/planning/calendar/paid', { key: ln.key, day: paidDay, amount: value, ...(planning && account ? { account_id: account } : {}) }))}
-                  className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+                  className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60"
                   data-testid="line-paid"
                 >
                   Отметить оплату
@@ -888,7 +888,7 @@ function PlanForm({ categories, accounts, data, initial, preset, onSaved, onCanc
               setKind(k)
               setCategoryText('')
             }}
-            className={`flex-1 rounded-md px-3 py-1.5 text-sm ${kind === k ? (k === 'income' ? 'bg-ok text-white' : 'bg-bad text-white') : 'text-muted hover:text-fg'}`}
+            className={`flex-1 rounded-md px-3 py-1.5 text-sm ${kind === k ? (k === 'income' ? 'bg-ok text-on-accent' : 'bg-bad text-on-accent') : 'text-muted hover:text-fg'}`}
             data-testid={`plan-kind-${k}`}
           >
             {k === 'income' ? 'Поступление' : 'Платёж'}
@@ -1015,7 +1015,7 @@ function PlanForm({ categories, accounts, data, initial, preset, onSaved, onCanc
       </div>
       <FormError message={error} />
       <div className="flex flex-wrap gap-2">
-        <button type="submit" disabled={saving} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="plan-save">
+        <button type="submit" disabled={saving} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="plan-save">
           {saving ? 'Сохраняем…' : initial ? 'Сохранить' : 'Добавить в план'}
         </button>
         {onCancel && (
@@ -1173,7 +1173,7 @@ export function CalendarTab({ accounts, categories, state, onChanged }: { accoun
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex gap-1 rounded-lg border border-line bg-card p-1" role="group" aria-label="Горизонт">
           {HORIZONS.map((h) => (
-            <button key={h} type="button" aria-pressed={horizon === h} onClick={() => setHorizon(h)} className={`rounded-md px-3 py-1 text-sm ${horizon === h ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`} data-testid={`horizon-${h}`}>
+            <button key={h} type="button" aria-pressed={horizon === h} onClick={() => setHorizon(h)} className={`rounded-md px-3 py-1 text-sm ${horizon === h ? 'bg-accent text-on-accent' : 'text-muted hover:text-fg'}`} data-testid={`horizon-${h}`}>
               {h} дн.
             </button>
           ))}
@@ -1186,7 +1186,7 @@ export function CalendarTab({ accounts, categories, state, onChanged }: { accoun
               ['month', CalendarDays, 'Месяц'],
             ] as const
           ).map(([v, Icon, label]) => (
-            <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)} className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm ${view === v ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`} data-testid={`view-${v}`}>
+            <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)} className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm ${view === v ? 'bg-accent text-on-accent' : 'text-muted hover:text-fg'}`} data-testid={`view-${v}`}>
               <Icon className="h-4 w-4" /> {label}
             </button>
           ))}

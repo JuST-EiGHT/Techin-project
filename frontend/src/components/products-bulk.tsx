@@ -299,7 +299,7 @@ function PromoDialog({ mode, ids, onClose, onDone }: { mode: 'join' | 'leave'; i
                     type="button"
                     disabled={ready.length === 0}
                     onClick={apply}
-                    className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                    className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-50"
                     data-testid="promo-apply"
                   >
                     {join ? 'Добавить' : 'Убрать'} в Ozon: {ready.length}
@@ -312,7 +312,7 @@ function PromoDialog({ mode, ids, onClose, onDone }: { mode: 'join' | 'leave'; i
                   <span className="mr-auto text-sm" data-testid="promo-done">
                     Готово: {applied} из {ready.length}. Каждое изменение записано в журнал.
                   </span>
-                  <button type="button" onClick={onDone} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90">
+                  <button type="button" onClick={onDone} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90">
                     Закрыть
                   </button>
                 </>

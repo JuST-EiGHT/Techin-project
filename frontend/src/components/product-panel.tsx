@@ -507,7 +507,7 @@ export function CostBlock({ data, onSaved }: { data: ProductDetail; onSaved: () 
           <p className="text-xs text-faint">Прежняя цена остаётся в истории: прошлые отчёты считаются по цене на их даты.</p>
           {error && <p className="text-sm text-bad">{error}</p>}
           <div className="flex gap-2">
-            <button type="submit" disabled={busy} className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="cost-save">
+            <button type="submit" disabled={busy} className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="cost-save">
               {busy ? 'Сохраняем…' : 'Сохранить'}
             </button>
             {cost && (

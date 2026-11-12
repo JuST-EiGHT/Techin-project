@@ -295,7 +295,7 @@ export default function WithdrawalPage() {
               type="button"
               onClick={save}
               disabled={data.is_saved}
-              className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+              className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60"
               data-testid="withdrawal-save"
             >
               Сохранить параметры
@@ -732,7 +732,7 @@ function Cabinet({ url, path }: { url: string; path: string }) {
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90"
+          className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:opacity-90"
           data-testid="cabinet-link"
         >
           Открыть кабинет Ozon ↗

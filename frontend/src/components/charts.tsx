@@ -82,7 +82,7 @@ export function TipBox({ href, touch, children }: { href: string | null; touch: 
               e.stopPropagation()
               go(href)
             }}
-            className="mt-2 w-full rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white"
+            className="mt-2 w-full rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-on-accent"
             data-testid="tip-more"
           >
             Подробнее →

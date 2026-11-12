@@ -19,7 +19,7 @@ export default function GlobalError({ error }: { error: Error & { digest?: strin
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="rounded-lg bg-accent px-5 py-2 font-medium text-white hover:opacity-90"
+              className="rounded-lg bg-accent px-5 py-2 font-medium text-on-accent hover:opacity-90"
             >
               Обновить страницу
             </button>

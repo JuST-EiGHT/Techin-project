@@ -185,7 +185,7 @@ export function PromoActionModal({ promotionId, promotionTitle, product, mode, o
             type="button"
             onClick={confirm}
             disabled={blocked}
-            className={`rounded-lg px-4 py-2 font-medium text-white disabled:opacity-50 ${join ? 'bg-accent' : 'bg-bad'}`}
+            className={`rounded-lg px-4 py-2 font-medium text-on-accent disabled:opacity-50 ${join ? 'bg-accent' : 'bg-bad'}`}
             data-testid="promo-confirm"
           >
             {sending ? 'Отправляем в Ozon…' : join ? (p?.action === 'update' ? 'Изменить в Ozon' : 'Добавить в акцию') : 'Убрать из акции'}

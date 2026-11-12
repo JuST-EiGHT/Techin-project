@@ -154,7 +154,7 @@ export function TelegramPanel() {
                 type="button"
                 disabled={busy}
                 onClick={sendTest}
-                className="flex items-center gap-2 rounded-lg bg-accent px-4 py-1.5 font-medium text-white hover:opacity-90 disabled:opacity-60"
+                className="flex items-center gap-2 rounded-lg bg-accent px-4 py-1.5 font-medium text-on-accent hover:opacity-90 disabled:opacity-60"
                 data-testid="tg-test"
               >
                 <Send className="h-4 w-4" aria-hidden /> Отправить тестовое сообщение
@@ -182,7 +182,7 @@ export function TelegramPanel() {
                   href={code.deep_link}
                   target="_blank"
                   rel="noreferrer"
-                  className="rounded-lg bg-accent px-4 py-1.5 font-medium text-white hover:opacity-90"
+                  className="rounded-lg bg-accent px-4 py-1.5 font-medium text-on-accent hover:opacity-90"
                   data-testid="tg-open-bot"
                 >
                   Открыть бота @{code.bot_username} →
@@ -207,7 +207,7 @@ export function TelegramPanel() {
               type="button"
               disabled={busy}
               onClick={getCode}
-              className="rounded-lg bg-accent px-4 py-1.5 font-medium text-white hover:opacity-90 disabled:opacity-60"
+              className="rounded-lg bg-accent px-4 py-1.5 font-medium text-on-accent hover:opacity-90 disabled:opacity-60"
               data-testid="tg-connect"
             >
               Подключить Telegram

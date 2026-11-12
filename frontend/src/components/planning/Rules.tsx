@@ -220,7 +220,7 @@ function RuleForm({
         </div>
       )}
       <div className="flex gap-2">
-        <button type="submit" disabled={saving} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="rule-save">
+        <button type="submit" disabled={saving} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="rule-save">
           {saving ? 'Сохраняю…' : initial ? 'Сохранить' : 'Добавить правило'}
         </button>
         {onCancel && (
@@ -303,7 +303,7 @@ function ApplyAll({ onDone }: { onDone: (text: string) => void }) {
               </ul>
             )}
             <div className="flex gap-2">
-              <button type="button" onClick={apply} disabled={busy || check.changed === 0} className="rounded-lg bg-accent px-4 py-2 font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="rules-apply">
+              <button type="button" onClick={apply} disabled={busy || check.changed === 0} className="rounded-lg bg-accent px-4 py-2 font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="rules-apply">
                 {check.changed === 0 ? 'Менять нечего' : `Применить (${check.changed})`}
               </button>
               <button type="button" onClick={() => setCheck(null)} className={button}>

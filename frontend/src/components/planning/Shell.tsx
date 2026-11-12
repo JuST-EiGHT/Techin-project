@@ -36,11 +36,11 @@ function Invite({ state, onStart, onEnable }: { state: PlanningState; onStart: (
         остатки и операции можно вести вручную.
       </p>
       {state.setup_done ? (
-        <button type="button" onClick={onEnable} className="mt-5 rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-white hover:opacity-90" data-testid="planning-enable">
+        <button type="button" onClick={onEnable} className="mt-5 rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-on-accent hover:opacity-90" data-testid="planning-enable">
           Включить снова — данные сохранены
         </button>
       ) : (
-        <button type="button" onClick={onStart} className="mt-5 rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-white hover:opacity-90" data-testid="planning-start">
+        <button type="button" onClick={onStart} className="mt-5 rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-on-accent hover:opacity-90" data-testid="planning-start">
           Начать — 4 коротких вопроса
         </button>
       )}

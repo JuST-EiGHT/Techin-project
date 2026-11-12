@@ -15,7 +15,7 @@ export default function AnalyticsReportsPage() {
           <AnalyticsTabs />
           <div className="flex flex-wrap items-center gap-4">
             <h1 className="text-2xl font-semibold">Отчёты Ozon</h1>
-            <Link href="/dashboard/analytics/reports/upload" className="ml-auto rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90">
+            <Link href="/dashboard/analytics/reports/upload" className="ml-auto rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90">
               Загрузить отчёт
             </Link>
           </div>

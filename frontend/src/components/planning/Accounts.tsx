@@ -66,7 +66,7 @@ function AccountEditor({ account, onDone }: { account?: Account; onDone: () => v
       </p>
       <FormError message={error} />
       <div className="flex gap-2">
-        <button type="submit" className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90" data-testid="acc-save">
+        <button type="submit" className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90" data-testid="acc-save">
           Сохранить
         </button>
         <button type="button" onClick={onDone} className="rounded-lg border border-line px-4 py-2 text-sm text-muted hover:text-fg">

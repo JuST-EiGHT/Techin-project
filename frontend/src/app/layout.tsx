@@ -1,3 +1,5 @@
+// шрифт Inter с кириллицей — из npm, без запросов к Google (дизайн-система 10.27a)
+import '@fontsource-variable/inter'
 import './globals.css'
 
 import SentryInit from '@/components/SentryInit'

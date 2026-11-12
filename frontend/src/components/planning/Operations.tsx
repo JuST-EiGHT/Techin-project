@@ -167,7 +167,7 @@ function OperationForm({
                 setCategoryId('')
                 setNotice(null)
               }}
-              className={`flex-1 rounded-md px-3 py-1.5 text-sm ${type === t.value ? (t.value === 'income' ? 'bg-ok text-white' : t.value === 'expense' ? 'bg-bad text-white' : 'bg-accent text-white') : 'text-muted hover:text-fg'}`}
+              className={`flex-1 rounded-md px-3 py-1.5 text-sm ${type === t.value ? (t.value === 'income' ? 'bg-ok text-on-accent' : t.value === 'expense' ? 'bg-bad text-on-accent' : 'bg-accent text-on-accent') : 'text-muted hover:text-fg'}`}
               data-testid={`op-type-${t.value}`}
             >
               {t.label}
@@ -269,7 +269,7 @@ function OperationForm({
         </p>
       )}
       <div className="flex flex-wrap gap-2">
-        <button type="submit" disabled={saving || active.length === 0} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="op-save">
+        <button type="submit" disabled={saving || active.length === 0} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="op-save">
           {saving ? 'Сохраняем…' : initial ? 'Сохранить' : 'Добавить'}
         </button>
         {onCancel && (
@@ -329,7 +329,7 @@ function OperationCard({ op, onEdit, onHistory, onDelete }: { op: Operation; onE
         {op.before_opening && row('Остаток', 'операция раньше начального остатка счёта — в остаток не входит')}
       </dl>
       <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={onEdit} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90" data-testid="op-card-edit">
+        <button type="button" onClick={onEdit} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90" data-testid="op-card-edit">
           Исправить
         </button>
         {op.version > 1 && (
@@ -502,7 +502,7 @@ export function ImportPanel({
             </ul>
           )}
           <div className="flex flex-wrap gap-2">
-            <button type="button" disabled={busy || toApply === 0 || !file} onClick={() => file && send(file, true)} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="import-apply">
+            <button type="button" disabled={busy || toApply === 0 || !file} onClick={() => file && send(file, true)} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="import-apply">
               Применить ({toApply})
             </button>
             {preview.counts.error > 0 && (
@@ -559,7 +559,7 @@ function SuggestionBanner({ suggestion, onDone, onClose }: { suggestion: RuleSug
       </p>
       <FormError message={error} />
       <div className="mt-2 flex gap-2">
-        <button type="button" onClick={create} disabled={busy} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="rule-suggestion-create">
+        <button type="button" onClick={create} disabled={busy} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="rule-suggestion-create">
           {busy ? 'Создаю…' : 'Создать правило'}
         </button>
         <button type="button" onClick={onClose} className="rounded-lg border border-line px-3 py-1.5 text-sm hover:border-muted">
@@ -654,7 +654,7 @@ function BulkBar({ ops, accounts, categories, onClear, onDone }: { ops: Operatio
       {(field === 'counterparty' || field === 'comment') && (
         <input value={value} onChange={(e) => setValue(e.target.value)} placeholder={field === 'comment' ? 'Описание — пусто: убрать' : 'Контрагент — пусто: убрать'} aria-label="Новое значение" className={control} data-testid="ops-bulk-text" />
       )}
-      <button type="button" onClick={apply} disabled={busy} className="rounded-lg bg-accent px-3 py-1.5 font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="ops-bulk-apply">
+      <button type="button" onClick={apply} disabled={busy} className="rounded-lg bg-accent px-3 py-1.5 font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="ops-bulk-apply">
         {busy ? 'Меняю…' : 'Изменить у выбранных'}
       </button>
       {!kind && <span className="basis-full text-xs text-warn sm:basis-auto">Выбраны и поступления, и платежи — статью ставьте отдельно</span>}
@@ -723,7 +723,7 @@ function QuickAdd({ accounts, categories, onSaved, onCategoryCreated, onMore }: 
                 setType(t)
                 setCategoryId('')
               }}
-              className={`rounded-md px-3 py-1 text-sm ${type === t ? (t === 'income' ? 'bg-ok text-white' : 'bg-bad text-white') : 'text-muted hover:text-fg'}`}
+              className={`rounded-md px-3 py-1 text-sm ${type === t ? (t === 'income' ? 'bg-ok text-on-accent' : 'bg-bad text-on-accent') : 'text-muted hover:text-fg'}`}
               data-testid={`quick-type-${t}`}
             >
               {t === 'income' ? 'Приход' : 'Расход'}
@@ -757,7 +757,7 @@ function QuickAdd({ accounts, categories, onSaved, onCategoryCreated, onMore }: 
           <span className="text-muted">Дата</span>
           <input type="date" value={day} onChange={(e) => setDay(e.target.value)} required className={`${input} mt-1`} data-testid="quick-day" />
         </label>
-        <button type="submit" disabled={saving || active.length === 0} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="quick-save">
+        <button type="submit" disabled={saving || active.length === 0} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="quick-save">
           {saving ? 'Сохраняем…' : day > today ? 'Запланировать' : 'Добавить'}
         </button>
       </div>
@@ -843,7 +843,7 @@ function PlanCard({ row, onPaid }: { row: JournalRow; onPaid: () => void }) {
       </dl>
       <div className="flex flex-wrap gap-2">
         {row.source !== 'ozon_forecast' ? (
-          <button type="button" onClick={onPaid} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90" data-testid="plan-card-paid">
+          <button type="button" onClick={onPaid} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90" data-testid="plan-card-paid">
             Оплачено
           </button>
         ) : (
@@ -910,7 +910,7 @@ function PaidForm({ row, accounts, onDone, onCancel }: { row: JournalRow; accoun
       </div>
       <FormError message={error} />
       <div className="flex gap-2">
-        <button type="submit" disabled={busy} className="rounded-lg bg-accent px-4 py-2 font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="paid-save">
+        <button type="submit" disabled={busy} className="rounded-lg bg-accent px-4 py-2 font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="paid-save">
           {busy ? 'Сохраняем…' : 'Оплачено'}
         </button>
         <button type="button" onClick={onCancel} className="rounded-lg border border-line px-4 py-2 text-muted hover:text-fg">

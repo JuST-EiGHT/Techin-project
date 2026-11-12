@@ -420,7 +420,7 @@ function OzonCreate({ plan, onDone }: { plan: PlanDetail; onDone: () => void }) 
             заявка создаётся только после вашего подтверждения.
           </p>
         </div>
-        <button type="button" onClick={check} disabled={busy} className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="ozon-check">
+        <button type="button" onClick={check} disabled={busy} className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="ozon-check">
           {draft ? 'Проверить заново' : 'Проверить в Ozon'}
         </button>
       </div>
@@ -517,7 +517,7 @@ function OzonCreate({ plan, onDone }: { plan: PlanDetail; onDone: () => void }) 
                       до {time(slot.to)}; грузоместа и пропуск водителя оформлю в кабинете.
                     </span>
                   </label>
-                  <button type="button" onClick={create} disabled={!confirm || busy} className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="ozon-submit">
+                  <button type="button" onClick={create} disabled={!confirm || busy} className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="ozon-submit">
                     Создать заявку в Ozon
                   </button>
                 </div>

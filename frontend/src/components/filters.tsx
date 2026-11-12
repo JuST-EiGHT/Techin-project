@@ -190,7 +190,7 @@ export function DateRangePicker({
                             aria-label={`${Number(day.slice(8))} ${MONTHS_GEN[mo.m]} ${mo.y}`}
                             aria-pressed={edge}
                             className={`h-8 w-9 text-sm tabular-nums disabled:cursor-not-allowed disabled:text-faint/50 ${
-                              edge ? 'rounded-lg bg-accent font-medium text-white' : inside ? 'bg-accent/15 text-fg' : 'rounded-lg hover:bg-line/60'
+                              edge ? 'rounded-lg bg-accent font-medium text-on-accent' : inside ? 'bg-accent/15 text-fg' : 'rounded-lg hover:bg-line/60'
                             }`}
                             data-day={day}
                           >
@@ -276,7 +276,7 @@ export function FilterButton({
         <SlidersHorizontal className="h-4 w-4" aria-hidden />
         {label}
         {count > 0 && (
-          <span className="rounded-full bg-accent px-1.5 text-xs font-medium leading-5 text-white" data-testid={`${testid}-count`}>
+          <span className="rounded-full bg-accent px-1.5 text-xs font-medium leading-5 text-on-accent" data-testid={`${testid}-count`}>
             {count}
           </span>
         )}
@@ -309,7 +309,7 @@ export function FilterButton({
             ) : (
               <span />
             )}
-            <button type="button" onClick={close} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-90" data-testid={`${testid}-done`}>
+            <button type="button" onClick={close} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90" data-testid={`${testid}-done`}>
               Готово
             </button>
           </div>

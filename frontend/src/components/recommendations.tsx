@@ -106,7 +106,7 @@ export function Recommendations({ productId, limit = 5 }: { productId?: string; 
                   <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
                     <Link
                       href={r.link}
-                      className="rounded-lg bg-accent px-3 py-1 font-medium text-white hover:opacity-90"
+                      className="rounded-lg bg-accent px-3 py-1 font-medium text-on-accent hover:opacity-90"
                       data-testid="rec-action"
                     >
                       {r.action} →

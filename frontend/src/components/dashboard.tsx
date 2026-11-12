@@ -4,6 +4,7 @@ import Link from 'next/link'
 
 import { type Coverage, type DataSource } from '@/components/finance'
 import type { ForecastItem, WeekBar } from '@/components/payouts'
+import { Delta } from '@/components/ui'
 
 export type Figure = { value: string | null; previous: string | null; change_pct: string | null }
 
@@ -31,8 +32,6 @@ export type OzonDashboard = {
   payouts: { has_data: boolean; balance: string | null; last_day: string | null; next_payout: ForecastItem | null; upcoming: ForecastItem[]; schedule_title: string; weeks: WeekBar[] }
 }
 
-const num = (v: string) => Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 1 })
-
 /** «▲ 12,5 %» — рост выручки и прибыли хорош (зелёный), падение — красный. */
 export function Change({ pct, against, unit = '%', upIsBad = false }: {
   pct: string | null
@@ -42,12 +41,10 @@ export function Change({ pct, against, unit = '%', upIsBad = false }: {
   upIsBad?: boolean
 }) {
   if (pct === null) return null
-  const v = Number(pct)
-  const good = upIsBad ? v < 0 : v > 0
-  const tone = v === 0 ? 'text-muted' : good ? 'text-ok' : 'text-bad'
   return (
-    <span className={`text-xs font-medium ${tone}`} data-testid="change">
-      {v > 0 ? '▲' : v < 0 ? '▼' : '='} {num(String(Math.abs(v)))} {unit} <span className="font-normal text-faint">{against}</span>
+    <span className="inline-flex flex-wrap items-center gap-x-1.5 text-xs" data-testid="change">
+      <Delta pct={pct} unit={unit} upIsBad={upIsBad} testid="change-delta" />
+      <span className="text-faint">{against}</span>
     </span>
   )
 }

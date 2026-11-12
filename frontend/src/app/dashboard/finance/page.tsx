@@ -137,7 +137,7 @@ function Empty() {
         загрузятся сами. Это пропуск, а не ноль.
       </p>
       <div className="flex flex-wrap gap-3">
-        <Link href="/dashboard/finance/documents" className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90">
+        <Link href="/dashboard/finance/documents" className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90">
           Загрузить отчёт
         </Link>
         <Link href="/dashboard/settings/integrations" className="rounded-lg border border-line px-4 py-2 text-sm hover:border-accent hover:text-accent">

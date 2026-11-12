@@ -218,7 +218,7 @@ export function StockTablePanel({
                 type="button"
                 aria-pressed={group === g.value}
                 onClick={() => onUrl({ group: g.value === 'product' ? '' : g.value })}
-                className={`flex-1 whitespace-nowrap px-2.5 py-1.5 sm:flex-none sm:px-3 ${group === g.value ? 'bg-accent text-white' : 'hover:bg-bg'}`}
+                className={`flex-1 whitespace-nowrap px-2.5 py-1.5 sm:flex-none sm:px-3 ${group === g.value ? 'bg-accent text-on-accent' : 'hover:bg-bg'}`}
                 data-testid={`group-${g.value}`}
               >
                 {g.label}

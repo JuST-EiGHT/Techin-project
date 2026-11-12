@@ -106,20 +106,8 @@ export function periodLabel(r: { period: string; period_start: string | null; pe
   return r.period || 'Период не указан'
 }
 
-export function Badge({ tone, children, title }: { tone: 'warn' | 'muted' | 'bad' | 'accent' | 'ok'; children: React.ReactNode; title?: string }) {
-  const cls = {
-    ok: 'bg-ok/15 text-ok',
-    warn: 'bg-warn/15 text-warn',
-    muted: 'bg-line text-muted',
-    bad: 'bg-bad/15 text-bad',
-    accent: 'bg-accent/15 text-accent',
-  }[tone]
-  return (
-    <span title={title} className={`whitespace-nowrap rounded px-2 py-0.5 text-xs ${cls}`}>
-      {children}
-    </span>
-  )
-}
+// плашка — общий элемент дизайн-системы (10.27a); здесь — для старых импортов
+export { Badge } from '@/components/ui'
 
 export const pctText = (v: string | null) => (v === null ? '—' : `${Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} %`)
 
@@ -560,7 +548,7 @@ export function ConflictDialog({ detail, conflicts, onCancel, onKeep, onReplace 
           <button onClick={onKeep} className="rounded-lg border border-line px-4 py-2 text-sm hover:border-accent hover:text-accent">
             Оставить оба
           </button>
-          <button onClick={onReplace} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90" data-testid="conflict-replace">
+          <button onClick={onReplace} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90" data-testid="conflict-replace">
             Заменить
           </button>
         </div>

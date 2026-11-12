@@ -304,7 +304,7 @@ export function SyncButton() {
                   onClick={() => refresh()}
                   disabled={busy || !anyToRefresh}
                   title={anyToRefresh ? 'Загрузить всё, что не загружается сейчас и не обновлялось только что' : 'Всё уже загружается или только что обновлено'}
-                  className="flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 font-medium text-white hover:opacity-90 disabled:opacity-50"
+                  className="flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 font-medium text-on-accent hover:opacity-90 disabled:opacity-50"
                   data-testid="sync-all"
                 >
                   <RefreshCw className={`h-4 w-4 ${busy ? 'animate-spin' : ''}`} aria-hidden />

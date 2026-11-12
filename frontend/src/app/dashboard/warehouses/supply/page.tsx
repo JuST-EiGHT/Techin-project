@@ -399,7 +399,7 @@ function Recommendations({ onPlans, view, show, onView, onShow }: {
               type="button"
               onClick={save}
               disabled={data.is_saved}
-              className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+              className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60"
               data-testid="supply-save"
             >
               Сохранить параметры
@@ -475,7 +475,7 @@ function PlanBar({ picked, onCreate, onClear }: { picked: Picked; onCreate: (day
               await onCreate(day)
               setBusy(false)
             }}
-            className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+            className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60"
             data-testid="plan-create"
           >
             Создать план
@@ -971,7 +971,7 @@ function Grouped({ data, view, show, onView, onShow, lead, picked, onToggle, onQ
                 type="button"
                 onClick={() => onView(v)}
                 aria-pressed={view === v}
-                className={`rounded-md px-3 py-1 text-sm ${view === v ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`}
+                className={`rounded-md px-3 py-1 text-sm ${view === v ? 'bg-accent text-on-accent' : 'text-muted hover:text-fg'}`}
                 data-testid={`supply-view-${v}`}
               >
                 {v === 'clusters' ? 'По кластерам' : 'По товарам'}

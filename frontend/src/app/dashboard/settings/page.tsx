@@ -167,7 +167,7 @@ function NumberForm({ fields, testid, saved, extra }: { fields: NumberField[]; t
         <button
           type="submit"
           disabled={!settings}
-          className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+          className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60"
           data-testid={`${testid}-save`}
         >
           Сохранить
@@ -446,7 +446,7 @@ function StockSection() {
           <button
             type="submit"
             disabled={!settings}
-            className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+            className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60"
             data-testid="settings-stock-save"
           >
             Сохранить
@@ -718,7 +718,7 @@ function AbcSection() {
           <button
             type="submit"
             disabled={!settings}
-            className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+            className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60"
             data-testid="settings-abc-save"
           >
             Сохранить
@@ -848,7 +848,7 @@ function PlanningSection() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <button type="submit" className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90" data-testid="planning-params-save">
+              <button type="submit" className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:opacity-90" data-testid="planning-params-save">
                 Сохранить
               </button>
               {done && <span className="text-sm text-ok">Сохранено — прогноз пересчитан</span>}

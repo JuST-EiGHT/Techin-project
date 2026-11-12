@@ -575,7 +575,7 @@ export default function TaxesPage() {
                   type="button"
                   onClick={() => save()}
                   disabled={busy || !preview}
-                  className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+                  className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60"
                 >
                   {busy ? 'Сохраняем…' : 'Сохранить'}
                 </button>
@@ -602,7 +602,7 @@ export default function TaxesPage() {
                     ))}
                   </ul>
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" disabled={busy} onClick={() => save('recalc')} className="rounded-lg bg-accent px-4 py-2 font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="past-recalc">
+                    <button type="button" disabled={busy} onClick={() => save('recalc')} className="rounded-lg bg-accent px-4 py-2 font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="past-recalc">
                       Да, пересчитать
                     </button>
                     <button type="button" disabled={busy} onClick={() => save('keep')} className="rounded-lg border border-line px-4 py-2 hover:border-accent hover:text-accent disabled:opacity-60" data-testid="past-keep">

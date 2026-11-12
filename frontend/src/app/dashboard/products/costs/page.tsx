@@ -167,7 +167,7 @@ function EditRow({ row, onSaved, onCancel }: { row: CostRow; onSaved: (row: Cost
         {error && <div className="mt-1 text-xs text-bad">{error}</div>}
       </td>
       <td className="whitespace-nowrap px-4 py-2 text-right">
-        <button onClick={save} disabled={busy} className="rounded-lg bg-accent px-3 py-1 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60">
+        <button onClick={save} disabled={busy} className="rounded-lg bg-accent px-3 py-1 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60">
           {busy ? '…' : 'Сохранить'}
         </button>
         <button onClick={onCancel} className="ml-2 text-sm text-muted hover:text-fg">
@@ -249,7 +249,7 @@ function ImportPanel({ allCount, missingCount, onDone, onAliases }: { allCount: 
                 type="button"
                 aria-pressed={format === f}
                 onClick={() => setFormat(f)}
-                className={`rounded-md px-3 py-1 ${format === f ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`}
+                className={`rounded-md px-3 py-1 ${format === f ? 'bg-accent text-on-accent' : 'text-muted hover:text-fg'}`}
               >
                 {f === 'xlsx' ? 'Excel' : 'CSV'}
               </button>
@@ -282,7 +282,7 @@ function ImportPanel({ allCount, missingCount, onDone, onAliases }: { allCount: 
           <p className="text-xs text-faint">Пустые строки пропустим, такие же цены оставим как есть. «Действует с» пусто — с сегодня.</p>
         </Step>
         <Step n={3} title="Загрузите файл">
-          <button onClick={() => input.current?.click()} disabled={busy} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60">
+          <button onClick={() => input.current?.click()} disabled={busy} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60">
             {file ? 'Выбрать другой файл' : 'Выбрать файл'}
           </button>
           {file && <p className="truncate text-sm text-muted">{file.name}</p>}
@@ -383,7 +383,7 @@ function ImportPanel({ allCount, missingCount, onDone, onAliases }: { allCount: 
             <button
               onClick={() => file && send(file, true)}
               disabled={busy || toApply === 0}
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60"
             >
               {busy ? 'Применяем…' : `Применить (${toApply})`}
             </button>
@@ -484,7 +484,7 @@ export default function CostsPage() {
           <p className="text-sm text-muted">Цена закупки за единицу без НДС. Новая цена — новая запись в истории: прошлые отчёты не меняются.</p>
         </div>
         {tab === 'list' && (
-          <button onClick={() => setTab('import')} className="ml-auto flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90">
+          <button onClick={() => setTab('import')} className="ml-auto flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90">
             <Upload className="h-4 w-4" />
             Загрузить из файла
           </button>

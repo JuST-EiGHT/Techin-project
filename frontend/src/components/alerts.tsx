@@ -131,7 +131,7 @@ export function AlertBell() {
         <Bell className="h-5 w-5" aria-hidden />
         {unread > 0 && (
           <span
-            className={`absolute -right-1.5 -top-1.5 min-w-[1.25rem] rounded-full px-1 text-center text-[11px] font-semibold leading-5 text-white ${tone}`}
+            className={`absolute -right-1.5 -top-1.5 min-w-[1.25rem] rounded-full px-1 text-center text-[11px] font-semibold leading-5 text-on-accent ${tone}`}
             data-testid="alert-count"
           >
             {unread > 99 ? '99+' : unread}
