@@ -1,11 +1,12 @@
 'use client'
 // Уведомления об аномалиях (шаг 7.2): колокольчик в шапке, карточка аномалии; «Требует внимания» на главной (шаг 10.5).
-import { Bell, Check } from 'lucide-react'
+import { Bell, Check, CheckCircle2 } from 'lucide-react'
 import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
 import { isSyncLink, openSyncPanel } from '@/components/sync'
+import { Badge, IconBox } from '@/components/ui'
 import { useDismiss } from '@/hooks/useDismiss'
 import { api, errorMessage } from '@/lib/api'
 import {
@@ -294,15 +295,14 @@ export function AttentionWidget({ area }: { area?: 'finance' } = {}) {
   const more = data.total - data.items.length
   const c = data.counts
   return (
-    <section className="rounded-xl border border-line bg-card" data-testid={area ? `attention-${area}` : 'attention'}>
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line px-4 py-3">
-        <h2 className="font-semibold">{area ? 'Финансовые проблемы' : 'Требует внимания'}</h2>
-        {area && data.total > 0 && <span className="text-sm text-muted">{data.total}</span>}
+    <section className="flex flex-col rounded-xl border border-line bg-card shadow-card" data-testid={area ? `attention-${area}` : 'attention'}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-line px-5 py-4">
+        <h2 className="text-base font-semibold">{area ? 'Финансовые проблемы' : 'Требует внимания'}</h2>
+        {area && data.total > 0 && <Badge tone="muted">{data.total}</Badge>}
         {!area && c.unread > 0 && (
-          <span className="text-sm" data-testid="attention-counts">
-            {c.red > 0 && <span className="text-bad">красных {c.red}</span>}
-            {c.red > 0 && c.yellow > 0 && <span className="text-faint"> · </span>}
-            {c.yellow > 0 && <span className="text-warn">жёлтых {c.yellow}</span>}
+          <span className="flex gap-1.5" data-testid="attention-counts">
+            {c.red > 0 && <Badge tone="bad">красных {c.red}</Badge>}
+            {c.yellow > 0 && <Badge tone="warn">жёлтых {c.yellow}</Badge>}
           </span>
         )}
         <Link href={ALERTS} className="ml-auto text-sm text-accent hover:underline" data-testid="attention-all">
@@ -310,12 +310,15 @@ export function AttentionWidget({ area }: { area?: 'finance' } = {}) {
         </Link>
       </div>
       {data.items.length === 0 ? (
-        <p className="px-4 py-3 text-sm text-muted" data-testid="attention-empty">
+        <p className="flex items-start gap-3 px-5 py-4 text-sm text-muted" data-testid="attention-empty">
+          <span className="mt-px"><IconBox icon={CheckCircle2} tone="ok" /></span>
+          <span>
           {area
             ? 'Финансовых проблем нет: выплаты Ozon, деньги на счетах и данные для P&L — без проблем, которых вы ещё не видели.'
             : 'Всё в порядке: продажи, цены, остатки, деньги и данные — без проблем, которых вы ещё не видели.'}
           {!area && c.active > 0 && ` Отмеченных «Ок», но ещё не прошедших: ${c.active}.`}
           {data.checked_at ? ` Проверено ${whenText(data.checked_at)}.` : ' Сервис проверяет данные раз в час.'}
+          </span>
         </p>
       ) : (
         <ul className="divide-y divide-line">
@@ -325,7 +328,7 @@ export function AttentionWidget({ area }: { area?: 'finance' } = {}) {
         </ul>
       )}
       {more > 0 && (
-        <Link href={ALERTS} className="block border-t border-line px-4 py-2.5 text-sm text-accent hover:underline" data-testid="attention-more">
+        <Link href={ALERTS} className="mt-auto block border-t border-line px-5 py-3 text-sm text-accent hover:underline" data-testid="attention-more">
           И ещё {more} — все в «Уведомлениях» →
         </Link>
       )}
@@ -336,17 +339,18 @@ export function AttentionWidget({ area }: { area?: 'finance' } = {}) {
 function AttentionItem({ anomaly: a, onDone }: { anomaly: Anomaly; onDone: (a: Anomaly) => void }) {
   const sev = SEVERITY[a.severity]
   return (
-    <li className="flex gap-3 px-4 py-3" data-testid="attention-item" data-severity={a.severity} data-type={a.type}>
-      {/* полоска важности — отдельным элементом: рамку слева перекрасил бы разделитель списка (divide-line) */}
-      <span className={`w-1 shrink-0 rounded-full ${sev.dot}`} aria-hidden />
+    <li className="flex gap-3 px-5 py-3.5" data-testid="attention-item" data-severity={a.severity} data-type={a.type}>
+      {/* дизайн-система 10.27a: важность — плашкой, а не цветной полосой слева */}
       <div className="flex min-w-0 flex-1 items-start gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline gap-x-2 text-xs text-muted">
-            <span className={`font-medium ${sev.text}`}>{a.severity === 'red' ? 'Красная' : 'Жёлтая'}</span>
-            <span>· {a.type_title}</span>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+            <Badge tone={a.severity === 'red' ? 'bad' : 'warn'} dot>
+              {a.severity === 'red' ? 'Красная' : 'Жёлтая'}
+            </Badge>
+            <span>{a.type_title}</span>
             {a.product && <span className="truncate">· {a.product.offer_id}</span>}
           </div>
-          <p className="mt-0.5 font-medium">{a.title}</p>
+          <p className="mt-1.5 font-medium">{a.title}</p>
           <p className="mt-0.5 line-clamp-2 text-sm text-muted">{a.message}</p>
           <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
             {a.money_at_risk !== null && (

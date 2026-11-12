@@ -12,7 +12,7 @@ export const metadata = { title: 'Ozon Analytics' }
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     // data-theme ставит скрипт до отрисовки — поэтому атрибут на сервере и в браузере расходится
-    <html lang="ru" data-theme="dark" suppressHydrationWarning>
+    <html lang="ru" data-theme="light" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>

@@ -88,7 +88,7 @@ export function ProfitFigures({ s, costLabel }: { s: ProfitStructure; costLabel:
   const store = s.scope === 'store'
   const pnl = `/dashboard/finance/pnl?${range(s.date_from, s.date_to)}`
   return (
-    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line lg:grid-cols-4" data-testid="profit-figures">
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="profit-figures">
       <Card href={`/dashboard/analytics/sales?${range(s.date_from, s.date_to)}`} label="Выручка" value={formatMetric(s.revenue, 'rub')} testid="figure-revenue">
         <Change pct={change(s.revenue, p?.revenue)} against={against} />
         <Hint>{s.revenue === null ? 'нет данных за период' : (was(p?.revenue, 'rub') ?? 'строки «Выручка» Ozon')}</Hint>

@@ -10,7 +10,7 @@ import { reportError } from '@/lib/sentry'
 export default function GlobalError({ error }: { error: Error & { digest?: string } }) {
   useEffect(() => reportError(error), [error])
   return (
-    <html lang="ru" data-theme="dark">
+    <html lang="ru" data-theme="light">
       <body>
         <main className="min-h-screen flex items-center justify-center px-4">
           <div className="max-w-md rounded-xl border border-line bg-card p-6 text-center">

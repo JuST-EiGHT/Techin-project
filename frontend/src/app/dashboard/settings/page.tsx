@@ -16,8 +16,8 @@ import { CLUSTER_WAREHOUSE_WHY, LEAD_WHY, MIN_QTY_WHY, SAFETY_WHY, TARGET_WHY } 
 import type { ThemePreference } from '@/lib/theme'
 
 const THEMES: { value: ThemePreference; label: string; hint: string; Icon: React.ComponentType<{ className?: string }> }[] = [
-  { value: 'dark', label: 'Тёмная', hint: 'по умолчанию', Icon: Moon },
-  { value: 'light', label: 'Светлая', hint: 'для яркого света', Icon: Sun },
+  { value: 'light', label: 'Светлая', hint: 'по умолчанию', Icon: Sun },
+  { value: 'dark', label: 'Тёмная', hint: 'для работы вечером', Icon: Moon },
   { value: 'system', label: 'Как в системе', hint: 'следует настройке устройства', Icon: Monitor },
 ]
 

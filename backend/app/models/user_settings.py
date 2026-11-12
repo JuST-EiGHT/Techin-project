@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
 THEMES = ("dark", "light", "system")
-DEFAULT_THEME = "dark"
+DEFAULT_THEME = "light"  # решение владельца 12.11.2026 (было "dark")
 # «Откуда товар» (шаги 3.3, 3.8): upfront — закупаю и плачу при закупке, after_sale — поставщик получает деньги после
 # продажи, deferred — закупка с отсрочкой N дней, own_production — своё производство, mixed — по-разному
 SUPPLIER_PAYMENTS = ("upfront", "after_sale", "deferred", "own_production", "mixed")

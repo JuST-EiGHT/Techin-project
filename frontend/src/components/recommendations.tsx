@@ -2,10 +2,12 @@
 // «Рекомендуемые действия» (шаг 10.6): что сделать, почему — условие и цифры, на каком расчёте основано, сколько на кону,
 // «Скрыть» на N дней (настройка). «Сделано» не отмечается: условие ушло — рекомендация исчезает сама. На главной — после
 // основных блоков; по одному товару (productId) — «Статистика товара» (10.14).
+import { Calculator, Lightbulb, PackageX, Percent, TrendingDown, Truck } from 'lucide-react'
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { Badge, IconBox, buttonClass } from '@/components/ui'
 import { api, errorMessage } from '@/lib/api'
 
 export type Recommendation = {
@@ -29,6 +31,15 @@ export type RecommendationsPage = {
   min_days: number
   enough_data: boolean
   hide_days: number
+}
+
+/** Значок по виду совета: акция, цена, поставка, себестоимость, вывоз. */
+const KIND_ICON: Record<Recommendation['kind'], React.ComponentType<{ className?: string }>> = {
+  promo_loss: Percent,
+  price_below_min: TrendingDown,
+  supply: Truck,
+  missing_cost: Calculator,
+  withdraw: PackageX,
 }
 
 const rubles = (v: string) => `${Math.round(Number(v)).toLocaleString('ru-RU')} ₽`
@@ -69,10 +80,10 @@ export function Recommendations({ productId, limit = 5 }: { productId?: string; 
   if (!data) return error ? <FormError message={error} /> : null
   const shown = all ? data.items : data.items.slice(0, limit)
   return (
-    <section className="rounded-xl border border-line bg-card" data-testid="recommendations">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line px-4 py-3">
-        <h2 className="font-semibold">Рекомендуемые действия</h2>
-        {data.total > 0 && <span className="text-sm text-muted">{data.total}</span>}
+    <section className="rounded-xl border border-line bg-card shadow-card" data-testid="recommendations">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-5 py-4">
+        <h2 className="text-base font-semibold">Рекомендуемые действия</h2>
+        {data.total > 0 && <Badge tone="accent">{data.total}</Badge>}
         {data.hidden > 0 && (
           <button type="button" onClick={unhide} className="ml-auto text-sm text-accent hover:underline" data-testid="rec-unhide">
             Скрыто {data.hidden} — вернуть
@@ -81,19 +92,22 @@ export function Recommendations({ productId, limit = 5 }: { productId?: string; 
       </div>
       <FormError message={error} />
       {!data.enough_data ? (
-        <p className="px-4 py-3 text-sm text-muted" data-testid="rec-not-enough">
+        <p className="px-5 py-4 text-sm text-muted" data-testid="rec-not-enough">
           Советы появятся, когда наберётся {data.min_days} дней продаж с данными за последние 30 (сейчас — {data.data_days}). Раньше
           они были бы «примерно», а рекомендуем мы только по точным цифрам.
         </p>
       ) : data.items.length === 0 ? (
-        <p className="px-4 py-3 text-sm text-muted" data-testid="rec-empty">
+        <p className="px-5 py-4 text-sm text-muted" data-testid="rec-empty">
           Советов нет: цены не ниже минимальных, акции не в минус, поставки не горят, себестоимость заполнена, лишнего на складах нет.
         </p>
       ) : (
         <ul className="divide-y divide-line">
           {shown.map((r) => (
-            <li key={r.key} className="px-4 py-3" data-testid="rec-item" data-kind={r.kind}>
+            <li key={r.key} className="px-5 py-4" data-testid="rec-item" data-kind={r.kind}>
               <div className="flex items-start gap-3">
+                <span className="hidden sm:block">
+                  <IconBox icon={KIND_ICON[r.kind] ?? Lightbulb} />
+                </span>
                 <div className="min-w-0 flex-1">
                   <p className="font-medium">{r.title}</p>
                   {r.product?.name && <p className="truncate text-xs text-faint">{r.product.name}</p>}
@@ -103,16 +117,12 @@ export function Recommendations({ productId, limit = 5 }: { productId?: string; 
                   <p className="mt-1 text-xs text-faint" data-testid="rec-basis">
                     Расчёт: {r.basis}
                   </p>
-                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-                    <Link
-                      href={r.link}
-                      className="rounded-lg bg-accent px-3 py-1 font-medium text-on-accent hover:opacity-90"
-                      data-testid="rec-action"
-                    >
+                  <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+                    <Link href={r.link} className={buttonClass('primary', 'sm')} data-testid="rec-action">
                       {r.action} →
                     </Link>
                     {r.money !== null && (
-                      <span className="text-warn" data-testid="rec-money">
+                      <span className="rounded-full bg-warn/10 px-2 py-0.5 text-xs font-medium text-warn" data-testid="rec-money">
                         ≈ {rubles(r.money)}
                         {r.money_label ? ` — ${r.money_label}` : ''}
                       </span>
@@ -123,7 +133,7 @@ export function Recommendations({ productId, limit = 5 }: { productId?: string; 
                   type="button"
                   onClick={() => hide(r)}
                   title={`Скрыть на ${data.hide_days} дн. Если условие останется — совет вернётся.`}
-                  className="shrink-0 rounded-lg border border-line px-2 py-0.5 text-xs text-muted hover:border-accent hover:text-accent"
+                  className={`shrink-0 ${buttonClass('ghost', 'sm')}`}
                   data-testid="rec-hide"
                 >
                   Скрыть
@@ -137,7 +147,7 @@ export function Recommendations({ productId, limit = 5 }: { productId?: string; 
         <button
           type="button"
           onClick={() => setAll(true)}
-          className="block w-full border-t border-line px-4 py-2.5 text-left text-sm text-accent hover:underline"
+          className="block w-full border-t border-line px-5 py-3 text-left text-sm text-accent hover:underline"
           data-testid="rec-more"
         >
           Показать все ({data.items.length})

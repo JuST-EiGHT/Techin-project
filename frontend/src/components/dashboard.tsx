@@ -68,18 +68,28 @@ export function FigureLink({
   highlight?: string
 }) {
   return (
-    <Link href={href} className="group block bg-card hover:bg-accent/5" data-testid={testid}>
-      <div className={`h-full px-4 py-3 ${highlight ?? ''}`}>
-        <div className="flex items-center justify-between text-[11px] uppercase tracking-wider text-muted">
+    <Link href={href} className={`group ${STAT_BOX} transition-colors hover:border-accent/50`} data-testid={testid}>
+      <div className={`h-full ${highlight ?? ''}`}>
+        <div className="flex items-center justify-between gap-2 text-sm text-muted">
           <span>{label}</span>
-          <span className="text-faint opacity-0 transition group-hover:opacity-100" aria-hidden>
+          <span className="text-accent opacity-0 transition-opacity group-hover:opacity-100" aria-hidden>
             →
           </span>
         </div>
-        <div className={`mt-1 text-lg font-bold tabular-nums ${tone === 'ok' ? 'text-ok' : tone === 'bad' ? 'text-bad' : ''}`}>{value}</div>
-        <div className="mt-0.5 space-y-0.5">{children}</div>
+        <StatValue value={value} tone={tone} />
+        <div className="mt-1.5 space-y-1">{children}</div>
       </div>
     </Link>
+  )
+}
+
+/** Рамка карточки показателя (дизайн-система 10.27a — как `Stat` в components/ui.tsx). */
+export const STAT_BOX = 'block h-full rounded-xl border border-line bg-card p-4 shadow-card'
+
+/** Цифра показателя: крупно, ровными цифрами; прибыль — зелёным, убыток — красным. */
+export function StatValue({ value, tone }: { value: string; tone?: 'ok' | 'bad' }) {
+  return (
+    <div className={`mt-1.5 text-xl font-semibold tracking-tight tabular-nums sm:text-2xl ${tone === 'ok' ? 'text-ok' : tone === 'bad' ? 'text-bad' : ''}`}>{value}</div>
   )
 }
 

@@ -186,7 +186,7 @@ export function Button({ variant = 'secondary', size = 'md', className, ...rest 
 }
 
 /** Переключатель вида: «День / Неделя / Месяц», «По товарам / По складам», показатель графика. Не фильтр — на виду. */
-export function Segmented<T extends string>({ value, onChange, options, size = 'md', testid, label }: {
+export function Segmented<T extends string>({ value, onChange, options, size = 'md', testid, label, optionTestid }: {
   value: T
   onChange: (v: T) => void
   options: { value: T; label: string }[]
@@ -194,6 +194,8 @@ export function Segmented<T extends string>({ value, onChange, options, size = '
   testid?: string
   /** Для экранных читалок: что переключаем. */
   label?: string
+  /** data-testid у каждого варианта. */
+  optionTestid?: (v: T) => string
 }) {
   return (
     <div role="group" aria-label={label} className="inline-flex max-w-full overflow-x-auto rounded-lg bg-soft p-0.5" data-testid={testid}>
@@ -203,6 +205,7 @@ export function Segmented<T extends string>({ value, onChange, options, size = '
           type="button"
           aria-pressed={value === o.value}
           onClick={() => onChange(o.value)}
+          data-testid={optionTestid?.(o.value)}
           className={cx(
             'whitespace-nowrap rounded-md font-medium transition-colors',
             size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-sm',

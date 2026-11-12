@@ -155,7 +155,7 @@ function Figures({ data, pnl }: { data: FinanceOverview; pnl: string }) {
   const profit = f.profit.value === null ? null : Number(f.profit.value)
   const noPrev = data.previous.has_data ? null : 'в прошлом периоде нет данных'
   return (
-    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line lg:grid-cols-4" data-testid="finance-figures">
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="finance-figures">
       <Card href={pnl} label="Выручка" value={rub(f.revenue.value)} testid="finance-revenue">
         <Change pct={f.revenue.change_pct ?? null} against={against} />
         <Hint>{was(f.revenue, rub) ?? noPrev ?? ''}</Hint>

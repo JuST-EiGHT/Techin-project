@@ -1,13 +1,13 @@
-// Тема интерфейса. Выбор пользователя: тёмная (по умолчанию), светлая или как в системе.
+// Тема интерфейса. Выбор пользователя: светлая (по умолчанию, решение владельца 12.11.2026), тёмная или как в системе.
 export type ThemePreference = 'dark' | 'light' | 'system'
 export type Theme = 'dark' | 'light'
 
 export const THEME_STORAGE_KEY = 'theme'
-export const DEFAULT_THEME: ThemePreference = 'dark'
+export const DEFAULT_THEME: ThemePreference = 'light'
 
 export function resolveTheme(pref: ThemePreference): Theme {
   if (pref !== 'system') return pref
-  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
 export function applyTheme(pref: ThemePreference): Theme {
@@ -34,4 +34,4 @@ export function storePreference(pref: ThemePreference) {
 }
 
 /** Выполняется в <head> до отрисовки страницы — без вспышки тёмной темы у светлой. */
-export const THEME_INIT_SCRIPT = `(function(){try{var p=localStorage.getItem('${THEME_STORAGE_KEY}')||'${DEFAULT_THEME}';var t=p==='system'?(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'):(p==='light'?'light':'dark');document.documentElement.dataset.theme=t}catch(e){document.documentElement.dataset.theme='dark'}})()`
+export const THEME_INIT_SCRIPT = `(function(){try{var p=localStorage.getItem('${THEME_STORAGE_KEY}')||'${DEFAULT_THEME}';var t=p==='system'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):(p==='dark'?'dark':'light');document.documentElement.dataset.theme=t}catch(e){document.documentElement.dataset.theme='light'}})()`
