@@ -251,3 +251,5 @@ pip install -r requirements-dev.txt && pytest
   `reference/ozon_calculator.html`
 - Себестоимости 78 артикулов владельца (только для тестов) → `reference/cost_prices.csv`
 - Образцовые отчёты Ozon → `backend/tests/fixtures/`
+- Дизайн интерфейса: скиллы `impeccable` и `ui-ux-pro-max` с русской адаптацией и правилами проекта →
+  `.claude/skills/README.md`, `.claude/skills/impeccable/reference/project-ru.md`

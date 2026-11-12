@@ -12,3 +12,6 @@ node_modules/
 
 # снимок Redis от локального запуска redis-server
 dump.rdb
+
+# Движок скилла impeccable — скачивается при первом запуске, в репозиторий не кладём
+.claude/skills/impeccable/scripts/bin/
