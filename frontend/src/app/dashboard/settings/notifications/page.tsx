@@ -368,7 +368,7 @@ export default function NotificationsSettingsPage() {
           </Block>
 
           <div className="sticky bottom-0 -mx-1 flex flex-wrap items-center gap-3 bg-bg/90 px-1 py-3 backdrop-blur">
-            <button type="submit" disabled={busy} className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="prefs-save">
+            <button type="submit" disabled={busy} className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="prefs-save">
               Сохранить
             </button>
             {saved && (

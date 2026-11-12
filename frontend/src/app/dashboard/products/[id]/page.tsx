@@ -102,7 +102,7 @@ function ProductPage() {
                 <button
                   type="button"
                   onClick={() => setChanging(true)}
-                  className="ml-auto rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+                  className="ml-auto rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90"
                   data-testid="product-change-price"
                 >
                   Изменить цену

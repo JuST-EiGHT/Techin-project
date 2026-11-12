@@ -176,7 +176,7 @@ export function AccountHistoryPanel({ accountId }: { accountId: string }) {
     load()
   }, [load])
 
-  const pill = (active: boolean) => `rounded-md px-2.5 py-1 text-xs ${active ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`
+  const pill = (active: boolean) => `rounded-md px-2.5 py-1 text-xs ${active ? 'bg-accent text-on-accent' : 'text-muted hover:text-fg'}`
   return (
     <div className="mt-3 space-y-2 border-t border-line pt-3" data-testid="account-history">
       {/* правка 11.11: период одной кнопкой, что показать — в «Фильтрах» */}

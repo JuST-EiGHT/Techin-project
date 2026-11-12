@@ -105,7 +105,7 @@ export function RollbackModal({ change, onClose, onDone }: { change: PriceHistor
             type="button"
             onClick={confirm}
             disabled={!p || !p.can_apply || expired || sending}
-            className="rounded-lg bg-accent px-4 py-2 font-medium text-white disabled:opacity-50"
+            className="rounded-lg bg-accent px-4 py-2 font-medium text-on-accent disabled:opacity-50"
             data-testid="rollback-confirm"
           >
             {sending ? 'Отправляем в Ozon…' : p?.can_apply ? `Вернуть ${rub(p.price_after)}` : 'Откатить'}

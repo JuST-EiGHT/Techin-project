@@ -151,7 +151,7 @@ function FetchRealization({ onDone, onStart, initial }: {
           type="button"
           disabled={busy || !value}
           onClick={() => fetchReport('ask')}
-          className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+          className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60"
           data-testid="fetch-submit"
         >
           {busy ? 'Получаем…' : 'Получить'}
@@ -389,7 +389,7 @@ function Documents() {
             type="button"
             disabled={busy || !month}
             onClick={() => request()}
-            className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+            className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60"
             data-testid="doc-submit"
           >
             {busy ? 'Запрашиваем…' : 'Запросить'}

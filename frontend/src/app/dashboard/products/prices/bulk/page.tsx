@@ -201,7 +201,7 @@ export default function BulkPrices() {
       <ol className="flex flex-wrap gap-x-4 gap-y-1 text-sm" data-testid="bulk-steps">
         {STEPS.map((title, i) => (
           <li key={title} className={i === step ? 'font-semibold text-fg' : i < step ? 'text-muted' : 'text-faint'}>
-            <span className={`mr-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-xs ${i === step ? 'bg-accent text-white' : 'bg-line'}`}>
+            <span className={`mr-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-xs ${i === step ? 'bg-accent text-on-accent' : 'bg-line'}`}>
               {i + 1}
             </span>
             {i === 1 && way === 'file' ? 'Файл' : title}
@@ -282,7 +282,7 @@ export default function BulkPrices() {
               type="button"
               disabled={!!valueError}
               onClick={() => setStep(1)}
-              className="rounded-lg bg-accent px-4 py-2 font-medium text-white disabled:opacity-50"
+              className="rounded-lg bg-accent px-4 py-2 font-medium text-on-accent disabled:opacity-50"
               data-testid="bulk-next"
             >
               Дальше
@@ -417,7 +417,7 @@ function ProductPicker({
           type="button"
           disabled={busy || selected.size === 0 || tooMany}
           onClick={onNext}
-          className="rounded-lg bg-accent px-4 py-2 font-medium text-white disabled:opacity-50"
+          className="rounded-lg bg-accent px-4 py-2 font-medium text-on-accent disabled:opacity-50"
           data-testid="bulk-calculate"
         >
           {busy ? 'Считаем…' : `Рассчитать (${selected.size})`}
@@ -471,7 +471,7 @@ function FileStep({ file, setFile, busy, onBack, onNext }: { file: File | null; 
           type="button"
           disabled={busy || !file}
           onClick={onNext}
-          className="rounded-lg bg-accent px-4 py-2 font-medium text-white disabled:opacity-50"
+          className="rounded-lg bg-accent px-4 py-2 font-medium text-on-accent disabled:opacity-50"
           data-testid="bulk-upload"
         >
           {busy ? 'Проверяем…' : 'Загрузить и проверить'}
@@ -607,7 +607,7 @@ function PreviewStep({
             type="button"
             disabled={expired || p.counts.ok + p.counts.warn === 0}
             onClick={onNext}
-            className="rounded-lg bg-accent px-4 py-2 font-medium text-white disabled:opacity-50"
+            className="rounded-lg bg-accent px-4 py-2 font-medium text-on-accent disabled:opacity-50"
             data-testid="bulk-to-confirm"
           >
             Дальше — подтверждение
@@ -617,7 +617,7 @@ function PreviewStep({
             type="button"
             disabled={!ready}
             onClick={() => onApply({ withWarnings, confirmed, word: needWord ? word : null })}
-            className="rounded-lg bg-accent px-4 py-2 font-medium text-white disabled:opacity-50"
+            className="rounded-lg bg-accent px-4 py-2 font-medium text-on-accent disabled:opacity-50"
             data-testid="bulk-apply"
           >
             {`Применить ${count} цен`}

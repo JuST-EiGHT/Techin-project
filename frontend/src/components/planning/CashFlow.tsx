@@ -351,7 +351,7 @@ export function CashFlowTab({ accounts }: { accounts: Account[] }) {
     if (p !== 'custom') setRange(presetRange(p, today))
   }
 
-  const toggle = (active: boolean) => `rounded-md px-3 py-1 text-sm ${active ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`
+  const toggle = (active: boolean) => `rounded-md px-3 py-1 text-sm ${active ? 'bg-accent text-on-accent' : 'text-muted hover:text-fg'}`
   const group = 'flex flex-wrap gap-1 rounded-lg border border-line bg-card p-1'
   const ahead = data ? sum(data.forecast_income, data.forecast_expense) : '0'
   return (

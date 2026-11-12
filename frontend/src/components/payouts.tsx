@@ -552,7 +552,7 @@ export function ScheduleBlock({ schedule, detected, onSaved }: { schedule: Sched
               type="button"
               onClick={save}
               disabled={saving}
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60"
               data-testid="schedule-save"
             >
               {saving ? 'Сохраняем…' : 'Сохранить'}

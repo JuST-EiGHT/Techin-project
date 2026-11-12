@@ -4,6 +4,7 @@ import Link from 'next/link'
 
 import { type Coverage, type DataSource } from '@/components/finance'
 import type { ForecastItem, WeekBar } from '@/components/payouts'
+import { Delta } from '@/components/ui'
 
 export type Figure = { value: string | null; previous: string | null; change_pct: string | null }
 
@@ -31,8 +32,6 @@ export type OzonDashboard = {
   payouts: { has_data: boolean; balance: string | null; last_day: string | null; next_payout: ForecastItem | null; upcoming: ForecastItem[]; schedule_title: string; weeks: WeekBar[] }
 }
 
-const num = (v: string) => Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 1 })
-
 /** «▲ 12,5 %» — рост выручки и прибыли хорош (зелёный), падение — красный. */
 export function Change({ pct, against, unit = '%', upIsBad = false }: {
   pct: string | null
@@ -42,12 +41,10 @@ export function Change({ pct, against, unit = '%', upIsBad = false }: {
   upIsBad?: boolean
 }) {
   if (pct === null) return null
-  const v = Number(pct)
-  const good = upIsBad ? v < 0 : v > 0
-  const tone = v === 0 ? 'text-muted' : good ? 'text-ok' : 'text-bad'
   return (
-    <span className={`text-xs font-medium ${tone}`} data-testid="change">
-      {v > 0 ? '▲' : v < 0 ? '▼' : '='} {num(String(Math.abs(v)))} {unit} <span className="font-normal text-faint">{against}</span>
+    <span className="inline-flex flex-wrap items-center gap-x-1.5 text-xs" data-testid="change">
+      <Delta pct={pct} unit={unit} upIsBad={upIsBad} testid="change-delta" />
+      <span className="text-faint">{against}</span>
     </span>
   )
 }
@@ -71,18 +68,28 @@ export function FigureLink({
   highlight?: string
 }) {
   return (
-    <Link href={href} className="group block bg-card hover:bg-accent/5" data-testid={testid}>
-      <div className={`h-full px-4 py-3 ${highlight ?? ''}`}>
-        <div className="flex items-center justify-between text-[11px] uppercase tracking-wider text-muted">
+    <Link href={href} className={`group ${STAT_BOX} transition-colors hover:border-accent/50`} data-testid={testid}>
+      <div className={`h-full ${highlight ?? ''}`}>
+        <div className="flex items-center justify-between gap-2 text-sm text-muted">
           <span>{label}</span>
-          <span className="text-faint opacity-0 transition group-hover:opacity-100" aria-hidden>
+          <span className="text-accent opacity-0 transition-opacity group-hover:opacity-100" aria-hidden>
             →
           </span>
         </div>
-        <div className={`mt-1 text-lg font-bold tabular-nums ${tone === 'ok' ? 'text-ok' : tone === 'bad' ? 'text-bad' : tone === 'warn' ? 'text-warn' : ''}`}>{value}</div>
-        <div className="mt-0.5 space-y-0.5">{children}</div>
+        <StatValue value={value} tone={tone} />
+        <div className="mt-1.5 space-y-1">{children}</div>
       </div>
     </Link>
+  )
+}
+
+/** Рамка карточки показателя (дизайн-система 10.27a — как `Stat` в components/ui.tsx). */
+export const STAT_BOX = 'block h-full rounded-xl border border-line bg-card p-4 shadow-card'
+
+/** Цифра показателя: крупно, ровными цифрами; прибыль — зелёным, убыток — красным, ниже порога — жёлтым. */
+export function StatValue({ value, tone }: { value: string; tone?: 'ok' | 'bad' | 'warn' }) {
+  return (
+    <div className={`mt-1.5 text-xl font-semibold tracking-tight tabular-nums sm:text-2xl ${tone === 'ok' ? 'text-ok' : tone === 'bad' ? 'text-bad' : tone === 'warn' ? 'text-warn' : ''}`}>{value}</div>
   )
 }
 

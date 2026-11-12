@@ -1,6 +1,7 @@
 'use client'
 // Главная (шаг 10.4, docs/SITEMAP.md п. 1): ключевые показатели с прошлым периодом, один график динамики и «Деньги и
 // ближайшие события». Показатели — основа аналитики (10.3), выплаты Ozon — 3.6, прогноз денег — «Планирование» (3.9–3.10).
+import { Landmark, Wallet } from 'lucide-react'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -8,12 +9,13 @@ import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Too
 import { GranularitySwitch, MetricChart } from '@/components/analytics'
 import { FilterButton, FilterField } from '@/components/filters'
 import { type Drill, MoreLink, Sparkline, TipBox, useDrill } from '@/components/charts'
-import { Change, FigureLink, Hint, type OzonDashboard } from '@/components/dashboard'
+import { Change, FigureLink, Hint, type OzonDashboard, STAT_BOX, StatValue } from '@/components/dashboard'
 import { compact, useTokenColors } from '@/components/finance'
 import { weekdayShort } from '@/components/payouts'
 import { dayTitle, signed } from '@/components/planning/Calendar'
 import { type Overview, type PlanningState, opsHref } from '@/components/planning/types'
 import { fmtDay, rub } from '@/components/reports'
+import { Badge, IconBox, Segmented, Skeleton } from '@/components/ui'
 import { type Granularity, METRICS, type MetricKey, type MetricPoint, type Metrics, formatMetric } from '@/lib/analytics'
 import { api } from '@/lib/api'
 import { useLowMargin, useSettings } from '@/lib/settings'
@@ -47,10 +49,10 @@ export function Card({ href, label, value, testid, tone, children }: {
 }) {
   if (href) return <FigureLink href={href} label={label} value={value} tone={tone} testid={testid}>{children}</FigureLink>
   return (
-    <div className="bg-card px-4 py-3" data-testid={testid}>
-      <div className="text-[11px] uppercase tracking-wider text-muted">{label}</div>
-      <div className={`mt-1 text-lg font-bold tabular-nums ${tone === 'ok' ? 'text-ok' : tone === 'bad' ? 'text-bad' : tone === 'warn' ? 'text-warn' : ''}`}>{value}</div>
-      <div className="mt-0.5 space-y-0.5">{children}</div>
+    <div className={STAT_BOX} data-testid={testid}>
+      <div className="text-sm text-muted">{label}</div>
+      <StatValue value={value} tone={tone} />
+      <div className="mt-1.5 space-y-1">{children}</div>
     </div>
   )
 }
@@ -85,7 +87,7 @@ export function KeyFigures({ data, taxSet, costLabel, fourth = 'orders', query }
     margin === null ? undefined : margin < 0 ? 'bad' : margin < low ? 'warn' : target !== null && margin >= target ? 'ok' : undefined
   const pp = (v: number) => `${v.toLocaleString('ru-RU', { maximumFractionDigits: 1 })} п.п.`
   return (
-    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line lg:grid-cols-4" data-testid="key-figures">
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="key-figures">
       <Card href={link('revenue')} label="Выручка" value={formatMetric(t.revenue, 'rub')} testid="figure-revenue">
         {ch && <Change pct={ch.revenue} against={against} />}
         <Hint>{noData('revenue') ?? was('revenue') ?? `продано ${formatMetric(t.sold_qty, 'qty')}`}</Hint>
@@ -189,33 +191,7 @@ export function DynamicsChart({
   const base = METRIC_LINKS[metric]
   const link = base ? (from: string, to: string) => withQuery(base(from, to), query) as string : undefined
   return (
-    <div className="space-y-2" data-testid="dynamics">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-      <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Показатель на графике">
-        {choices.map((m) => (
-          <button
-            key={m.key}
-            type="button"
-            aria-pressed={metric === m.key}
-            onClick={() => setMetric(m.key)}
-            className={`rounded-lg border px-2.5 py-1 text-sm ${metric === m.key ? 'border-accent bg-accent/10 text-accent' : 'border-line text-muted hover:text-fg'}`}
-            data-testid={`chart-metric-${m.key}`}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
-        {granularity && (
-          <div className="ml-auto">
-            {/* правка 11.11: фильтры графика — за кнопкой «Фильтры» в его углу */}
-            <FilterButton count={granularity.chosen ? 1 : 0} testid="chart-filters">
-              <FilterField label="Детализация">
-                <GranularitySwitch value={granularity.value} onChange={granularity.onChange} />
-              </FilterField>
-            </FilterButton>
-          </div>
-        )}
-      </div>
+    <div data-testid="dynamics">
       <MetricChart
         data={data}
         metric={metric}
@@ -228,6 +204,27 @@ export function DynamicsChart({
         }`}
         pointHref={link ? (p: MetricPoint) => link(p.date_from, p.date_to) : undefined}
         moreHref={link ? link(data.date_from, data.date_to) : undefined}
+        toolbar={
+          choices.length > 1 && (
+            <Segmented
+              label="Показатель на графике"
+              value={metric}
+              onChange={setMetric}
+              options={choices.map((m) => ({ value: m.key, label: m.label }))}
+              optionTestid={(k) => `chart-metric-${k}`}
+            />
+          )
+        }
+        action={
+          granularity && (
+            // правка 11.11: фильтры графика — за кнопкой «Фильтры» в его углу
+            <FilterButton count={granularity.chosen ? 1 : 0} testid="chart-filters">
+              <FilterField label="Детализация">
+                <GranularitySwitch value={granularity.value} onChange={granularity.onChange} />
+              </FilterField>
+            </FilterButton>
+          )
+        }
       />
     </div>
   )
@@ -259,12 +256,12 @@ function BalanceChart({ data }: { data: Overview }) {
     return { day: s.day, label: short(s.day), kind: s.kind, balance: s.balance, fact: s.day <= data.today ? b : null, plan: s.day >= data.today ? b : null }
   })
   return (
-    <div className={`h-32 ${drill.boxProps.className}`} onPointerDown={drill.boxProps.onPointerDown} data-testid="money-chart">
+    <div className={`h-36 ${drill.boxProps.className}`} onPointerDown={drill.boxProps.onPointerDown} data-testid="money-chart">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={rows} margin={{ top: 8, right: 4, bottom: 0, left: 0 }} onClick={drill.onClick}>
           <CartesianGrid vertical={false} stroke={colors.line} />
-          <XAxis dataKey="label" tick={{ fill: colors.muted, fontSize: 10 }} tickLine={false} axisLine={{ stroke: colors.line }} minTickGap={16} />
-          <YAxis tick={{ fill: colors.muted, fontSize: 10 }} tickFormatter={compact} tickLine={false} axisLine={false} width={64} />
+          <XAxis dataKey="label" tick={{ fill: colors.faint, fontSize: 10 }} tickLine={false} axisLine={false} minTickGap={16} />
+          <YAxis tick={{ fill: colors.faint, fontSize: 10 }} tickFormatter={compact} tickLine={false} axisLine={false} width={78} />
           <ReferenceLine y={0} stroke={colors.bad} strokeDasharray="4 3" />
           {data.threshold !== null && <ReferenceLine y={Number(data.threshold)} stroke={colors.warn} strokeDasharray="4 3" />}
           <Tooltip content={<BalanceTip drill={drill} today={data.today} />} cursor={{ stroke: colors.faint, strokeDasharray: '3 3' }} {...drill.tooltipProps} />
@@ -278,10 +275,11 @@ function BalanceChart({ data }: { data: Overview }) {
 
 /** Риск кассового разрыва одной строкой: разрыв — красным, ниже порога — жёлтым, иначе — до какого минимума опустится. */
 function Risk({ data }: { data: Overview }) {
+  const box = 'rounded-lg px-3 py-2 text-sm'
   if (data.first_below_zero) {
     const gap = data.gaps.find((g) => g.below_zero)
     return (
-      <p className="text-sm font-medium text-bad" data-testid="money-risk" data-risk="gap">
+      <p className={`${box} bg-bad/10 font-medium text-bad`} data-testid="money-risk" data-risk="gap">
         Кассовый разрыв {dayTitle(data.first_below_zero)}
         {gap && <span className="font-normal"> — минимум {rub(gap.min_balance)} {short(gap.min_day)}</span>}
       </p>
@@ -289,35 +287,43 @@ function Risk({ data }: { data: Overview }) {
   }
   if (data.first_below_threshold) {
     return (
-      <p className="text-sm font-medium text-warn" data-testid="money-risk" data-risk="threshold">
+      <p className={`${box} bg-warn/10 font-medium text-warn`} data-testid="money-risk" data-risk="threshold">
         Остаток ниже вашего порога {rub(data.threshold)} с {dayTitle(data.first_below_threshold)}
       </p>
     )
   }
   if (data.min_balance === null) {
     return (
-      <p className="text-sm text-muted" data-testid="money-risk" data-risk="unknown">
+      <p className={`${box} bg-soft text-muted`} data-testid="money-risk" data-risk="unknown">
         Прогноз не посчитать: укажите остатки на счетах.
       </p>
     )
   }
   return (
-    <p className="text-sm text-ok" data-testid="money-risk" data-risk="ok">
+    <p className={`${box} bg-ok/10 text-ok`} data-testid="money-risk" data-risk="ok">
       Денег хватит на {data.horizon_days} дн. вперёд — минимум {rub(data.min_balance)}
     </p>
+  )
+}
+
+/** Заголовок половины блока: значок, название, ссылка «… →». */
+function MoneyHead({ icon, title, href, link }: { icon: React.ComponentType<{ className?: string }>; title: string; href: string; link: string }) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <IconBox icon={icon} />
+      <h3 className="font-semibold">{title}</h3>
+      <Link href={href} className="ml-auto text-sm text-accent hover:underline">
+        {link}
+      </Link>
+    </div>
   )
 }
 
 function OzonMoney({ payouts, hasKey }: { payouts: OzonDashboard['payouts']; hasKey: boolean }) {
   const upcoming = payouts.upcoming.length ? payouts.upcoming : payouts.next_payout ? [payouts.next_payout] : []
   return (
-    <div className="space-y-2 p-4" data-testid="money-ozon">
-      <div className="flex items-baseline gap-2">
-        <h3 className="text-sm font-semibold">Ozon</h3>
-        <Link href="/dashboard/finance/payouts" className="ml-auto text-xs text-accent hover:underline">
-          Все выплаты →
-        </Link>
-      </div>
+    <div className="space-y-4 p-5" data-testid="money-ozon">
+      <MoneyHead icon={Wallet} title="Ozon" href="/dashboard/finance/payouts" link="Все выплаты →" />
       {!payouts.has_data ? (
         <p className="text-sm text-muted" data-testid="payouts-empty">
           {hasKey
@@ -332,25 +338,25 @@ function OzonMoney({ payouts, hasKey }: { payouts: OzonDashboard['payouts']; has
       ) : (
         <>
           <div>
-            <div className="text-xs text-muted">На балансе у Ozon</div>
-            <div className="text-lg font-bold tabular-nums" data-testid="money-ozon-balance">
+            <div className="text-sm text-muted">На балансе у Ozon</div>
+            <div className="mt-1 text-2xl font-semibold tracking-tight tabular-nums" data-testid="money-ozon-balance">
               {rub(payouts.balance)}
             </div>
-            {payouts.last_day && <div className="text-xs text-faint">на конец {fmtDay(payouts.last_day)}</div>}
+            {payouts.last_day && <div className="mt-0.5 text-xs text-faint">на конец {fmtDay(payouts.last_day)}</div>}
           </div>
           <div>
-            <div className="text-xs text-muted">Ближайшие выплаты</div>
+            <div className="mb-1.5 text-sm text-muted">Ближайшие выплаты</div>
             {upcoming.length === 0 ? (
               <p className="text-sm text-faint">выплаты нерегулярные — дату не прогнозируем</p>
             ) : (
-              <ul className="text-sm" data-testid="money-payouts">
+              <ul className="divide-y divide-line rounded-lg border border-line text-sm" data-testid="money-payouts">
                 {upcoming.map((p) => (
-                  <li key={p.date} className="flex gap-2 tabular-nums">
+                  <li key={p.date} className="flex items-center gap-2 px-3 py-2 tabular-nums">
                     <span className="text-muted">
                       {fmtDay(p.date).slice(0, 5)}, {weekdayShort(p.date)}
                     </span>
+                    {p.kind === 'estimate' && <Badge tone="muted">оценка</Badge>}
                     <span className="ml-auto font-medium">{p.amount === null ? 'сумма неизвестна' : rub(p.amount)}</span>
-                    {p.kind === 'estimate' && <span className="text-xs text-faint">оценка</span>}
                   </li>
                 ))}
               </ul>
@@ -370,40 +376,35 @@ function OwnMoney({ data, hasBank }: { data: Overview; hasBank: boolean }) {
   const payments = lines.filter((l) => l.amount !== null && Number(l.amount) < 0)
   const total = payments.reduce((sum, l) => sum + Number(l.amount), 0)
   return (
-    <div className="space-y-2 p-4" data-testid="money-own">
-      <div className="flex items-baseline gap-2">
-        <h3 className="text-sm font-semibold">Ваши деньги</h3>
-        <Link href="/dashboard/planning" className="ml-auto text-xs text-accent hover:underline">
-          Планирование →
-        </Link>
-      </div>
-      <div className="flex flex-wrap items-end gap-x-6 gap-y-1">
+    <div className="space-y-4 p-5" data-testid="money-own">
+      <MoneyHead icon={Landmark} title="Ваши деньги" href="/dashboard/planning" link="Планирование →" />
+      <div className="flex flex-wrap items-end gap-x-8 gap-y-2">
         <div>
-          <div className="text-xs text-muted">Сейчас на счетах</div>
-          <div className={`text-lg font-bold tabular-nums ${data.balance !== null && Number(data.balance) < 0 ? 'text-bad' : ''}`} data-testid="money-balance">
+          <div className="text-sm text-muted">Сейчас на счетах</div>
+          <div className={`mt-1 text-2xl font-semibold tracking-tight tabular-nums ${data.balance !== null && Number(data.balance) < 0 ? 'text-bad' : ''}`} data-testid="money-balance">
             {data.balance === null ? '—' : rub(data.balance)}
           </div>
         </div>
         {hasBank && (
           <div data-testid="money-received">
-            <div className="text-xs text-muted">Пришло за 14 дней</div>
-            <div className="font-semibold tabular-nums text-ok">{signed(String(received))}</div>
+            <div className="text-sm text-muted">Пришло за 14 дней</div>
+            <div className="mt-1 font-semibold tabular-nums text-ok">{signed(String(received))}</div>
           </div>
         )}
       </div>
       <Risk data={data} />
       <BalanceChart data={data} />
       <div>
-        <div className="flex items-baseline gap-2 text-xs text-muted">
+        <div className="mb-1.5 flex items-baseline gap-2 text-sm text-muted">
           <span>
             Платежи на 14 дней: {payments.length ? `${payments.length} на ${rub(String(Math.abs(total)))}` : 'нет'}
           </span>
           <MoreLink href="/dashboard/planning/calendar" testid="money-calendar" />
         </div>
         {lines.length > 0 && (
-          <ul className="mt-1 space-y-0.5 text-sm" data-testid="money-upcoming">
+          <ul className="divide-y divide-line rounded-lg border border-line text-sm" data-testid="money-upcoming">
             {lines.slice(0, 4).map((l) => (
-              <li key={l.key} className="flex gap-2">
+              <li key={l.key} className="flex items-center gap-2 px-3 py-2">
                 <span className={`tabular-nums ${l.status === 'overdue' ? 'text-warn' : 'text-muted'}`}>{fmtDay(l.day).slice(0, 5)}</span>
                 <span className="min-w-0 flex-1 truncate">{l.title}</span>
                 <span className={`tabular-nums ${l.amount !== null && Number(l.amount) > 0 ? 'text-ok' : ''}`}>
@@ -442,28 +443,34 @@ export function MoneyBlock({ payouts, hasKey }: { payouts: OzonDashboard['payout
     }
   }, [])
   return (
-    <section className="rounded-xl border border-line bg-card" data-testid="money">
-      <h2 className="border-b border-line px-4 py-3 font-semibold">Деньги и ближайшие события</h2>
-      <div className="grid divide-y divide-line md:grid-cols-2 md:divide-x md:divide-y-0">
+    <section className="rounded-xl border border-line bg-card shadow-card" data-testid="money">
+      <div className="px-5 pt-4">
+        <h2 className="text-base font-semibold">Деньги и ближайшие события</h2>
+        <p className="mt-0.5 text-sm text-muted">Баланс и выплаты Ozon, а с «Планированием» — счета, платежи и прогноз на 14 дней</p>
+      </div>
+      <div className="mt-2 grid divide-y divide-line md:grid-cols-2 md:divide-x md:divide-y-0">
         <OzonMoney payouts={payouts} hasKey={hasKey} />
         {state && !state.enabled ? (
-          <div className="p-4 text-sm text-muted" data-testid="money-planning-off">
-            Включите «Планирование», чтобы видеть прогноз денег: сколько на счетах, какие платежи впереди и хватит ли на них.{' '}
-            <Link href="/dashboard/planning" className="text-accent hover:underline">
-              Включить →
-            </Link>
+          <div className="p-5" data-testid="money-planning-off">
+            <MoneyHead icon={Landmark} title="Ваши деньги" href="/dashboard/planning" link="Включить →" />
+            <p className="mt-3 text-sm text-muted">
+              Включите «Планирование», чтобы видеть прогноз денег: сколько на счетах, какие платежи впереди и хватит ли на них.
+            </p>
           </div>
         ) : overview ? (
           <OwnMoney data={overview} hasBank={sync?.has_bank ?? false} />
         ) : failed ? (
-          <p className="p-4 text-sm text-muted">
+          <p className="p-5 text-sm text-muted">
             Прогноз денег сейчас не загрузился —{' '}
             <Link href="/dashboard/planning" className="text-accent hover:underline">
               откройте «Планирование» →
             </Link>
           </p>
         ) : (
-          <p className="p-4 text-sm text-muted">Загружаем…</p>
+          <div className="space-y-3 p-5">
+            <Skeleton className="h-8 w-1/2" />
+            <Skeleton className="h-24" />
+          </div>
         )}
       </div>
     </section>

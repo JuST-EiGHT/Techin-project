@@ -614,7 +614,7 @@ export function OverviewTab({ accounts, horizonDays, onChanged }: { accounts: Ac
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex flex-wrap gap-1 rounded-lg border border-line bg-card p-1" role="group" aria-label="Горизонт">
           {HORIZONS.map((h) => (
-            <button key={h.days} type="button" aria-pressed={horizon === h.days} onClick={() => setHorizon(h.days)} className={`rounded-md px-3 py-1 text-sm ${horizon === h.days ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`} data-testid={`ov-horizon-${h.days}`}>
+            <button key={h.days} type="button" aria-pressed={horizon === h.days} onClick={() => setHorizon(h.days)} className={`rounded-md px-3 py-1 text-sm ${horizon === h.days ? 'bg-accent text-on-accent' : 'text-muted hover:text-fg'}`} data-testid={`ov-horizon-${h.days}`}>
               {h.label}
             </button>
           ))}

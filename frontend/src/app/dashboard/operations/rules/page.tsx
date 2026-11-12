@@ -31,7 +31,7 @@ function Rules({ categories, accounts, reload }: PlanningData) {
             role="tab"
             aria-selected={tab === t.value}
             onClick={() => router.replace(t.value === 'rules' ? pathname : `${pathname}?tab=${t.value}`, { scroll: false })}
-            className={`whitespace-nowrap rounded-md px-3 py-1.5 text-sm ${tab === t.value ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`}
+            className={`whitespace-nowrap rounded-md px-3 py-1.5 text-sm ${tab === t.value ? 'bg-accent text-on-accent' : 'text-muted hover:text-fg'}`}
             data-testid={`rules-tab-${t.value}`}
           >
             {t.label}

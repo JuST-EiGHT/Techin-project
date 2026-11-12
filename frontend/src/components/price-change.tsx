@@ -254,7 +254,7 @@ export function PriceChangeModal({ product, current, onClose, onDone }: Props) {
             type="button"
             onClick={confirm}
             disabled={!canApply}
-            className="rounded-lg bg-accent px-4 py-2 font-medium text-white disabled:opacity-50"
+            className="rounded-lg bg-accent px-4 py-2 font-medium text-on-accent disabled:opacity-50"
             data-testid="price-apply"
           >
             {sending ? 'Отправляем в Ozon…' : p && p.can_apply ? `Применить ${rub(p.price_after)}` : 'Применить'}

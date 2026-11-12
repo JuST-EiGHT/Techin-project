@@ -104,7 +104,7 @@ export function NewCategoryModal({
         </label>
         <FormError message={error} />
         <div className="flex gap-2">
-          <button type="submit" disabled={busy} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="new-cat-save">
+          <button type="submit" disabled={busy} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="new-cat-save">
             {busy ? 'Сохраняем…' : submitLabel}
           </button>
           <button type="button" onClick={onClose} className="rounded-lg border border-line px-4 py-2 text-sm text-muted hover:text-fg">
@@ -272,7 +272,7 @@ function EditCategory({ cat, categories, onClose, onSaved }: { cat: Category; ca
         </fieldset>
         <FormError message={error} />
         <div className="flex gap-2">
-          <button type="submit" disabled={busy} className="rounded-lg bg-accent px-4 py-2 font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="cat-edit-save">
+          <button type="submit" disabled={busy} className="rounded-lg bg-accent px-4 py-2 font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="cat-edit-save">
             {busy ? 'Сохраняем…' : 'Сохранить'}
           </button>
           <button type="button" onClick={onClose} className="rounded-lg border border-line px-4 py-2 text-muted hover:text-fg">
@@ -366,7 +366,7 @@ export function CategoriesPage({ categories, templates, onChanged }: { categorie
             role="tab"
             aria-selected={kind === k}
             onClick={() => setKind(k)}
-            className={`flex-1 rounded-md px-4 py-1.5 text-sm sm:flex-none ${kind === k ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`}
+            className={`flex-1 rounded-md px-4 py-1.5 text-sm sm:flex-none ${kind === k ? 'bg-accent text-on-accent' : 'text-muted hover:text-fg'}`}
             data-testid={`cats-tab-${k}`}
           >
             {KIND_TITLE[k]} ({categories.filter((c) => c.kind === k && !c.archived).length})

@@ -87,11 +87,11 @@ async def test_new_store_has_own_data(client, tokens, sessions, ozon, no_celery)
     assert (await client.get("/api/v1/credentials", headers=auth(tokens))).json() == []
 
     # настройки магазина — свои; тема — одна на аккаунт
-    r = await client.patch("/api/v1/settings", json={"supplier_payment": "after_sale", "theme": "light"},
+    r = await client.patch("/api/v1/settings", json={"supplier_payment": "after_sale", "theme": "dark"},
                            headers=auth(tokens, sid))
-    assert r.status_code == 200 and (r.json()["supplier_payment"], r.json()["theme"]) == ("after_sale", "light")
+    assert r.status_code == 200 and (r.json()["supplier_payment"], r.json()["theme"]) == ("after_sale", "dark")
     main = (await client.get("/api/v1/settings", headers=auth(tokens))).json()
-    assert (main["supplier_payment"], main["theme"]) == ("upfront", "light")
+    assert (main["supplier_payment"], main["theme"]) == ("upfront", "dark")
 
     # фоновые задачи — по магазину: у каждого свой ключ
     async with sessions() as db:

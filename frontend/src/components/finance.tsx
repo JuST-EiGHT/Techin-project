@@ -189,7 +189,7 @@ export function OzonApiStatus({ range, coverage, onLoaded }: { range: Range; cov
             type="button"
             onClick={reload}
             disabled={posting || loading}
-            className="rounded-lg border border-accent px-3 py-1 font-medium text-accent hover:bg-accent hover:text-white disabled:opacity-60"
+            className="rounded-lg border border-accent px-3 py-1 font-medium text-accent hover:bg-accent hover:text-on-accent disabled:opacity-60"
             data-testid="api-reload"
             title={`Загрузить начисления из Ozon API заново за ${fmtDay(span.from)} – ${fmtDay(span.to)}`}
           >
@@ -509,7 +509,8 @@ export function useTokenColors() {
     const c = (name: string) => `rgb(${css.getPropertyValue(`--${name}`).trim().split(/\s+/).join(',')})`
     setColors({
       accent: c('accent'), ok: c('ok'), bad: c('bad'), warn: c('warn'), muted: c('muted'), faint: c('faint'),
-      line: c('line'), card: c('card'), fg: c('fg'),
+      line: c('line'), card: c('card'), fg: c('fg'), soft: c('soft'),
+      c1: c('chart-1'), c2: c('chart-2'), c3: c('chart-3'), c4: c('chart-4'), c5: c('chart-5'), c6: c('chart-6'),
     })
   }, [theme])
   return colors

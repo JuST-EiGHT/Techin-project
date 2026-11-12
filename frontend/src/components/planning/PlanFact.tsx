@@ -86,7 +86,7 @@ function Suggestion({ row, onDone }: { row: PlanFactRow; onDone: (text: string) 
       </ul>
       <FormError message={error} />
       <div className="mt-2 flex flex-wrap gap-2">
-        <button type="button" disabled={busy} onClick={() => act('accept')} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="pf-accept">
+        <button type="button" disabled={busy} onClick={() => act('accept')} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="pf-accept">
           Да, это оплата{sg.category_fix ? ` — статья «${sg.category_fix}»` : ''}
         </button>
         <button type="button" disabled={busy} onClick={() => act('dismiss')} className="rounded-lg border border-line px-3 py-1.5 text-xs text-muted hover:text-fg" data-testid="pf-dismiss">

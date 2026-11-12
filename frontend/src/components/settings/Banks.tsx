@@ -188,7 +188,7 @@ function ConnectionRow({ conn, onChanged, onRemoved }: { conn: Connection; onCha
                   className="mt-1 block w-72 max-w-full rounded-lg border border-line bg-bg px-3 py-1.5 text-sm outline-none focus:border-accent"
                 />
               </label>
-              <button type="submit" disabled={busy !== null || !token.trim()} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60">
+              <button type="submit" disabled={busy !== null || !token.trim()} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60">
                 {busy === 'renew' ? 'Проверяю в банке…' : 'Проверить и заменить'}
               </button>
               <span className="w-full text-xs text-faint">Токен истёк или его отозвали — выпустите новый в интернет-банке. Подключение обновится, загруженная история сохранится.</span>
@@ -199,7 +199,7 @@ function ConnectionRow({ conn, onChanged, onRemoved }: { conn: Connection; onCha
           {confirming ? (
             <>
               <span className="self-center text-sm text-muted">Отключить? Операции останутся.</span>
-              <button onClick={remove} disabled={busy !== null} className="rounded-lg bg-bad px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60">
+              <button onClick={remove} disabled={busy !== null} className="rounded-lg bg-bad px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60">
                 {busy === 'delete' ? 'Отключаю…' : 'Да, отключить'}
               </button>
               <button onClick={() => setConfirming(false)} disabled={busy !== null} className="rounded-lg border border-line px-3 py-1.5 text-sm hover:border-muted">
@@ -294,7 +294,7 @@ function ConnectForm({ onConnected }: { onConnected: (c: Connection, replaced: b
         className="mb-4 w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
         data-testid="bank-token"
       />
-      <button type="submit" disabled={busy} className="w-full rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60 sm:w-64" data-testid="bank-submit">
+      <button type="submit" disabled={busy} className="w-full rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60 sm:w-64" data-testid="bank-submit">
         {busy ? 'Проверяю в банке…' : 'Проверить и подключить'}
       </button>
     </form>

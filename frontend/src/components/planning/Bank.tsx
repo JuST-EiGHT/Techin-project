@@ -111,7 +111,7 @@ function UploadPanel({ onApplied }: { onApplied: () => void }) {
       </div>
       <Instruction />
       <div>
-        <button type="button" onClick={() => inputRef.current?.click()} disabled={busy} className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="bank-pick">
+        <button type="button" onClick={() => inputRef.current?.click()} disabled={busy} className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="bank-pick">
           <Upload className="h-4 w-4" /> Загрузить выписку (файл 1С)
         </button>
         <input
@@ -193,7 +193,7 @@ function UploadPanel({ onApplied }: { onApplied: () => void }) {
             </ul>
           )}
           <div className="flex flex-wrap gap-2">
-            <button type="button" disabled={busy || !file || c.new === 0} onClick={() => file && send(file, true)} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="bank-apply">
+            <button type="button" disabled={busy || !file || c.new === 0} onClick={() => file && send(file, true)} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="bank-apply">
               Загрузить ({c.new})
             </button>
             <button type="button" onClick={() => setPreview(null)} className="rounded-lg border border-line px-4 py-2 text-sm text-muted hover:text-fg">
@@ -252,7 +252,7 @@ function Matches({ items, onChanged }: { items: Match[]; onChanged: () => void }
             {side('Из выписки', m.bank)}
             {side('Внесена вручную', m.manual)}
             <div className="flex items-center gap-2">
-              <button type="button" onClick={() => act('merge', m)} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:opacity-90" data-testid="bank-merge">
+              <button type="button" onClick={() => act('merge', m)} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-on-accent hover:opacity-90" data-testid="bank-merge">
                 Объединить
               </button>
               <button type="button" onClick={() => act('dismiss', m)} className="rounded-lg border border-line px-3 py-1.5 text-xs text-muted hover:text-fg" data-testid="bank-dismiss">

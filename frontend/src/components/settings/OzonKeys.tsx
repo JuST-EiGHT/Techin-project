@@ -130,7 +130,7 @@ function CredentialRow({ cred, onChanged, onDeleted }: { cred: Credential; onCha
                   data-testid="credential-new-key"
                 />
               </label>
-              <button type="submit" disabled={busy !== null || !newKey.trim()} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="credential-replace-save">
+              <button type="submit" disabled={busy !== null || !newKey.trim()} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="credential-replace-save">
                 {busy === 'replace' ? 'Проверяю…' : 'Проверить и заменить'}
               </button>
               <button type="button" onClick={() => setReplacing(false)} className="rounded-lg border border-line px-3 py-1.5 text-sm hover:border-muted">
@@ -148,7 +148,7 @@ function CredentialRow({ cred, onChanged, onDeleted }: { cred: Credential; onCha
               <button
                 onClick={remove}
                 disabled={busy !== null}
-                className="rounded-lg bg-bad px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+                className="rounded-lg bg-bad px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60"
               >
                 {busy === 'delete' ? 'Отключаю…' : 'Да, отключить'}
               </button>
@@ -266,7 +266,7 @@ function AddForm({ onAdded, firstKey }: { onAdded: (c: Credential) => void; firs
             type="button"
             onClick={addAsStore}
             disabled={busy}
-            className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+            className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60"
           >
             {busy ? 'Добавляю…' : 'Добавить отдельным магазином'}
           </button>

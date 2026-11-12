@@ -146,7 +146,7 @@ export function Wizard({ onDone }: { onDone: (state: PlanningState) => void }) {
     <section className="space-y-5 rounded-xl border border-line bg-card p-5 sm:p-6" data-testid="wizard">
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
         {STEPS.map((title, i) => (
-          <span key={title} className={`rounded-full px-2.5 py-1 ${i === step ? 'bg-accent text-white' : i < step ? 'bg-accent/15 text-accent' : 'bg-line'}`}>
+          <span key={title} className={`rounded-full px-2.5 py-1 ${i === step ? 'bg-accent text-on-accent' : i < step ? 'bg-accent/15 text-accent' : 'bg-line'}`}>
             {i + 1}. {title}
           </span>
         ))}
@@ -269,11 +269,11 @@ export function Wizard({ onDone }: { onDone: (state: PlanningState) => void }) {
           </button>
         )}
         {step < 3 ? (
-          <button type="button" onClick={next} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90" data-testid="w-next">
+          <button type="button" onClick={next} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90" data-testid="w-next">
             Далее →
           </button>
         ) : (
-          <button type="button" onClick={finish} disabled={saving || !options} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="w-finish">
+          <button type="button" onClick={finish} disabled={saving || !options} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="w-finish">
             {saving ? 'Сохраняем…' : 'Готово'}
           </button>
         )}

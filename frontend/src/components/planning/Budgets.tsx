@@ -137,7 +137,7 @@ function PlanEditor({ editing, granularity, onClose, onSaved }: { editing: Editi
         )}
         <FormError message={error} />
         <div className="flex flex-wrap gap-2">
-          <button type="submit" disabled={busy} className="rounded-lg bg-accent px-4 py-2 font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="budget-save">
+          <button type="submit" disabled={busy} className="rounded-lg bg-accent px-4 py-2 font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="budget-save">
             Сохранить
           </button>
           {own !== null && (
@@ -212,7 +212,7 @@ function FillDialog({ year, onClose, onDone }: { year: number; onClose: () => vo
     }
   }
 
-  const pill = (active: boolean) => `rounded-md px-3 py-1 text-sm ${active ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`
+  const pill = (active: boolean) => `rounded-md px-3 py-1 text-sm ${active ? 'bg-accent text-on-accent' : 'text-muted hover:text-fg'}`
   return (
     <Modal title="Заполнить план по факту" onClose={onClose}>
       <div className="space-y-3 text-sm" data-testid="budget-fill">
@@ -263,7 +263,7 @@ function FillDialog({ year, onClose, onDone }: { year: number; onClose: () => vo
           </div>
         )}
         <div className="flex gap-2">
-          <button type="button" disabled={busy || !preview || preview.changed === 0} onClick={apply} className="rounded-lg bg-accent px-4 py-2 font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="fill-apply">
+          <button type="button" disabled={busy || !preview || preview.changed === 0} onClick={apply} className="rounded-lg bg-accent px-4 py-2 font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="fill-apply">
             {preview && preview.changed === 0 ? 'Нечего заполнять' : `Заполнить (${preview?.changed ?? 0})`}
           </button>
           <button type="button" onClick={onClose} className="rounded-lg border border-line px-4 py-2 text-muted hover:text-fg">
@@ -667,7 +667,7 @@ function Scenarios({ version }: { version: number }) {
                 ))}
               </div>
               <div className="mt-3 flex items-center gap-3">
-                <button type="submit" className="rounded-lg bg-accent px-4 py-2 font-medium text-white hover:opacity-90" data-testid="scenario-save">
+                <button type="submit" className="rounded-lg bg-accent px-4 py-2 font-medium text-on-accent hover:opacity-90" data-testid="scenario-save">
                   Сохранить сценарии
                 </button>
                 {saved && <span className="text-ok">{saved}</span>}

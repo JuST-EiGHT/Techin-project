@@ -346,7 +346,7 @@ export function PriceCalcBlock({ productId, refreshKey }: { productId: string; r
             <div className="mt-3 flex flex-wrap items-center gap-2">
               {extrasTyped && !inputError && (
                 <>
-                  <button type="button" onClick={() => saveExtras()} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-90" data-testid="calc-save-extras">
+                  <button type="button" onClick={() => saveExtras()} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90" data-testid="calc-save-extras">
                     Для этого товара
                   </button>
                   <button type="button" onClick={saveForAll} className="rounded-lg border border-accent px-3 py-1.5 text-sm text-accent hover:bg-accent/10" data-testid="calc-save-extras-all">
@@ -610,7 +610,7 @@ export function PriceSettingsForm({ onSaved }: { onSaved?: () => void }) {
       </fieldset>
       {settings?.price_defaults && <p className="text-xs text-warn">Пока стоят значения по умолчанию — поставьте свои.</p>}
       <div className="flex items-center gap-3">
-        <button type="submit" disabled={!settings} className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="settings-price-save">
+        <button type="submit" disabled={!settings} className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="settings-price-save">
           Сохранить
         </button>
         {done && <span className="text-sm text-ok">Сохранено — цены пересчитаны</span>}

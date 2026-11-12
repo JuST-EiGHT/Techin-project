@@ -10,7 +10,7 @@ export default function Home() {
     <main className="min-h-screen flex flex-col items-center justify-center gap-6">
       <h1 className="text-3xl font-bold">Ozon Analytics</h1>
       <div className="flex gap-3">
-        <Link href="/login" className="rounded-lg bg-accent px-5 py-2 font-medium text-white hover:opacity-90">
+        <Link href="/login" className="rounded-lg bg-accent px-5 py-2 font-medium text-on-accent hover:opacity-90">
           Войти
         </Link>
         {(mode === 'open' || mode === 'invite') && (

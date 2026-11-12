@@ -16,8 +16,8 @@ import { CLUSTER_WAREHOUSE_WHY, LEAD_WHY, MIN_QTY_WHY, SAFETY_WHY, TARGET_WHY } 
 import type { ThemePreference } from '@/lib/theme'
 
 const THEMES: { value: ThemePreference; label: string; hint: string; Icon: React.ComponentType<{ className?: string }> }[] = [
-  { value: 'dark', label: 'Тёмная', hint: 'по умолчанию', Icon: Moon },
-  { value: 'light', label: 'Светлая', hint: 'для яркого света', Icon: Sun },
+  { value: 'light', label: 'Светлая', hint: 'по умолчанию', Icon: Sun },
+  { value: 'dark', label: 'Тёмная', hint: 'для работы вечером', Icon: Moon },
   { value: 'system', label: 'Как в системе', hint: 'следует настройке устройства', Icon: Monitor },
 ]
 
@@ -167,7 +167,7 @@ function NumberForm({ fields, testid, saved, extra }: { fields: NumberField[]; t
         <button
           type="submit"
           disabled={!settings}
-          className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+          className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60"
           data-testid={`${testid}-save`}
         >
           Сохранить
@@ -446,7 +446,7 @@ function StockSection() {
           <button
             type="submit"
             disabled={!settings}
-            className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+            className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60"
             data-testid="settings-stock-save"
           >
             Сохранить
@@ -718,7 +718,7 @@ function AbcSection() {
           <button
             type="submit"
             disabled={!settings}
-            className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+            className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60"
             data-testid="settings-abc-save"
           >
             Сохранить
@@ -848,7 +848,7 @@ function PlanningSection() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <button type="submit" className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90" data-testid="planning-params-save">
+              <button type="submit" className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:opacity-90" data-testid="planning-params-save">
                 Сохранить
               </button>
               {done && <span className="text-sm text-ok">Сохранено — прогноз пересчитан</span>}

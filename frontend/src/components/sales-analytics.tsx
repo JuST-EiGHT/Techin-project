@@ -89,7 +89,7 @@ export function SalesFigures({ data }: { data: Metrics }) {
   const was = (k: MetricKey) => (prev === null || prev[k] === null ? null : `было ${formatMetric(prev[k], METRICS[k].format)}`)
   const share = t.sold_qty ? (((t.returned_qty ?? 0) / t.sold_qty) * 100).toLocaleString('ru-RU', { maximumFractionDigits: 1 }) : null
   return (
-    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line lg:grid-cols-4" data-testid="sales-figures">
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="sales-figures">
       <Card href={null} label="Заказы" value={formatMetric(t.orders, 'count')} testid="figure-orders">
         {ch && <Change pct={ch.orders} against={against} />}
         <Hint>{t.orders === null ? 'отправления не загружены — нужен ключ Ozon' : (was('orders') ?? `${formatMetric(t.ordered_qty, 'qty')} в заказах`)}</Hint>

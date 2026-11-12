@@ -14,7 +14,7 @@ export default function PageError({ error, reset }: { error: Error & { digest?: 
         <p className="mb-5 text-sm text-muted">
           Страница не открылась из-за ошибки. Мы уже знаем о ней. Попробуйте ещё раз — если не поможет, обновите страницу.
         </p>
-        <button type="button" onClick={reset} className="rounded-lg bg-accent px-5 py-2 font-medium text-white hover:opacity-90">
+        <button type="button" onClick={reset} className="rounded-lg bg-accent px-5 py-2 font-medium text-on-accent hover:opacity-90">
           Попробовать ещё раз
         </button>
       </div>

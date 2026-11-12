@@ -389,7 +389,7 @@ function Row({ r, wholeStock, frozen, onAction }: { r: PromoProductRow; wholeSto
             onClick={() => onAction('join')}
             disabled={frozen}
             title={frozen ? 'Акция заморожена — список товаров не поменять' : undefined}
-            className="rounded-lg bg-accent px-3 py-1 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
+            className="rounded-lg bg-accent px-3 py-1 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-40"
             data-testid="promo-join"
           >
             Добавить

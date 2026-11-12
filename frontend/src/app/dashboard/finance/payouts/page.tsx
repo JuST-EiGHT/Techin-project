@@ -215,7 +215,7 @@ function PayoutsView() {
           {noKey && (
             <Link
               href="/dashboard/settings/integrations"
-              className="mt-4 inline-block rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+              className="mt-4 inline-block rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90"
               data-testid="connect-key"
             >
               Подключить API-ключ →

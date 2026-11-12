@@ -62,7 +62,7 @@ function StoreRow({ s, current, onChanged }: { s: Store; current: boolean; onCha
                 onChange={(e) => setName(e.target.value)}
                 className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-1.5 outline-none focus:border-accent"
               />
-              <button type="submit" disabled={busy} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60">
+              <button type="submit" disabled={busy} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60">
                 Сохранить
               </button>
               <button type="button" onClick={() => { setEditing(false); setName(s.name) }} className="rounded-lg border border-line px-3 py-1.5 text-sm hover:border-muted">
@@ -91,7 +91,7 @@ function StoreRow({ s, current, onChanged }: { s: Store; current: boolean; onCha
                 переключателя. Вернуть можно здесь же.
               </p>
               <div className="flex gap-2">
-                <button type="button" disabled={busy} onClick={() => patch({ is_active: false })} className="rounded-lg bg-bad px-3 py-1.5 font-medium text-white hover:opacity-90 disabled:opacity-60">
+                <button type="button" disabled={busy} onClick={() => patch({ is_active: false })} className="rounded-lg bg-bad px-3 py-1.5 font-medium text-on-accent hover:opacity-90 disabled:opacity-60">
                   {busy ? 'Отключаю…' : 'Да, отключить'}
                 </button>
                 <button type="button" onClick={() => setConfirming(false)} className="rounded-lg border border-line px-3 py-1.5 hover:border-muted">
@@ -201,7 +201,7 @@ export function StoresPanel({ children }: { children?: React.ReactNode }) {
         {added && (
           <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-ok/40 bg-ok/10 px-3 py-2 text-sm text-ok" data-testid="store-added">
             <span>Магазин «{added.name}» добавлен, данные загружаются.</span>
-            <button type="button" onClick={() => openStore(added.id, '/dashboard')} className="rounded-lg bg-accent px-3 py-1 font-medium text-white hover:opacity-90">
+            <button type="button" onClick={() => openStore(added.id, '/dashboard')} className="rounded-lg bg-accent px-3 py-1 font-medium text-on-accent hover:opacity-90">
               Перейти в магазин
             </button>
           </div>

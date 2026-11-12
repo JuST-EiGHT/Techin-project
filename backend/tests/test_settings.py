@@ -28,18 +28,18 @@ async def test_settings_defaults_and_update(client, tokens):
     assert (await client.get("/api/v1/settings")).status_code == 401
     # налог и НДС — в налоговом профиле (шаг 2.5)
     # калькулятор цены (шаг 4.2): реклама 0 % и маржа 20 % — по умолчанию, не цифры владельца
-    assert (await get()).json() == {"theme": "dark", "supplier_payment": "upfront", "supplier_deferral_days": None,
+    assert (await get()).json() == {"theme": "light", "supplier_payment": "upfront", "supplier_deferral_days": None,
                                     "cost_label": "Себестоимость с НДС", "price_ad_pct": "0",
                                     "price_target_margin_pct": "20", "price_extra_pct": "0", "price_ad_all_pct": None, "price_storage_rub": None, "price_other_rub": None, "price_defaults": True,
                                     "stock_critical_days": 7, "stock_low_days": 14, "stock_excess_days": 60,
                                     "supply_target_days": 45, "supply_lead_time_days": 7, "supply_safety_days": 0, "supply_demand_days": 30, "min_profit_rub": "0",
                                     "supply_min_qty": 6, "supply_cluster_warehouses": {}, **ANOMALY_DEFAULTS}
 
-    r = await client.patch("/api/v1/settings", json={"theme": "light"}, headers=auth(tokens))
-    assert r.status_code == 200 and r.json()["theme"] == "light"
-    assert (await get()).json()["theme"] == "light"  # сохраняется — одинаково на всех устройствах
+    r = await client.patch("/api/v1/settings", json={"theme": "dark"}, headers=auth(tokens))
+    assert r.status_code == 200 and r.json()["theme"] == "dark"
+    assert (await get()).json()["theme"] == "dark"  # сохраняется — одинаково на всех устройствах
     r = await client.patch("/api/v1/settings", json={}, headers=auth(tokens))
-    assert r.json()["theme"] == "light"  # не переданное не меняется
+    assert r.json()["theme"] == "dark"  # не переданное не меняется
 
     r = await client.patch("/api/v1/settings", json={"theme": "blue"}, headers=auth(tokens))
     assert (r.status_code, r.json()["detail"]) == (400, "Тема: недопустимое значение")
@@ -48,7 +48,7 @@ async def test_settings_defaults_and_update(client, tokens):
 async def test_supplier_payment_names_cost_in_pnl(client, tokens):
     """Поставщик получает деньги после продажи — себестоимость с НДС в P&L называется «долг поставщику» (шаг 3.3)."""
     r = await client.patch("/api/v1/settings", json={"supplier_payment": "after_sale"}, headers=auth(tokens))
-    assert r.json() == {"theme": "dark", "supplier_payment": "after_sale", "supplier_deferral_days": None,
+    assert r.json() == {"theme": "light", "supplier_payment": "after_sale", "supplier_deferral_days": None,
                         "cost_label": "Долг поставщику", "price_ad_pct": "0", "price_target_margin_pct": "20", "price_extra_pct": "0", "price_ad_all_pct": None, "price_storage_rub": None, "price_other_rub": None,
                         "price_defaults": True, "stock_critical_days": 7, "stock_low_days": 14, "stock_excess_days": 60,
                         "supply_target_days": 45, "supply_lead_time_days": 7, "supply_safety_days": 0, "supply_demand_days": 30, "min_profit_rub": "0",

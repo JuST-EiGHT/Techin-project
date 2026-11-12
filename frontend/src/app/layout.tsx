@@ -1,3 +1,5 @@
+// шрифт Inter с кириллицей — из npm, без запросов к Google (дизайн-система 10.27a)
+import '@fontsource-variable/inter'
 import './globals.css'
 
 import SentryInit from '@/components/SentryInit'
@@ -10,7 +12,7 @@ export const metadata = { title: 'Ozon Analytics' }
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     // data-theme ставит скрипт до отрисовки — поэтому атрибут на сервере и в браузере расходится
-    <html lang="ru" data-theme="dark" suppressHydrationWarning>
+    <html lang="ru" data-theme="light" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>

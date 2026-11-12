@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 
 import { useAuth } from '@/contexts/AuthContext'
 import { api } from '@/lib/api'
-import { type Theme, type ThemePreference, applyTheme, readStoredPreference, storePreference } from '@/lib/theme'
+import { DEFAULT_THEME, type Theme, type ThemePreference, applyTheme, readStoredPreference, storePreference } from '@/lib/theme'
 
 type ThemeContextValue = {
   preference: ThemePreference
@@ -17,8 +17,8 @@ const ThemeContext = createContext<ThemeContextValue | null>(null)
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth()
-  const [preference, setPref] = useState<ThemePreference>('dark')
-  const [theme, setTheme] = useState<Theme>('dark')
+  const [preference, setPref] = useState<ThemePreference>(DEFAULT_THEME)
+  const [theme, setTheme] = useState<Theme>('light')
 
   const show = useCallback((pref: ThemePreference) => {
     setPref(pref)

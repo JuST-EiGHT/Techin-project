@@ -6,7 +6,7 @@ import { Search, X } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { FormError } from '@/components/AuthForm'
 import { type Drill, MoreLink, TipBox, useDrill } from '@/components/charts'
@@ -18,6 +18,7 @@ import {
   FilterBar,
   FilterButton,
   FilterField,
+  rangeLabel,
   selectClass,
 } from '@/components/filters'
 import { UpdatedAt } from '@/components/sync'
@@ -327,7 +328,7 @@ export function CoverageNote({ data }: { data: Metrics }) {
   const text = parts.join('; ')
   return (
     <p className="text-xs text-faint" data-testid="coverage-note">
-      {text[0].toUpperCase() + text.slice(1)}. На графиках это пропуски, а не ноль.
+      {text[0].toUpperCase() + text.slice(1)}. На графиках эти дни — точечным пунктиром: данных нет, это не ноль.
     </p>
   )
 }
@@ -338,7 +339,7 @@ export type ChartEvent = { day: string; kind: string; title: string }
 export const EVENT_MARK: Record<string, string> = { price: '₽', promo_in: '%', promo_out: '%', stockout: '0', restock: '↑' }
 const TIP_EVENTS = 3
 
-type Row = { label: string; value: number | null; prev: number | null; point: MetricPoint; events: ChartEvent[] }
+type Row = { label: string; value: number | null; prev: number | null; point: MetricPoint; events: ChartEvent[]; bridge: Record<number, number> }
 
 function MetricTooltip({ active, payload, metric, data, drill }: { active?: boolean; payload?: { payload: Row }[]; metric: MetricKey; data: Metrics; drill: Drill<Row> }) {
   if (!active || !payload?.length) return null
@@ -375,7 +376,9 @@ function MetricTooltip({ active, payload, metric, data, drill }: { active?: bool
   )
 }
 
-/** График одного показателя с прошлым периодом пунктиром. Дни без данных — разрыв линии. pointHref — раздел за точку. */
+/** График одного показателя с прошлым периодом пунктиром. Дни без данных — точечный пунктир между соседними точками (не ноль). pointHref — раздел за точку. */
+const rangeText = (from: string, to: string) => rangeLabel({ from, to })
+
 export function MetricChart({
   data,
   metric,
@@ -383,9 +386,15 @@ export function MetricChart({
   pointHref,
   moreHref,
   events = [],
+  toolbar,
+  action,
 }: {
   data: Metrics
   metric: MetricKey
+  /** Под заголовком, над графиком: переключатель показателя (Segmented). */
+  toolbar?: React.ReactNode
+  /** Справа в заголовке, после «Подробнее →»: «Фильтры» графика. */
+  action?: React.ReactNode
   title?: string
   pointHref?: (p: MetricPoint) => string | null
   moreHref?: string
@@ -402,30 +411,65 @@ export function MetricChart({
     prev: p.prev?.[metric] == null ? null : Number(p.prev[metric]),
     point: p,
     events: events.filter((e) => p.date_from <= e.day && e.day <= p.date_to),
+    bridge: {},
   }))
+  // пропуски (решение владельца 12.11.2026): линия не рвётся — дни без данных проходят пунктиром от последней точки до
+  // следующей; это не ноль и не данные — в подсказке «нет данных», в легенде «пунктир — нет данных»
+  const gaps: number[] = []
+  let last = -1
+  rows.forEach((r, i) => {
+    if (r.value === null) return
+    if (last >= 0 && i - last > 1) {
+      const k = gaps.length
+      gaps.push(k)
+      rows[last].bridge[k] = rows[last].value as number
+      r.bridge[k] = r.value
+    }
+    last = i
+  })
   const profitNote = metric === 'profit' && data.profit_kind === 'net' ? ' (в точках — до налога)' : ''
   // прибыль и маржа: красная линия «ноль» — ниже неё убыток (правка владельца), точки в минусе — красные
   const zeroLine = metric === 'profit' || metric === 'margin'
+  // точка — где она что-то говорит: убыток, одиночный день между пропусками (иначе его не видно), короткий ряд
+  const showDot = (i: number, v: number | null | undefined) =>
+    rows.length <= 16 || (zeroLine && (v ?? 0) < 0) || ((rows[i - 1]?.value ?? null) === null && (rows[i + 1]?.value ?? null) === null)
   return (
-    <section className="rounded-xl border border-line bg-card p-4" data-testid="metric-chart" data-metric={metric}>
-      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1">
-        <h2 className="text-sm font-semibold">
-          {title ?? meta.label}
-          {profitNote}
-        </h2>
-        {data.previous && (
-          <span className="flex items-center gap-1.5 text-xs text-muted">
-            <span className="inline-block h-0 w-3 border-t-2 border-dashed border-muted" /> прошлый период
-          </span>
-        )}
-        <MoreLink href={moreHref} />
+    <section className="rounded-xl border border-line bg-card p-5 shadow-card" data-testid="metric-chart" data-metric={metric}>
+      {/* дизайн-система 10.27a: заголовок панели и легенда слева, «Подробнее →» и «Фильтры» справа, показатель — под ними */}
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold">
+            {title ?? meta.label}
+            {profitNote}
+          </h2>
+          <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block h-2 w-2 rounded-full bg-accent" /> {rangeText(data.date_from, data.date_to)}
+            </span>
+            {data.previous && (
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block h-0 w-5 border-t-2 border-dashed border-muted" /> прошлый период
+              </span>
+            )}
+            {gaps.length > 0 && (
+              <span className="flex items-center gap-1.5" data-testid="gap-legend">
+                <span className="inline-block h-0 w-5 border-t-2 border-dotted border-accent/60" /> нет данных
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-3 text-sm">
+          <MoreLink href={moreHref} />
+          {action}
+        </div>
       </div>
-      <div className={`h-60 ${drill.boxProps.className}`} onPointerDown={drill.boxProps.onPointerDown}>
+      {toolbar && <div className="mb-3">{toolbar}</div>}
+      <div className={`h-64 ${drill.boxProps.className}`} onPointerDown={drill.boxProps.onPointerDown}>
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={rows} margin={{ top: events.length ? 16 : 4, right: 4, bottom: 0, left: 0 }} onClick={drill.onClick}>
+          <ComposedChart data={rows} margin={{ top: events.length ? 16 : 8, right: 4, bottom: 0, left: 0 }} onClick={drill.onClick}>
             <CartesianGrid vertical={false} stroke={colors.line} />
-            <XAxis dataKey="label" tick={{ fill: colors.muted, fontSize: 11 }} tickLine={false} axisLine={{ stroke: colors.line }} minTickGap={8} />
-            <YAxis tick={{ fill: colors.muted, fontSize: 11 }} tickFormatter={meta.format === 'pct' ? (v: number) => `${v} %` : compact} tickLine={false} axisLine={false} width={64} />
+            <XAxis dataKey="label" tick={{ fill: colors.faint, fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={8} />
+            <YAxis tick={{ fill: colors.faint, fontSize: 11 }} tickFormatter={meta.format === 'pct' ? (v: number) => `${v} %` : compact} tickLine={false} axisLine={false} width={78} />
             <Tooltip content={<MetricTooltip metric={metric} data={data} drill={drill} />} cursor={{ stroke: colors.faint, strokeDasharray: '3 3' }} {...drill.tooltipProps} />
             {zeroLine && (
               <ReferenceLine
@@ -437,27 +481,43 @@ export function MetricChart({
                 data-testid="zero-line"
               />
             )}
+            {gaps.map((k) => (
+              <Line
+                key={`gap-${k}`}
+                type="linear"
+                dataKey={(r: Row) => r.bridge[k] ?? null}
+                stroke={colors.accent}
+                strokeOpacity={0.55}
+                strokeWidth={2}
+                strokeDasharray="2 4"
+                dot={false}
+                activeDot={false}
+                connectNulls
+                isAnimationActive={false}
+                legendType="none"
+              />
+            ))}
             <Line
               type="monotone"
               dataKey="value"
               stroke={colors.accent}
-              strokeWidth={2}
+              strokeWidth={2.5}
               dot={(props: { cx?: number; cy?: number; value?: number | null; index?: number }) => (
                 <circle
                   key={props.index}
                   cx={props.cx}
                   cy={props.cy}
-                  r={zeroLine && (props.value ?? 0) < 0 ? 3 : 2}
+                  r={zeroLine && (props.value ?? 0) < 0 ? 3 : 2.5}
                   fill={zeroLine && (props.value ?? 0) < 0 ? colors.bad : colors.accent}
-                  display={props.value == null || props.cx == null ? 'none' : undefined}
+                  display={props.value == null || props.cx == null || !showDot(props.index ?? 0, props.value) ? 'none' : undefined}
                 />
               )}
-              activeDot={{ r: 4 }}
+              activeDot={{ r: 5, strokeWidth: 2, stroke: colors.card }}
               connectNulls={false}
               isAnimationActive={false}
             />
             {data.previous && (
-              <Line type="monotone" dataKey="prev" stroke={colors.muted} strokeDasharray="4 3" strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />
+              <Line type="monotone" dataKey="prev" stroke={colors.muted} strokeDasharray="4 3" strokeWidth={2} dot={false} activeDot={false} connectNulls isAnimationActive={false} />
             )}
             {rows
               .filter((r) => r.events.length > 0)
@@ -471,7 +531,7 @@ export function MetricChart({
                   label={{ value: Array.from(new Set(r.events.map((e) => EVENT_MARK[e.kind] ?? '•'))).join(''), position: 'top', fill: colors.warn, fontSize: 11 }}
                 />
               ))}
-          </LineChart>
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
     </section>

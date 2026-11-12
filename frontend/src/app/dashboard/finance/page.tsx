@@ -137,7 +137,7 @@ function Empty() {
         загрузятся сами. Это пропуск, а не ноль.
       </p>
       <div className="flex flex-wrap gap-3">
-        <Link href="/dashboard/finance/documents" className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90">
+        <Link href="/dashboard/finance/documents" className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90">
           Загрузить отчёт
         </Link>
         <Link href="/dashboard/settings/integrations" className="rounded-lg border border-line px-4 py-2 text-sm hover:border-accent hover:text-accent">
@@ -155,7 +155,7 @@ function Figures({ data, pnl }: { data: FinanceOverview; pnl: string }) {
   const profit = f.profit.value === null ? null : Number(f.profit.value)
   const noPrev = data.previous.has_data ? null : 'в прошлом периоде нет данных'
   return (
-    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line lg:grid-cols-4" data-testid="finance-figures">
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="finance-figures">
       <Card href={pnl} label="Выручка" value={rub(f.revenue.value)} testid="finance-revenue">
         <Change pct={f.revenue.change_pct ?? null} against={against} />
         <Hint>{was(f.revenue, rub) ?? noPrev ?? ''}</Hint>

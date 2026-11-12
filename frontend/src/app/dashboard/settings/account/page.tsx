@@ -14,7 +14,7 @@ import { saveFile } from '@/lib/download'
 const MIN_PASSWORD = 8
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' })
 const fmtDateTime = (iso: string) => new Date(iso).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', dateStyle: 'short', timeStyle: 'short' })
-const button = 'rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60'
+const button = 'rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60'
 const secondary = 'rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent disabled:opacity-60'
 
 function Section({ title, hint, children, testid, id }: { title: string; hint?: React.ReactNode; children: React.ReactNode; testid?: string; id?: string }) {
@@ -297,7 +297,7 @@ function DeleteSection() {
           <input type="checkbox" checked={sure} onChange={(e) => setSure(e.target.checked)} className="mt-1 accent-accent" data-testid="delete-sure" />
           Понимаю: через 30 дней аккаунт и данные всех магазинов удалятся без возможности восстановления.
         </label>
-        <button type="submit" disabled={busy || !password || !sure} className="rounded-lg bg-bad px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60" data-testid="delete-submit">
+        <button type="submit" disabled={busy || !password || !sure} className="rounded-lg bg-bad px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60" data-testid="delete-submit">
           Удалить аккаунт через 30 дней
         </button>
       </form>
