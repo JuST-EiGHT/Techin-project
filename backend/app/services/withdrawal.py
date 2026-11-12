@@ -29,7 +29,7 @@ from app.schemas.sync import utc
 from app.services.sales import sold_by_product
 from app.services.stock_table import unit_costs
 from app.services.stocks import StocksView, load_view
-from app.services.sync.finance import today_msk
+from app.services.sync.finance import MSK, today_msk
 from app.services.user_settings import defaults, get_settings
 from app.services.xlsx_export import Col, table_xlsx
 
@@ -359,7 +359,8 @@ def to_xlsx(data: dict) -> bytes:
     for it in data["items"]:
         p = it["product"]
         d = it["decision"]
-        decision = f"{DECISION_TEXT[d['decision']]}, {d['at']:%d.%m.%Y}" if d else ""
+        # дата решения — по Москве, как «сегодня» везде в сервисе (по UTC ночью выходил вчерашний день)
+        decision = f"{DECISION_TEXT[d['decision']]}, {d['at'].astimezone(MSK):%d.%m.%Y}" if d else ""
         for line in it["lines"]:
             frozen = engine.frozen_money(line["qty"], it["unit_cost"])
             rows.append([

@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { FormError } from '@/components/AuthForm'
 import { CheckOption, ChipOptions, FilterButton, FilterField, SearchBox, selectClass } from '@/components/filters'
 import { fmtDay, rub } from '@/components/reports'
+import { HelpTip, Segmented, Skeleton, Sub, buttonClass } from '@/components/ui'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
 import {
@@ -40,7 +41,6 @@ const COLUMNS: Column[] = [
   { key: 'unit_cost', label: 'Себестоимость', hint: 'С НДС поставщика, на сегодня — из справочника себестоимости' },
   { key: 'stock_value', label: 'Стоимость запаса', hint: 'Доступно × себестоимость с НДС; нет себестоимости — «нет данных»', sort: 'stock_value', first: 'desc' },
   { key: 'last_sale', label: 'Последняя продажа', hint: 'Последний день с продажей товара — на любом складе', sort: 'last_sale', first: 'desc' },
-  { key: 'status', label: 'Статус', hint: 'На сколько дней продаж хватит остатка — по порогам из «Настроек»' },
 ]
 const DEFAULT_HIDDEN: ColumnKey[] = ['unit_cost']
 const COLUMNS_KEY = 'stocks.hidden-columns'
@@ -209,22 +209,17 @@ export function StockTablePanel({
 
   return (
     <>
-      <div className="space-y-3 border-b border-line p-4">
+      <div className="space-y-3 border-b border-line p-4" data-testid="stock-toolbar">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex w-full overflow-hidden rounded-lg border border-line text-sm sm:w-auto" role="group" aria-label="Строка таблицы" data-testid="stock-group">
-            {GROUPS.map((g) => (
-              <button
-                key={g.value}
-                type="button"
-                aria-pressed={group === g.value}
-                onClick={() => onUrl({ group: g.value === 'product' ? '' : g.value })}
-                className={`flex-1 whitespace-nowrap px-2.5 py-1.5 sm:flex-none sm:px-3 ${group === g.value ? 'bg-accent text-on-accent' : 'hover:bg-bg'}`}
-                data-testid={`group-${g.value}`}
-              >
-                {g.label}
-              </button>
-            ))}
-          </div>
+          {/* 10.27c — вид, как «Товары / Кластеры» в Ozon; по складам и кластерам — дерево */}
+          <Segmented
+            label="Строка таблицы"
+            value={group}
+            onChange={(v) => onUrl({ group: v === 'product' ? '' : v })}
+            options={GROUPS}
+            testid="stock-group"
+            optionTestid={(v) => `group-${v}`}
+          />
           <SearchBox value={search} onChange={setSearch} placeholder="Артикул, название, штрихкод или SKU" testid="stock-search" className="min-w-0 flex-1 sm:max-w-xs" />
           {/* правка 11.11: склад, статус и «нулевые» — в «Фильтрах» */}
           <div className="ml-auto">
@@ -267,7 +262,7 @@ export function StockTablePanel({
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           {totals && (
-            <p className="text-sm text-muted" data-testid="stock-totals">
+            <p className="text-xs text-muted" data-testid="stock-totals">
               {totals.rows === totals.products ? `Товаров: ${totals.products}` : `Строк: ${totals.rows} · товаров ${totals.products}`} ·{' '}
               {totals.available.toLocaleString('ru-RU')} шт.
               {totals.in_transit > 0 && ` · в пути ${totals.in_transit.toLocaleString('ru-RU')}`} · стоимость запаса{' '}
@@ -289,12 +284,20 @@ export function StockTablePanel({
             </p>
           )}
           <div className="flex items-center gap-2 sm:ml-auto">
+            <span className="flex items-center gap-1.5 text-xs text-muted" data-testid="stock-note">
+              Как считаем
+              <HelpTip label="Как считаются продажи, запас и стоимость">
+                Продажи в день, дни запаса и дата окончания — по товару в целом (по всем складам): склада в начислениях Ozon нет.
+                Стоимость запаса — по себестоимости с НДС на сегодня; без себестоимости не считаем её нулём. У кластера и склада —
+                сумма; «≥» — у части товаров нет себестоимости.
+              </HelpTip>
+            </span>
             <ColumnsMenu hidden={hidden} onToggle={toggle} />
             <button
               type="button"
               onClick={exportXlsx}
               disabled={!data?.rows.length}
-              className="rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent disabled:opacity-60"
+              className={buttonClass('secondary', 'sm')}
               data-testid="export-xlsx"
             >
               Excel
@@ -303,7 +306,7 @@ export function StockTablePanel({
               type="button"
               onClick={exportCsv}
               disabled={!data?.rows.length}
-              className="rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent disabled:opacity-60"
+              className={buttonClass('secondary', 'sm')}
               data-testid="export-csv"
             >
               CSV
@@ -326,14 +329,59 @@ export function StockTablePanel({
       )}
       <FormError message={error} />
       <Rows data={data} columns={shown} sort={sort} order={order} onSort={sortBy} filtered={Boolean(warehouseId || status || query)} onWarehouse={(id) => onUrl({ warehouse: id })} />
-      {data && data.rows.length > 0 && (
-        <p className="border-t border-line px-4 py-2 text-xs text-faint">
-          Продажи в день, дни запаса и дата окончания — по товару в целом (по всем складам): склада в начислениях Ozon нет.
-          Стоимость запаса — по себестоимости с НДС на сегодня; без себестоимости не считаем её нулём.
-        </p>
-      )}
     </>
   )
+}
+
+type TreeNode = { key: string; title: string; sub: string; rows: StockTableRow[]; children: TreeNode[] | null; onPick?: () => void }
+
+/** Дерево, как «Управление остатками» в Ozon: по складам — кластер → склад → товар, по кластерам — кластер → товар. */
+function buildTree(data: StockTableData, onWarehouse: (id: string) => void): TreeNode[] {
+  const order: string[] = []
+  const byCluster = new Map<string, StockTableRow[]>()
+  for (const r of data.rows) {
+    const c = data.group === 'cluster' ? r.cluster ?? '—' : r.warehouse?.cluster_name ?? (r.warehouse?.type && r.warehouse.type !== 'FBO' ? 'Свои склады' : 'Без кластера')
+    if (!byCluster.has(c)) {
+      byCluster.set(c, [])
+      order.push(c)
+    }
+    byCluster.get(c)!.push(r)
+  }
+  return order.map((c) => {
+    const rows = byCluster.get(c)!
+    if (data.group === 'cluster') {
+      const r0 = rows[0]
+      const sub = r0.cluster_type === 'FBO' ? `кластер Ozon · складов ${r0.places}` : `свой склад (${r0.cluster_type})`
+      return { key: c, title: c, sub: `${sub} · товаров ${rows.length}`, rows, children: null }
+    }
+    const wOrder: string[] = []
+    const byW = new Map<string, StockTableRow[]>()
+    for (const r of rows) {
+      const id = r.warehouse?.id ?? '—'
+      if (!byW.has(id)) {
+        byW.set(id, [])
+        wOrder.push(id)
+      }
+      byW.get(id)!.push(r)
+    }
+    const children = wOrder.map((id) => {
+      const wr = byW.get(id)!
+      const w = wr[0].warehouse
+      return { key: `${c}/${id}`, title: w?.name ?? '—', sub: `${w?.type ?? ''} · товаров ${wr.length}`, rows: wr, children: null, onPick: w ? () => onWarehouse(w.id) : undefined }
+    })
+    return { key: c, title: c, sub: `складов ${children.length} · товаров ${new Set(rows.map((r) => r.product.id)).size}`, rows, children }
+  })
+}
+
+/** Сумма по группе; у всех строк «нет данных» (резерв FBO) — null, а не 0. */
+const sum = (rows: StockTableRow[], f: (r: StockTableRow) => number | null) =>
+  rows.some((r) => f(r) !== null) ? rows.reduce((n, r) => n + (f(r) ?? 0), 0) : null
+const fmtSum = (v: number | null) => (v === null ? '—' : v.toLocaleString('ru-RU'))
+/** Стоимость группы: сумма известных; если у части нет себестоимости — «≥ …», ничего не известно — null (не 0). */
+function groupValue(rows: StockTableRow[]): { value: number | null; partial: boolean } {
+  const known = rows.filter((r) => r.stock_value !== null)
+  const missing = rows.some((r) => r.stock_value === null && r.available > 0)
+  return { value: known.length ? known.reduce((n, r) => n + Number(r.stock_value), 0) : null, partial: missing && known.length > 0 }
 }
 
 function Rows({
@@ -353,41 +401,157 @@ function Rows({
   filtered: boolean
   onWarehouse: (id: string) => void
 }) {
-  if (data === null) return <p className="p-4 text-sm text-muted">Загрузка…</p>
+  const [open, setOpen] = useState<Set<string>>(new Set())
+  const group = data?.group
+  useEffect(() => setOpen(new Set()), [group])
+  if (data === null)
+    return (
+      <div className="space-y-2 p-4">
+        <Skeleton className="h-8" />
+        <Skeleton className="h-8" />
+        <Skeleton className="h-8" />
+      </div>
+    )
   if (data.rows.length === 0) return <p className="p-4 text-sm text-muted">Остатков нет{filtered ? ' по выбранным фильтрам' : ''}.</p>
   const on = (k: ColumnKey) => columns.some((c) => c.key === k)
   const key = (r: StockTableRow) => `${r.product.id}-${r.warehouse?.id ?? r.cluster ?? ''}`
+  const tree = data.group === 'product' ? null : buildTree(data, onWarehouse)
+  // немного строк или фильтр — сразу раскрыто; иначе свёрнуто, как в Ozon
+  const autoOpen = filtered || data.rows.length <= 25
+  const isOpen = (k: string) => autoOpen !== open.has(k)
+  const flip = (k: string) =>
+    setOpen((o) => {
+      const next = new Set(o)
+      if (next.has(k)) next.delete(k)
+      else next.add(k)
+      return next
+    })
+
+  const productCells = (r: StockTableRow) => {
+    const st = STATUS[r.status ?? 'no_data']
+    return (
+      <>
+        <td className="px-3 py-2">
+          <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${st.badge}`}>{st.label}</span>
+          {r.days_of_supply !== null && <Sub>на {num(r.days_of_supply)} дн.</Sub>}
+        </td>
+        <td className="px-3 py-2 text-right tabular-nums">
+          {r.available}
+          {data.group !== 'product' && r.product_available !== r.available && <Sub>из {r.product_available}</Sub>}
+        </td>
+        {on('reserved') && <td className={td}>{r.reserved ?? '—'}</td>}
+        {on('in_transit') && <td className={td}>{r.in_transit ?? '—'}</td>}
+        {on('avg_daily_sales') && <td className={td}>{perDay(r.avg_daily_sales)}</td>}
+        {on('days_of_supply') && <td className={td}>{num(r.days_of_supply)}</td>}
+        {on('end_date') && (
+          <td className={td} data-testid="cell-end-date">
+            <EndDate r={r} today={data.today} />
+          </td>
+        )}
+        {on('unit_cost') && <td className={td}>{r.unit_cost === null ? <span className="text-faint">нет</span> : rub(r.unit_cost)}</td>}
+        {on('stock_value') && (
+          <td className={td} data-testid="cell-stock-value">
+            {r.stock_value !== null ? (
+              rub(r.stock_value)
+            ) : r.available > 0 ? (
+              <Link href="/dashboard/products/costs" className="text-faint hover:text-accent" title="Нет себестоимости — заполните справочник">
+                нет данных
+              </Link>
+            ) : (
+              '—'
+            )}
+          </td>
+        )}
+        {on('last_sale') && (
+          <td className="whitespace-nowrap px-3 py-2">
+            {r.last_sale ? fmtDay(r.last_sale) : <span className="text-faint">нет в данных</span>}
+            {r.days_without_sales !== null && r.days_without_sales > 0 && <Sub>{r.days_without_sales} дн. назад</Sub>}
+          </td>
+        )}
+      </>
+    )
+  }
+  const sumCells = (rows: StockTableRow[], strong = false) => {
+    // итоговая строка — по итогам API (точнее: там все строки, а не только показанные)
+    const v = strong && data.totals ? { value: data.totals.stock_value === null ? null : Number(data.totals.stock_value), partial: data.totals.without_cost > 0 && data.totals.stock_value !== null } : groupValue(rows)
+    const cls = `${td} ${strong ? 'font-semibold' : 'font-medium'}`
+    return (
+      <>
+        <td className="px-3 py-2" />
+        <td className={cls}>{fmtSum(strong ? data.totals.available : sum(rows, (r) => r.available))}</td>
+        {on('reserved') && <td className={cls}>{fmtSum(sum(rows, (r) => r.reserved))}</td>}
+        {on('in_transit') && <td className={cls}>{fmtSum(strong ? data.totals.in_transit : sum(rows, (r) => r.in_transit))}</td>}
+        {on('avg_daily_sales') && <td className={td} />}
+        {on('days_of_supply') && <td className={td} />}
+        {on('end_date') && <td className={td} />}
+        {on('unit_cost') && <td className={td} />}
+        {on('stock_value') && (
+          <td className={cls}>
+            {v.value === null ? <span className="font-normal text-faint">нет данных</span> : `${v.partial ? '≥ ' : ''}${rub(String(v.value))}`}
+          </td>
+        )}
+        {on('last_sale') && <td className={td} />}
+      </>
+    )
+  }
+  const productRow = (r: StockTableRow, indent: number) => (
+    <tr key={key(r)} data-testid="stock-row" data-status={r.status ?? 'none'} className={r.status === 'critical' ? 'bg-bad/5' : undefined}>
+      <td className="py-2 pr-3" style={{ paddingLeft: `${0.75 + indent * 1.25}rem` }}>
+        <Link href={productHref(r.product.id)} className="font-medium hover:text-accent" data-testid="row-product">
+          {r.product.offer_id}
+        </Link>
+        {r.product.name && <div className="max-w-[16rem] truncate text-xs text-faint">{r.product.name}</div>}
+        {data.group === 'product' && <Where r={r} onWarehouse={onWarehouse} />}
+      </td>
+      {productCells(r)}
+    </tr>
+  )
+  const groupRow = (n: TreeNode, depth: number) => (
+    <tr key={n.key} className={depth === 0 ? 'bg-soft/40' : undefined} data-testid={depth === 0 ? 'stock-cluster' : 'stock-subgroup'}>
+      <td className="py-2 pr-3" style={{ paddingLeft: `${0.75 + depth * 1.25}rem` }}>
+        <div className="flex items-start gap-2">
+          <button type="button" onClick={() => flip(n.key)} aria-expanded={isOpen(n.key)} className="mt-0.5 w-3 text-accent" aria-label={isOpen(n.key) ? 'Свернуть' : 'Развернуть'} data-testid="stock-group-toggle">
+            {isOpen(n.key) ? '▾' : '▸'}
+          </button>
+          <div>
+            {n.onPick ? (
+              <button type="button" onClick={n.onPick} className="text-left font-medium hover:text-accent" title="Показать только этот склад" data-testid="row-warehouse">
+                {n.title}
+              </button>
+            ) : (
+              <span className="font-medium">{n.title}</span>
+            )}
+            <Sub>{n.sub}</Sub>
+          </div>
+        </div>
+      </td>
+      {sumCells(n.rows)}
+    </tr>
+  )
+
   return (
     <>
       <ul className="divide-y divide-line sm:hidden" data-testid="stock-cards">
         {data.rows.map((r) => {
           const st = STATUS[r.status ?? 'no_data']
           return (
-            <li key={key(r)} className={`border-l-4 px-4 py-2 ${st.row}`} data-testid="stock-card">
+            <li key={key(r)} className="px-4 py-2.5" data-testid="stock-card">
               <div className="flex items-start gap-2">
                 <Link href={productHref(r.product.id)} className="min-w-0 flex-1 truncate font-medium">
                   {r.product.offer_id}
                 </Link>
-                <span className={`shrink-0 rounded px-2 py-0.5 text-xs ${st.badge}`}>{st.label}</span>
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${st.badge}`}>{st.label}</span>
               </div>
-              {r.product.name && <div className="truncate text-xs text-muted">{r.product.name}</div>}
-              {data.group !== 'product' && (
-                <div className="mt-0.5 text-xs text-faint">
-                  {r.warehouse ? `${r.warehouse.name} · ${r.warehouse.type}` : r.cluster}
-                </div>
-              )}
+              {r.product.name && <div className="truncate text-xs text-faint">{r.product.name}</div>}
+              {data.group !== 'product' && <div className="mt-0.5 text-xs text-faint">{r.warehouse ? `${r.warehouse.name} · ${r.warehouse.type}` : r.cluster}</div>}
               <div className="mt-1 flex flex-wrap gap-x-3 text-sm">
                 <span>
                   <span className="text-muted">доступно</span> <span className="font-medium tabular-nums">{r.available}</span>
                 </span>
                 {r.in_transit ? <span className="text-muted">в пути {r.in_transit}</span> : null}
-                {r.reserved ? <span className="text-muted">резерв {r.reserved}</span> : null}
                 <span className="text-muted">{perDay(r.avg_daily_sales)} в день</span>
                 {r.days_of_supply !== null && <span className="text-muted">запас {num(r.days_of_supply)} дн.</span>}
-                {r.end_date && <span className="text-muted">до {fmtDay(r.end_date)}</span>}
-                <span className={r.stock_value === null ? 'text-faint' : 'text-muted'}>
-                  {r.stock_value === null ? 'стоимость — нет данных' : rub(r.stock_value)}
-                </span>
+                <span className={r.stock_value === null ? 'text-faint' : 'text-muted'}>{r.stock_value === null ? 'стоимость — нет данных' : rub(r.stock_value)}</span>
               </div>
             </li>
           )
@@ -395,85 +559,60 @@ function Rows({
       </ul>
       <div className="hidden overflow-x-auto sm:block">
         <table className="w-full text-sm">
-          <thead className="text-left text-xs text-muted">
-            <tr className="border-b border-line">
+          <thead className="bg-soft/60 text-left text-xs text-muted">
+            <tr>
               <SortTh s="offer_id" first="asc" sort={sort} order={order} onSort={onSort} left>
-                Товар
+                {data.group === 'warehouse' ? 'Кластер, склад или товар' : data.group === 'cluster' ? 'Кластер или товар' : 'Товар'}
               </SortTh>
-              <th className="px-3 py-2 font-normal">{data.group === 'cluster' ? 'Кластер' : 'Склад'}</th>
+              <th className="whitespace-nowrap px-3 py-2.5 font-medium" title="На сколько дней продаж хватит остатка — по порогам из «Настроек»">
+                Ликвидность
+                <div className="text-[11px] font-normal text-faint">статус · запас</div>
+              </th>
               <SortTh s="available" first="desc" sort={sort} order={order} onSort={onSort} title="Доступно к продаже здесь">
                 Доступно
               </SortTh>
-              {columns.map((c) =>
-                c.sort ? (
-                  <SortTh key={c.key} s={c.sort} first={c.first ?? 'desc'} sort={sort} order={order} onSort={onSort} title={c.hint} left={c.key === 'last_sale'}>
-                    {c.label}
-                  </SortTh>
-                ) : (
-                  <th key={c.key} className={`whitespace-nowrap px-3 py-2 font-normal ${c.key === 'status' ? '' : 'text-right'}`} title={c.hint}>
-                    {c.label}
-                  </th>
-                ),
-              )}
+              {columns
+                .filter((c) => c.key !== 'status')
+                .map((c) =>
+                  c.sort ? (
+                    <SortTh key={c.key} s={c.sort} first={c.first ?? 'desc'} sort={sort} order={order} onSort={onSort} title={c.hint} left={c.key === 'last_sale'}>
+                      {c.label}
+                    </SortTh>
+                  ) : (
+                    <th key={c.key} className="whitespace-nowrap px-3 py-2.5 text-right font-medium" title={c.hint}>
+                      {c.label}
+                    </th>
+                  ),
+                )}
             </tr>
           </thead>
           <tbody>
-            {data.rows.map((r) => {
-              const st = STATUS[r.status ?? 'no_data']
-              return (
-                <tr key={key(r)} data-testid="stock-row" data-status={r.status ?? 'none'} className={`border-b border-l-4 border-b-line last:border-b-0 ${st.row}`}>
-                  <td className="px-3 py-2">
-                    <Link href={productHref(r.product.id)} className="font-medium hover:text-accent" data-testid="row-product">
-                      {r.product.offer_id}
-                    </Link>
-                    {r.product.name && <div className="max-w-[14rem] truncate text-xs text-muted">{r.product.name}</div>}
-                  </td>
-                  <td className="px-3 py-2">
-                    <Where r={r} onWarehouse={onWarehouse} />
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums">
-                    {r.available}
-                    {data.group !== 'product' && r.product_available !== r.available && (
-                      <div className="text-xs text-faint">из {r.product_available}</div>
-                    )}
-                  </td>
-                  {on('reserved') && <td className={td}>{r.reserved ?? '—'}</td>}
-                  {on('in_transit') && <td className={td}>{r.in_transit ?? '—'}</td>}
-                  {on('avg_daily_sales') && <td className={td}>{perDay(r.avg_daily_sales)}</td>}
-                  {on('days_of_supply') && <td className={td}>{num(r.days_of_supply)}</td>}
-                  {on('end_date') && (
-                    <td className={td} data-testid="cell-end-date">
-                      <EndDate r={r} today={data.today} />
-                    </td>
-                  )}
-                  {on('unit_cost') && <td className={td}>{r.unit_cost === null ? <span className="text-faint">нет</span> : rub(r.unit_cost)}</td>}
-                  {on('stock_value') && (
-                    <td className={td} data-testid="cell-stock-value">
-                      {r.stock_value !== null ? (
-                        rub(r.stock_value)
-                      ) : r.available > 0 ? (
-                        <Link href="/dashboard/products/costs" className="text-faint hover:text-accent" title="Нет себестоимости — заполните справочник">
-                          нет данных
-                        </Link>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                  )}
-                  {on('last_sale') && (
-                    <td className="whitespace-nowrap px-3 py-2">
-                      {r.last_sale ? fmtDay(r.last_sale) : <span className="text-faint">нет в данных</span>}
-                      {r.days_without_sales !== null && r.days_without_sales > 0 && <div className="text-xs text-faint">{r.days_without_sales} дн. назад</div>}
-                    </td>
-                  )}
-                  {on('status') && (
-                    <td className="px-3 py-2">
-                      <span className={`whitespace-nowrap rounded px-2 py-0.5 text-xs ${st.badge}`}>{st.label}</span>
-                    </td>
-                  )}
-                </tr>
-              )
-            })}
+            {tree && (
+              <tr className="font-semibold" data-testid="stock-total-row">
+                <td className="px-3 py-2">
+                  Всего {tree.length} {plural(tree.length, 'кластер', 'кластера', 'кластеров')}
+                  <button
+                    type="button"
+                    onClick={() => setOpen(autoOpen === (open.size > 0) ? new Set() : new Set(tree.flatMap((n) => [n.key, ...(n.children ?? []).map((c) => c.key)])))}
+                    className="ml-3 text-xs font-normal text-accent hover:underline"
+                    data-testid="stock-expand-all"
+                  >
+                    {tree.every((n) => isOpen(n.key)) ? 'Свернуть все' : 'Развернуть все'}
+                  </button>
+                </td>
+                {sumCells(data.rows, true)}
+              </tr>
+            )}
+            {tree
+              ? tree.flatMap((n) => [
+                  groupRow(n, 0),
+                  ...(isOpen(n.key)
+                    ? n.children
+                      ? n.children.flatMap((c) => [groupRow(c, 1), ...(isOpen(c.key) ? c.rows.map((r) => productRow(r, 2)) : [])])
+                      : n.rows.map((r) => productRow(r, 1))
+                    : []),
+                ])
+              : data.rows.map((r) => productRow(r, 0))}
           </tbody>
         </table>
       </div>
@@ -532,13 +671,13 @@ function ColumnsMenu({ hidden, onToggle }: { hidden: ColumnKey[]; onToggle: (k: 
         type="button"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
-        className="rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent"
+        className={buttonClass('secondary', 'sm')}
         data-testid="columns-button"
       >
         Колонки ▾
       </button>
       {open && (
-        <div className="absolute right-0 z-20 mt-1 w-72 rounded-lg border border-line bg-card p-2 shadow-lg" data-testid="columns-menu">
+        <div className="absolute right-0 z-20 mt-1 w-72 rounded-xl border border-line bg-card p-2 shadow-pop" data-testid="columns-menu">
           <p className="px-2 pb-1 text-xs text-faint">Товар, склад и «Доступно» видны всегда. Выбор запоминается в этом браузере.</p>
           {COLUMNS.map((col) => (
             <label key={col.key} className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-line/40">
