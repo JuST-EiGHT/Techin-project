@@ -3,6 +3,7 @@
 // Дизайн-система (шаг 10.27a): общие элементы интерфейса. Правила — docs/DESIGN.md, витрина — /design.
 // Разделы при переделке берут элементы отсюда, а не собирают свои: так новый вид приходит на все страницы сразу.
 import Link from 'next/link'
+import { useEffect, useRef, useState } from 'react'
 
 type Icon = React.ComponentType<{ className?: string }>
 export type Tone = 'accent' | 'ok' | 'bad' | 'warn' | 'muted'
@@ -12,8 +13,9 @@ const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).jo
 // ---------- страница ----------
 
 /** Заголовок страницы: название, одна строка «что здесь», действия справа (на телефоне — под заголовком). */
-export function PageHeader({ title, description, actions, children }: {
+export function PageHeader({ title, description, actions, children, titleTestid }: {
   title: string
+  titleTestid?: string
   description?: React.ReactNode
   actions?: React.ReactNode
   /** Под заголовком: вкладки раздела, полоса фильтров. */
@@ -23,7 +25,9 @@ export function PageHeader({ title, description, actions, children }: {
     <header className="mb-5 space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight" data-testid={titleTestid}>
+            {title}
+          </h1>
           {description && <p className="mt-1 text-sm text-muted">{description}</p>}
         </div>
         {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
@@ -242,4 +246,127 @@ export function EmptyState({ icon, title, children, action, testid }: {
 /** Заглушка на время загрузки — той же формы, что содержимое, вместо крутилки. */
 export function Skeleton({ className }: { className?: string }) {
   return <div className={cx('animate-pulse rounded-lg bg-soft', className)} aria-hidden />
+}
+
+// ---------- плотность как у Ozon (шаг 10.27c) ----------
+
+/** Вкладки раздела со счётчиком, как у Ozon: «Участвуют сейчас 42», «Доступные 6». Подчёркнута выбранная. */
+export function Tabs<T extends string>({ value, onChange, items, testid, label, itemTestid }: {
+  value: T
+  onChange: (v: T) => void
+  items: { value: T; label: string; count?: number | null; tone?: 'bad' | 'warn'; title?: string }[]
+  testid?: string
+  label?: string
+  itemTestid?: (v: T) => string
+}) {
+  return (
+    <div role="tablist" aria-label={label} className="flex gap-1 overflow-x-auto border-b border-line" data-testid={testid}>
+      {items.map((t) => (
+        <button
+          key={t.value}
+          type="button"
+          role="tab"
+          aria-selected={value === t.value}
+          title={t.title}
+          onClick={() => onChange(t.value)}
+          className={cx(
+            '-mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors',
+            value === t.value ? 'border-accent font-medium text-fg' : 'border-transparent text-muted hover:text-fg',
+          )}
+          data-testid={itemTestid?.(t.value)}
+        >
+          {t.label}
+          {t.count !== undefined && t.count !== null && <Count n={t.count} tone={t.tone} active={value === t.value} />}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** Быстрые вкладки-фильтры со счётчиком, как у Ozon: «Все товары», «Срочно поставить 3», «Скоро поставить 1».
+ *  Это не «Фильтры»: самые частые срезы списка — на виду (решение владельца 13.11.2026); остальное — за «Фильтрами». */
+export function QuickTabs<T extends string>({ value, onChange, items, testid, label, itemTestid }: {
+  value: T
+  onChange: (v: T) => void
+  items: { value: T; label: string; count?: number | null; tone?: 'bad' | 'warn'; title?: string }[]
+  testid?: string
+  label?: string
+  itemTestid?: (v: T) => string
+}) {
+  return (
+    <div role="group" aria-label={label} className="flex max-w-full flex-wrap gap-1.5" data-testid={testid}>
+      {items.map((t) => (
+        <button
+          key={t.value}
+          type="button"
+          aria-pressed={value === t.value}
+          title={t.title}
+          onClick={() => onChange(t.value)}
+          className={cx(
+            'inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg border px-3 text-sm transition-colors',
+            value === t.value ? 'border-accent bg-accent/5 text-fg' : 'border-line bg-card text-muted hover:text-fg',
+          )}
+          data-testid={itemTestid?.(t.value)}
+        >
+          {t.label}
+          {t.count !== undefined && t.count !== null && <Count n={t.count} tone={t.tone} active={value === t.value} />}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** Счётчик во вкладке: «бад» — красный кружок (срочно), «warn» — жёлтый, иначе — серый. Ноль у тревожных — серый. */
+function Count({ n, tone, active }: { n: number; tone?: 'bad' | 'warn'; active: boolean }) {
+  const cls =
+    tone && n > 0 ? (tone === 'bad' ? 'bg-bad text-on-accent' : 'bg-warn text-on-accent') : active ? 'bg-accent/15 text-accent' : 'bg-soft text-muted'
+  return <span className={cx('min-w-[1.25rem] rounded-full px-1.5 text-center text-xs font-medium leading-5 tabular-nums', cls)}>{n.toLocaleString('ru-RU')}</span>
+}
+
+/** Подсказка «?» вместо абзаца пояснений: наведение или нажатие — текст в облачке. */
+export function HelpTip({ children, label = 'Как считаем', testid }: { children: React.ReactNode; label?: string; testid?: string }) {
+  const [open, setOpen] = useState(false)
+  const box = useRef<HTMLSpanElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (e: PointerEvent) => !box.current?.contains(e.target as Node) && setOpen(false)
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    window.addEventListener('pointerdown', close)
+    window.addEventListener('keydown', esc)
+    return () => {
+      window.removeEventListener('pointerdown', close)
+      window.removeEventListener('keydown', esc)
+    }
+  }, [open])
+  return (
+    <span ref={box} className="relative inline-flex align-middle" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button
+        type="button"
+        aria-label={label}
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-line text-[10px] font-semibold leading-none text-muted hover:border-accent hover:text-accent"
+        data-testid={testid}
+      >
+        ?
+      </button>
+      {open && (
+        <span
+          role="tooltip"
+          className="absolute left-1/2 top-full z-30 mt-1.5 w-72 max-w-[80vw] -translate-x-1/2 rounded-lg border border-line bg-card p-3 text-left text-xs font-normal normal-case leading-relaxed text-muted shadow-pop"
+        >
+          {children}
+        </span>
+      )}
+    </span>
+  )
+}
+
+/** Вторая строка ячейки, как у Ozon: под ценой — «ограничение», под штуками — «−42 %». Серым и мельче. */
+export function Sub({ children, tone, testid }: { children: React.ReactNode; tone?: 'ok' | 'bad' | 'warn'; testid?: string }) {
+  return (
+    <div className={cx('mt-0.5 text-xs', tone === 'ok' ? 'text-ok' : tone === 'bad' ? 'text-bad' : tone === 'warn' ? 'text-warn' : 'text-faint')} data-testid={testid}>
+      {children}
+    </div>
+  )
 }

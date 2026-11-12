@@ -95,11 +95,11 @@ export type SupplyView = 'clusters' | 'products'
 export type SupplyShow = 'all' | 'needed' | 'critical' | 'urgent' | 'planned' | 'first'
 
 export const STATUS: Record<RowStatus, { label: string; text: string; badge: string; border: string }> = {
-  critical: { label: 'Срочно поставить', text: 'text-bad', badge: 'bg-bad/15 text-bad', border: 'border-l-bad' },
-  urgent: { label: 'Скоро поставить', text: 'text-warn', badge: 'bg-warn/15 text-warn', border: 'border-l-warn' },
-  planned: { label: 'Плановая поставка', text: 'text-accent', badge: 'bg-accent/15 text-accent', border: 'border-l-accent' },
-  enough: { label: 'Пока хватает', text: 'text-ok', badge: 'bg-ok/15 text-ok', border: 'border-l-ok' },
-  idle: { label: 'Не поставлять', text: 'text-muted', badge: 'bg-line text-muted', border: 'border-l-line' },
+  critical: { label: 'Срочно поставить', text: 'text-bad', badge: 'bg-bad/15 text-bad', border: '' },
+  urgent: { label: 'Скоро поставить', text: 'text-warn', badge: 'bg-warn/15 text-warn', border: '' },
+  planned: { label: 'Плановая поставка', text: 'text-accent', badge: 'bg-accent/15 text-accent', border: '' },
+  enough: { label: 'Пока хватает', text: 'text-ok', badge: 'bg-ok/15 text-ok', border: '' },
+  idle: { label: 'Не поставлять', text: 'text-muted', badge: 'bg-line text-muted', border: '' },
 }
 export const STATUS_ORDER: RowStatus[] = ['critical', 'urgent', 'planned', 'enough', 'idle']
 
@@ -124,9 +124,9 @@ export const VIEW_WHY =
   'По кластерам — что везти в каждый кластер: одна строка — одна поставка. По товарам — куда разложить каждый товар. «Все товары» показывает и то, что везти не нужно: «Пока хватает» и «Не поставлять».'
 
 export const URGENCY: Record<Urgency, { label: string; text: string; badge: string; border: string }> = {
-  critical: { label: 'Срочно', text: 'text-bad', badge: 'bg-bad/15 text-bad', border: 'border-l-bad' },
-  urgent: { label: 'Скоро', text: 'text-warn', badge: 'bg-warn/15 text-warn', border: 'border-l-warn' },
-  planned: { label: 'Плановые', text: 'text-accent', badge: 'bg-accent/15 text-accent', border: 'border-l-accent' },
+  critical: { label: 'Срочно', text: 'text-bad', badge: 'bg-bad/15 text-bad', border: '' },
+  urgent: { label: 'Скоро', text: 'text-warn', badge: 'bg-warn/15 text-warn', border: '' },
+  planned: { label: 'Плановые', text: 'text-accent', badge: 'bg-accent/15 text-accent', border: '' },
 }
 
 export const URGENCY_ORDER: Urgency[] = ['critical', 'urgent', 'planned']

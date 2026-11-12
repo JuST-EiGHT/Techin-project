@@ -12,8 +12,8 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
-import { ChipOptions, FilterButton, FilterField } from '@/components/filters'
-import { fmtDateTime, fmtDay } from '@/components/reports'
+import { HelpTip, PageHeader, QuickTabs, Segmented, Stat, StatGrid, Tabs, buttonClass } from '@/components/ui'
+import { fmtDateTime } from '@/components/reports'
 import { CalendarTab, OrdersTab } from '@/components/supply-orders'
 import { PlansTab } from '@/components/supply-plans'
 import { syncAll, timeAgo } from '@/lib/sync'
@@ -40,9 +40,6 @@ import {
   type SupplyShow,
   type SupplyView,
   TARGET_WHY,
-  URGENCY,
-  URGENCY_ORDER,
-  urgencyHint,
   VIEW_WHY,
 } from '@/lib/supply'
 
@@ -121,7 +118,7 @@ function SupplyPage() {
   const nav = useRef<HTMLElement>(null)
   useEffect(() => {
     // на телефоне вкладки прокручиваются вбок — открытая должна быть видна
-    nav.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    nav.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [tab])
   const rawView = params.get('view')
   const view: SupplyView = rawView === 'products' ? 'products' : 'clusters'
@@ -131,27 +128,21 @@ function SupplyPage() {
   const openOrder = (id: string | null) => setUrl({ tab: 'orders', order: id, plan: null })
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
-      <div>
-        <h1 className="text-2xl font-semibold">Поставки</h1>
-        <p className="mt-1 text-sm text-muted">
-          Что, в какой кластер Ozon и сколько везти, что закупить на свой склад; планы поставок, заявки Ozon и их результаты.
-        </p>
-      </div>
-      <nav ref={nav} className="flex gap-1 overflow-x-auto border-b border-line" aria-label="Поставки" data-testid="supply-tabs">
-        {TABS.map((t) => (
-          <button
-            key={t.value}
-            type="button"
-            onClick={() => setUrl({ tab: t.value, plan: null, order: null })}
-            aria-current={tab === t.value ? 'page' : undefined}
-            className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm sm:px-4 ${tab === t.value ? 'border-accent font-medium text-fg' : 'border-transparent text-muted hover:text-fg'}`}
-            data-testid={`supply-tab-${t.value}`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
+    <div className="mx-auto max-w-7xl">
+      {/* 10.27c — как «Планирование поставок» в Ozon: вкладки раздела, сводка, быстрые вкладки со счётчиками */}
+      <PageHeader title="Планирование поставок" description="Что, в какой кластер Ozon и сколько везти; планы, заявки Ozon и календарь">
+        <nav ref={nav} aria-label="Поставки">
+          <Tabs
+            label="Поставки"
+            value={tab}
+            onChange={(t) => setUrl({ tab: t, plan: null, order: null })}
+            items={TABS}
+            testid="supply-tabs"
+            itemTestid={(t) => `supply-tab-${t}`}
+          />
+        </nav>
+      </PageHeader>
+      <div className="space-y-5">
       {tab === 'recommendations' && (
         <Recommendations
           onPlans={(id) => openPlan(id)}
@@ -164,6 +155,7 @@ function SupplyPage() {
       {tab === 'plans' && <PlansTab openId={params.get('plan')} onOpen={openPlan} onOrder={(id) => openOrder(id)} />}
       {tab === 'orders' && <OrdersTab openId={params.get('order')} onOpen={openOrder} onPlan={(id) => openPlan(id)} />}
       {tab === 'calendar' && <CalendarTab onPlan={(id) => openPlan(id)} onOrder={(id) => openOrder(id)} />}
+      </div>
     </div>
   )
 }
@@ -184,6 +176,7 @@ function Recommendations({ onPlans, view, show, onView, onShow }: {
   const [saved, setSaved] = useState(false)
   const [starting, setStarting] = useState(false)
   const [picked, setPicked] = useState<Picked>({})
+  const [showParams, setShowParams] = useState(false)
   const first = useRef(true)
   const wasActive = useRef(false)
 
@@ -359,36 +352,44 @@ function Recommendations({ onPlans, view, show, onView, onShow }: {
 
   const lastRun = failedRun(sync)
   const lastSuccess = oldestSuccess(sync)
+  // параметры свёрнуты, как «Настроить рекомендации» у Ozon; есть несохранённые — раскрыты
+  const paramsOpen = showParams || Boolean(data && !data.is_saved)
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
-        <p className="min-w-0 flex-1 text-sm text-muted">
-          Склады Ozon — по продажам и рекомендациям Ozon в каждом кластере, свои склады — по заказам; отметьте товары, поправьте
-          количество и создайте план поставки.
-        </p>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
         {sync?.has_active_key && (
-          <div className="flex flex-wrap items-center gap-3 text-sm">
+          <>
             <span className="text-muted" data-testid="postings-synced">
               {active || starting ? 'Данные загружаются…' : lastSuccess ? `Данные обновлены ${timeAgo(lastSuccess)}` : 'Данные ещё не загружались'}
             </span>
+            <button type="button" onClick={syncNow} disabled={active || starting} className={buttonClass('ghost', 'sm')} data-testid="postings-sync">
+              ↻ Обновить данные
+            </button>
+          </>
+        )}
+        {form && data && (
+          <span className="ml-auto flex flex-wrap items-center gap-2">
+            <span className="text-xs text-faint" data-testid="supply-params-line">
+              запас {data.params.target_days} дн. · в пути {data.params.lead_time_days} · страховой {data.params.safety_days ?? 0} · минимум {data.min_qty} шт.
+            </span>
             <button
               type="button"
-              onClick={syncNow}
-              disabled={active || starting}
-              className="rounded-lg border border-line px-3 py-1.5 hover:border-accent hover:text-accent disabled:opacity-60"
-              data-testid="postings-sync"
+              onClick={() => setShowParams((v) => !v)}
+              aria-expanded={paramsOpen}
+              className={buttonClass('secondary', 'sm')}
+              data-testid="supply-params-toggle"
             >
-              Обновить данные
+              Настроить рекомендации
             </button>
-          </div>
+          </span>
         )}
       </div>
 
       <FormError message={error ?? (lastRun ? `Данные не загрузились: ${lastRun.error}` : null)} />
 
-      {form && data && (
-        <section className="rounded-xl border border-line bg-card p-5" data-testid="supply-params">
-          <h2 className="font-semibold">Параметры</h2>
+      {form && data && paramsOpen && (
+        <section className="rounded-xl border border-line bg-card p-5 shadow-card" data-testid="supply-params">
+          <h2 className="font-semibold">Параметры рекомендаций</h2>
           <div className="mt-3 grid gap-4 sm:grid-cols-3">
             <DaysField id="target_days" label="Запас после поставки" value={form.target_days} onChange={(v) => change({ target_days: v })} why={TARGET_WHY} />
             <DaysField id="lead_time_days" label="Поставка в пути" value={form.lead_time_days} onChange={(v) => change({ lead_time_days: v })} why={LEAD_WHY} />
@@ -399,7 +400,7 @@ function Recommendations({ onPlans, view, show, onView, onShow }: {
               type="button"
               onClick={save}
               disabled={data.is_saved}
-              className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60"
+              className={buttonClass('primary', 'sm')}
               data-testid="supply-save"
             >
               Сохранить параметры
@@ -554,53 +555,36 @@ function Result({ data, busy, onExport, onSync, syncing, picked, onToggle, onQty
   const t = data.thresholds
   return (
     <section className={`space-y-4 transition-opacity ${busy ? 'opacity-60' : ''}`} aria-busy={busy} data-testid="supply-result">
-      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line sm:grid-cols-5" data-testid="supply-totals">
-        {URGENCY_ORDER.map((u) => (
-          <button
-            key={u}
-            type="button"
-            onClick={() => onShow(show === u ? 'all' : u)}
-            aria-pressed={show === u}
-            className={`bg-card p-4 text-left hover:bg-bg ${show === u ? 'ring-1 ring-inset ring-accent' : ''}`}
-          >
-            <div className="text-xs text-muted">{URGENCY[u].label}</div>
-            <div className={`mt-1 text-xl font-semibold tabular-nums ${data.totals[u] ? URGENCY[u].text : ''}`} data-testid={`total-${u}`}>
-              {data.totals[u]}
-            </div>
-            <div className="text-xs text-faint">{u === 'planned' ? 'запаса меньше цели' : urgencyHint(u, t).split(' — ')[0]}</div>
-          </button>
-        ))}
-        <div className="bg-card p-4">
-          <div className="text-xs text-muted">Отправить в Ozon</div>
-          <div className="mt-1 text-xl font-semibold tabular-nums" data-testid="total-supply">
-            {pieces(data.totals.supply_units)}
-          </div>
-          <div className="text-xs text-faint">по кластерам</div>
-        </div>
-        <div className="col-span-2 bg-card p-4 sm:col-span-1">
-          <div className="text-xs text-muted">Закупить на свои склады</div>
-          <div className="mt-1 text-xl font-semibold tabular-nums">{data.has_own_warehouses ? pieces(data.totals.purchase_units) : '—'}</div>
-          <div className="text-xs text-faint">{data.has_own_warehouses ? 'FBS / rFBS' : 'своих складов нет'}</div>
-        </div>
-      </div>
+      {/* сводка, как у Ozon: 3–4 главные цифры; срочно / скоро / плановые — счётчиками во вкладках над таблицей */}
+      <StatGrid testid="supply-totals">
+        <Stat label="Отправить в Ozon" value={pieces(data.totals.supply_units)} hint="по кластерам" testid="total-supply" />
+        <Stat label="Срочно поставить" value={String(data.totals.critical)} tone={data.totals.critical ? 'bad' : undefined} hint={`запаса меньше чем на ${t.critical} дн.`} testid="sum-critical" />
+        <Stat label="Скоро поставить" value={String(data.totals.urgent)} hint={`меньше чем на ${t.low} дн.`} testid="sum-urgent" />
+        <Stat
+          label="Закупить на свои склады"
+          value={data.has_own_warehouses ? pieces(data.totals.purchase_units) : '—'}
+          hint={data.has_own_warehouses ? 'FBS / rFBS' : 'своих складов нет'}
+        />
+      </StatGrid>
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-faint">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-faint">
         <span data-testid="supply-window">
-          Склады Ozon — продажи по данным Ozon за 28 дн.;{' '}
-          {od.recs_known && od.recs_synced_at ? `рекомендации Ozon обновлены ${fmtDateTime(od.recs_synced_at)}` : 'рекомендаций Ozon пока нет — только по продажам'}
+          Продажи — по данным Ozon за 28 дн. ·{' '}
+          {od.recs_known && od.recs_synced_at ? `рекомендации Ozon от ${fmtDateTime(od.recs_synced_at)}` : 'рекомендаций Ozon пока нет — по продажам'}
           {data.has_own_warehouses && data.fbs && ` · свои склады — заказы за ${data.fbs.days} дн.`}
-          {' · '}минимум {data.min_qty} шт. на склад ·{' '}
-          <Link href="/dashboard/settings#supply" className="text-accent hover:underline">
-            склады кластеров →
-          </Link>
         </span>
+        <HelpTip label="Как считаем поставку" testid="supply-how">
+          Склады Ozon — по данным Ozon о кластере: продажи в день и остаток на складах кластера. «По продажам» — продажи в день ×
+          (запас после поставки + страховой + дни в пути) минус остаток и то, что уже едет. «Отправить» — не меньше, чем
+          рекомендует Ozon, и не меньше {data.min_qty} шт. одного товара на склад. Кластер затоварен и Ozon не советует — не
+          везём. Свои склады (FBS / rFBS) — закупка по заказам. «Нужно ещё» — за вычетом того, что уже в ваших планах и в
+          заявках Ozon. Пороги «Срочно» и «Скоро» — те же, что у остатков, в «Настройках».
+        </HelpTip>
+        <Link href="/dashboard/settings#supply" className="text-accent hover:underline">
+          Склады кластеров →
+        </Link>
         {data.items.length > 0 && (
-          <button
-            type="button"
-            onClick={onExport}
-            className="ml-auto rounded-lg border border-line px-3 py-1.5 text-sm text-fg hover:border-accent hover:text-accent"
-            data-testid="supply-export"
-          >
+          <button type="button" onClick={onExport} className={`ml-auto ${buttonClass('secondary', 'sm')}`} data-testid="supply-export">
             Скачать Excel для логиста
           </button>
         )}
@@ -633,18 +617,6 @@ function Result({ data, busy, onExport, onSync, syncing, picked, onToggle, onQty
         />
       )}
 
-      <p className="text-xs text-faint">
-        Склады Ozon — по данным Ozon о кластере: продажи в день и остаток на складах кластера. «По продажам» — продажи в день ×
-        (запас после поставки + страховой + дни в пути) минус остаток и то, что уже едет. «Отправить» — не меньше, чем
-        рекомендует Ozon (это необходимый минимум), и не меньше {data.min_qty} шт. одного товара на склад. Кластер уже затоварен
-        и Ozon не советует — не везём. Свои склады (FBS / rFBS) — закупка по заказам. «Хватит на» — остаток сейчас / продажи в
-        день. «Нужно ещё» — за вычетом того, что уже в ваших планах и в заявках Ozon, которые готовятся. Пороги «Срочно» и
-        «Скоро» — те же, что у остатков, меняются в{' '}
-        <Link href="/dashboard/settings" className="text-accent hover:underline">
-          «Настройках»
-        </Link>
-        .
-      </p>
     </section>
   )
 }
@@ -961,34 +933,20 @@ function Grouped({ data, view, show, onView, onShow, lead, picked, onToggle, onQ
   const minQty = data.min_qty
 
   return (
-    <section className="rounded-xl border border-line bg-card" data-testid="supply-groups">
-      <div className="space-y-2 border-b border-line px-4 py-3">
+    <section className="rounded-xl border border-line bg-card shadow-card" data-testid="supply-groups">
+      <div className="space-y-3 border-b border-line px-4 py-3">
         <div className="flex flex-wrap items-center gap-2" data-testid="supply-toolbar">
-          <div role="group" aria-label="Группировка" className="inline-flex rounded-lg border border-line p-0.5">
-            {(['clusters', 'products'] as const).map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => onView(v)}
-                aria-pressed={view === v}
-                className={`rounded-md px-3 py-1 text-sm ${view === v ? 'bg-accent text-on-accent' : 'text-muted hover:text-fg'}`}
-                data-testid={`supply-view-${v}`}
-              >
-                {v === 'clusters' ? 'По кластерам' : 'По товарам'}
-              </button>
-            ))}
-          </div>
-          {/* правка 11.11 (правило 18): «что показать» — в «Фильтрах»; «по кластерам / по товарам» — вид, на виду */}
-          <FilterButton count={show !== 'all' ? 1 : 0} onReset={() => onShow('all')} testid="supply-filter">
-            <FilterField label="Показать">
-              <ChipOptions
-                options={SHOW.map((x) => ({ value: x.value, label: x.label, count: counts[x.value] }))}
-                value={show}
-                onChange={onShow}
-                testid="supply-show"
-              />
-            </FilterField>
-          </FilterButton>
+          <Segmented
+            label="Группировка"
+            value={view}
+            onChange={onView}
+            options={[
+              { value: 'clusters', label: 'По кластерам' },
+              { value: 'products', label: 'По товарам' },
+            ]}
+            optionTestid={(v) => `supply-view-${v}`}
+          />
+          <HelpTip label="Чем отличаются виды">{VIEW_WHY}</HelpTip>
           {groups.length > 0 && (
             <button
               type="button"
@@ -1000,7 +958,20 @@ function Grouped({ data, view, show, onView, onShow, lead, picked, onToggle, onQ
             </button>
           )}
         </div>
-        <p className="text-xs text-faint">{VIEW_WHY}</p>
+        {/* как у Ozon: «Все товары · Срочно поставить 3 · Скоро поставить 1 · Поставить впервые 0» — на виду */}
+        <QuickTabs
+          label="Показать"
+          value={show}
+          onChange={onShow}
+          testid="supply-show"
+          itemTestid={(v) => `total-${v}`}
+          items={SHOW.map((x) => ({
+            value: x.value,
+            label: x.value === 'critical' ? 'Срочно поставить' : x.value === 'urgent' ? 'Скоро поставить' : x.label,
+            count: counts[x.value],
+            tone: x.value === 'critical' ? ('bad' as const) : x.value === 'urgent' ? ('warn' as const) : undefined,
+          }))}
+        />
       </div>
 
       {groups.length === 0 ? (
@@ -1016,7 +987,7 @@ function Grouped({ data, view, show, onView, onShow, lead, picked, onToggle, onQ
                   type="button"
                   onClick={() => flip(g.key)}
                   aria-expanded={open.has(g.key)}
-                  className={`flex w-full items-start gap-2 border-l-4 px-4 pt-3 text-left ${STATUS[g.status].border}`}
+                  className={`flex w-full items-start gap-2 px-4 pt-3 text-left ${STATUS[g.status].border}`}
                   data-testid="group-toggle"
                 >
                   <span className="mt-0.5 w-3 text-muted">{open.has(g.key) ? '▾' : '▸'}</span>
@@ -1032,7 +1003,7 @@ function Grouped({ data, view, show, onView, onShow, lead, picked, onToggle, onQ
                     <span className="block text-xs text-faint">{g.needed.length ? `${g.needed.length} из ${g.items.length} везти` : `${g.items.length} — не везти`}</span>
                   </span>
                 </button>
-                <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 border-l-4 px-4 pb-3 pl-9 pt-1 text-xs text-muted ${STATUS[g.status].border}`}>
+                <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-4 pb-3 pl-9 pt-1 text-xs text-muted ${STATUS[g.status].border}`}>
                   <span>{perDay(g.ads.toFixed(3))} в день</span>
                   <span>
                     там {g.stock}
@@ -1051,9 +1022,9 @@ function Grouped({ data, view, show, onView, onShow, lead, picked, onToggle, onQ
                   <GroupActions g={g} picked={picked} onToggle={onToggle} onSupply={onSupply} compact />
                 </div>
                 {open.has(g.key) && (
-                  <ul className="divide-y divide-line border-t border-line bg-bg/40">
+                  <ul className="divide-y divide-line border-t border-line bg-soft/30">
                     {g.items.map((i) => (
-                      <li key={pickKey(i)} className={`border-l-4 px-4 py-3 pl-9 ${STATUS[i.status].border}`} data-testid="supply-card">
+                      <li key={pickKey(i)} className={`px-4 py-3 pl-9 ${STATUS[i.status].border}`} data-testid="supply-card">
                         <div className="flex items-start gap-3">
                           <div className="min-w-0 flex-1 text-sm">{view === 'clusters' ? <ProductCell item={i} /> : <Where item={i} />}</div>
                           <div className="shrink-0 text-right">
@@ -1109,7 +1080,7 @@ function Grouped({ data, view, show, onView, onShow, lead, picked, onToggle, onQ
               </thead>
               {groups.map((g) => (
                 <tbody key={g.key}>
-                  <tr className={`border-b border-l-4 border-b-line bg-bg/40 ${STATUS[g.status].border}`} data-testid="supply-group">
+                  <tr className="bg-soft/40" data-testid="supply-group">
                     <td className="px-3 py-2">
                       <button type="button" onClick={() => flip(g.key)} aria-expanded={open.has(g.key)} className="flex items-start gap-2 text-left" data-testid="group-toggle">
                         <span className="mt-0.5 w-3 text-muted">{open.has(g.key) ? '▾' : '▸'}</span>
@@ -1144,7 +1115,7 @@ function Grouped({ data, view, show, onView, onShow, lead, picked, onToggle, onQ
                   </tr>
                   {open.has(g.key) &&
                     g.items.map((i) => (
-                      <tr key={pickKey(i)} className={`border-b border-l-4 border-b-line ${STATUS[i.status].border}`} data-testid="supply-row">
+                      <tr key={pickKey(i)} className={`border-b border-b-line ${STATUS[i.status].border}`} data-testid="supply-row">
                         <td className="py-2 pl-8 pr-3">
                           {view === 'clusters' ? <ProductCell item={i} /> : <Where item={i} />}
                         </td>
