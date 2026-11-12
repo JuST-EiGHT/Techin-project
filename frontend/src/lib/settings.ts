@@ -16,6 +16,10 @@ export type UserSettings = {
   price_ad_pct: string // калькулятор цены (шаг 4.2): реклама, % от цены
   price_target_margin_pct: string // целевая маржа, %
   price_extra_pct: string // доп. расходы магазина, % от цены, для всех товаров (правка 06.11.2026)
+  // для всех товаров вместо начислений (правка 11.11.2026; сохраняются saveExtrasForAll); null — не задано
+  price_ad_all_pct?: string | null
+  price_storage_rub?: string | null
+  price_other_rub?: string | null
   price_defaults: boolean // реклама и маржа ещё не заданы — значения по умолчанию
   // пороги статуса остатка, дней запаса (шаг 5.1): меньше — «Критично», меньше — «Мало», больше — «Избыток»
   stock_critical_days: number
@@ -79,6 +83,21 @@ export async function saveSettings(
   return data
 }
 
+/** Расходы для всех товаров (правка 11.11.2026): реклама % и хранение на 1 шт. — вместо начислений, прочее на 1 шт. и
+ * доп. расходы % — сверху; null — убрать. Сохраняются все четыре сразу (PUT /price/extras-all), настройки перечитываются,
+ * таблицы цен пересчитываются. */
+export async function saveExtrasForAll(
+  userId: string,
+  values: { ad_pct: string | null; storage: string | null; other: string | null; extra_pct: string | null },
+): Promise<UserSettings> {
+  await api.put('/price/extras-all', values)
+  const { data } = await api.get<UserSettings>('/settings')
+  cache = { userId, settings: Promise.resolve(data) }
+  listeners.forEach((l) => l(data))
+  notifyPriceInputsChanged()
+  return data
+}
+
 /** Настройки текущего пользователя; null — ещё загружаются (или не загрузились). */
 export function useSettings(): UserSettings | null {
   const { user } = useAuth()
@@ -120,7 +139,10 @@ export function notifyPriceInputsChanged() {
  * пересчитает цены. */
 export function useOnPriceSettingsChange(onChange: () => void) {
   const settings = useSettings()
-  const key = settings ? `${settings.price_ad_pct}/${settings.price_target_margin_pct}/${settings.price_extra_pct}` : null
+  const key = settings
+    ? [settings.price_ad_pct, settings.price_target_margin_pct, settings.price_extra_pct, settings.price_ad_all_pct,
+        settings.price_storage_rub, settings.price_other_rub].join('/')
+    : null
   const last = useRef<string | null>(null)
   const callback = useRef(onChange)
   callback.current = onChange

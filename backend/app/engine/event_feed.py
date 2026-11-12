@@ -270,6 +270,8 @@ ACTIONS: dict[tuple[str, str], Action] = {
     ("PUT", f"{P}/costs/{{offer_id:path}}"): Action("Изменена себестоимость", "/dashboard/products/costs", "Себестоимость"),
     ("PUT", f"{P}/price/extras/{{product_id}}"): Action("Изменены доп. расходы товара для расчёта цены",
                                                         "/dashboard/products/prices", "Цены"),
+    ("PUT", f"{P}/price/extras-all"): Action("Изменены расходы для всех товаров в расчёте цены", "/dashboard/settings#prices",
+                                             "Настройки"),
     ("POST", f"{P}/costs/import"): Action("Себестоимость загружена списком", "/dashboard/products/costs", "Себестоимость"),
     ("POST", f"{P}/costs/aliases"): Action("Артикул из файла привязан к товару Ozon", "/dashboard/products/costs?tab=import",
                                            "Себестоимость"),

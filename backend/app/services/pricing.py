@@ -37,11 +37,12 @@ from app.services.pnl_service import PnLRequest
 from app.services.sync.finance import today_msk
 from app.services.sync.products import latest_prices
 from app.services.tax_profile import load_profiles, profile_on, supplier_vat_multiplier
-from app.services.user_settings import get_settings, min_profit, price_extra, price_settings
+from app.services.user_settings import get_settings, min_profit, price_all, price_extra, price_settings
 
 WINDOWS = (30, 90)  # дней продаж для логистики на штуку
 CENT = Decimal("0.01")
 
+FOR_ALL = "для всех товаров"  # источник значения: «Настройки → Цены» или «Сохранить для всех товаров» (правка 11.11.2026)
 MISSING_COST = "Нет себестоимости — укажите её в карточке товара или в справочнике."
 MISSING_COMMISSION = "Нет комиссии Ozon — цены товара ещё не загружались из Ozon."
 MISSING_LOGISTICS = "Нет данных о логистике: продаж ещё не было — укажите логистику на 1 шт. вручную."
@@ -150,6 +151,8 @@ class PricingContext:
     shop: Logistics
     min_profit: Decimal = Decimal(0)  # минимальная допустимая прибыль с продажи, ₽ (настройка, шаг 10.26)
     extra_pct: Decimal = Decimal(0)  # доп. расходы магазина, % от цены (настройка, правка 06.11.2026)
+    # для всех товаров (правка 11.11.2026): ad_pct, storage, other, extra_pct — None, если не задано
+    for_all: dict[str, Decimal | None] = field(default_factory=dict)
     extras: dict[uuid.UUID, ProductPriceExtras] = field(default_factory=dict)  # свои расходы товаров
     facts: dict[str, Facts] = field(default_factory=dict)  # 4.2a: возвраты, хранение, реклама товара
     shop_facts: ShopFacts = field(default_factory=ShopFacts)
@@ -206,22 +209,39 @@ class PricingContext:
                          "из Ozon")
         own = self.extras.get(product.id)
         ad_fact, ad_text, ad_own, ad_shared = self.ad_for(product.offer_id)
-        ad = pick("ad_pct", ov.ad_pct, own.ad_pct if own and own.ad_pct is not None else None, "сохранено для товара")
-        if ad is None:
+        every = self.for_all  # для всех товаров (правка 11.11.2026): после своего у товара, до начислений
+
+        def mine_or_all(name: str, value):
+            """Своё у товара или «для всех товаров»; ни того ни другого — None."""
+            if value is not None:
+                sources[name] = "сохранено для товара"
+                return value
+            if every.get(name) is not None:
+                sources[name] = FOR_ALL
+                return every[name]
+            return None
+
+        ad = ov.ad_pct if ov.ad_pct is not None else mine_or_all("ad_pct", own.ad_pct if own else None)
+        if ov.ad_pct is not None:
+            sources["ad_pct"] = "ваше значение"
+        elif ad is None:
             ad, sources["ad_pct"] = ad_fact, ad_text
-        storage = pick("storage", ov.storage, own.storage if own else None, "сохранено для товара")
-        if storage is None:
+        storage = ov.storage if ov.storage is not None else mine_or_all("storage", own.storage if own else None)
+        if ov.storage is not None:
+            sources["storage"] = "ваше значение"
+        elif storage is None:
             storage, sources["storage"] = self.storage_for(product.offer_id)
         returns = pick("returns", ov.returns, None, "")
         if returns is None:
             returns, sources["returns"] = self.returns_for(product.offer_id)
-        other = pick("other", ov.other, own.other if own else None, "сохранено для товара")
-        extra = pick("extra_pct", ov.extra_pct, own.extra_pct if own and own.extra_pct is not None else None,
-                     "сохранено для товара")
+        other = ov.other if ov.other is not None else mine_or_all("other", own.other if own else None)
+        if ov.other is not None:
+            sources["other"] = "ваше значение"
+        extra = ov.extra_pct if ov.extra_pct is not None else mine_or_all("extra_pct", own.extra_pct if own else None)
+        if ov.extra_pct is not None:
+            sources["extra_pct"] = "ваше значение"
         if extra is None:
-            extra = self.extra_pct
-            if extra:
-                sources["extra_pct"] = "ваша настройка"
+            extra = Decimal(0)
 
         margin = pick("target_margin_pct", ov.target_margin_pct, self.target_margin_pct, "ваша настройка")
         price = pick("price", ov.price, positive(snap.price) if snap else None, "текущая цена в Ozon")
@@ -322,7 +342,8 @@ async def load(db: AsyncSession, user_id: uuid.UUID, products: list[Product] | N
         tax=calc.unit_tax(row.to_engine() if row else None, today),
         default_vat=await supplier_vat_multiplier(db, user_id, today), history=await load_cost_history(db, user_id),
         prices=await latest_prices(db, [p.id for p in products]), logistics=by_offer, shop=shop,
-        min_profit=min_profit(s), extra_pct=price_extra(s), extras=extras, facts=facts, shop_facts=shop_facts,
+        min_profit=min_profit(s), extra_pct=price_extra(s), for_all=price_all(s), extras=extras, facts=facts,
+        shop_facts=shop_facts,
     )
 
 
@@ -406,6 +427,7 @@ def calculate(ctx: PricingContext, product: Product, ov: Overrides | None = None
             "logistics": inputs.logistics.per_unit, "logistics_source": inputs.logistics.source,
             "logistics_text": inputs.logistics.text, "storage": inputs.storage, "other": inputs.other,
             "extra_pct": inputs.extra_pct, "shop_extra_pct": ctx.extra_pct, "returns": inputs.returns,
+            "for_all": ctx.for_all,
             "saved": _saved(ctx.extras.get(product.id)), "facts": _facts(ctx, inputs),
             "target_margin_pct": inputs.target_margin_pct, "price": inputs.price, "promo_price": promo,
             "sources": inputs.sources,

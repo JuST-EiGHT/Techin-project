@@ -49,6 +49,11 @@ class UserSettings(Base):
     price_target_margin_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     # доп. расходы магазина, % от цены, для всех товаров (правка 06.11.2026); пусто — 0. У товара — свои (product_price_extras)
     price_extra_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    # для всех товаров — вместо начислений (правка 11.11.2026): реклама, % от цены, хранение и прочее на 1 шт., ₽;
+    # пусто — реклама и хранение по начислениям Ozon (4.2a), прочее — 0. Своё у товара — важнее
+    price_ad_all_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    price_storage_rub: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    price_other_rub: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     # пороги статуса остатка, дней запаса (шаг 5.1); пусто — 7 / 14 / 60 (engine/stocks.Thresholds)
     stock_critical_days: Mapped[int | None] = mapped_column(Integer)
     stock_low_days: Mapped[int | None] = mapped_column(Integer)
