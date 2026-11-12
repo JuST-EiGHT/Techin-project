@@ -6,7 +6,7 @@ import { Search, X } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Area, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { FormError } from '@/components/AuthForm'
 import { type Drill, MoreLink, TipBox, useDrill } from '@/components/charts'
@@ -328,7 +328,7 @@ export function CoverageNote({ data }: { data: Metrics }) {
   const text = parts.join('; ')
   return (
     <p className="text-xs text-faint" data-testid="coverage-note">
-      {text[0].toUpperCase() + text.slice(1)}. На графиках это пропуски, а не ноль.
+      {text[0].toUpperCase() + text.slice(1)}. На графиках эти дни — точечным пунктиром: данных нет, это не ноль.
     </p>
   )
 }
@@ -339,7 +339,7 @@ export type ChartEvent = { day: string; kind: string; title: string }
 export const EVENT_MARK: Record<string, string> = { price: '₽', promo_in: '%', promo_out: '%', stockout: '0', restock: '↑' }
 const TIP_EVENTS = 3
 
-type Row = { label: string; value: number | null; prev: number | null; point: MetricPoint; events: ChartEvent[] }
+type Row = { label: string; value: number | null; prev: number | null; point: MetricPoint; events: ChartEvent[]; bridge: Record<number, number> }
 
 function MetricTooltip({ active, payload, metric, data, drill }: { active?: boolean; payload?: { payload: Row }[]; metric: MetricKey; data: Metrics; drill: Drill<Row> }) {
   if (!active || !payload?.length) return null
@@ -376,7 +376,7 @@ function MetricTooltip({ active, payload, metric, data, drill }: { active?: bool
   )
 }
 
-/** График одного показателя с прошлым периодом пунктиром. Дни без данных — разрыв линии. pointHref — раздел за точку. */
+/** График одного показателя с прошлым периодом пунктиром. Дни без данных — точечный пунктир между соседними точками (не ноль). pointHref — раздел за точку. */
 const rangeText = (from: string, to: string) => rangeLabel({ from, to })
 
 export function MetricChart({
@@ -411,7 +411,22 @@ export function MetricChart({
     prev: p.prev?.[metric] == null ? null : Number(p.prev[metric]),
     point: p,
     events: events.filter((e) => p.date_from <= e.day && e.day <= p.date_to),
+    bridge: {},
   }))
+  // пропуски (решение владельца 12.11.2026): линия не рвётся — дни без данных проходят пунктиром от последней точки до
+  // следующей; это не ноль и не данные — в подсказке «нет данных», в легенде «пунктир — нет данных»
+  const gaps: number[] = []
+  let last = -1
+  rows.forEach((r, i) => {
+    if (r.value === null) return
+    if (last >= 0 && i - last > 1) {
+      const k = gaps.length
+      gaps.push(k)
+      rows[last].bridge[k] = rows[last].value as number
+      r.bridge[k] = r.value
+    }
+    last = i
+  })
   const profitNote = metric === 'profit' && data.profit_kind === 'net' ? ' (в точках — до налога)' : ''
   // прибыль и маржа: красная линия «ноль» — ниже неё убыток (правка владельца), точки в минусе — красные
   const zeroLine = metric === 'profit' || metric === 'margin'
@@ -433,7 +448,12 @@ export function MetricChart({
             </span>
             {data.previous && (
               <span className="flex items-center gap-1.5">
-                <span className="inline-block h-0 w-3 border-t-2 border-dashed border-muted" /> прошлый период
+                <span className="inline-block h-0 w-5 border-t-2 border-dashed border-muted" /> прошлый период
+              </span>
+            )}
+            {gaps.length > 0 && (
+              <span className="flex items-center gap-1.5" data-testid="gap-legend">
+                <span className="inline-block h-0 w-5 border-t-2 border-dotted border-accent/60" /> нет данных
               </span>
             )}
           </div>
@@ -447,12 +467,6 @@ export function MetricChart({
       <div className={`h-64 ${drill.boxProps.className}`} onPointerDown={drill.boxProps.onPointerDown}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={rows} margin={{ top: events.length ? 16 : 8, right: 4, bottom: 0, left: 0 }} onClick={drill.onClick}>
-            <defs>
-              <linearGradient id={`fill-${metric}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={colors.accent} stopOpacity={0.24} />
-                <stop offset="100%" stopColor={colors.accent} stopOpacity={0} />
-              </linearGradient>
-            </defs>
             <CartesianGrid vertical={false} stroke={colors.line} />
             <XAxis dataKey="label" tick={{ fill: colors.faint, fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={8} />
             <YAxis tick={{ fill: colors.faint, fontSize: 11 }} tickFormatter={meta.format === 'pct' ? (v: number) => `${v} %` : compact} tickLine={false} axisLine={false} width={78} />
@@ -467,12 +481,27 @@ export function MetricChart({
                 data-testid="zero-line"
               />
             )}
-            <Area
+            {gaps.map((k) => (
+              <Line
+                key={`gap-${k}`}
+                type="linear"
+                dataKey={(r: Row) => r.bridge[k] ?? null}
+                stroke={colors.accent}
+                strokeOpacity={0.55}
+                strokeWidth={2}
+                strokeDasharray="2 4"
+                dot={false}
+                activeDot={false}
+                connectNulls
+                isAnimationActive={false}
+                legendType="none"
+              />
+            ))}
+            <Line
               type="monotone"
               dataKey="value"
               stroke={colors.accent}
               strokeWidth={2.5}
-              fill={`url(#fill-${metric})`}
               dot={(props: { cx?: number; cy?: number; value?: number | null; index?: number }) => (
                 <circle
                   key={props.index}
@@ -488,7 +517,7 @@ export function MetricChart({
               isAnimationActive={false}
             />
             {data.previous && (
-              <Line type="monotone" dataKey="prev" stroke={colors.muted} strokeDasharray="4 3" strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />
+              <Line type="monotone" dataKey="prev" stroke={colors.muted} strokeDasharray="4 3" strokeWidth={2} dot={false} activeDot={false} connectNulls isAnimationActive={false} />
             )}
             {rows
               .filter((r) => r.events.length > 0)

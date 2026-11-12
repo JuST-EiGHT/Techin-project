@@ -4,7 +4,7 @@
 // Служебная страница: не в меню, без входа, данных магазина не читает. Разделы сверяются с ней при переделке.
 import { AlertTriangle, Inbox, Moon, Package, ShoppingCart, Sun, TrendingUp, Wallet } from 'lucide-react'
 import { useState } from 'react'
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { TipBox } from '@/components/charts'
 import { ChipOptions, FilterButton, FilterField, SearchBox } from '@/components/filters'
@@ -18,7 +18,14 @@ const rub = (v: number) => `${Math.round(v).toLocaleString('ru-RU')} ₽`.replac
 const DAYS = Array.from({ length: 30 }, (_, i) => {
   const d = i + 1
   const base = 182_000 + Math.sin(i / 3.2) * 38_000 + i * 2_100
-  return { label: `${String(d).padStart(2, '0')}.10`, revenue: Math.round(base), profit: Math.round(base * (0.16 + Math.cos(i / 4) * 0.05)) }
+  const prev = 170_000 + Math.sin(i / 3.6 + 0.8) * 30_000 + i * 1_500
+  return {
+    label: `${String(d).padStart(2, '0')}.10`,
+    revenue: Math.round(base),
+    profit: Math.round(base * (0.16 + Math.cos(i / 4) * 0.05)),
+    prevRevenue: Math.round(prev),
+    prevProfit: Math.round(prev * 0.15),
+  }
 })
 const MONTHS = ['Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт'].map((m, i) => ({ label: m, now: [3.9, 4.4, 4.1, 5.2, 5.6, 6.1][i], prev: [3.1, 3.5, 3.8, 3.6, 4.2, 4.8][i] }))
 const COSTS = [
@@ -113,7 +120,7 @@ export default function DesignSystemPage() {
           <Panel
             className="lg:col-span-2"
             title="Выручка по дням"
-            description="01.10 – 30.10.2026 · наведите на точку — цифры, клик — день"
+            description="01.10 – 30.10.2026 и прошлый месяц пунктиром · наведите на точку — цифры, клик — день"
             action={<a href="#" className="text-accent hover:underline">Подробнее →</a>}
           >
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -123,19 +130,15 @@ export default function DesignSystemPage() {
             {c ? (
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={DAYS} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="ds-area" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={c.accent} stopOpacity={0.28} />
-                      <stop offset="100%" stopColor={c.accent} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
+                <LineChart data={DAYS} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid vertical={false} stroke={c.line} />
                   <XAxis dataKey="label" tick={{ fill: c.faint, fontSize: 11 }} tickLine={false} axisLine={false} interval={4} />
                   <YAxis tick={{ fill: c.faint, fontSize: 11 }} tickLine={false} axisLine={false} width={44} tickFormatter={(v) => `${Math.round(v / 1000)}к`} />
                   <Tooltip content={<Tip />} cursor={{ stroke: c.accent, strokeOpacity: 0.4 }} />
-                  <Area type="monotone" dataKey={metric} name={metric === 'revenue' ? 'Выручка' : 'Прибыль'} stroke={c.accent} strokeWidth={2.5} fill="url(#ds-area)" isAnimationActive={false} activeDot={{ r: 5, strokeWidth: 2, stroke: c.card }} />
-                </AreaChart>
+                  {/* без заливки: поверх — прошлый период пунктиром */}
+                  <Line type="monotone" dataKey={metric === 'revenue' ? 'prevRevenue' : 'prevProfit'} name="Прошлый месяц" stroke={c.muted} strokeWidth={2} strokeDasharray="4 3" dot={false} activeDot={false} isAnimationActive={false} />
+                  <Line type="monotone" dataKey={metric} name={metric === 'revenue' ? 'Выручка' : 'Прибыль'} stroke={c.accent} strokeWidth={2.5} dot={false} isAnimationActive={false} activeDot={{ r: 5, strokeWidth: 2, stroke: c.card }} />
+                </LineChart>
                 </ResponsiveContainer>
               </div>
             ) : (
