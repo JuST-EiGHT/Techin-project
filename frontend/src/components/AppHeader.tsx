@@ -6,14 +6,15 @@
 import { Bell, ChevronDown, Landmark, LogOut, Menu, Plug, Settings, UserRound, X } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { AlertBell } from '@/components/alerts'
 import { SyncButton } from '@/components/sync'
 import { useAuth } from '@/contexts/AuthContext'
 import { useDismiss, useExclusiveMenu } from '@/hooks/useDismiss'
-import { ACCOUNT_MENU, NAV, type NavSection, sectionActive } from '@/lib/nav'
+import { ACCOUNT_MENU, type NavSection, isPostpay, navFor, sectionActive } from '@/lib/nav'
 import { sectionSettings } from '@/lib/section-settings'
+import { useSettings } from '@/lib/settings'
 
 const CLOSE_DELAY_MS = 150 // курсор ушёл с меню — закрыть не сразу, чтобы не мигало
 
@@ -241,10 +242,10 @@ function AccountMenu({ onLogout, leaving }: { onLogout: () => void; leaving: boo
   )
 }
 
-function MobileNav({ pathname, onClose }: { pathname: string; onClose: () => void }) {
+function MobileNav({ nav, pathname, onClose }: { nav: NavSection[]; pathname: string; onClose: () => void }) {
   return (
     <nav className="border-b border-line bg-card px-4 py-3 xl:hidden" data-testid="mobile-nav">
-      {NAV.map((section) =>
+      {nav.map((section) =>
         section.href ? (
           <Link key={section.label} href={section.href} onClick={onClose} className={`block py-2 font-medium ${sectionActive(section, pathname) ? 'text-accent' : ''}`}>
             {section.label}
@@ -300,6 +301,9 @@ export function AppHeader({ onLogout, leaving }: { onLogout: () => void; leaving
   const closeMobile = useCallback(() => setMobileOpen(false), [])
   useExclusiveMenu(mobileOpen, closeMobile, 'mobile-nav') // мобильное меню и выпадающие списки не открыты вместе
   useEffect(() => setMobileOpen(false), [pathname])
+  // «Долги поставщикам» — только при постоплате в настройках (шаг 10.29)
+  const postpay = isPostpay(useSettings()?.supplier_payment)
+  const nav = useMemo(() => navFor(postpay), [postpay])
 
   return (
     <>
@@ -318,7 +322,7 @@ export function AppHeader({ onLogout, leaving }: { onLogout: () => void; leaving
           <span className="text-3xl font-black leading-none sm:text-4xl">Петя</span>
         </Link>
         <nav className="hidden items-center gap-1 text-sm xl:flex" aria-label="Разделы">
-          {NAV.filter((section) => !section.bellOnDesktop).map((section) =>
+          {nav.filter((section) => !section.bellOnDesktop).map((section) =>
             section.href ? (
               <Link
                 key={section.label}
@@ -339,7 +343,7 @@ export function AppHeader({ onLogout, leaving }: { onLogout: () => void; leaving
           <AccountMenu onLogout={onLogout} leaving={leaving} />
         </div>
       </header>
-      {mobileOpen && <MobileNav pathname={pathname} onClose={() => setMobileOpen(false)} />}
+      {mobileOpen && <MobileNav nav={nav} pathname={pathname} onClose={() => setMobileOpen(false)} />}
     </>
   )
 }

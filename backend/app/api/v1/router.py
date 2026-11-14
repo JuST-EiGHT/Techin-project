@@ -14,6 +14,7 @@ from app.api.v1 import (
     finance,
     notifications,
     ozon,
+    payables,
     plan_calendar,
     planning,
     planning_overview,
@@ -45,6 +46,7 @@ api_router.include_router(stocks.warehouses_router)
 api_router.include_router(stocks.stocks_router)
 api_router.include_router(supply.router)
 api_router.include_router(finance.router)
+api_router.include_router(payables.router)
 api_router.include_router(products.router)
 api_router.include_router(price.router)
 api_router.include_router(prices.router)

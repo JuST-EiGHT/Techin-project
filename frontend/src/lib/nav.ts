@@ -9,8 +9,19 @@ export type NavItem = {
   description?: string
   /** Подстраницы пункта — мелкими ссылками под ним (у «Цен» — «Списком» и «История»). */
   children?: NavItem[]
+  /** Пункт виден не всем: postpay — тем, кто платит поставщику после продажи или с отсрочкой («Откуда товар», шаг 10.29). */
+  only?: 'postpay'
 }
 export type NavSection = { label: string; href?: string; items?: NavItem[]; bellOnDesktop?: boolean }
+
+/** «Откуда товар», при котором есть кредиторская задолженность: после продажи, с отсрочкой, по-разному (шаг 10.29). */
+export const POSTPAY = ['after_sale', 'deferred', 'mixed']
+export const isPostpay = (supplierPayment: string | null | undefined) => !!supplierPayment && POSTPAY.includes(supplierPayment)
+
+/** Меню для пользователя: пункты «только для постоплаты» — у тех, у кого она выбрана в настройках. */
+export function navFor(postpay: boolean): NavSection[] {
+  return NAV.map((s) => (s.items ? { ...s, items: s.items.filter((i) => !i.only || (i.only === 'postpay' && postpay)) } : s))
+}
 
 export const NAV: NavSection[] = [
   { label: 'Главная', href: '/dashboard' },
