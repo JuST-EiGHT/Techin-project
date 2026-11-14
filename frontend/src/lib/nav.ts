@@ -9,13 +9,14 @@ export type NavItem = {
   description?: string
   /** Подстраницы пункта — мелкими ссылками под ним (у «Цен» — «Списком» и «История»). */
   children?: NavItem[]
-  /** Пункт виден не всем: postpay — тем, кто платит поставщику после продажи или с отсрочкой («Откуда товар», шаг 10.29). */
+  /** Пункт виден не всем: postpay — тем, кто платит поставщику после продажи («Откуда товар», шаг 10.23a). */
   only?: 'postpay'
 }
 export type NavSection = { label: string; href?: string; items?: NavItem[]; bellOnDesktop?: boolean }
 
-/** «Откуда товар», при котором есть кредиторская задолженность: после продажи, с отсрочкой, по-разному (шаг 10.29). */
-export const POSTPAY = ['after_sale', 'deferred', 'mixed']
+/** «Откуда товар», при котором есть «Долги поставщикам» (шаг 10.23a): пока — только оплата после продажи
+ *  (решение владельца 14.11.2026; отсрочка и «по-разному» — потом). */
+export const POSTPAY = ['after_sale']
 export const isPostpay = (supplierPayment: string | null | undefined) => !!supplierPayment && POSTPAY.includes(supplierPayment)
 
 /** Меню для пользователя: пункты «только для постоплаты» — у тех, у кого она выбрана в настройках. */
@@ -124,6 +125,12 @@ export const NAV: NavSection[] = [
       { href: '/dashboard/finance/pnl', label: 'P&L — прибыль', description: 'Выручка, расходы Ozon и бизнеса, налог и чистая прибыль' },
       { href: '/dashboard/finance/pnl?tab=products', label: 'Прибыль по товарам', description: 'Маржа каждого товара, комиссия, логистика' },
       { href: '/dashboard/finance/payouts', label: 'Выплаты и расчёты', description: 'Когда и сколько придёт, начисления, сверка с банком, расхождения' },
+      {
+        href: '/dashboard/finance/payables',
+        label: 'Долги поставщикам',
+        description: 'Поставки от поставщика, что из них продано и сколько за это заплатить',
+        only: 'postpay',
+      },
       { href: '/dashboard/finance/documents', label: 'Отчёты и документы', description: 'Отчёты Ozon о начислениях и реализации, загрузка' },
     ],
   },

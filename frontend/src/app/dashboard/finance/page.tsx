@@ -11,6 +11,7 @@ import { AttentionWidget } from '@/components/alerts'
 import { AnalyticsFilters, MetricsState, useAnalyticsFilter, useMetrics } from '@/components/analytics'
 import { Change, Hint, type OzonDashboard } from '@/components/dashboard'
 import { Card, DynamicsChart, MoneyBlock } from '@/components/home'
+import { PayablesCard } from '@/components/payables'
 import { opsHref } from '@/components/planning/types'
 import { fmtDay, pctText, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
@@ -109,6 +110,7 @@ function Overview() {
         {metrics.data && metrics.data.coverage.data_source !== 'none' && <DynamicsChart data={metrics.data} metrics={['revenue', 'profit']} granularity={{ value: filter.granularity, chosen: filter.granularityChosen, onChange: (g) => update({ granularity: g, granularityChosen: true }) }} />}
       </section>
       {board && <MoneyBlock payouts={board.payouts} hasKey={board.setup.has_key} />}
+      <PayablesCard />
       <AttentionWidget area="finance" />
       <nav className="flex flex-wrap gap-x-5 gap-y-2 text-sm" aria-label="Подробнее" data-testid="finance-links">
         <Link href={pnl} className="text-accent hover:underline">
