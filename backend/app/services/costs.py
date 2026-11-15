@@ -39,6 +39,10 @@ class CostHistory:
             offer: sorted(rs, key=lambda r: (r.effective_from, _created(r))) for offer, rs in by_offer.items()
         }
 
+    def offers(self) -> list[str]:
+        """Артикулы, у которых есть себестоимость."""
+        return list(self._records)
+
     def record_at(self, offer_id: str, day: date) -> ProductCost | None:
         """Запись, действующая на дату: последняя с effective_from ≤ day, иначе самая первая."""
         records = self._records.get(offer_id)
