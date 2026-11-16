@@ -5,12 +5,14 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 
+import { CopyText } from '@/components/copy'
 import { FormError } from '@/components/AuthForm'
 import { ChipOptions, FilterBar, FilterButton, FilterField } from '@/components/filters'
 import { fmtDateTime, fmtDay } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
 import { productHref } from '@/lib/stocks'
+import { SortTh, useSort } from '@/components/table'
 import {
   type Draft,
   GROUP_TONE,
@@ -109,6 +111,12 @@ function PlanView({ id, onBack, onOrder }: { id: string; onBack: () => void; onO
   const [plan, setPlan] = useState<PlanDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState('')
+  const items = useSort(plan?.items, {
+    offer: (i) => i.product.offer_id,
+    recommended: (i) => i.recommended,
+    qty: (i) => i.qty,
+    changed: (i) => (i.history.length > 1 ? i.updated_at : null),
+  })
   const load = useCallback(async () => {
     try {
       const { data } = await api.get<PlanDetail>(`/supply/plans/${id}`)
@@ -239,22 +247,28 @@ function PlanView({ id, onBack, onOrder }: { id: string; onBack: () => void; onO
         <table className="w-full min-w-[34rem] text-sm" data-testid="plan-items">
           <thead className="text-left text-xs text-muted">
             <tr className="border-b border-line">
-              <th className="px-4 py-2 font-normal">Товар</th>
-              <th className="px-4 py-2 text-right font-normal" title="Сколько советовал расчёт, когда товар попал в план">
+              <SortTh {...items.th('offer')} kind="text" className="px-4 py-2 font-normal">
+                Товар
+              </SortTh>
+              <SortTh {...items.th('recommended')} align="right" className="px-4 py-2 font-normal" title="Сколько советовал расчёт, когда товар попал в план">
                 Советовал
-              </th>
-              <th className="px-4 py-2 text-right font-normal">В плане</th>
-              <th className="px-4 py-2 font-normal">Правки</th>
+              </SortTh>
+              <SortTh {...items.th('qty')} align="right" className="px-4 py-2 font-normal">
+                В плане
+              </SortTh>
+              <SortTh {...items.th('changed')} kind="date" className="px-4 py-2 font-normal" title="По времени последней правки">
+                Правки
+              </SortTh>
             </tr>
           </thead>
           <tbody>
-            {plan.items.map((i) => (
+            {items.rows.map((i) => (
               <tr key={i.product.id} className={`border-b border-line last:border-b-0 ${i.qty === 0 ? 'text-faint' : ''}`} data-testid="plan-item">
                 <td className="px-4 py-2">
-                  <Link href={productHref(i.product.id)} className="font-medium hover:text-accent">
-                    {i.product.offer_id}
+                  <Link href={productHref(i.product.id)} className="inline-flex max-w-full min-w-0 align-bottom font-medium hover:text-accent">
+                    <CopyText value={i.product.offer_id} label="артикул" />
                   </Link>
-                  {i.product.name && <div className="max-w-[16rem] truncate text-xs text-muted">{i.product.name}</div>}
+                  {i.product.name && <CopyText value={i.product.name} label="название" className="max-w-[16rem] text-xs text-muted" />}
                   {!i.has_sku && plan.kind === 'supply' && <div className="text-xs text-warn">нет SKU Ozon — в заявку не попадёт</div>}
                 </td>
                 <td className="px-4 py-2 text-right tabular-nums text-muted">{i.recommended ?? '—'}</td>

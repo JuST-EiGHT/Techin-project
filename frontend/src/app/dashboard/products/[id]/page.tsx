@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useState } from 'react'
 
+import { Copyable } from '@/components/copy'
 import { AnalyticsFilters, CoverageNote, MetricsState, useAnalyticsFilter, useMetrics } from '@/components/analytics'
 import { FormError } from '@/components/AuthForm'
 import { DynamicsChart, KeyFigures } from '@/components/home'
@@ -97,6 +98,12 @@ function ProductPage() {
                     </>
                   )}
                 </p>
+                {/* артикул, SKU и штрихкод — копируются, значок при наведении (как в таблицах) */}
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-faint" data-testid="product-ids">
+                  <Copyable prefix="Артикул" value={item.offer_id} label="артикул" testid="copy-offer" />
+                  {item.ozon_sku && <Copyable prefix="SKU" value={item.ozon_sku} label="SKU" testid="copy-sku" />}
+                  {item.barcode && <Copyable prefix="ШК" value={item.barcode} label="штрихкод" testid="copy-barcode" />}
+                </div>
               </div>
               {!item.is_archived && (
                 <button

@@ -25,7 +25,15 @@ from app.services.pnl_cache import cache
 from app.services.pnl_service import PnLRequest, PnLRequestError, coverage_out, coverage_warnings
 from app.services.tax_profile import default_supplier_vat_pct, load_profiles, profile_on
 
-SORTS = ("revenue", "profit", "margin", "qty", "total")
+# сортировка таблицы «Прибыль по товарам» — по любой колонке (правка владельца 16.11.2026): суммы за период, артикул
+# и название, «на 1 шт.» (unit_*: из per_unit — юнит-экономика)
+MONEY_SORTS = ("revenue", "profit", "margin", "total", "avg_price", "commission", "logistics", "returns", "ads",
+               "storage", "other", "cost")
+ZERO_WHEN_EMPTY = ("returns", "ads", "storage")  # в таблице пустое показывается нулём — и сортируется так же
+COUNT_SORTS = ("qty", "returned_qty")
+TEXT_SORTS = ("offer_id", "name")
+UNIT_SORTS = tuple(f"unit_{f}" for f in ("price", *engine.UNIT_FIELDS))
+SORTS = (*MONEY_SORTS, *COUNT_SORTS, *TEXT_SORTS, *UNIT_SORTS)
 WITHOUT_VAT = "without_vat"
 WITH_VAT = "with_vat"
 
@@ -215,11 +223,26 @@ def select_rows(items: list[dict], search: str | None, sort: str, order: str) ->
     if search:
         q = norm(search)
         items = [i for i in items if q in norm(i["offer_id"]) or q in norm(i["name"] or "")]
-    key = (lambda i: i["qty"]) if sort == "qty" else (lambda i: Decimal(i[sort]) if i[sort] is not None else None)
-    present = [i for i in items if key(i) is not None]
-    empty = [i for i in items if key(i) is None]
-    present.sort(key=lambda i: (key(i), i["offer_id"]), reverse=order == "desc")
-    return present + sorted(empty, key=lambda i: i["offer_id"])
+    present = [i for i in items if sort_value(i, sort) is not None]
+    empty = [i for i in items if sort_value(i, sort) is None]
+    present.sort(key=lambda i: (sort_value(i, sort), norm(i["offer_id"])), reverse=order == "desc")
+    return present + sorted(empty, key=lambda i: norm(i["offer_id"]))
+
+
+def sort_value(item: dict, sort: str) -> Decimal | int | str | None:
+    """Значение колонки для сортировки; нет данных (нет себестоимости, нет продаж для «на 1 шт.») — None."""
+    if sort in COUNT_SORTS:
+        return item[sort]
+    if sort in TEXT_SORTS:
+        return norm(item[sort] or "") or None
+    if sort in UNIT_SORTS:
+        unit = item.get("per_unit") or {}
+        value = unit.get(sort.removeprefix("unit_"))
+    else:
+        value = item[sort]
+        if value is None and sort in ZERO_WHEN_EMPTY:
+            value = 0
+    return None if value is None else Decimal(value)
 
 
 # быстрые фильтры «Аналитики прибыльности» (10.9): прибыль < 0, маржа ниже порога «низкой маржи» (7.1), нет себестоимости

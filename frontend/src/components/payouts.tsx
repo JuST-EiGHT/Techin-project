@@ -12,6 +12,7 @@ import { Badge, fmtDay, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
 import { addDays as addDaysIso, parseDay } from '@/lib/period'
+import { SortTh, num, useSort } from '@/components/table'
 
 export type Mode = 'auto' | 'standard' | 'daily' | 'weekly' | 'custom'
 
@@ -205,6 +206,7 @@ export function WeekChart({
 // ---------- таблицы ----------
 
 export function ForecastTable({ items, week }: { items: ForecastItem[]; week?: string | null }) {
+  const s = useSort(items, { date: (f) => f.date, amount: (f) => num(f.amount), week: (f) => f.week_from, kind: (f) => (f.kind === 'schedule' ? 'по графику' : 'оценка') })
   if (items.length === 0) return null
   return (
     <section className="rounded-xl border border-line bg-card p-4" data-testid="forecast-table">
@@ -217,14 +219,22 @@ export function ForecastTable({ items, week }: { items: ForecastItem[]; week?: s
         <table className="w-full text-sm">
           <thead className="text-left text-xs text-muted">
             <tr className="border-b border-line">
-              <th className="py-2 pr-3 font-normal">Дата</th>
-              <th className="py-2 pr-3 text-right font-normal">Сумма</th>
-              <th className="hidden py-2 pr-3 font-normal sm:table-cell">За продажи</th>
-              <th className="py-2 font-normal">Как посчитано</th>
+              <SortTh {...s.th('date')} kind="date" className="py-2 pr-3 font-normal">
+                Дата
+              </SortTh>
+              <SortTh {...s.th('amount')} align="right" className="py-2 pr-3 font-normal">
+                Сумма
+              </SortTh>
+              <SortTh {...s.th('week')} kind="date" className="hidden py-2 pr-3 font-normal sm:table-cell">
+                За продажи
+              </SortTh>
+              <SortTh {...s.th('kind')} kind="text" className="py-2 font-normal">
+                Как посчитано
+              </SortTh>
             </tr>
           </thead>
           <tbody>
-            {items.map((f) => {
+            {s.rows.map((f) => {
               const hit = mondayOf(f.date) === week
               // «по графику» — неделя продаж закончилась: её товары можно открыть; «оценка» — неделя ещё идёт
               const sales = f.kind === 'schedule' ? <SalesWeek from={f.week_from} to={f.week_to} /> : weekText(f.week_from, f.week_to)
@@ -250,6 +260,7 @@ export function ForecastTable({ items, week }: { items: ForecastItem[]; week?: s
 }
 
 export function HistoryTable({ items, week }: { items: PayoutFact[]; week?: string | null }) {
+  const s = useSort(items, { date: (p) => p.date, amount: (p) => num(p.amount), week: (p) => p.week_from, expected: (p) => num(p.expected), diff: (p) => num(p.diff) })
   return (
     <section className="rounded-xl border border-line bg-card p-4" data-testid="history-table">
       <h2 className="text-sm font-semibold">История выплат за 12 недель</h2>
@@ -265,15 +276,25 @@ export function HistoryTable({ items, week }: { items: PayoutFact[]; week?: stri
             <table className="w-full text-sm">
               <thead className="text-left text-xs text-muted">
                 <tr className="border-b border-line">
-                  <th className="py-2 pr-3 font-normal">Дата</th>
-                  <th className="py-2 pr-3 text-right font-normal">Выплачено</th>
-                  <th className="hidden py-2 pr-3 font-normal sm:table-cell">За продажи</th>
-                  <th className="hidden py-2 pr-3 text-right font-normal sm:table-cell">По графику</th>
-                  <th className="py-2 text-right font-normal">Разница</th>
+                  <SortTh {...s.th('date')} kind="date" className="py-2 pr-3 font-normal">
+                    Дата
+                  </SortTh>
+                  <SortTh {...s.th('amount')} align="right" className="py-2 pr-3 font-normal">
+                    Выплачено
+                  </SortTh>
+                  <SortTh {...s.th('week')} kind="date" className="hidden py-2 pr-3 font-normal sm:table-cell">
+                    За продажи
+                  </SortTh>
+                  <SortTh {...s.th('expected')} align="right" className="hidden py-2 pr-3 font-normal sm:table-cell">
+                    По графику
+                  </SortTh>
+                  <SortTh {...s.th('diff')} align="right" className="py-2 font-normal">
+                    Разница
+                  </SortTh>
                 </tr>
               </thead>
               <tbody>
-                {items.map((p) => {
+                {s.rows.map((p) => {
                   const diff = p.diff === null ? null : Number(p.diff)
                   const hit = mondayOf(p.date) === week
                   return (
@@ -782,6 +803,13 @@ export function SettlementSummary({ data }: { data: Settlement }) {
 /** Выплаты Ozon за период и поступления на счёт: по каждой — пришло, не пришло или пришло другой суммой. */
 export function SettlementTable({ data, week }: { data: Settlement; week?: string | null }) {
   const rows = data.payouts
+  const s = useSort(rows, {
+    day: (r) => r.payout_day ?? r.bank_day,
+    ozon: (r) => num(r.ozon_amount),
+    expected: (r) => num(r.expected),
+    bank: (r) => num(r.bank_amount),
+    status: (r) => STATUS[r.status].label,
+  })
   // ссылка уведомления «прямо к выплате» (#payout-…, шаг 10.25): строка появляется после загрузки — тогда и прокручиваем
   useEffect(() => {
     const hash = window.location.hash.slice(1)
@@ -817,15 +845,25 @@ export function SettlementTable({ data, week }: { data: Settlement; week?: strin
           <table className="w-full min-w-[34rem] text-sm">
             <thead className="text-left text-xs text-muted">
               <tr className="border-b border-line">
-                <th className="py-2 pr-3 font-normal">Выплата</th>
-                <th className="py-2 pr-3 text-right font-normal">Выплатил Ozon</th>
-                <th className="py-2 pr-3 text-right font-normal">По графику</th>
-                <th className="py-2 pr-3 font-normal">На счёт</th>
-                <th className="py-2 font-normal">Сверка</th>
+                <SortTh {...s.th('day')} kind="date" className="py-2 pr-3 font-normal">
+                  Выплата
+                </SortTh>
+                <SortTh {...s.th('ozon')} align="right" className="py-2 pr-3 font-normal">
+                  Выплатил Ozon
+                </SortTh>
+                <SortTh {...s.th('expected')} align="right" className="py-2 pr-3 font-normal">
+                  По графику
+                </SortTh>
+                <SortTh {...s.th('bank')} className="py-2 pr-3 font-normal">
+                  На счёт
+                </SortTh>
+                <SortTh {...s.th('status')} kind="text" className="py-2 font-normal">
+                  Сверка
+                </SortTh>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => {
+              {s.rows.map((r) => {
                 const day = r.payout_day ?? r.bank_day ?? ''
                 const hit = mondayOf(day) === week
                 const sd = r.schedule_diff === null ? null : Number(r.schedule_diff)

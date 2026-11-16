@@ -5,10 +5,12 @@
 import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 
+import { CopyText } from '@/components/copy'
 import { FormError } from '@/components/AuthForm'
 import { ChipOptions, FilterBar, FilterButton, FilterField, SearchBox } from '@/components/filters'
 import { type Coverage, type DataSource, SourceNote } from '@/components/finance'
 import { Warnings, fmtDay, pctText, rub } from '@/components/reports'
+import { SortTh as TableSortTh, num, useSort } from '@/components/table'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
 import { marginTone } from '@/lib/products'
@@ -100,7 +102,11 @@ type ProductsPage = {
   low_margin: string | null
 }
 
-type Sort = 'revenue' | 'profit' | 'margin' | 'qty'
+// сортировка — по любой колонке (сервер: product_pnl.SORTS; «на 1 шт.» — unit_*)
+type Sort =
+  | 'offer_id' | 'qty' | 'revenue' | 'avg_price' | 'commission' | 'logistics' | 'returns' | 'ads' | 'storage' | 'other' | 'cost'
+  | 'profit' | 'margin' | 'unit_price' | 'unit_commission' | 'unit_logistics' | 'unit_returns' | 'unit_ads' | 'unit_storage'
+  | 'unit_other' | 'unit_total' | 'unit_cost' | 'unit_profit'
 type Quick = 'all' | 'loss' | 'low_margin' | 'no_cost'
 const QUICK: { value: Quick; label: string; title: string }[] = [
   { value: 'all', label: 'Все', title: 'Все товары с начислениями за период' },
@@ -110,6 +116,11 @@ const QUICK: { value: Quick; label: string; title: string }[] = [
 ]
 const PAGE = 50
 export const signTone = (v: string) => (Number(v) < 0 ? 'text-bad' : Number(v) > 0 ? 'text-ok' : 'text-muted')
+const TO_UNIT: Partial<Record<Sort, Sort>> = {
+  revenue: 'unit_price', avg_price: 'unit_price', commission: 'unit_commission', logistics: 'unit_logistics',
+  returns: 'unit_returns', ads: 'unit_ads', storage: 'unit_storage', other: 'unit_other', cost: 'unit_cost', profit: 'unit_profit',
+}
+const FROM_UNIT: Partial<Record<Sort, Sort>> = { unit_price: 'avg_price', unit_total: 'revenue' }
 
 /** Прибыль по товарам: таблица с сортировкой, поиском, страницами, экспортом CSV и карточкой товара. quick — быстрые
  * фильтры «Аналитики прибыльности»; moneyWent={false} — без «На что ушли деньги» (у страницы своя структура расходов). */
@@ -168,12 +179,17 @@ export function ProductsView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, sort, order, offset, search, quick])
 
-  function sortBy(s: Sort) {
-    if (s === sort) setOrder(order === 'desc' ? 'asc' : 'desc')
-    else {
-      setSort(s)
-      setOrder('desc')
-    }
+  // «Всего» ↔ «На 1 шт.»: сортировка остаётся на той же колонке (комиссия → комиссия на 1 шт. и обратно)
+  function switchView(next: boolean) {
+    setUnit(next)
+    if (next && TO_UNIT[sort]) setSort(TO_UNIT[sort] as Sort)
+    if (!next && sort.startsWith('unit_')) setSort((FROM_UNIT[sort] ?? sort.slice(5)) as Sort)
+  }
+
+  // направление — из меню заголовка (components/table.tsx); «Без сортировки» — по выручке, как по умолчанию
+  function sortBy(s: Sort, dir: 'asc' | 'desc' | null) {
+    setSort(dir ? s : 'revenue')
+    setOrder(dir ?? 'desc')
     setOffset(0)
   }
 
@@ -199,12 +215,19 @@ export function ProductsView({
   const periodProfit = (Number(t.profit) + Number(data.unallocated.total)).toFixed(2)
   const empty = t.products === 0 && Number(data.unallocated.total) === 0
   const th = 'px-3 py-2 font-normal whitespace-nowrap'
-  const SortTh = ({ s, children }: { s: Sort; children: React.ReactNode }) => (
-    <th className={`${th} text-right`} aria-sort={sort === s ? (order === 'desc' ? 'descending' : 'ascending') : undefined}>
-      <button type="button" onClick={() => sortBy(s)} className={`hover:text-fg ${sort === s ? 'text-fg' : ''}`} data-testid={`sort-${s}`}>
-        {children} {sort === s ? (order === 'desc' ? '↓' : '↑') : '↕'}
-      </button>
-    </th>
+  const SortTh = ({ s, children, title }: { s: Sort; children: React.ReactNode; title?: string }) => (
+    <TableSortTh
+      active={sort === s ? order : null}
+      onSort={(dir) => sortBy(s, dir)}
+      resettable={s !== 'revenue'}
+      kind={s === 'offer_id' ? 'text' : 'number'}
+      align={s === 'offer_id' ? 'left' : 'right'}
+      className={th}
+      title={title}
+      testid={`sort-${s}`}
+    >
+      {children}
+    </TableSortTh>
   )
 
   return (
@@ -244,7 +267,7 @@ export function ProductsView({
                   onReset={() => {
                     setQuick('all')
                     setOffset(0)
-                    setUnit(false)
+                    switchView(false)
                   }}
                   testid="profit-filters"
                 >
@@ -275,7 +298,7 @@ export function ProductsView({
                         { value: 'unit', label: 'На 1 шт.' },
                       ]}
                       value={unit ? 'unit' : 'total'}
-                      onChange={(v) => setUnit(v === 'unit')}
+                      onChange={(v) => switchView(v === 'unit')}
                       testid="view"
                     />
                   </FilterField>
@@ -305,51 +328,51 @@ export function ProductsView({
                 <thead className="border-b border-line text-left text-xs text-muted">
                   {unit ? (
                     <tr>
-                      <th className={th}>Товар</th>
+                      <SortTh s="offer_id">Товар</SortTh>
                       <SortTh s="qty">Шт.</SortTh>
-                      <th className={`${th} text-right`}>Цена</th>
-                      <th className={`${th} text-right`}>Комиссия</th>
-                      <th className={`${th} text-right`}>Логистика</th>
-                      <th className={`${th} text-right`} title="Обратная логистика, обработка возвратов, отмен и невыкупов">
+                      <SortTh s="unit_price">Цена</SortTh>
+                      <SortTh s="unit_commission">Комиссия</SortTh>
+                      <SortTh s="unit_logistics">Логистика</SortTh>
+                      <SortTh s="unit_returns" title="Обратная логистика, обработка возвратов, отмен и невыкупов">
                         Возвраты
-                      </th>
-                      <th className={`${th} text-right`} title="Реклама и продвижение с артикулом: «Звёздные товары» и др. Оплата за клик и за заказ — по кампании, в «Не распределено»">
+                      </SortTh>
+                      <SortTh s="unit_ads" title="Реклама и продвижение с артикулом: «Звёздные товары» и др. Оплата за клик и за заказ — по кампании, в «Не распределено»">
                         Реклама
-                      </th>
-                      <th className={`${th} text-right`} title="Хранение: доля товара по отчёту Ozon о размещении">
+                      </SortTh>
+                      <SortTh s="unit_storage" title="Хранение: доля товара по отчёту Ozon о размещении">
                         Хранение
-                      </th>
-                      <th className={`${th} text-right`} title="Баллы за скидки, эквайринг, возврат выручки и др.">
+                      </SortTh>
+                      <SortTh s="unit_other" title="Баллы за скидки, эквайринг, возврат выручки и др.">
                         Прочее
-                      </th>
-                      <th className={`${th} text-right`} title="Сколько Ozon начислил за штуку после удержаний">
+                      </SortTh>
+                      <SortTh s="unit_total" title="Сколько Ozon начислил за штуку после удержаний">
                         От Ozon
-                      </th>
-                      <th className={`${th} text-right`}>{costTitle}</th>
-                      <th className={`${th} text-right`}>Прибыль</th>
+                      </SortTh>
+                      <SortTh s="unit_cost">{costTitle}</SortTh>
+                      <SortTh s="unit_profit">Прибыль</SortTh>
                       <SortTh s="margin">Маржа</SortTh>
                     </tr>
                   ) : (
                     <tr>
-                      <th className={th}>Товар</th>
+                      <SortTh s="offer_id">Товар</SortTh>
                       <SortTh s="qty">Шт.</SortTh>
                       <SortTh s="revenue">Выручка</SortTh>
-                      <th className={`${th} text-right`}>Ср. цена</th>
-                      <th className={`${th} text-right`}>Комиссия</th>
-                      <th className={`${th} text-right`}>Логистика</th>
-                      <th className={`${th} text-right`} title="Обратная логистика, обработка возвратов, отмен и невыкупов">
+                      <SortTh s="avg_price">Ср. цена</SortTh>
+                      <SortTh s="commission">Комиссия</SortTh>
+                      <SortTh s="logistics">Логистика</SortTh>
+                      <SortTh s="returns" title="Обратная логистика, обработка возвратов, отмен и невыкупов">
                         Возвраты
-                      </th>
-                      <th className={`${th} text-right`} title="Реклама и продвижение с артикулом: «Звёздные товары» и др. Оплата за клик и за заказ — по кампании, в «Не распределено»">
+                      </SortTh>
+                      <SortTh s="ads" title="Реклама и продвижение с артикулом: «Звёздные товары» и др. Оплата за клик и за заказ — по кампании, в «Не распределено»">
                         Реклама
-                      </th>
-                      <th className={`${th} text-right`} title="Хранение: доля товара по отчёту Ozon о размещении">
+                      </SortTh>
+                      <SortTh s="storage" title="Хранение: доля товара по отчёту Ozon о размещении">
                         Хранение
-                      </th>
-                      <th className={`${th} text-right`} title="Баллы за скидки, эквайринг, возврат выручки и др.">
+                      </SortTh>
+                      <SortTh s="other" title="Баллы за скидки, эквайринг, возврат выручки и др.">
                         Прочее
-                      </th>
-                      <th className={`${th} text-right`}>{costTitle}</th>
+                      </SortTh>
+                      <SortTh s="cost">{costTitle}</SortTh>
                       <SortTh s="profit">Прибыль</SortTh>
                       <SortTh s="margin">Маржа</SortTh>
                     </tr>
@@ -366,8 +389,8 @@ export function ProductsView({
                         data-testid="product-row"
                       >
                         <td className="max-w-[13rem] px-3 py-2">
-                          <div className="truncate font-medium">{r.offer_id}</div>
-                          {r.name && <div className="truncate text-xs text-muted">{r.name}</div>}
+                          <CopyText value={r.offer_id} label="артикул" className="font-medium" />
+                          {r.name && <CopyText value={r.name} label="название" className="text-xs text-muted" />}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">
                           {r.qty}
@@ -636,6 +659,7 @@ function ProductCard({
   }, [onClose])
   const un = row === 'unallocated'
   const byType = un ? data.unallocated.by_type : row.by_type
+  const types = useSort(Object.entries(byType), { name: ([n]) => n, value: ([, v]) => num(v) })
   const title = un ? 'Не распределено' : row.offer_id
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-bg/70 p-0 sm:items-center sm:p-4" onClick={onClose}>
@@ -739,8 +763,18 @@ function ProductCard({
 
         <h3 className="mt-5 text-xs uppercase tracking-wider text-muted">Начисления по типам</h3>
         <table className="mt-1 w-full text-sm" data-testid="card-by-type">
+          <thead className="text-left text-xs text-faint">
+            <tr>
+              <TableSortTh {...types.th('name')} kind="text" className="py-1 pr-3 font-normal">
+                Начисление
+              </TableSortTh>
+              <TableSortTh {...types.th('value')} align="right" className="py-1 font-normal">
+                ₽
+              </TableSortTh>
+            </tr>
+          </thead>
           <tbody>
-            {Object.entries(byType).map(([name, v]) => (
+            {types.rows.map(([name, v]) => (
               <tr key={name} className="border-b border-line last:border-b-0">
                 <td className="py-1.5 pr-3">{name}</td>
                 <td className={`whitespace-nowrap py-1.5 text-right tabular-nums ${signTone(v)}`}>{rub(v)}</td>

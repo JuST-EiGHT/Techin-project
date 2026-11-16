@@ -5,8 +5,10 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 
+import { CopyText } from '@/components/copy'
 import { FormError } from '@/components/AuthForm'
 import { CheckOption, ChipOptions, FilterBar, FilterButton, FilterField, SearchBox } from '@/components/filters'
+import { type SortValue, SortTh, num, sortRows } from '@/components/table'
 import { type AnalyticsFilter, formatMetric } from '@/lib/analytics'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
@@ -249,7 +251,18 @@ export function AbcMatrix({ data, picked, onPick }: { data: AbcData; picked: str
   )
 }
 
-type SortKey = 'rank' | 'offer_id' | 'change_pct'
+type SortKey = 'rank' | 'offer_id' | 'group' | 'value' | 'share' | 'cum_share' | 'change_pct' | 'groups'
+// значение колонки для сортировки (components/table.tsx): группа A → C, «нет с/с» — в конце
+const BY: Record<SortKey, (i: AbcItem) => SortValue> = {
+  rank: (i) => i.rank,
+  offer_id: (i) => i.product.offer_id,
+  group: (i) => i.group,
+  value: (i) => num(i.value),
+  share: (i) => num(i.share),
+  cum_share: (i) => num(i.cum_share),
+  change_pct: (i) => num(i.change_pct),
+  groups: (i) => (i.revenue_group ? `${i.revenue_group}${i.profit_group ?? 'Z'}` : null),
+}
 
 /** Товары: группа, показатель, доля, накопленная доля, к прошлому периоду и смена группы, ABC по выручке и прибыли. */
 export function AbcTable({ data, filter, pick, onPick }: { data: AbcData; filter: AnalyticsFilter; pick: string; onPick: (p: string) => void }) {
@@ -267,16 +280,7 @@ export function AbcTable({ data, filter, pick, onPick }: { data: AbcData; filter
       return true
     })
     if (sort.key === 'rank') return sort.desc ? [...picked].reverse() : picked
-    const value = (i: AbcItem) => (sort.key === 'offer_id' ? i.product.offer_id.toLowerCase() : i.change_pct === null ? null : Number(i.change_pct))
-    const filled = picked.filter((i) => value(i) !== null)
-    const empty = picked.filter((i) => value(i) === null)
-    filled.sort((x, y) => {
-      const a = value(x) as number | string
-      const b = value(y) as number | string
-      const r = a < b ? -1 : a > b ? 1 : 0
-      return sort.desc ? -r : r
-    })
-    return [...filled, ...empty]
+    return sortRows(picked, sort.desc ? 'desc' : 'asc', BY[sort.key])
   }, [data.items, search, pick, sort])
 
   async function exportXlsx() {
@@ -294,18 +298,19 @@ export function AbcTable({ data, filter, pick, onPick }: { data: AbcData; filter
     ...(data.items.some((i) => i.profit_loss) ? [{ value: 'loss', label: 'Убыточные', n: data.items.filter((i) => i.profit_loss).length }] : []),
   ]
   const cellChip = pick.length === 2 ? `Выручка ${pick[0]} · прибыль ${pick[1] === '-' ? 'нет с/с' : pick[1]}` : null
-  const th = (key: SortKey, label: string, right = false) => (
-    <th className={`px-3 py-2 font-medium ${right ? 'text-right' : 'text-left'}`}>
-      <button
-        type="button"
-        onClick={() => setSort((s) => ({ key, desc: s.key === key ? !s.desc : key === 'change_pct' }))}
-        className={`hover:text-fg ${sort.key === key ? 'text-fg' : ''}`}
-        data-testid={`abc-sort-${key}`}
-      >
-        {label}
-        {sort.key === key ? (sort.desc ? ' ↓' : ' ↑') : ''}
-      </button>
-    </th>
+  const th = (key: SortKey, label: React.ReactNode, align: 'left' | 'right' | 'center' = 'left', title?: string) => (
+    <SortTh
+      active={sort.key === key ? (sort.desc ? 'desc' : 'asc') : null}
+      onSort={(dir) => setSort(dir ? { key, desc: dir === 'desc' } : { key: 'rank', desc: false })}
+      resettable={key !== 'rank'}
+      kind={key === 'offer_id' || key === 'group' || key === 'groups' ? 'text' : 'number'}
+      align={align}
+      className="px-3 py-2 font-medium"
+      title={title}
+      testid={`abc-sort-${key}`}
+    >
+      {label}
+    </SortTh>
   )
   return (
     <section className="rounded-xl border border-line bg-card" data-testid="abc-table">
@@ -346,16 +351,12 @@ export function AbcTable({ data, filter, pick, onPick }: { data: AbcData; filter
             <tr className="border-b border-line text-xs text-muted">
               {th('rank', '№')}
               {th('offer_id', 'Товар')}
-              <th className="px-3 py-2 text-center font-medium">Группа</th>
-              <th className="px-3 py-2 text-right font-medium">{c.label}</th>
-              <th className="px-3 py-2 text-right font-medium">Доля</th>
-              <th className="px-3 py-2 text-right font-medium" title="Доля товаров выше и этого вместе">
-                Накопленная
-              </th>
-              {th('change_pct', 'К прошлому', true)}
-              <th className="px-3 py-2 text-center font-medium" title="Группа по выручке и по прибыли за тот же период">
-                Выручка / прибыль
-              </th>
+              {th('group', 'Группа', 'center')}
+              {th('value', c.label, 'right')}
+              {th('share', 'Доля', 'right')}
+              {th('cum_share', 'Накопленная', 'right', 'Доля товаров выше и этого вместе')}
+              {th('change_pct', 'К прошлому', 'right')}
+              {th('groups', 'Выручка / прибыль', 'center', 'Группа по выручке и по прибыли за тот же период')}
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -364,13 +365,13 @@ export function AbcTable({ data, filter, pick, onPick }: { data: AbcData; filter
                 <td className="px-3 py-2 tabular-nums text-faint">{i.rank ?? ''}</td>
                 <td className="max-w-[16rem] px-3 py-2">
                   {i.product.id ? (
-                    <Link href={`/dashboard/products/${i.product.id}`} className="block truncate font-medium hover:text-accent" data-testid="abc-product">
-                      {i.product.offer_id}
+                    <Link href={`/dashboard/products/${i.product.id}`} className="block min-w-0 font-medium hover:text-accent" data-testid="abc-product">
+                      <CopyText value={i.product.offer_id} label="артикул" />
                     </Link>
                   ) : (
-                    <span className="block truncate font-medium">{i.product.offer_id}</span>
+                    <CopyText value={i.product.offer_id} label="артикул" className="font-medium" />
                   )}
-                  {i.product.name && <span className="block truncate text-xs text-faint">{i.product.name}</span>}
+                  {i.product.name && <CopyText value={i.product.name} label="название" className="text-xs text-faint" />}
                 </td>
                 <td className="px-3 py-2 text-center">
                   <GroupBadge g={i.group} title={i.group === null ? 'нет себестоимости — прибыль неизвестна' : undefined} />

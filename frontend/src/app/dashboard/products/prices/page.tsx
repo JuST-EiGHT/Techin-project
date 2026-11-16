@@ -6,12 +6,14 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
+import { CopyText } from '@/components/copy'
 import { FormError } from '@/components/AuthForm'
 import { CheckOption, FilterBar, FilterButton, FilterField, SearchBox } from '@/components/filters'
 import { PriceSettingsForm } from '@/components/price-calc'
 import { PricesTabs } from '@/components/prices-tabs'
 import { ProductPanel } from '@/components/product-panel'
 import { Badge, pctText, rub } from '@/components/reports'
+import { SortTh as TableSortTh } from '@/components/table'
 import { api, errorMessage } from '@/lib/api'
 import { PRICE_FILTERS, type PriceFilter, type PriceRow, type PricesPage, type Suggestion, type Suggestions } from '@/lib/pricing'
 import { marginTone } from '@/lib/products'
@@ -108,23 +110,28 @@ function Prices() {
     setUrl({ filter: filters.includes(f) ? filters.filter((x) => x !== f) : [...filters, f] })
   }
 
-  function sortBy(s: Sort, first: 'asc' | 'desc') {
-    if (s === sort) setOrder(order === 'desc' ? 'asc' : 'desc')
-    else {
-      setSort(s)
-      setOrder(first)
-    }
+  // направление — из меню заголовка (components/table.tsx); «Без сортировки» — по артикулу
+  function sortBy(s: Sort, dir: 'asc' | 'desc' | null) {
+    setSort(dir ? s : 'offer_id')
+    setOrder(dir ?? 'asc')
     setOffset(0)
   }
 
   const open = (id: string) => setUrl({ product: id })
   const th = 'whitespace-nowrap px-3 py-2 font-normal'
-  const SortTh = ({ s, first, left, children, title }: { s: Sort; first: 'asc' | 'desc'; left?: boolean; children: React.ReactNode; title?: string }) => (
-    <th className={`${th} ${left ? '' : 'text-right'}`} aria-sort={sort === s ? (order === 'desc' ? 'descending' : 'ascending') : undefined} title={title}>
-      <button type="button" onClick={() => sortBy(s, first)} className={`hover:text-fg ${sort === s ? 'text-fg' : ''}`} data-testid={`sort-${s}`}>
-        {children} {sort === s ? (order === 'desc' ? '↓' : '↑') : <span className="text-faint">↕</span>}
-      </button>
-    </th>
+  const SortTh = ({ s, left, children, title }: { s: Sort; first?: 'asc' | 'desc'; left?: boolean; children: React.ReactNode; title?: string }) => (
+    <TableSortTh
+      active={sort === s ? order : null}
+      onSort={(dir) => sortBy(s, dir)}
+      resettable={s !== 'offer_id'}
+      kind={s === 'offer_id' ? 'text' : 'number'}
+      align={left ? 'left' : 'right'}
+      className={th}
+      title={title}
+      testid={`sort-${s}`}
+    >
+      {children}
+    </TableSortTh>
   )
 
   return (
@@ -335,7 +342,7 @@ function Row({ r, selected, onOpen }: { r: PriceRow; selected: boolean; onOpen: 
       data-below-min={r.below_min ? 'true' : undefined}
     >
       <td className="max-w-[16rem] px-3 py-2">
-        <div className="truncate font-medium">{r.offer_id}</div>
+        <CopyText value={r.offer_id} label="артикул" className="font-medium" />
         <div className="truncate text-xs text-muted">{r.name ?? 'Без названия'}</div>
       </td>
       <td className={`${td} ${r.below_min ? 'font-semibold text-bad' : ''}`} data-testid="price-cell">
@@ -413,7 +420,7 @@ function TipList({
           {items.map((s) => (
             <li key={s.id}>
               <button type="button" onClick={() => onOpen(s.id)} className="flex w-full items-baseline gap-3 py-1.5 text-left hover:text-accent">
-                <span className="min-w-0 flex-1 truncate">{s.offer_id}</span>
+                <CopyText value={s.offer_id} label="артикул" className="min-w-0 flex-1" />
                 <span className="whitespace-nowrap tabular-nums text-muted">{rub(s.price)} →</span>
                 <span className={`whitespace-nowrap font-medium tabular-nums ${color}`}>{rub(s.raise_to)}</span>
                 <span className="w-14 whitespace-nowrap text-right text-xs tabular-nums text-faint">+{num(s.raise_pct)} %</span>

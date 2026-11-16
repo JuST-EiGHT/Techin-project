@@ -7,9 +7,10 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
-import { Copyable } from '@/components/copy'
+import { CopyText, Copyable } from '@/components/copy'
 import { BulkBar } from '@/components/products-bulk'
 import { Badge, fmtDay, pctText, rub } from '@/components/reports'
+import { SortTh as TableSortTh } from '@/components/table'
 import { refreshSyncStatus, timeAgo } from '@/lib/sync'
 import { api, errorMessage } from '@/lib/api'
 import { rangeOf, type PeriodPreset } from '@/lib/analytics'
@@ -219,12 +220,10 @@ function Products() {
     setUrl({ filter: next })
   }
 
-  function sortBy(s: Sort, first: 'asc' | 'desc') {
-    if (s === sort) setOrder(order === 'desc' ? 'asc' : 'desc')
-    else {
-      setSort(s)
-      setOrder(first)
-    }
+  // направление — из меню заголовка (components/table.tsx); «Без сортировки» — по артикулу, как по умолчанию
+  function sortBy(s: Sort, dir: 'asc' | 'desc' | null) {
+    setSort(dir ? s : 'offer_id')
+    setOrder(dir ?? 'asc')
     setOffset(0)
   }
 
@@ -473,12 +472,12 @@ function Products() {
                         </td>
                         <td className="max-w-[15rem] px-3 py-2">
                           <div className="flex items-center gap-1.5">
-                            <Link href={productHref(r.id)} onClick={(e) => e.stopPropagation()} className="truncate font-medium hover:text-accent" data-testid="product-link">
-                              {r.offer_id}
+                            <Link href={productHref(r.id)} onClick={(e) => e.stopPropagation()} className="inline-flex min-w-0 max-w-full font-medium hover:text-accent" data-testid="product-link">
+                              <CopyText value={r.offer_id} label="артикул" />
                             </Link>
                             <Flags flags={r.flags} />
                           </div>
-                          <div className="truncate text-xs text-muted">{r.name ?? 'Без названия'}</div>
+                          {r.name ? <CopyText value={r.name} label="название" className="text-xs text-muted" /> : <div className="text-xs text-muted">Без названия</div>}
                           {/* как в кабинете Ozon: SKU и штрихкод копируются одним нажатием */}
                           <div className="flex flex-wrap items-center gap-x-2 text-xs text-faint">
                             {r.ozon_sku && <Copyable prefix="SKU" value={r.ozon_sku} label="SKU" testid="copy-sku" />}
@@ -559,7 +558,6 @@ function Counter({
 
 function SortTh({
   s,
-  first,
   sort,
   order,
   onSort,
@@ -568,21 +566,27 @@ function SortTh({
   children,
 }: {
   s: Sort
-  first: 'asc' | 'desc'
+  first?: 'asc' | 'desc'
   sort: Sort
   order: 'asc' | 'desc'
-  onSort: (s: Sort, first: 'asc' | 'desc') => void
+  onSort: (s: Sort, dir: 'asc' | 'desc' | null) => void
   left?: boolean
   title?: string
   children: React.ReactNode
 }) {
-  const on = sort === s
   return (
-    <th className={`whitespace-nowrap px-3 py-2 font-normal ${left ? '' : 'text-right'}`} aria-sort={on ? (order === 'desc' ? 'descending' : 'ascending') : undefined} title={title}>
-      <button type="button" onClick={() => onSort(s, first)} className={`hover:text-fg ${on ? 'text-fg' : ''}`} data-testid={`sort-${s}`}>
-        {children} {on ? (order === 'desc' ? '↓' : '↑') : <span className="text-faint">↕</span>}
-      </button>
-    </th>
+    <TableSortTh
+      active={sort === s ? order : null}
+      onSort={(dir) => onSort(s, dir)}
+      resettable={s !== 'offer_id'}
+      kind={s === 'offer_id' || s === 'name' ? 'text' : s === 'last_sale' ? 'date' : 'number'}
+      align={left ? 'left' : 'right'}
+      className="whitespace-nowrap px-3 py-2 font-normal"
+      title={title}
+      testid={`sort-${s}`}
+    >
+      {children}
+    </TableSortTh>
   )
 }
 

@@ -103,6 +103,14 @@ async def test_filters_and_sort(client, tokens, seller):  # noqa: F811
     assert offers((await get(sort="stock_value", order="asc")).json()) == [ACB, TH, RS, CM]
     assert offers((await get(sort="end_date")).json()) == [RS, TH, CM, ACB]
     assert offers((await get(sort="offer_id", order="desc")).json()) == [ACB, TH, CM, RS]
+    # «Ликвидность» — от тревожного к избытку, «нет данных» — в конце; себестоимость — как число (16.11.2026)
+    rank = {"critical": 0, "low": 1, "normal": 2, "excess": 3}
+    statuses = [r["status"] for r in (await get(sort="status")).json()["rows"]]
+    known = [rank[x] for x in statuses if x in rank]
+    assert known == sorted(known) and statuses[0] == "critical" and statuses[: len(known)] == [x for x in statuses if x in rank]
+    unit = [r["unit_cost"] for r in (await get(sort="unit_cost", order="desc")).json()["rows"]]
+    filled = [Decimal(x) for x in unit if x is not None]
+    assert filled == sorted(filled, reverse=True) and None not in unit[: len(filled)]
     # нулевые остатки (товар ушёл со склада) — по галочке
     whole = (await get(group="warehouse")).json()["totals"]["rows"]
     assert (await get(group="warehouse", include_empty=True)).json()["totals"]["rows"] >= whole

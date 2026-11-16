@@ -6,9 +6,11 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { CopyText } from '@/components/copy'
 import { FormError } from '@/components/AuthForm'
 import { CheckOption, ChipOptions, FilterButton, FilterField, SearchBox, selectClass } from '@/components/filters'
 import { fmtDay, rub } from '@/components/reports'
+import { SortTh as TableSortTh } from '@/components/table'
 import { HelpTip, Segmented, Skeleton, Sub, buttonClass } from '@/components/ui'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
@@ -29,7 +31,7 @@ import {
   warehouseLabel,
 } from '@/lib/stocks'
 
-type ColumnKey = Exclude<TableSort, 'offer_id' | 'available'> | 'unit_cost' | 'status'
+type ColumnKey = Exclude<TableSort, 'offer_id' | 'available'>
 type Column = { key: ColumnKey; label: string; hint: string; sort?: TableSort; first?: 'asc' | 'desc' }
 
 const COLUMNS: Column[] = [
@@ -38,7 +40,7 @@ const COLUMNS: Column[] = [
   { key: 'avg_daily_sales', label: 'Продажи/день', hint: 'По товару в целом: продано за вычетом возвратов за 30 дней / дней с данными', sort: 'avg_daily_sales', first: 'desc' },
   { key: 'days_of_supply', label: 'Дней запаса', hint: 'Весь остаток товара на всех складах / продажи в день', sort: 'days_of_supply', first: 'asc' },
   { key: 'end_date', label: 'Закончится', hint: 'Сегодня + дни запаса; не продаётся — даты нет', sort: 'end_date', first: 'asc' },
-  { key: 'unit_cost', label: 'Себестоимость', hint: 'С НДС поставщика, на сегодня — из справочника себестоимости' },
+  { key: 'unit_cost', label: 'Себестоимость', hint: 'С НДС поставщика, на сегодня — из справочника себестоимости', sort: 'unit_cost' },
   { key: 'stock_value', label: 'Стоимость запаса', hint: 'Доступно × себестоимость с НДС; нет себестоимости — «нет данных»', sort: 'stock_value', first: 'desc' },
   { key: 'last_sale', label: 'Последняя продажа', hint: 'Последний день с продажей товара — на любом складе', sort: 'last_sale', first: 'desc' },
 ]
@@ -166,12 +168,10 @@ export function StockTablePanel({
     }
   }, [params, reloadKey])
 
-  function sortBy(s: TableSort, first: 'asc' | 'desc') {
-    if (s === sort) setOrder(order === 'asc' ? 'desc' : 'asc')
-    else {
-      setSort(s)
-      setOrder(first)
-    }
+  // направление выбирают в меню заголовка (components/table.tsx); «Без сортировки» — по товару, как по умолчанию
+  function sortBy(s: TableSort, dir: 'asc' | 'desc' | null) {
+    setSort(dir ? s : 'offer_id')
+    setOrder(dir ?? 'asc')
   }
 
   function toggle(k: ColumnKey) {
@@ -397,7 +397,7 @@ function Rows({
   columns: Column[]
   sort: TableSort
   order: 'asc' | 'desc'
-  onSort: (s: TableSort, first: 'asc' | 'desc') => void
+  onSort: (s: TableSort, dir: 'asc' | 'desc' | null) => void
   filtered: boolean
   onWarehouse: (id: string) => void
 }) {
@@ -497,10 +497,10 @@ function Rows({
   const productRow = (r: StockTableRow, indent: number) => (
     <tr key={key(r)} data-testid="stock-row" data-status={r.status ?? 'none'} className={r.status === 'critical' ? 'bg-bad/5' : undefined}>
       <td className="py-2 pr-3" style={{ paddingLeft: `${0.75 + indent * 1.25}rem` }}>
-        <Link href={productHref(r.product.id)} className="font-medium hover:text-accent" data-testid="row-product">
-          {r.product.offer_id}
+        <Link href={productHref(r.product.id)} className="inline-flex max-w-full min-w-0 align-bottom font-medium hover:text-accent" data-testid="row-product">
+          <CopyText value={r.product.offer_id} label="артикул" />
         </Link>
-        {r.product.name && <div className="max-w-[16rem] truncate text-xs text-faint">{r.product.name}</div>}
+        {r.product.name && <CopyText value={r.product.name} label="название" className="max-w-[16rem] text-xs text-faint" />}
         {data.group === 'product' && <Where r={r} onWarehouse={onWarehouse} />}
       </td>
       {productCells(r)}
@@ -537,12 +537,12 @@ function Rows({
           return (
             <li key={key(r)} className="px-4 py-2.5" data-testid="stock-card">
               <div className="flex items-start gap-2">
-                <Link href={productHref(r.product.id)} className="min-w-0 flex-1 truncate font-medium">
-                  {r.product.offer_id}
+                <Link href={productHref(r.product.id)} className="inline-flex max-w-full min-w-0 align-bottom flex-1 font-medium">
+                  <CopyText value={r.product.offer_id} label="артикул" />
                 </Link>
                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${st.badge}`}>{st.label}</span>
               </div>
-              {r.product.name && <div className="truncate text-xs text-faint">{r.product.name}</div>}
+              {r.product.name && <CopyText value={r.product.name} label="название" className="text-xs text-faint" />}
               {data.group !== 'product' && <div className="mt-0.5 text-xs text-faint">{r.warehouse ? `${r.warehouse.name} · ${r.warehouse.type}` : r.cluster}</div>}
               <div className="mt-1 flex flex-wrap gap-x-3 text-sm">
                 <span>
@@ -564,10 +564,17 @@ function Rows({
               <SortTh s="offer_id" first="asc" sort={sort} order={order} onSort={onSort} left>
                 {data.group === 'warehouse' ? 'Кластер, склад или товар' : data.group === 'cluster' ? 'Кластер или товар' : 'Товар'}
               </SortTh>
-              <th className="whitespace-nowrap px-3 py-2.5 font-medium" title="На сколько дней продаж хватит остатка — по порогам из «Настроек»">
+              <TableSortTh
+                active={sort === 'status' ? order : null}
+                onSort={(dir) => onSort('status', dir)}
+                align="left"
+                className="whitespace-nowrap px-3 py-2.5 font-medium"
+                title="На сколько дней продаж хватит остатка — по порогам из «Настроек». По возрастанию — от «Критично» к «Избытку»"
+                sub={<span className="text-[11px]">статус · запас</span>}
+                testid="sort-status"
+              >
                 Ликвидность
-                <div className="text-[11px] font-normal text-faint">статус · запас</div>
-              </th>
+              </TableSortTh>
               <SortTh s="available" first="desc" sort={sort} order={order} onSort={onSort} title="Доступно к продаже здесь">
                 Доступно
               </SortTh>
@@ -622,9 +629,10 @@ function Rows({
 
 const td = 'whitespace-nowrap px-3 py-2 text-right tabular-nums'
 
+const DATE_SORTS: TableSort[] = ['end_date', 'last_sale']
+
 function SortTh({
   s,
-  first,
   sort,
   order,
   onSort,
@@ -633,21 +641,27 @@ function SortTh({
   children,
 }: {
   s: TableSort
-  first: 'asc' | 'desc'
+  first?: 'asc' | 'desc'
   sort: TableSort
   order: 'asc' | 'desc'
-  onSort: (s: TableSort, first: 'asc' | 'desc') => void
+  onSort: (s: TableSort, dir: 'asc' | 'desc' | null) => void
   left?: boolean
   title?: string
   children: React.ReactNode
 }) {
-  const active = sort === s
   return (
-    <th className={`whitespace-nowrap px-3 py-2 font-normal ${left ? '' : 'text-right'}`} aria-sort={active ? (order === 'desc' ? 'descending' : 'ascending') : undefined} title={title}>
-      <button type="button" onClick={() => onSort(s, first)} className={`hover:text-fg ${active ? 'text-fg' : ''}`} data-testid={`sort-${s}`}>
-        {children} {active ? (order === 'desc' ? '↓' : '↑') : <span className="text-faint">↕</span>}
-      </button>
-    </th>
+    <TableSortTh
+      active={sort === s ? order : null}
+      onSort={(dir) => onSort(s, dir)}
+      resettable={s !== 'offer_id'}
+      kind={s === 'offer_id' ? 'text' : DATE_SORTS.includes(s) ? 'date' : 'number'}
+      align={left ? 'left' : 'right'}
+      className="whitespace-nowrap px-3 py-2.5 font-medium"
+      title={title}
+      testid={`sort-${s}`}
+    >
+      {children}
+    </TableSortTh>
   )
 }
 

@@ -118,6 +118,23 @@ async def test_sort_search_and_pages(client, tokens):
     assert (r.status_code, r.json()["detail"]) == (400, "Сортировка: недопустимое значение")
 
 
+async def test_sort_by_any_column(client, tokens):
+    """Сортировка по любой колонке таблицы (правка 16.11.2026): суммы, артикул, «на 1 шт.»; пустые — в конце."""
+    await import_reference_costs(client, tokens)
+    await upload(client, tokens, WEEK)
+    by_commission = (await by_product(client, tokens, sort="commission", order="asc", limit=500))["items"]
+    values = [Decimal(i["commission"]) for i in by_commission]
+    assert values == sorted(values)
+    by_offer = (await by_product(client, tokens, sort="offer_id", order="desc", limit=500))["items"]
+    offers = [i["offer_id"].lower() for i in by_offer]
+    assert offers == sorted(offers, reverse=True)
+    by_unit = (await by_product(client, tokens, sort="unit_cost", order="desc", limit=500))["items"]
+    unit_cost = [(i["per_unit"] or {}).get("cost") for i in by_unit]
+    known = [Decimal(c) for c in unit_cost if c is not None]
+    assert known == sorted(known, reverse=True) and unit_cost[-1] is None
+    assert None not in unit_cost[: len(known)]  # без себестоимости (и без продаж) — в конце
+
+
 async def test_vat_deduction_cost_without_vat_and_missing_cost(client, tokens):
     await set_profile(client, tokens, {"legal_form": "ooo", "regime": "osn", "vat_mode": "general",
                                        "vat_rate_pct": "22", "effective_from": "2026-01-01"})

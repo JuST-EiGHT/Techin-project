@@ -15,6 +15,7 @@ import { Badge, fmtDateTime, fmtDay, pctText, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { VAT_OPTIONS, costPath, since, toNumber, vatText } from '@/lib/costs'
 import { INDEX_NOTE, PRICE_INDEX, STOCK_STATUS, type ProductDetail } from '@/lib/products'
+import { SortTh, useSort } from '@/components/table'
 
 const qty = (n: number | null) => (n === null ? '—' : `${n.toLocaleString('ru-RU')} шт.`)
 const num = (v: string | null) => (v === null ? '—' : Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 2 }))
@@ -311,6 +312,7 @@ export function PriceChart({ data }: { data: ProductDetail }) {
 function StockBlock({ data }: { data: ProductDetail }) {
   const { item } = data
   const status = item.stock_status ? STOCK_STATUS[item.stock_status] : null
+  const stocks = useSort(data.stocks, { wh: (s) => `${s.cluster_name ?? ''} ${s.warehouse}`, present: (s) => s.present, transit: (s) => s.in_transit })
   return (
     <Section
       title="Остатки и продажи"
@@ -333,13 +335,19 @@ function StockBlock({ data }: { data: ProductDetail }) {
         <table className="mt-2 w-full text-xs" data-testid="panel-warehouses">
           <thead className="text-left text-faint">
             <tr>
-              <th className="py-1 font-normal">Склад</th>
-              <th className="py-1 text-right font-normal">Доступно</th>
-              <th className="py-1 text-right font-normal">В пути</th>
+              <SortTh {...stocks.th('wh')} kind="text" className="py-1 font-normal">
+                Склад
+              </SortTh>
+              <SortTh {...stocks.th('present')} align="right" className="py-1 font-normal">
+                Доступно
+              </SortTh>
+              <SortTh {...stocks.th('transit')} align="right" className="py-1 font-normal">
+                В пути
+              </SortTh>
             </tr>
           </thead>
           <tbody>
-            {data.stocks.map((s) => (
+            {stocks.rows.map((s) => (
               <tr key={`${s.warehouse}-${s.type}`} className="border-t border-line">
                 <td className="py-1 pr-2">
                   {s.cluster_name ? `${s.cluster_name} · ` : ''}

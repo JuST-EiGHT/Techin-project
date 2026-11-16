@@ -13,6 +13,7 @@ import { input } from '@/components/planning/ui'
 import { Badge, fmtDay, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { addDays, todayMsk } from '@/lib/period'
+import { SortTh, num, useSort } from '@/components/table'
 
 const SOURCE: Record<string, string> = { manual: 'вручную', import: 'из файла', ozon_payout: 'выплата Ozon', bank: 'банк' }
 const signed = (v: string) => `${Number(v) > 0 ? '+' : ''}${rub(v)}`
@@ -23,6 +24,7 @@ function ReconcileCard({ r }: { r: Reconcile }) {
   const tone = r.status === 'ok' ? 'ok' : r.status === 'diff' ? 'bad' : 'muted'
   const label = { ok: 'сходится', diff: 'расхождение', no_opening: 'нет остатка', no_overlap: 'не с чем сверить', no_bank: 'нет данных банка' }[r.status]
   const dayLink = r.since ? `/dashboard/operations?from=${r.matched_until ? addDays(r.matched_until, 1) : r.since}&to=${r.since}&account=${r.account.id}` : null
+  const days = useSort(r.days, { day: (d) => d.day, bank: (d) => num(d.bank), service: (d) => num(d.service), diff: (d) => num(d.diff) })
   return (
     <li className="rounded-xl border border-line bg-card p-4 text-sm" data-testid="reconcile-card">
       <div className="flex flex-wrap items-center gap-2">
@@ -76,14 +78,22 @@ function ReconcileCard({ r }: { r: Reconcile }) {
           <table className="mt-1 w-full tabular-nums">
             <thead className="text-muted">
               <tr>
-                <th className="py-1 text-left font-normal">день</th>
-                <th className="py-1 text-right font-normal">банк</th>
-                <th className="py-1 text-right font-normal">сервис</th>
-                <th className="py-1 text-right font-normal">разница</th>
+                <SortTh {...days.th('day')} kind="date" className="py-1 font-normal">
+                  день
+                </SortTh>
+                <SortTh {...days.th('bank')} align="right" className="py-1 font-normal">
+                  банк
+                </SortTh>
+                <SortTh {...days.th('service')} align="right" className="py-1 font-normal">
+                  сервис
+                </SortTh>
+                <SortTh {...days.th('diff')} align="right" className="py-1 font-normal">
+                  разница
+                </SortTh>
               </tr>
             </thead>
             <tbody>
-              {r.days.map((d) => (
+              {days.rows.map((d) => (
                 <tr key={d.day} className="border-t border-line">
                   <td className="py-1">
                     {fmtDay(d.day).slice(0, 5)}

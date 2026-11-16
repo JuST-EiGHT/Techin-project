@@ -7,12 +7,14 @@
 import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 
+import { CopyText } from '@/components/copy'
 import { FormError } from '@/components/AuthForm'
 import { ChipOptions, FilterBar, FilterButton, FilterField, SearchBox, selectClass } from '@/components/filters'
 import { fmtDateTime, fmtDay, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
 import { type StockProduct, type Thresholds, num, perDay, productHref } from '@/lib/stocks'
+import { type SortDir, type SortState, type SortValue, SortTh, sortRows, useSort } from '@/components/table'
 
 type Params = { total: number | null; keep_idle: number; keep_selling: number; excluded: string[] }
 
@@ -374,6 +376,8 @@ function Result({
   onDecide: (it: Item, d: DecisionKey) => void
 }) {
   const [search, setSearch] = useState('')
+  const [sort, setSort] = useState<SortState<WithdrawalKey>>(null)
+  const th = (key: WithdrawalKey) => ({ active: sort?.key === key ? sort.dir : null, onSort: (dir: SortDir | null) => setSort(dir ? { key, dir } : null) })
   if (!data.stocks_known)
     return (
       <p className="rounded-lg border border-line bg-card px-4 py-3 text-sm text-muted" data-testid="withdrawal-empty">
@@ -395,6 +399,7 @@ function Result({
     ? data.items.filter((it) => [it.product.offer_id, it.product.name, it.product.ozon_sku].some((v) => v !== null && String(v).toLowerCase().includes(q)))
     : data.items
   const products = items.length
+  const shown = sortWithdrawal(items, sort)
   const total = data.counts.decision.undecided + data.counts.decision.remove + data.counts.decision.keep
   const filtered = Boolean(view.warehouse_id || view.priority || view.decision || q)
   return (
@@ -454,10 +459,10 @@ function Result({
             <div key={it.product.id} className="rounded-xl border border-line bg-card">
               <div className="flex items-start gap-3 px-4 pb-2 pt-3">
                 <div className="min-w-0 flex-1">
-                  <Link href={productHref(it.product.id)} className="block truncate font-medium">
-                    {it.product.offer_id}
+                  <Link href={productHref(it.product.id)} className="block min-w-0 font-medium">
+                    <CopyText value={it.product.offer_id} label="артикул" />
                   </Link>
-                  {it.product.name && <div className="truncate text-xs text-muted">{it.product.name}</div>}
+                  {it.product.name && <CopyText value={it.product.name} label="название" className="text-xs text-muted" />}
                   <Reason it={it} />
                   <Facts it={it} />
                   <div className="text-xs text-faint">
@@ -498,23 +503,31 @@ function Result({
           <table className="w-full text-sm">
             <thead className="text-left text-xs text-muted">
               <tr className="border-b border-line">
-                <th className="px-4 py-2 font-normal">Кластер</th>
-                <th className="px-4 py-2 font-normal">Склад</th>
-                <th className="px-4 py-2 text-right font-normal">На складе</th>
-                <th className="px-4 py-2 text-right font-normal">Вывезти</th>
-                <th className="px-4 py-2 text-right font-normal" title="Сколько останется в кластере после вывоза">
+                <SortTh {...th('cluster')} kind="text" className="px-4 py-2 font-normal">
+                  Кластер
+                </SortTh>
+                <SortTh {...th('warehouse')} kind="text" className="px-4 py-2 font-normal">
+                  Склад
+                </SortTh>
+                <SortTh {...th('present')} align="right" className="px-4 py-2 font-normal" title="Товары — по сумме по складам, склады внутри товара — по своему значению">
+                  На складе
+                </SortTh>
+                <SortTh {...th('qty')} align="right" className="px-4 py-2 font-normal" title="Товары — по тому, сколько вывезти всего">
+                  Вывезти
+                </SortTh>
+                <SortTh {...th('left')} align="right" className="px-4 py-2 font-normal" title="Сколько останется в кластере после вывоза">
                   Останется в кластере
-                </th>
+                </SortTh>
               </tr>
             </thead>
-            {items.map((it) => (
+            {shown.map((it) => (
               <tbody key={it.product.id} className="border-b border-line last:border-b-0" data-testid="withdrawal-item">
                 <tr className="bg-bg/60">
                   <td colSpan={3} className="px-4 pb-1 pt-3">
-                    <Link href={productHref(it.product.id)} className="font-medium hover:text-accent">
-                      {it.product.offer_id}
+                    <Link href={productHref(it.product.id)} className="inline-flex max-w-full min-w-0 align-bottom font-medium hover:text-accent">
+                      <CopyText value={it.product.offer_id} label="артикул" />
                     </Link>
-                    {it.product.name && <span className="ml-2 text-xs text-muted">{it.product.name}</span>}
+                    {it.product.name && <CopyText value={it.product.name} label="название" inline className="ml-2 text-xs text-muted" />}
                     <Reason it={it} />
                     <Facts it={it} />
                     <div className="text-xs text-faint">
@@ -553,6 +566,29 @@ function Result({
       </p>
     </section>
   )
+}
+
+type WithdrawalKey = 'cluster' | 'warehouse' | 'present' | 'qty' | 'left'
+type WithdrawalLine = Item['lines'][number]
+const LINE_VALUE: Record<WithdrawalKey, (l: WithdrawalLine) => SortValue> = {
+  cluster: (l) => l.cluster,
+  warehouse: (l) => l.warehouse,
+  present: (l) => l.present,
+  qty: (l) => l.qty,
+  left: (l) => l.cluster_left,
+}
+
+/** Таблица сгруппирована по товарам: товары — по итогу колонки (у текста — по первому складу), склады внутри — по своему. */
+function sortWithdrawal(items: Item[], sort: SortState<WithdrawalKey>): Item[] {
+  if (!sort) return items
+  const value = LINE_VALUE[sort.key]
+  const withLines = items.map((it) => ({ ...it, lines: sortRows(it.lines, sort.dir, value) }))
+  const total = (it: Item): SortValue => {
+    if (sort.key === 'qty') return it.qty
+    if (sort.key === 'cluster' || sort.key === 'warehouse') return it.lines.length ? value(it.lines[0]) : null
+    return it.lines.reduce((n, l) => n + (Number(value(l)) || 0), 0)
+  }
+  return sortRows(withLines, sort.dir, total)
 }
 
 function Chip({ on, onClick, children, testid, title }: { on: boolean; onClick: () => void; children: React.ReactNode; testid?: string; title?: string }) {
@@ -703,6 +739,13 @@ function Cabinet({ url, path }: { url: string; path: string }) {
   const [data, setData] = useState<Removals | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const removals = useSort(data?.rows, {
+    created: (r) => r.created_at,
+    offer: (r) => r.offer_id || r.name,
+    qty: (r) => r.qty,
+    state: (r) => r.state,
+    from: (r) => r.warehouse,
+  })
 
   async function load(d: 30 | 90) {
     setDays(d)
@@ -763,21 +806,31 @@ function Cabinet({ url, path }: { url: string; path: string }) {
                 <table className="w-full min-w-[36rem] text-[13px]">
                   <thead className="text-left text-xs text-faint">
                     <tr>
-                      <th className="py-1 pr-2 font-normal">Создан</th>
-                      <th className="py-1 pr-2 font-normal">Товар</th>
-                      <th className="py-1 pr-2 text-right font-normal">Шт.</th>
-                      <th className="py-1 pr-2 font-normal">Статус</th>
-                      <th className="py-1 font-normal">Откуда → куда</th>
+                      <SortTh {...removals.th('created')} kind="date" className="py-1 pr-2 font-normal">
+                        Создан
+                      </SortTh>
+                      <SortTh {...removals.th('offer')} kind="text" className="py-1 pr-2 font-normal">
+                        Товар
+                      </SortTh>
+                      <SortTh {...removals.th('qty')} align="right" className="py-1 pr-2 font-normal">
+                        Шт.
+                      </SortTh>
+                      <SortTh {...removals.th('state')} kind="text" className="py-1 pr-2 font-normal">
+                        Статус
+                      </SortTh>
+                      <SortTh {...removals.th('from')} kind="text" className="py-1 font-normal">
+                        Откуда → куда
+                      </SortTh>
                     </tr>
                   </thead>
                   <tbody>
-                    {data.rows.slice(0, 100).map((r, i) => (
+                    {removals.rows.slice(0, 100).map((r, i) => (
                       <tr key={i} className="border-t border-line" data-testid="removal-row">
                         <td className="whitespace-nowrap py-1.5 pr-2 text-muted">{r.created_at ? fmtDateTime(r.created_at) : '—'}</td>
                         <td className="max-w-[12rem] py-1.5 pr-2">
                           {r.product_id ? (
-                            <Link href={productHref(r.product_id)} className="block truncate font-medium hover:text-accent">
-                              {r.offer_id}
+                            <Link href={productHref(r.product_id)} className="block min-w-0 font-medium hover:text-accent">
+                              <CopyText value={r.offer_id} label="артикул" />
                             </Link>
                           ) : (
                             <span className="block truncate">{r.offer_id || r.name || '—'}</span>

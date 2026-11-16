@@ -24,6 +24,7 @@ import { Badge, fmtDateTime, fmtDay, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
 import { addDays, presetRange, todayMsk } from '@/lib/period'
+import { type SortDir, SortTh } from '@/components/table'
 
 type OpType = 'expense' | 'income' | 'transfer'
 const TYPES: { value: OpType; label: string }[] = [
@@ -799,6 +800,7 @@ const SORTS = [
   { value: 'amount:desc', label: 'Сумма: больше' },
   { value: 'amount:asc', label: 'Сумма: меньше' },
   { value: 'category:asc', label: 'Статья: А–Я' },
+  { value: 'category:desc', label: 'Статья: Я–А' },
 ] as const
 const PLAN_SOURCE_TITLE: Partial<Record<JournalSource, string>> = { plan: 'плановый платёж', supplier: 'оплата поставщику по плану', tax: 'налог по сроку', ozon_forecast: 'выплата Ozon — прогноз' }
 const LIMIT = 500
@@ -940,6 +942,11 @@ export function OperationsTab({ accounts, categories, onChanged }: { accounts: A
   const [source, setSource] = useState('')
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<(typeof SORTS)[number]['value']>('day:desc')
+  // заголовок колонки журнала ↔ та же сортировка, что в «Фильтрах»; «Без сортировки» — сначала новые
+  const sortHead = (by: 'day' | 'amount' | 'category') => ({
+    active: sort.startsWith(`${by}:`) ? (sort.split(':')[1] as SortDir) : null,
+    onSort: (dir: SortDir | null) => setSort(dir ? (`${by}:${dir}` as (typeof SORTS)[number]['value']) : 'day:desc'),
+  })
   const [page, setPage] = useState<JournalPage | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [viewing, setViewing] = useState<Operation | null>(null) // карточка операции
@@ -1184,6 +1191,20 @@ export function OperationsTab({ accounts, categories, onChanged }: { accounts: A
           {page.items.length === 0 ? (
             <p className="p-4 text-sm text-muted">За период ничего нет. Добавьте операцию выше — или загрузите списком из Excel.</p>
           ) : (
+            <>
+            {/* заголовки колонок с сортировкой, как в таблицах (правка 16.11.2026): сортирует сервер — по всему периоду */}
+            <div role="row" className="flex items-stretch gap-x-3 border-b border-line bg-soft/60 px-4 text-xs text-muted" data-testid="ops-head">
+              <span className="w-5 shrink-0" aria-hidden />
+              <SortTh as="div" {...sortHead('day')} kind="date" resettable={false} className="w-11 shrink-0 py-2 font-medium sm:w-16" testid="ops-sort-day">
+                Дата
+              </SortTh>
+              <SortTh as="div" {...sortHead('category')} kind="text" className="min-w-0 flex-1 py-2 font-medium" testid="ops-sort-category">
+                Статья
+              </SortTh>
+              <SortTh as="div" {...sortHead('amount')} align="right" className="shrink-0 py-2 pr-1 font-medium sm:pr-[5.5rem]" testid="ops-sort-amount">
+                Сумма
+              </SortTh>
+            </div>
             <ul className="divide-y divide-line">
               {page.items.map((row) => {
                 const op = row.operation
@@ -1275,6 +1296,7 @@ export function OperationsTab({ accounts, categories, onChanged }: { accounts: A
                 )
               })}
             </ul>
+            </>
           )}
           {page.total > page.items.length && (
             <p className="border-t border-line px-4 py-2 text-xs text-muted">

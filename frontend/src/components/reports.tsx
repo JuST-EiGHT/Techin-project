@@ -2,7 +2,9 @@
 import Link from 'next/link'
 
 import { CostTemplateButton } from '@/components/CostTemplateButton'
+import { CopyText } from '@/components/copy'
 import { useCostLabel } from '@/lib/settings'
+import { SortTh, num, useSort } from '@/components/table'
 
 export type ReportType = 'accrual' | 'realization'
 
@@ -312,6 +314,7 @@ export function PnLBreakdown({ report }: { report: ReportItem }) {
 }
 
 export function MissingCostTable({ items }: { items: ReportSummary['missing_cost'] }) {
+  const s = useSort(items, { article: (m) => m.article, name: (m) => m.name, qty: (m) => m.qty })
   if (items.length === 0) return null
   return (
     <section className="rounded-xl border border-warn/40 bg-card">
@@ -328,16 +331,24 @@ export function MissingCostTable({ items }: { items: ReportSummary['missing_cost
         <table className="w-full text-sm">
           <thead className="text-left text-xs text-muted">
             <tr className="border-b border-line">
-              <th className="px-4 py-2 font-normal">Артикул</th>
-              <th className="px-4 py-2 font-normal">Название</th>
-              <th className="px-4 py-2 text-right font-normal">Продано, шт.</th>
+              <SortTh {...s.th('article')} kind="text" className="px-4 py-2 font-normal">
+                Артикул
+              </SortTh>
+              <SortTh {...s.th('name')} kind="text" className="px-4 py-2 font-normal">
+                Название
+              </SortTh>
+              <SortTh {...s.th('qty')} align="right" className="px-4 py-2 font-normal">
+                Продано, шт.
+              </SortTh>
             </tr>
           </thead>
           <tbody>
-            {items.map((m) => (
+            {s.rows.map((m) => (
               <tr key={m.article} className="border-b border-line last:border-b-0" data-testid="missing-cost">
-                <td className="px-4 py-2 font-medium">{m.article}</td>
-                <td className="max-w-md truncate px-4 py-2 text-muted">{m.name || '—'}</td>
+                <td className="max-w-[14rem] px-4 py-2 font-medium">
+                  <CopyText value={m.article} label="артикул" />
+                </td>
+                <td className="max-w-md px-4 py-2 text-muted">{m.name ? <CopyText value={m.name} label="название" /> : '—'}</td>
                 <td className="px-4 py-2 text-right tabular-nums">{m.qty}</td>
               </tr>
             ))}
@@ -367,12 +378,29 @@ export function ByTypeTable({ byType, pct }: { byType: Record<string, string>; p
   const rows = Object.entries(byType)
   const income = rows.filter(([, v]) => Number(v) >= 0).sort((a, b) => Number(b[1]) - Number(a[1]))
   const expense = rows.filter(([, v]) => Number(v) < 0).sort((a, b) => Number(a[1]) - Number(b[1]))
+  // по умолчанию — доходы, потом расходы, крупные первыми; в заголовке — сортировка по любой колонке
+  const s = useSort([...income, ...expense], { name: ([n]) => n, value: ([, v]) => num(v), pct: ([n]) => num(pct?.[n]) })
   return (
     <section className="rounded-xl border border-line bg-card">
       <h2 className="border-b border-line px-4 py-2 text-sm font-semibold">Начисления по типам</h2>
       <table className="w-full text-sm">
+        <thead className="text-left text-xs text-muted">
+          <tr>
+            <SortTh {...s.th('name')} kind="text" className="px-4 py-1.5 font-normal">
+              Начисление
+            </SortTh>
+            <SortTh {...s.th('value')} align="right" className="px-4 py-1.5 font-normal">
+              ₽
+            </SortTh>
+            {pct && (
+              <SortTh {...s.th('pct')} align="right" className="w-20 px-4 py-1.5 font-normal" title="Доля в своей группе: доходы и расходы — каждая 100 %">
+                Доля
+              </SortTh>
+            )}
+          </tr>
+        </thead>
         <tbody>
-          {[...income, ...expense].map(([name, value]) => (
+          {s.rows.map(([name, value]) => (
             <tr key={name} className="border-b border-line last:border-b-0">
               <td className="px-4 py-1.5">{name}</td>
               <td className={`whitespace-nowrap px-4 py-1.5 text-right tabular-nums ${Number(value) < 0 ? 'text-bad' : 'text-ok'}`}>{rub(value)}</td>
