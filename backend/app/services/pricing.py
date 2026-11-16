@@ -78,6 +78,10 @@ class Facts:
     not_bought: int = 0
     returned: int = 0
     buyout_pct: Decimal | None = None
+    # туда и обратно на одну продажу (правка 16.11.2026): отправки, расходы, выкуп с учётом магазина
+    trips: calc.Trips | None = None
+    per_sale: calc.PerSale | None = None
+    storage_total: Decimal | None = None  # хранение товара за окно по отчёту, ₽
 
 
 @dataclass(frozen=True)
@@ -92,6 +96,7 @@ class ShopFacts:
     ads_pct: Decimal | None = None  # вся реклама / продажи
     unattributed_ads_pct: Decimal = Decimal(0)  # реклама без товара / продажи магазина
     storage_by_report: bool = False  # хранение в окне поделено по отчёту о размещении
+    trips: calc.Trips | None = None  # отправки магазина за окно — выкуп магазина для товаров с малым числом отправок
 
 
 @dataclass(frozen=True)
@@ -289,42 +294,65 @@ def _d(value) -> Decimal:
     return Decimal(value or 0)
 
 
+def _trips(sold: int, not_bought: int, returned: int, forward, back) -> calc.Trips:
+    """Отправки и расходы по начислениям: суммы там со знаком минус — здесь расходы, не меньше 0."""
+    return calc.Trips(sold, not_bought, returned, max(-_d(forward), Decimal(0)), max(-_d(back), Decimal(0)))
+
+
 async def load_logistics(
     db: AsyncSession, user_id: uuid.UUID, offers: set[str], today: date
 ) -> tuple[dict[str, Logistics], Logistics, dict[str, Facts], ShopFacts]:
-    """Логистика, возвраты, хранение и реклама по товарам и в среднем по магазину: 30 дней, кому не хватило — 90."""
-    by_offer: dict[str, Logistics] = {}
-    facts: dict[str, Facts] = {}
+    """Логистика, возвраты, хранение и реклама по товарам и в среднем по магазину: 30 дней, кому не хватило — 90.
+    «Не хватило» — нет продаж или меньше `MIN_TRIPS` отправок за 30 дней (правка 16.11.2026): тогда 90 дней.
+    Логистика и возвраты товара — на одну продажу: расход на отправку × отправок на продажу, выкуп при малом числе
+    отправок и за 90 дней — с учётом магазина (`engine/price_calculator.per_sale`)."""
+    cand: dict[str, dict[int, tuple[dict, bool]]] = {}  # артикул → окно → (строка прибыли по товарам, хранение по отчёту)
     shop = Logistics(None)
     shop_facts = ShopFacts()
+
+    def enough(offer: str) -> bool:
+        item = cand.get(offer, {}).get(WINDOWS[0], (None,))[0]
+        return item is not None and item["qty"] + item.get("not_bought", 0) >= calc.MIN_TRIPS
+
     for days in WINDOWS:
-        if offers <= set(by_offer) and shop.per_unit is not None:
+        if shop.per_unit is not None and all(enough(o) for o in offers):
             break
         data = await product_pnl.compute(db, user_id, PnLRequest(today - timedelta(days=days), today - timedelta(days=1)))
         by_report = bool((data.get("storage") or {}).get("has_report"))
         for item in data["items"]:
-            qty = item["qty"]
-            if qty > 0 and item["offer_id"] not in by_offer:
-                by_offer[item["offer_id"]] = Logistics(_unit(item["logistics"], qty), "product", days, qty)
-                facts[item["offer_id"]] = Facts(
-                    days=days, qty=qty, returns=_unit(item.get("returns"), qty),
-                    storage=_unit(item.get("storage"), qty) if by_report else None,
-                    ads_pct=_share(_d(item.get("ads")), _d(item.get("sales"))),
-                    not_bought=item.get("not_bought", 0), returned=item.get("returned_qty", 0),
-                    buyout_pct=Decimal(item["buyout_pct"]) if item.get("buyout_pct") is not None else None,
-                )
+            if item["qty"] > 0:
+                cand.setdefault(item["offer_id"], {})[days] = (item, by_report)
         totals = data["totals"]
         if shop.per_unit is None and totals["qty"] > 0:
             qty, un = totals["qty"], data["unallocated"].get("by_group") or {}
             sales = _d(totals.get("sales"))
             shop = Logistics(_unit(totals["logistics"], qty), "shop", days, qty)
+            back = str(_d(totals.get("returns")) + _d(un.get("returns")))
             shop_facts = ShopFacts(
-                days=days, qty=qty,
-                returns=_unit(str(_d(totals.get("returns")) + _d(un.get("returns"))), qty),
+                days=days, qty=qty, returns=_unit(back, qty),
                 storage=_unit(str(_d(totals.get("storage")) + _d(un.get("storage"))), qty),
                 ads_pct=_share(_d(totals.get("ads")) + _d(un.get("ads")), sales),
                 unattributed_ads_pct=_share(_d(un.get("ads")), sales), storage_by_report=by_report,
+                trips=_trips(qty, totals.get("not_bought", 0), totals.get("returned_qty", 0), totals["logistics"], back),
             )
+    by_offer: dict[str, Logistics] = {}
+    facts: dict[str, Facts] = {}
+    for offer, windows in cand.items():
+        days = WINDOWS[0] if enough(offer) else max(windows)  # мало отправок за 30 дней — самое длинное окно
+        item, by_report = windows[days]
+        qty = item["qty"]
+        trips = _trips(qty, item.get("not_bought", 0), item.get("returned_qty", 0), item["logistics"], item.get("returns"))
+        ps = calc.per_sale(trips, shop_facts.trips)
+        by_offer[offer] = Logistics(ps.logistics, "product", days, qty)
+        storage_total = max(-_d(item.get("storage")), Decimal(0)) if by_report else None
+        facts[offer] = Facts(
+            days=days, qty=qty, returns=ps.returns,
+            storage=(storage_total / qty).quantize(CENT, ROUND_HALF_UP) if storage_total is not None else None,
+            ads_pct=_share(_d(item.get("ads")), _d(item.get("sales"))),
+            not_bought=trips.not_bought, returned=trips.returned,
+            buyout_pct=Decimal(item["buyout_pct"]) if item.get("buyout_pct") is not None else None,
+            trips=trips, per_sale=ps, storage_total=storage_total,
+        )
     return by_offer, shop, facts, shop_facts
 
 
@@ -396,7 +424,14 @@ def _facts(ctx: PricingContext, inputs: Inputs) -> dict:
         "ad_own_pct": inputs.ad_own_pct, "ad_shared_pct": inputs.ad_shared_pct,
         "storage_by_report": shop.storage_by_report, "shop_storage": shop.storage, "shop_returns": shop.returns,
         "shop_ads_pct": shop.ads_pct,
+        "buyout_used_pct": _pct(f.per_sale.buyout) if f and f.per_sale else None,
+        "shop_buyout_pct": _pct(f.per_sale.shop_buyout) if f and f.per_sale and f.per_sale.shop_buyout is not None else None,
+        "smoothed": bool(f and f.per_sale and f.per_sale.smoothed),
     }
+
+
+def _pct(share: Decimal) -> Decimal:
+    return (share * 100).quantize(Decimal("0.1"), ROUND_HALF_UP)
 
 
 def _breakdown(b: calc.Breakdown | None) -> dict | None:
@@ -405,7 +440,9 @@ def _breakdown(b: calc.Breakdown | None) -> dict | None:
 
 def calculate(ctx: PricingContext, product: Product, ov: Overrides | None = None, promo_price: Decimal | None = None,
               what_if: list[Decimal] | None = None) -> dict:
-    """Расчёт товара; what_if — «а если поставить …» (10.15): разбор цены при каждой из этих цен."""
+    """Расчёт товара; what_if — «а если поставить …» (10.15): разбор цены при каждой из этих цен; explain — «?» у строк
+    разбора (16.11.2026)."""
+    from app.services.price_explain import explain  # подсказки знают типы этого модуля — импорт внутри
     inputs = ctx.inputs(product, ov)
     params = ctx.params(inputs)
     promo = ov.promo_price if ov and ov.promo_price is not None else promo_price
@@ -418,6 +455,7 @@ def calculate(ctx: PricingContext, product: Product, ov: Overrides | None = None
             "floor_price": r.floor_price, "floor_ok": r.floor_ok, "min_profit": ctx.min_profit or None,
             "current": _breakdown(r.current), "promo": _breakdown(r.promo),
             "what_if": [_breakdown(calc.breakdown(params, p)) for p in (what_if or [])],
+            "explain": explain(ctx, inputs, r.current) if r.current else {},
         }
     return {
         "inputs": {

@@ -77,8 +77,9 @@ async def test_calculate_with_ozon_data(client, tokens, sessions):
     assert D(i["cost_with_vat"]) == D("200.08") and D(i["commission_pct"]) == 38 and D(i["ad_pct"]) == 0
     assert D(i["target_margin_pct"]) == 20 and D(i["price"]) == 600 and D(i["promo_price"]) == 500
     assert (D(i["logistics"]), i["logistics_source"]) == (D("60"), "product")
-    assert "4 шт." in i["logistics_text"] and "30 дн." in i["logistics_text"]
-    assert i["sources"]["commission_pct"] == "из Ozon (FBO)" and i["sources"]["ad_pct"] == "по начислениям за 30 дн."
+    # меньше 20 отправок за 30 дней — окно 90 дней (правка 16.11.2026), цифры те же: продажи A — в последних 30 днях
+    assert "4 шт." in i["logistics_text"] and "90 дн." in i["logistics_text"]
+    assert i["sources"]["commission_pct"] == "из Ozon (FBO)" and i["sources"]["ad_pct"] == "по начислениям за 90 дн."
     # 4.2a: возвратов и хранения в начислениях нет — 0, а не пропуск; выкуп — все проданы
     assert (D(i["returns"]), D(i["storage"]), i["facts"]["own"], i["facts"]["buyout_pct"]) == (0, 0, True, "100.0")
     assert d["tax"]["known"] is False and d["missing"] == [] and d["promo_title"] == "Распродажа"

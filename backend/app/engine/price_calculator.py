@@ -249,3 +249,77 @@ def calculate(p: PriceParams, price: Decimal | None = None, promo_price: Decimal
         current=current, promo=promo, profitable=None if current is None else current.profit >= 0,
         floor_price=floor, floor_ok=None if floor is None or current is None else current.profit >= min_profit,
     )
+
+
+# ── логистика и возвраты на одну продажу (правка 16.11.2026) ──
+MIN_TRIPS = 20  # отправок у товара меньше — выкуп смешиваем с выкупом магазина
+
+
+@dataclass(frozen=True)
+class Trips:
+    """Отправки за окно продаж по начислениям: продано, невыкуплено (доехал и вернулся), вернули после покупки;
+    расходы туда (логистика, последняя миля, упаковка) и обратно (обратная логистика, обработка), ₽ — положительные."""
+
+    sold: int
+    not_bought: int
+    returned: int
+    forward: Decimal
+    back: Decimal
+
+    @property
+    def trips(self) -> int:  # поездок туда: проданные и невыкупленные
+        return self.sold + self.not_bought
+
+    @property
+    def backs(self) -> int:  # поездок обратно: невыкупы и возвраты
+        return self.not_bought + self.returned
+
+
+@dataclass(frozen=True)
+class PerSale:
+    """Логистика и возвраты на 1 проданную шт. = расход на одну отправку × сколько отправок на одну продажу."""
+
+    logistics: Decimal  # ₽ на 1 проданную шт.
+    returns: Decimal
+    per_trip: Decimal  # туда — за одну отправку
+    per_back: Decimal | None  # обратно — за один невыкуп или возврат; None — не было ни у товара, ни у магазина
+    per_back_shop: bool  # за один невыкуп взяли средний по магазину (у товара их не было)
+    buyout: Decimal  # выкуп в расчёте, доля
+    own_buyout: Decimal  # выкуп товара по факту, доля
+    shop_buyout: Decimal | None
+    smoothed: bool  # отправок мало — выкуп с учётом магазина
+    trips_per_sale: Decimal  # = 1 / выкуп
+    backs_per_sale: Decimal  # невыкупов и возвратов на одну продажу
+
+
+def per_sale(product: Trips, shop: Trips | None) -> PerSale:
+    """Расходы туда и обратно на одну продажу. У товара MIN_TRIPS отправок и больше — ровно его факт (расходы ÷
+    проданные). Меньше — выкуп и доля возвратов смешиваются с магазинными: товар весит своими отправками, магазин —
+    недостающими до MIN_TRIPS, — одна-две случайные отмены не раздувают цену. Продаж у товара нет — не вызывается."""
+    trips, sold = Decimal(product.trips), Decimal(product.sold)
+    own_b = sold / trips
+    shop_b = Decimal(shop.sold) / shop.trips if shop and shop.trips else None
+    per_trip = product.forward / trips
+    per_back_shop = not product.backs
+    if product.backs:
+        per_back = product.back / product.backs
+    else:
+        per_back = shop.back / shop.backs if shop and shop.backs else None
+    if product.trips >= MIN_TRIPS or shop_b is None:
+        b, c, smoothed = own_b, Decimal(product.returned) / trips, False
+        logistics, returns = product.forward / sold, product.back / sold  # ровно факт
+    else:
+        k = Decimal(MIN_TRIPS - product.trips)
+        shop_c = Decimal(shop.returned) / shop.trips
+        b = (sold + k * shop_b) / MIN_TRIPS
+        c = (Decimal(product.returned) + k * shop_c) / MIN_TRIPS
+        smoothed = True
+        logistics = per_trip / b
+        returns = (per_back or ZERO) * (1 - b + c) / b
+    return PerSale(
+        logistics=logistics.quantize(CENT, ROUND_HALF_UP), returns=returns.quantize(CENT, ROUND_HALF_UP),
+        per_trip=per_trip.quantize(CENT, ROUND_HALF_UP),
+        per_back=None if per_back is None else per_back.quantize(CENT, ROUND_HALF_UP), per_back_shop=per_back_shop,
+        buyout=b, own_buyout=own_b, shop_buyout=shop_b, smoothed=smoothed,
+        trips_per_sale=1 / b, backs_per_sale=(1 - b + c) / b,
+    )

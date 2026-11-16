@@ -3,7 +3,7 @@
 // Дизайн-система (шаг 10.27a): общие элементы интерфейса. Правила — docs/DESIGN.md, витрина — /design.
 // Разделы при переделке берут элементы отсюда, а не собирают свои: так новый вид приходит на все страницы сразу.
 import Link from 'next/link'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 type Icon = React.ComponentType<{ className?: string }>
 export type Tone = 'accent' | 'ok' | 'bad' | 'warn' | 'muted'
@@ -323,10 +323,26 @@ function Count({ n, tone, active }: { n: number; tone?: 'bad' | 'warn'; active: 
   return <span className={cx('min-w-[1.25rem] rounded-full px-1.5 text-center text-xs font-medium leading-5 tabular-nums', cls)}>{n.toLocaleString('ru-RU')}</span>
 }
 
-/** Подсказка «?» вместо абзаца пояснений: наведение или нажатие — текст в облачке. */
+/** Подсказка «?» вместо абзаца пояснений: наведение — текст в облачке, нажатие — закрепить (на телефоне — открыть);
+ * нажатие мимо или Esc — закрыть. Раньше нажатие после наведения закрывало облачко — на компьютере оно «пропадало». */
 export function HelpTip({ children, label = 'Как считаем', testid }: { children: React.ReactNode; label?: string; testid?: string }) {
-  const [open, setOpen] = useState(false)
+  const [hover, setHover] = useState(false)
+  const [pinned, setPinned] = useState(false)
+  const open = hover || pinned
+  const setOpen = (value: boolean) => {
+    setHover(value)
+    setPinned(value)
+  }
   const box = useRef<HTMLSpanElement>(null)
+  const pop = useRef<HTMLSpanElement>(null)
+  const [shift, setShift] = useState(0) // сдвиг облачка, чтобы оно не вылезало за край экрана (телефон)
+  useLayoutEffect(() => {
+    if (!open || !pop.current) return setShift(0)
+    const r = pop.current.getBoundingClientRect()
+    const edge = 8
+    if (r.left < edge) setShift(edge - r.left)
+    else if (r.right > window.innerWidth - edge) setShift(window.innerWidth - edge - r.right)
+  }, [open])
   useEffect(() => {
     if (!open) return
     const close = (e: PointerEvent) => !box.current?.contains(e.target as Node) && setOpen(false)
@@ -339,12 +355,12 @@ export function HelpTip({ children, label = 'Как считаем', testid }: {
     }
   }, [open])
   return (
-    <span ref={box} className="relative inline-flex align-middle" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+    <span ref={box} className="relative inline-flex align-middle" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
       <button
         type="button"
         aria-label={label}
         aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => setPinned((p) => !p)}
         className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-line text-[10px] font-semibold leading-none text-muted hover:border-accent hover:text-accent"
         data-testid={testid}
       >
@@ -352,8 +368,10 @@ export function HelpTip({ children, label = 'Как считаем', testid }: {
       </button>
       {open && (
         <span
+          ref={pop}
           role="tooltip"
-          className="absolute left-1/2 top-full z-30 mt-1.5 w-72 max-w-[80vw] -translate-x-1/2 rounded-lg border border-line bg-card p-3 text-left text-xs font-normal normal-case leading-relaxed text-muted shadow-pop"
+          style={{ transform: `translateX(calc(-50% + ${shift}px))` }}
+          className="absolute left-1/2 top-full z-30 mt-1.5 w-72 max-w-[80vw] rounded-lg border border-line bg-card p-3 text-left text-xs font-normal normal-case leading-relaxed text-muted shadow-pop"
         >
           {children}
         </span>

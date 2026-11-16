@@ -24,7 +24,7 @@ from app.models.storage import PLACEMENT, StorageCost
 from app.services import storage_report
 from app.services.pnl_cache import cache as pnl_cache
 from app.services.sync.finance import today_msk
-from tests.test_pricing import auth, calc, seed, user_id_of
+from tests.test_pricing import add_sales, auth, calc, seed, user_id_of
 from tests.test_sync_overview import add_key
 
 D = Decimal
@@ -227,14 +227,27 @@ async def test_price_uses_returns_ads_and_storage_facts(client, tokens, sessions
     i, f = d["inputs"], d["inputs"]["facts"]
     # реклама: своя 2 % + без товара 5 % — делим по доле в продажах
     assert (D(i["ad_pct"]), D(f["ad_own_pct"]), D(f["ad_shared_pct"])) == (7, 2, 5)
-    assert i["sources"]["ad_pct"] == "по начислениям за 30 дн."
-    # возвраты: 60 ₽ на 4 проданные штуки = 15 ₽; выкуп 4 из 5 доехавших
-    assert (D(i["returns"]), f["not_bought"], f["buyout_pct"]) == (15, 1, "80.0")
+    assert i["sources"]["ad_pct"] == "по начислениям за 90 дн."
+    # выкуп 4 из 5 доехавших (80 %); отправок меньше 20 — в расчёте выкуп с учётом магазина (6 из 7):
+    # (4 + 15 × 6/7) / 20 = 84,3 %; туда 240 ₽ / 5 = 48 ₽ за отправку → 48 / 0,843 = 56,95 ₽ на продажу;
+    # обратно 60 ₽ за невыкуп × (1 − 0,843) / 0,843 = 11,19 ₽ (правка 16.11.2026)
+    assert (D(i["returns"]), D(i["logistics"]), f["not_bought"], f["buyout_pct"]) == (D("11.19"), D("56.95"), 1, "80.0")
+    assert (f["buyout_used_pct"], f["shop_buyout_pct"], f["smoothed"]) == ("84.3", "85.7", True)
     # хранения по отчёту нет — среднее по магазину: 66 ₽ / 6 проданных = 11 ₽, оценка
     assert D(i["storage"]) == 11 and "оценка" in i["sources"]["storage"]
-    # α = 1 − 0,38 − 0,015 − 0,07 = 0,535; β = 200,08 + 60 + 15 + 11 = 286,08 → 534,73
+    # α = 1 − 0,38 − 0,015 − 0,07 = 0,535; β = 200,08 + 56,95 + 11,19 + 11 = 279,22 → 521,91
     r = d["result"]
-    assert r["min_price"] == "534.73" and r["current"]["returns"] == "15.00" and r["current"]["ad"] == "42.00"
+    assert r["min_price"] == "521.91" and r["current"]["returns"] == "11.19" and r["current"]["ad"] == "42.00"
+    # «?» у строк — как посчитано, с цифрами (правка 16.11.2026)
+    e = r["explain"]
+    assert "240,00 ₽ за 5 отправок — 48,00 ₽ за одну" in e["logistics"] and "≈ 56,95 ₽" in e["logistics"]
+    assert "в расчёте 84,3 % с учётом магазина (85,7 %)" in e["logistics"]
+    assert "60,00 ₽ за 1 невыкуп или возврат — 60,00 ₽ за один" in e["returns"] and "≈ 11,19 ₽" in e["returns"]
+    assert "товара («Звёздные товары» и др.) — 2 % его продаж" in e["ad"] and "— 5 % продаж магазина" in e["ad"]
+    assert "600,00 ₽ × 7 % = 42,00 ₽" in e["ad"]
+    assert e["storage"] == ("Оценка: отчёта Ozon о размещении за эти дни нет — всё хранение магазина за 30 дн. ÷ проданные "
+                            "штуки = 11,00 ₽.")
+    assert e["commission"] == "Комиссия Ozon 38 % от цены — из Ozon по товару (FBO). 600,00 ₽ × 38 % = 228,00 ₽."
 
     # отчёт о размещении: в этот день место A стоило 2 ₽, B — 1 ₽ → хранение магазина 66 = 44 (A) + 22 (B)
     async with sessions() as db:
@@ -247,7 +260,7 @@ async def test_price_uses_returns_ads_and_storage_facts(client, tokens, sessions
         await db.commit()
     await pnl_cache.invalidate(uid)
     i = (await calc(client, tokens, a.id))["inputs"]
-    assert D(i["storage"]) == 11 and i["sources"]["storage"] == "по отчёту Ozon о размещении за 30 дн."  # 44 / 4
+    assert D(i["storage"]) == 11 and i["sources"]["storage"] == "по отчёту Ozon о размещении за 90 дн."  # 44 / 4
     assert D((await calc(client, tokens, b.id))["inputs"]["storage"]) == 11  # 22 / 2
 
     rows = (await client.get("/api/v1/pnl/by-product", params={
@@ -304,6 +317,61 @@ async def test_extras_for_all_products(client, tokens, sessions):
     assert (await client.put("/api/v1/price/extras-all", json={}, headers=auth(tokens))).json() == {
         "ad_pct": None, "storage": None, "other": None, "extra_pct": None}
     b = (await calc(client, tokens, p["B"].id))["inputs"]
-    assert (D(b["ad_pct"]), D(b["other"]), b["sources"]["ad_pct"]) == (0, 0, "по начислениям за 30 дн.")
+    assert (D(b["ad_pct"]), D(b["other"]), b["sources"]["ad_pct"]) == (0, 0, "по начислениям за 90 дн.")
     bad = await client.put("/api/v1/price/extras-all", json={"ad_pct": "95"}, headers=auth(tokens))
     assert bad.status_code == 400
+
+
+def test_per_sale_buyout_smoothing():
+    """Правка 16.11.2026 (6302-2RS у владельца): 1 продажа и 4 невыкупа за 90 дней — не выкуп 20 %, а мало данных.
+    Расход на отправку — свой, выкуп при < 20 отправок — с учётом магазина; от 20 отправок — ровно факт."""
+    from app.engine.price_calculator import MIN_TRIPS, Trips, per_sale
+
+    shop = Trips(sold=84, not_bought=16, returned=0, forward=D(8200), back=D(1376))  # выкуп магазина 84 %
+    p = per_sale(Trips(1, 4, 0, D("409.23"), D("344")), shop)
+    # туда 409,23 / 5 = 81,85 ₽ за отправку, обратно 344 / 4 = 86 ₽ за невыкуп; выкуп (1 + 15 × 0,84) / 20 = 68 %
+    assert (p.per_trip, p.per_back, p.buyout, p.smoothed) == (D("81.85"), D("86.00"), D("0.68"), True)
+    assert (p.logistics, p.returns) == (D("120.36"), D("40.47"))  # было 409,23 и 344 на одну продажу
+    # от 20 отправок — ровно факт: расходы ÷ проданные, без смешивания
+    big = per_sale(Trips(21, 4, 1, D("2100"), D("430")), shop)
+    assert (big.logistics, big.returns, big.smoothed) == (D("100.00"), D("20.48"), False)
+    assert Trips(15, 5, 0, D(1), D(1)).trips == MIN_TRIPS
+    # у товара невыкупов не было — один невыкуп берём средним по магазину (1376 / 16 = 86 ₽)
+    clean = per_sale(Trips(3, 0, 0, D(240), D(0)), shop)
+    assert (clean.per_back, clean.per_back_shop) == (D("86.00"), True) and clean.returns > 0
+    # магазина нет (первые продажи) — свой факт как есть
+    alone = per_sale(Trips(1, 4, 0, D("409.23"), D("344")), None)
+    assert (alone.logistics, alone.returns, alone.smoothed) == (D("409.23"), D("344.00"), False)
+
+
+async def test_window_by_trips(client, tokens, sessions):
+    """Правка 16.11.2026: меньше 20 отправок за 30 дней — окно 90 дней; набралось 20 за 90 — свой выкуп, без магазина;
+    от 20 отправок за 30 дней — 30 дней, старые продажи не берём."""
+    uid = await user_id_of(client, tokens)
+    p = await seed(sessions, uid)  # A: 4 продажи за 30 дней по 60 ₽ логистики; B: 2 шт. 5 дней назад по 30 ₽
+    a, b = p["A"], p["B"]
+    today = today_msk()
+    async with sessions() as db:
+        for n in range(14):  # A: ещё 14 продаж и 2 невыкупа (обратно по 50 ₽) — 31–90 дней назад
+            await add_sales(db, uid, a, today - timedelta(days=35 + n))
+        for n in range(2):
+            await add_accrual(db, uid, "Обратная логистика", "-50", today - timedelta(days=50 + n), a, posting=f"NB-{n}")
+        for n in range(18):  # B: ещё 18 продаж за 30 дней — 20 отправок; и одна дорогая 60 дней назад
+            await add_sales(db, uid, b, today - timedelta(days=6 + n), price=D("400"), logistics=D("30"))
+        await add_sales(db, uid, b, today - timedelta(days=60), price=D("400"), logistics=D("200"))
+        await db.commit()
+    await pnl_cache.invalidate(uid)
+
+    d = await calc(client, tokens, a.id)
+    i, f = d["inputs"], d["inputs"]["facts"]
+    # за 30 дней 4 отправки — берём 90: 18 продаж + 2 невыкупа = 20 отправок, выкуп свой 90 %, ровно факт
+    assert (f["buyout_pct"], f["buyout_used_pct"], f["smoothed"]) == ("90.0", "90.0", False)
+    assert (D(i["logistics"]), D(i["returns"])) == (D("60.00"), D("5.56"))  # 1080 / 18; 100 / 18
+    assert i["sources"]["ad_pct"] == "по начислениям за 90 дн." and "90 дн." in i["logistics_text"]
+    e = d["result"]["explain"]["logistics"]
+    assert "за 90 дн." in e and "Выкуп 90 % (18 из 20):" in e and "с учётом магазина" not in e
+
+    i = (await calc(client, tokens, b.id))["inputs"]
+    # за 30 дней 20 отправок — 30 дней: дорогая продажа 60 дней назад (200 ₽) не попадает
+    assert (D(i["logistics"]), i["sources"]["ad_pct"]) == (D("30.00"), "по начислениям за 30 дн.")
+    assert i["facts"]["smoothed"] is False and "30 дн." in i["logistics_text"]
