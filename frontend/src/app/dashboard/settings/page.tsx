@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { Segmented } from '@/components/ui'
 import { PriceSettingsForm } from '@/components/price-calc'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -12,7 +13,7 @@ import { api, errorMessage } from '@/lib/api'
 import { backPath } from '@/lib/section-settings'
 import { type SupplierPayment, saveSettings, useSettings } from '@/lib/settings'
 import { SUPPLIER_OPTIONS, SUPPLIER_WHY } from '@/lib/supplier'
-import { CLUSTER_WAREHOUSE_WHY, LEAD_WHY, MIN_QTY_WHY, SAFETY_WHY, TARGET_WHY } from '@/lib/supply'
+import { CLUSTER_WAREHOUSE_WHY, LEAD_WHY, MIN_QTY_WHY, OZON_DAYS, OZON_DAYS_WHY, SAFETY_WHY, TARGET_WHY } from '@/lib/supply'
 import type { ThemePreference } from '@/lib/theme'
 
 const THEMES: { value: ThemePreference; label: string; hint: string; Icon: React.ComponentType<{ className?: string }> }[] = [
@@ -504,8 +505,56 @@ function SupplySection() {
       <Section title="Параметры поставки" hint="По ним «Поставки» считают, сколько везти в каждый кластер Ozon и что закупить на свой склад.">
         <NumberForm fields={SUPPLY_FIELDS} testid="supply-settings" saved="Сохранено — поставки пересчитаны" />
       </Section>
+      <OzonDaysSection />
       <ClusterWarehouseSection />
     </>
+  )
+}
+
+// как «Рекомендуемая поставка на FBO — на 28 дней» у Ozon; «Частота поставки» там — раз в 1 / 2 / 4 / 8 недель
+const OZON_DAYS_LABEL: Record<(typeof OZON_DAYS)[number], string> = { 7: '7 дней', 14: '14 дней', 28: '28 дней', 56: '56 дней' }
+
+/** Рекомендация Ozon — на сколько дней (правка 16.11): как «Частота поставки» в кабинете Ozon. */
+function OzonDaysSection() {
+  const { user } = useAuth()
+  const settings = useSettings()
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
+
+  async function choose(days: (typeof OZON_DAYS)[number]) {
+    if (!user) return
+    setError(null)
+    setDone(false)
+    try {
+      await saveSettings(user.id, { supply_ozon_days: days })
+      setDone(true)
+    } catch (err) {
+      setError(errorMessage(err, 'Не сохранилось — попробуйте ещё раз'))
+    }
+  }
+
+  return (
+    <Section title="Рекомендация Ozon — на сколько дней" hint={OZON_DAYS_WHY}>
+      <FormError message={error} />
+      {settings ? (
+        <div className="space-y-2" data-testid="ozon-days">
+          <Segmented
+            value={String(settings.supply_ozon_days)}
+            onChange={(v) => choose(Number(v) as (typeof OZON_DAYS)[number])}
+            options={OZON_DAYS.map((d) => ({ value: String(d), label: OZON_DAYS_LABEL[d] }))}
+            label="Частота поставки, как в Ozon"
+            optionTestid={(v) => `ozon-days-${v}`}
+          />
+          <p className="text-xs text-faint">
+            Ozon посчитает рекомендацию на {settings.supply_ozon_days} дн. — поставка раз в {settings.supply_ozon_days / 7}{' '}
+            {settings.supply_ozon_days === 7 ? 'неделю' : settings.supply_ozon_days === 56 ? 'недель' : 'недели'}.
+            {done && <span className="text-ok"> Сохранено — новые цифры придут со следующей загрузкой рекомендаций (раз в 3 часа или «Обновить данные» на странице поставок).</span>}
+          </p>
+        </div>
+      ) : (
+        <p className="text-sm text-muted">Загрузка…</p>
+      )}
+    </Section>
   )
 }
 

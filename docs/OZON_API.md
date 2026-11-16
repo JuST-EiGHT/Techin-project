@@ -136,12 +136,20 @@ Seller API нельзя: есть только отчёты по вывозу и
 
 «Аналитика → Планирование поставок → Локальность продаж», `services/sync/supply_recs.py`, загружается с заявками на
 поставку (вид `supplies`, раз в 3 часа):
-- `/v1/analytics/local-sale/items-clusters/info`: `filter{delivery_schema, period{from, to}, supply_period}`, `limit`
-  (до 1000), `offset`, `sort_by`, `sort_dir` → `items[]{sku, macrolocal_cluster_to_id, metrics{recommended_supply,
+- `/v1/analytics/local-sale/items-clusters/info`: `filter{delivery_schema, period{from, to}, skus, supply_period}`,
+  `limit` (до 1000), `offset`, `sort_by`, `sort_dir` → `items[]{sku, macrolocal_cluster_to_id, metrics{recommended_supply,
   attention_level, overpayment_reasons[{reason, quantity, amount}]}}`, `total`.
-- Передаём `delivery_schema: ALL`, период — 28 дней до вчера, `supply_period: ONE_WEEK` (другие значения в документации
-  не описаны). **Формат дат периода в выгрузке не раскрыт** — передаём `YYYY-MM-DD`, как в других методах аналитики;
-  проверить на реальном ключе (сбой метода пишется в `ozon_supply_rec_syncs` и не мешает заявкам).
+- **Вложенные поля в выгрузке документации свёрнуты** — сверено по OpenAPI Ozon (схема
+  `analytics.v1.AnalyticsLocalSaleItemsClustersInfoRequest`, 16.11.2026): обязательны `filter.period{from, to}` в формате
+  `YYYY-MM-DD` и **`filter.skus`** — список SKU строками (метод «товара по кластерам»). Без `skus` Ozon отвечает 400 —
+  так было на реальном ключе до правки 16.11: рекомендации не загружались, сервис считал только по продажам. Шлём товары
+  магазина (не в архиве) пачками по 100. `supply_period` — `ONE_WEEK` / `TWO_WEEKS` / `FOUR_WEEKS` / `EIGHT_WEEKS`
+  («Частота поставки» в «Настроить рекомендации» кабинета; Ozon советует столько, чтобы хватило до следующей поставки) —
+  настройка `supply_ozon_days` (7 / 14 / 28 / 56, по умолчанию 28, как «на 28 дней» в кабинете владельца).
+  `delivery_schema` — `ALL` / `FBO` / `FBS`; `attention_level` — `LOW` / `MEDIUM` / `HIGH`; причины переплаты —
+  `NO_SUPPLIES_TO_CLUSTER`, `MISSING_ITEMS_IN_CLUSTER`, `FREQUENT_OUT_OF_STOCK`. Соседний `/clusters-items/info`
+  требует `macrolocal_cluster_to_ids`, а не SKU. Сбой метода — в `ozon_supply_rec_syncs` с методом и текстом Ozon
+  (`runner.ozon_error_text`), заявкам не мешает.
 - `macrolocal_cluster_to_id` — кластер покупателя, тот же id, что `macrolocal_cluster_id` у склада и в `/v1/cluster/list`;
   названия — из `/v1/cluster/list`. Причины переплаты (`NO_SUPPLIES_TO_CLUSTER`, `NOT_ENOUGH_STOCK` …) показываем простыми
   словами (`services/supply.REASON_TEXT`), неизвестные — как пришли.
@@ -390,4 +398,4 @@ FBS-отправлений хранить `scanit` рядом со штрихк�
 | ~~Черновики поставок и таймслоты (изменение в Ozon — правило 6)~~ | сверено: `/v1/draft/direct/create`, `/v2/draft/create/info`, `/v2/draft/timeslot/info`, `/v2/draft/supply/create`, `/v2/draft/supply/create/status` — там же | 10.18 ✅ |
 | ~~Вывозы со складов (только списки)~~ | `/v1/removal/from-stock/list` — сверено (выгрузка 2026-10, бета): `date_from`, `date_to` (YYYY-MM-DD), `last_id`, `limit` 1–500 → `returns_summary_report_rows[]` (`offer_id`, `name`, `sku`, `quantity_for_return`, `return_created_at`, `return_state`, `box_state`, `stock_type`, `delivery_type`, `is_auto_return`, `clearing_warehouse_name`, `destination_warehouse_name` …), `last_id`; соответствует разделу кабинета «FBO → Вывоз и утилизация»; создать заявку нельзя. `/v1/removal/from-supply/list` (вывоз с поставки) — не используем | 10.17 ✅ |
 | ~~Кластеры~~ | `/v1/cluster/list` — сверено (10.18): кластер склада хранения заявки и `macrolocal_cluster_id` для черновика | 10.18 ✅ |
-| ~~Рекомендованная поставка по кластерам~~ | `/v1/analytics/local-sale/items-clusters/info` (бета) — сверено, раздел выше; формат дат периода — проверить на реальном ключе | 10.18a ✅ |
+| ~~Рекомендованная поставка по кластерам~~ | `/v1/analytics/local-sale/items-clusters/info` (бета) — сверено, раздел выше; обязательные `skus` и формат дат — по OpenAPI Ozon (правка 16.11) | 10.18a ✅ |

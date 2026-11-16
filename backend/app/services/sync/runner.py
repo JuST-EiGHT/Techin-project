@@ -148,8 +148,8 @@ async def _supplies_job(db: AsyncSession, user_id: uuid.UUID, client: OzonClient
         raise
     except OzonAPIError as exc:
         await db.rollback()
-        await record_failure(db, user_id, exc.message)
-        stats["ozon_recs_failed"] = exc.message
+        await record_failure(db, user_id, ozon_error_text(exc))  # с текстом Ozon — иначе «HTTP 400» без причины
+        stats["ozon_recs_failed"] = ozon_error_text(exc)
     return stats
 
 

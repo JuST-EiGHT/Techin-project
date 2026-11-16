@@ -112,6 +112,14 @@ def supply_min_qty(s: UserSettings) -> int:
     return DEFAULT_MIN_QTY if s.supply_min_qty is None else s.supply_min_qty
 
 
+def supply_ozon_days(s: UserSettings) -> int:
+    """Рекомендация Ozon — на сколько дней (правка 16.11): как «Частота поставки» в «Настроить рекомендации» кабинета
+    Ozon, чтобы цифры совпали с кабинетом; не задано — 28 (раз в 4 недели)."""
+    from app.services.sync.supply_recs import DEFAULT_SUPPLY_DAYS, SUPPLY_PERIODS
+
+    return s.supply_ozon_days if s.supply_ozon_days in SUPPLY_PERIODS else DEFAULT_SUPPLY_DAYS
+
+
 def supply_cluster_warehouses(s: UserSettings) -> dict[str, int]:
     """Склад кластера, куда везти (10.18a): {ключ кластера: id склада Ozon}; нет кластера — склад выберет Ozon."""
     return {str(k): int(v) for k, v in (s.supply_cluster_warehouses or {}).items() if v}

@@ -572,7 +572,10 @@ function Result({ data, busy, onExport, onSync, syncing, picked, onToggle, onQty
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-faint">
         <span data-testid="supply-window">
           Продажи — по данным Ozon за 28 дн. ·{' '}
-          {od.recs_known && od.recs_synced_at ? `рекомендации Ozon от ${fmtDateTime(od.recs_synced_at)}` : 'рекомендаций Ozon пока нет — по продажам'}
+          {od.recs_known && od.recs_synced_at
+            ? `рекомендации Ozon${od.recs_days ? ` на ${od.recs_days} дн.` : ''} от ${fmtDateTime(od.recs_synced_at)}`
+            : 'рекомендаций Ozon пока нет — по продажам'}
+          {od.recs_known && od.recs_days !== null && od.recs_days !== od.ozon_days && ` · в настройках — на ${od.ozon_days} дн., обновятся со следующей загрузкой`}
           {data.has_own_warehouses && data.fbs && ` · свои склады — заказы за ${data.fbs.days} дн.`}
         </span>
         <HelpTip label="Как считаем поставку" testid="supply-how">

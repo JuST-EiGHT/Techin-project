@@ -32,6 +32,7 @@ export type UserSettings = {
   supply_demand_days: number // период планирования (10.26): продажи в день — по заказам за столько дней
   supply_min_qty: number // 10.18a: минимум одного товара на склад, шт. (коробка)
   supply_cluster_warehouses: Record<string, number> // 10.18a: {ключ кластера: id склада Ozon}
+  supply_ozon_days: 7 | 14 | 28 | 56 // рекомендация Ozon — на сколько дней (как «Частота поставки» в кабинете)
   // порог «низкой маржи», % (шаг 7.1): акции, товары, прибыль по товарам, цены, аномалия «маржа ниже порога»
   low_margin_pct: string
   min_profit_rub: string // минимальная допустимая прибыль с продажи, ₽ (10.26): калькулятор — floor_price

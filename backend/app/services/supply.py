@@ -45,6 +45,7 @@ from app.services.user_settings import (
     supply_cluster_warehouses,
     supply_demand_days,
     supply_min_qty,
+    supply_ozon_days,
     supply_params,
     supply_safety_days,
 )
@@ -186,6 +187,9 @@ async def _destinations(db: AsyncSession, user_id: uuid.UUID) -> tuple[dict[str,
 REASON_TEXT = {
     "NO_SUPPLIES_TO_CLUSTER": "в кластер не возили — заказы едут издалека",
     "NOT_ENOUGH_STOCK": "в кластере не хватает остатка",
+    # по схеме Ozon (правка 16.11): причины переплаты — ещё «не все товары поставлялись» и «часто заканчиваются»
+    "MISSING_ITEMS_IN_CLUSTER": "в кластер возили не все ваши товары",
+    "FREQUENT_OUT_OF_STOCK": "в кластере товар часто заканчивается",
 }
 
 
@@ -425,6 +429,9 @@ async def report(db: AsyncSession, user_id: uuid.UUID, params: engine.Params) ->
             "recs_ok": rec_state.ok if rec_state else None,
             "recs_synced_at": utc(rec_state.synced_at) if rec_state and rec_state.synced_at else None,
             "recs_error": rec_state.error if rec_state and not rec_state.ok else None,
+            # правка 16.11: на сколько дней Ozon посчитал загруженные рекомендации и сколько стоит в настройках
+            "recs_days": rec_state.period_days if rec_state else None,
+            "ozon_days": supply_ozon_days(settings),
         },
         "min_qty": min_qty,
         "totals": {**totals, "supply_units": sum(r.to_order for r in recs if r.point.kind == engine.SUPPLY),
