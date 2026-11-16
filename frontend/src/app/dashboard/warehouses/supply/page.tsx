@@ -11,6 +11,7 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
+import { CopyText } from '@/components/copy'
 import { FormError } from '@/components/AuthForm'
 import { HelpTip, PageHeader, QuickTabs, Segmented, Stat, StatGrid, Tabs, buttonClass } from '@/components/ui'
 import { fmtDateTime } from '@/components/reports'
@@ -22,6 +23,7 @@ import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
 import { saveSettings } from '@/lib/settings'
 import { num, perDay, productHref } from '@/lib/stocks'
+import { type SortDir, type SortState, type SortValue, SortTh, num as sortNum, sortRows } from '@/components/table'
 import {
   GRADE_TEXT,
   KIND,
@@ -570,7 +572,10 @@ function Result({ data, busy, onExport, onSync, syncing, picked, onToggle, onQty
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-faint">
         <span data-testid="supply-window">
           Продажи — по данным Ozon за 28 дн. ·{' '}
-          {od.recs_known && od.recs_synced_at ? `рекомендации Ozon от ${fmtDateTime(od.recs_synced_at)}` : 'рекомендаций Ozon пока нет — по продажам'}
+          {od.recs_known && od.recs_synced_at
+            ? `рекомендации Ozon${od.recs_days ? ` на ${od.recs_days} дн.` : ''} от ${fmtDateTime(od.recs_synced_at)}`
+            : 'рекомендаций Ozon пока нет — по продажам'}
+          {od.recs_known && od.recs_days !== null && od.recs_days !== od.ozon_days && ` · в настройках — на ${od.ozon_days} дн., обновятся со следующей загрузкой`}
           {data.has_own_warehouses && data.fbs && ` · свои склады — заказы за ${data.fbs.days} дн.`}
         </span>
         <HelpTip label="Как считаем поставку" testid="supply-how">
@@ -793,6 +798,30 @@ function buildGroups(rows: SupplyItem[], view: SupplyView): GroupT[] {
   return groups.sort((a, b) => rank(a.status) - rank(b.status) || b.units - a.units || b.ads - a.ads || a.title.localeCompare(b.title, 'ru'))
 }
 
+type SupplySort = 'name' | 'status' | 'days' | 'ads' | 'stock' | 'send'
+
+/** Сортировка по колонке (правка 16.11.2026): группы — по своему итогу, строки внутри группы — по своему значению. */
+function sortGroups(groups: GroupT[], sort: SortState<SupplySort>, view: SupplyView): GroupT[] {
+  if (!sort) return groups
+  const item: Record<SupplySort, (i: SupplyItem) => SortValue> = {
+    name: (i) => (view === 'clusters' ? i.product.offer_id : i.destination.name),
+    status: (i) => rank(i.status),
+    days: (i) => sortNum(i.days_left),
+    ads: (i) => sortNum(i.avg_daily),
+    stock: (i) => i.stock,
+    send: (i) => i.to_order,
+  }
+  const group: Record<SupplySort, (g: GroupT) => SortValue> = {
+    name: (g) => g.title,
+    status: (g) => rank(g.status),
+    days: (g) => g.days,
+    ads: (g) => g.ads,
+    stock: (g) => g.stock,
+    send: (g) => g.units,
+  }
+  return sortRows(groups, sort.dir, group[sort.key]).map((g) => ({ ...g, items: sortRows(g.items, sort.dir, item[sort.key]) }))
+}
+
 function StatusBadge({ item, status }: { item?: SupplyItem; status: RowStatus }) {
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
@@ -824,10 +853,10 @@ function StatusCell({ item, minQty }: { item: SupplyItem; minQty: number }) {
 function ProductCell({ item }: { item: SupplyItem }) {
   return (
     <>
-      <Link href={productHref(item.product.id)} className="block truncate font-medium hover:text-accent">
-        {item.product.offer_id}
+      <Link href={productHref(item.product.id)} className="block min-w-0 font-medium hover:text-accent">
+        <CopyText value={item.product.offer_id} label="артикул" />
       </Link>
-      {item.product.name && <div className="max-w-[16rem] truncate text-xs text-muted">{item.product.name}</div>}
+      {item.product.name && <CopyText value={item.product.name} label="название" className="max-w-[16rem] text-xs text-muted" />}
       {item.kind === 'supply' && (
         <div className="text-xs text-faint">{item.destination.warehouses.length ? `лежит: ${item.destination.warehouses.join(', ')}` : 'в кластере нет'}</div>
       )}
@@ -911,7 +940,9 @@ function Grouped({ data, view, show, onView, onShow, lead, picked, onToggle, onQ
   onSupply: (items: SupplyItem[]) => Promise<void>
 }) {
   const [open, setOpen] = useState<Set<string>>(new Set())
+  const [sort, setSort] = useState<SortState<SupplySort>>(null)
   useEffect(() => setOpen(new Set()), [view])
+  const th = (key: SupplySort) => ({ active: sort?.key === key ? sort.dir : null, onSort: (dir: SortDir | null) => setSort(dir ? { key, dir } : null) })
   const all = [...data.items, ...data.rest]
   const counts: Record<SupplyShow, number> = {
     all: all.length,
@@ -921,7 +952,7 @@ function Grouped({ data, view, show, onView, onShow, lead, picked, onToggle, onQ
     planned: data.totals.planned,
     first: data.totals.first,
   }
-  const groups = buildGroups(all.filter((i) => matches(i, show)), view)
+  const groups = sortGroups(buildGroups(all.filter((i) => matches(i, show)), view), sort, view)
   const allOpen = groups.length > 0 && groups.every((g) => open.has(g.key))
   const flip = (key: string) =>
     setOpen((o) => {
@@ -1064,18 +1095,24 @@ function Grouped({ data, view, show, onView, onShow, lead, picked, onToggle, onQ
             <table className="w-full text-sm">
               <thead className="text-left text-xs text-muted">
                 <tr className="border-b border-line">
-                  <th className="px-3 py-2 font-normal">{view === 'clusters' ? 'Кластер → товар' : 'Товар → куда'}</th>
-                  <th className="px-3 py-2 font-normal">Статус</th>
-                  <th className="px-3 py-2 font-normal" title="Остаток сейчас / продажи в день; у кластера — кто кончится первым">
+                  <SortTh {...th('name')} kind="text" className="px-3 py-2 font-normal">
+                    {view === 'clusters' ? 'Кластер → товар' : 'Товар → куда'}
+                  </SortTh>
+                  <SortTh {...th('status')} className="px-3 py-2 font-normal" title="По возрастанию — от «Срочно» к «Не поставлять»">
+                    Статус
+                  </SortTh>
+                  <SortTh {...th('days')} className="px-3 py-2 font-normal" title="Остаток сейчас / продажи в день; у кластера — кто кончится первым">
                     Хватит на
-                  </th>
-                  <th className="px-3 py-2 text-right font-normal" title="Склады Ozon — продажи в день в кластере по Ozon (28 дн.); свой склад — по заказам">
+                  </SortTh>
+                  <SortTh {...th('ads')} align="right" className="px-3 py-2 font-normal" title="Склады Ozon — продажи в день в кластере по Ozon (28 дн.); свой склад — по заказам">
                     Продажи/день
-                  </th>
-                  <th className="px-3 py-2 text-right font-normal">Сейчас там</th>
-                  <th className="px-3 py-2 text-right font-normal" title="Не меньше рекомендации Ozon и минимума на склад; по продажам — продажи в день × (запас + страховой + дни в пути) − остаток − в пути">
+                  </SortTh>
+                  <SortTh {...th('stock')} align="right" className="px-3 py-2 font-normal">
+                    Сейчас там
+                  </SortTh>
+                  <SortTh {...th('send')} align="right" className="px-3 py-2 font-normal" title="Не меньше рекомендации Ozon и минимума на склад; по продажам — продажи в день × (запас + страховой + дни в пути) − остаток − в пути">
                     Отправить
-                  </th>
+                  </SortTh>
                 </tr>
               </thead>
               {groups.map((g) => (

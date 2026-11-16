@@ -143,6 +143,8 @@ export type TableSort =
   | 'end_date'
   | 'stock_value'
   | 'last_sale'
+  | 'unit_cost'
+  | 'status'
 
 export type StockTableRow = {
   product: StockProduct

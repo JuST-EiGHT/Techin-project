@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useState } from 'react'
 
+import { CopyText } from '@/components/copy'
 import { FormError } from '@/components/AuthForm'
 import { PromoActionModal } from '@/components/promo-action'
 import { PromotionResultsBlock } from '@/components/promo-results'
@@ -27,6 +28,22 @@ import {
   type ProductsResponse,
 } from '@/lib/promotions'
 import { useLowMargin } from '@/lib/settings'
+import { type SortDir, type SortState, type SortValue, SortTh, num, sortRows } from '@/components/table'
+
+type PromoSort = 'offer' | 'price' | 'other' | 'breakeven' | 'min' | 'stock' | 'margin'
+// значение колонки для сортировки; у кандидата цена — цена входа (как в таблице и Excel)
+const PROMO_SORT: Record<PromoSort, (r: PromoProductRow) => SortValue> = {
+  offer: (r) => r.product.offer_id,
+  price: (r) => num(r.is_active ? r.action_price : num(r.max_action_price) ? r.max_action_price : r.action_price),
+  other: (r) => {
+    const prices = (r.other_promotions ?? []).map((o) => num(o.action_price)).filter((v): v is number => v !== null)
+    return prices.length ? Math.min(...prices) : null
+  },
+  breakeven: (r) => num(r.breakeven_price),
+  min: (r) => num(r.min_price),
+  stock: (r) => r.stock_on_hand,
+  margin: (r) => num(r.margin_in_promo),
+}
 
 export default function PromotionRoute() {
   return (
@@ -48,6 +65,8 @@ function PromotionPage() {
   const [done, setDone] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
   const [search, setSearch] = useState('')
+  const [sort, setSort] = useState<SortState<PromoSort>>(null)
+  const th = (key: PromoSort) => ({ active: sort?.key === key ? sort.dir : null, onSort: (dir: SortDir | null) => setSort(dir ? { key, dir } : null) })
 
   async function exportXlsx() {
     setExporting(true)
@@ -87,7 +106,8 @@ function PromotionPage() {
 
   const p = data.promotion
   const q = search.trim().toLowerCase()
-  const rows = data.items.filter((r) => tabOf(r) === tab && (!q || `${r.product.offer_id} ${r.product.name ?? ''} ${r.product.ozon_sku ?? ''}`.toLowerCase().includes(q)))
+  const picked = data.items.filter((r) => tabOf(r) === tab && (!q || `${r.product.offer_id} ${r.product.name ?? ''} ${r.product.ozon_sku ?? ''}`.toLowerCase().includes(q)))
+  const rows = sort ? sortRows(picked, sort.dir, PROMO_SORT[sort.key]) : picked
   const frozenText = p.is_frozen ? `С ${fmtDate(p.freeze_date)} акция заморожена: Ozon не даёт менять список товаров и повышать цены.` : null
   const discount = p.discount_value && Number(p.discount_value) > 0 ? ` · скидка ${Number(p.discount_value).toLocaleString('ru-RU')}${p.discount_type === 'PERCENT' ? ' %' : ' ₽'}` : ''
   const avg = p.avg_margin === null ? undefined : Number(p.avg_margin) < 0 ? 'bad' : Number(p.avg_margin) < 10 ? undefined : 'ok'
@@ -193,30 +213,50 @@ function PromotionPage() {
               <table className="w-full min-w-[66rem] text-[13px]" data-testid="promo-table">
                 <thead className="bg-soft/60 text-left text-xs text-muted">
                   <tr>
-                    <th className="px-3 py-2.5 font-medium">Товар</th>
-                    <th className="px-3 py-2.5 text-right font-medium" title={tab === 'candidates' ? 'Максимальная цена, по которой Ozon примет товар в акцию; под ней — ваша цена без акции' : 'Цена для покупателя во время акции; под ней — ваша цена без акции и скидка'}>
+                    <SortTh {...th('offer')} kind="text" className="px-3 py-2.5 font-medium">
+                      Товар
+                    </SortTh>
+                    <SortTh
+                      {...th('price')}
+                      align="right"
+                      className="px-3 py-2.5 font-medium"
+                      title={tab === 'candidates' ? 'Максимальная цена, по которой Ozon примет товар в акцию; под ней — ваша цена без акции' : 'Цена для покупателя во время акции; под ней — ваша цена без акции и скидка'}
+                      sub={<span className="text-[11px]">ваша цена · скидка</span>}
+                    >
                       {tab === 'candidates' ? 'Цена входа' : 'Цена в акции'}
-                      <div className="text-[11px] font-normal text-faint">ваша цена · скидка</div>
-                    </th>
-                    <th className="px-3 py-2.5 font-medium" title="В каких ещё идущих акциях товар уже участвует: цена там, до какого дня акция; дешевле, чем здесь, — жёлтым">
+                    </SortTh>
+                    <SortTh
+                      {...th('other')}
+                      className="px-3 py-2.5 font-medium"
+                      title="В каких ещё идущих акциях товар уже участвует: цена там, до какого дня акция; дешевле, чем здесь, — жёлтым. Сортировка — по самой низкой цене там"
+                      sub={<span className="text-[11px]">цена · до какого дня</span>}
+                    >
                       Есть в других акциях
-                      <div className="text-[11px] font-normal text-faint">цена · до какого дня</div>
-                    </th>
-                    <th className="px-3 py-2.5 text-right font-medium" title="Калькулятор цены: ниже — каждая продажа в минус; под ней — цена с вашей целевой маржой">
+                    </SortTh>
+                    <SortTh
+                      {...th('breakeven')}
+                      align="right"
+                      className="px-3 py-2.5 font-medium"
+                      title="Калькулятор цены: ниже — каждая продажа в минус; под ней — цена с вашей целевой маржой"
+                      sub={<span className="text-[11px]">целевая</span>}
+                    >
                       Мин. для участия
-                      <div className="text-[11px] font-normal text-faint">целевая</div>
-                    </th>
-                    <th className="px-3 py-2.5 text-right font-medium" title="Минимальная цена, которую вы задали в Ozon: ниже неё Ozon цену в акциях не опустит">
+                    </SortTh>
+                    <SortTh {...th('min')} align="right" className="px-3 py-2.5 font-medium" title="Минимальная цена, которую вы задали в Ozon: ниже неё Ozon цену в акциях не опустит">
                       Мин. в Ozon
-                    </th>
-                    <th className="px-3 py-2.5 text-right font-medium">
+                    </SortTh>
+                    <SortTh {...th('stock')} align="right" className="px-3 py-2.5 font-medium" sub={<span className="text-[11px]">в акции</span>}>
                       Остаток
-                      <div className="text-[11px] font-normal text-faint">в акции</div>
-                    </th>
-                    <th className="px-3 py-2.5 text-right font-medium" title="Калькулятор цены при цене в акции: с комиссией, логистикой, рекламой, доп. расходами и налогами">
+                    </SortTh>
+                    <SortTh
+                      {...th('margin')}
+                      align="right"
+                      className="px-3 py-2.5 font-medium"
+                      title="Калькулятор цены при цене в акции: с комиссией, логистикой, рекламой, доп. расходами и налогами"
+                      sub={<span className="text-[11px]">прибыль с 1 шт.</span>}
+                    >
                       Маржа в акции
-                      <div className="text-[11px] font-normal text-faint">прибыль с 1 шт.</div>
-                    </th>
+                    </SortTh>
                     <th className="px-3 py-2.5" />
                   </tr>
                 </thead>
@@ -301,11 +341,11 @@ function Row({ r, wholeStock, frozen, onAction }: { r: PromoProductRow; wholeSto
       data-below={r.below_breakeven ? 'true' : undefined}
     >
       <td className="max-w-[16rem] px-3 py-2">
-        <Link href={`/dashboard/products/${r.product.id}`} className="block truncate font-medium hover:text-accent">
-          {r.product.offer_id}
+        <Link href={`/dashboard/products/${r.product.id}`} className="block min-w-0 font-medium hover:text-accent">
+          <CopyText value={r.product.offer_id} label="артикул" />
         </Link>
         <div className="flex items-center gap-1.5 text-xs text-faint">
-          <span className="truncate">{r.product.name}</span>
+          {r.product.name && <CopyText value={r.product.name} label="название" className="min-w-0" />}
           {r.added_automatically && <Badge tone="warn">авто</Badge>}
         </div>
       </td>

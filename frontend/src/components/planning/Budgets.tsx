@@ -28,6 +28,7 @@ import { Modal, input } from '@/components/planning/ui'
 import { Badge, fmtDateTime, fmtDay, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { todayMsk } from '@/lib/period'
+import { type SortDir, type SortState, type SortValue, SortTh, num as sortNum, sortRows } from '@/components/table'
 
 const GRANULARITY: { value: BudgetGranularity; label: string }[] = [
   { value: 'month', label: 'Месяцы' },
@@ -359,6 +360,17 @@ function Table({ data, onEdit }: { data: BudgetPage; onEdit: (e: Editing) => voi
       el.scrollLeft = current.offsetLeft - head.offsetWidth - Math.max(0, (el.clientWidth - head.offsetWidth - current.offsetWidth) / 2)
     }
   }, [data])
+  // сортировка статей внутри поступлений и расходов (подстатей — внутри статьи): по названию, периоду или итогу —
+  // по факту, а где факта ещё нет — по плану; суммы по модулю; итоговые строки — на своих местах
+  const [sort, setSort] = useState<SortState>(null)
+  const sortValue = (r: BudgetRow, key: string): SortValue => {
+    if (key === 'name') return r.category.name
+    const c = key === 'total' ? r.total : r.cells[Number(key)]
+    const v = sortNum(c?.fact ?? c?.plan)
+    return v === null ? null : Math.abs(v)
+  }
+  const ordered = (rows: BudgetRow[]) => (sort ? sortRows(rows, sort.dir, (r) => sortValue(r, sort.key)) : rows)
+  const th = (key: string) => ({ active: sort?.key === key ? sort.dir : null, onSort: (dir: SortDir | null) => setSort(dir ? { key, dir } : null) })
   const withTotal = data.granularity !== 'year'
   const first = 'sticky left-0 z-10 bg-card px-3 py-1.5 text-left align-top'
   const td = 'px-2 py-1.5 align-top'
@@ -390,7 +402,7 @@ function Table({ data, onEdit }: { data: BudgetPage; onEdit: (e: Editing) => voi
         </td>
       )}
     </tr>,
-    ...r.children.flatMap((ch) => rowView(ch, true)),
+    ...ordered(r.children).flatMap((ch) => rowView(ch, true)),
   ]
 
   const section = (title: string, s: BudgetSection, kind: 'income' | 'expense') => (
@@ -407,7 +419,7 @@ function Table({ data, onEdit }: { data: BudgetPage; onEdit: (e: Editing) => voi
           <td colSpan={data.periods.length + (withTotal ? 1 : 0)} />
         </tr>
       )}
-      {s.rows.flatMap((r) => rowView(r, false))}
+      {ordered(s.rows).flatMap((r) => rowView(r, false))}
       <tr className="border-t border-line text-muted">
         <td className={`${first} text-xs`}>Вне бюджета и без статьи</td>
         {s.other.cells.map((c, i) => (
@@ -442,16 +454,28 @@ function Table({ data, onEdit }: { data: BudgetPage; onEdit: (e: Editing) => voi
       <table className="min-w-full text-sm">
         <thead>
           <tr className="text-xs text-muted">
-            <th className={`${first} font-normal`}>
-              Статья, ₽<span className="block text-[11px] text-faint">план / факт · отклонение</span>
-            </th>
-            {data.periods.map((p) => (
-              <th key={p.key} className="whitespace-nowrap px-2 py-1.5 text-right font-normal" data-current={p.partial || undefined}>
+            <SortTh {...th('name')} kind="text" className={`${first} font-normal`} sub={<span className="text-[11px]">план / факт · отклонение</span>} testid="budget-sort-name">
+              Статья, ₽
+            </SortTh>
+            {data.periods.map((p, i) => (
+              <SortTh
+                key={p.key}
+                {...th(String(i))}
+                align="right"
+                className="whitespace-nowrap px-2 py-1.5 font-normal"
+                sub={p.partial ? <span className="text-[11px]">идёт</span> : undefined}
+                title="Статьи — по факту за период, где факта ещё нет — по плану"
+                attrs={{ 'data-current': p.partial || undefined }}
+                testid={`budget-sort-${i}`}
+              >
                 {p.label.replace(` ${data.year}`, '')}
-                {p.partial && <span className="block text-[11px] text-faint">идёт</span>}
-              </th>
+              </SortTh>
             ))}
-            {withTotal && <th className="whitespace-nowrap border-l border-line px-2 py-1.5 text-right font-normal">Итого за год</th>}
+            {withTotal && (
+              <SortTh {...th('total')} align="right" className="whitespace-nowrap border-l border-line px-2 py-1.5 font-normal" testid="budget-sort-total">
+                Итого за год
+              </SortTh>
+            )}
           </tr>
         </thead>
         <tbody>

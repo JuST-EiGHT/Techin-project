@@ -4,7 +4,9 @@ import Link from 'next/link'
 import { CostTemplateButton } from '@/components/CostTemplateButton'
 import { Badge, Panel, Stat, StatGrid, Sub } from '@/components/ui'
 import { MARGIN, PROFIT } from '@/lib/profit-terms'
+import { CopyText } from '@/components/copy'
 import { useCostLabel } from '@/lib/settings'
+import { SortTh, num, useSort } from '@/components/table'
 
 export type ReportType = 'accrual' | 'realization'
 
@@ -332,6 +334,7 @@ export function PnLBreakdown({ report }: { report: ReportItem }) {
 }
 
 export function MissingCostTable({ items }: { items: ReportSummary['missing_cost'] }) {
+  const s = useSort(items, { article: (m) => m.article, name: (m) => m.name, qty: (m) => m.qty })
   if (items.length === 0) return null
   return (
     <Panel
@@ -354,16 +357,20 @@ export function MissingCostTable({ items }: { items: ReportSummary['missing_cost
         <table className="w-full text-sm">
           <thead className="bg-soft/60 text-left text-xs font-medium text-muted">
             <tr>
-              <th className="px-5 py-2 font-medium">Товар</th>
-              <th className="px-5 py-2 text-right font-medium">Продано</th>
+              <SortTh {...s.th('name')} kind="text" className="px-5 py-2 font-medium">
+                Товар
+              </SortTh>
+              <SortTh {...s.th('qty')} align="right" className="px-5 py-2 font-medium">
+                Продано
+              </SortTh>
             </tr>
           </thead>
           <tbody>
-            {items.map((m) => (
+            {s.rows.map((m) => (
               <tr key={m.article} className="border-t border-line" data-testid="missing-cost">
                 <td className="px-5 py-2.5">
-                  <div className="max-w-md truncate font-medium">{m.name || m.article}</div>
-                  <div className="text-xs text-faint">{m.article}</div>
+                  {m.name ? <CopyText value={m.name} label="название" className="max-w-md font-medium" /> : <div className="font-medium">{m.article}</div>}
+                  <CopyText value={m.article} label="артикул" className="text-xs text-faint" />
                 </td>
                 <td className="whitespace-nowrap px-5 py-2.5 text-right tabular-nums">{m.qty} шт.</td>
               </tr>
@@ -396,11 +403,28 @@ export function ByTypeTable({ byType, pct }: { byType: Record<string, string>; p
   const rows = Object.entries(byType)
   const income = rows.filter(([, v]) => Number(v) >= 0).sort((a, b) => Number(b[1]) - Number(a[1]))
   const expense = rows.filter(([, v]) => Number(v) < 0).sort((a, b) => Number(a[1]) - Number(b[1]))
+  // по умолчанию — доходы, потом расходы, крупные первыми; в заголовке — сортировка по любой колонке
+  const s = useSort([...income, ...expense], { name: ([n]) => n, value: ([, v]) => num(v), pct: ([n]) => num(pct?.[n]) })
   return (
     <Panel flush title="Начисления по типам">
       <table className="w-full text-sm">
+        <thead className="bg-soft/60 text-left text-xs font-medium text-muted">
+          <tr>
+            <SortTh {...s.th('name')} kind="text" className="px-5 py-2 font-medium">
+              Начисление
+            </SortTh>
+            <SortTh {...s.th('value')} align="right" className="px-5 py-2 font-medium">
+              ₽
+            </SortTh>
+            {pct && (
+              <SortTh {...s.th('pct')} align="right" className="w-20 px-5 py-2 font-medium" title="Доля в своей группе: доходы и расходы — каждая 100 %">
+                Доля
+              </SortTh>
+            )}
+          </tr>
+        </thead>
         <tbody>
-          {[...income, ...expense].map(([name, value]) => (
+          {s.rows.map(([name, value]) => (
             <tr key={name} className="border-t border-line">
               <td className="px-5 py-2">{name}</td>
               <td className={`whitespace-nowrap px-5 py-2 text-right tabular-nums ${Number(value) < 0 ? 'text-bad' : 'text-ok'}`}>{rubSigned(value)}</td>

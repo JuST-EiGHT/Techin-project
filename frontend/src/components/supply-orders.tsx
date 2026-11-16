@@ -5,6 +5,7 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { CopyText } from '@/components/copy'
 import { FormError } from '@/components/AuthForm'
 import { ChipOptions, FilterButton, FilterField, SearchBox } from '@/components/filters'
 import { fmtDateTime, fmtDay } from '@/components/reports'
@@ -12,6 +13,7 @@ import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
 import { refreshSyncStatus, timeAgo } from '@/lib/sync'
 import { productHref } from '@/lib/stocks'
+import { SortTh, useSort } from '@/components/table'
 import {
   type CalendarEvent,
   GROUP_ORDER,
@@ -209,6 +211,14 @@ function OrderLine({ o }: { o: SupplyOrder }) {
 function OrderView({ id, onPlan }: { id: string; onPlan: (id: string) => void }) {
   const [d, setD] = useState<SupplyOrderDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const items = useSort(d?.items, {
+    offer: (i) => i.product.offer_id,
+    planned: (i) => i.planned,
+    declared: (i) => i.declared,
+    accepted: (i) => i.accepted,
+    after: (i) => (i.sales_after?.known ? i.sales_after.after_qty : null),
+    lasts: (i) => i.lasts_days,
+  })
   useEffect(() => {
     api
       .get<SupplyOrderDetail>(`/supply/orders/${id}`)
@@ -254,28 +264,38 @@ function OrderView({ id, onPlan }: { id: string; onPlan: (id: string) => void })
         <table className="w-full min-w-[40rem] text-[13px]" data-testid="order-items">
           <thead className="text-left text-xs text-faint">
             <tr>
-              <th className="py-1 pr-2 font-normal">Товар</th>
-              <th className="py-1 pr-2 text-right font-normal">В плане</th>
-              <th className="py-1 pr-2 text-right font-normal">Заявлено</th>
-              <th className="py-1 pr-2 text-right font-normal">Принято</th>
-              <th className="py-1 pr-2 font-normal" title="С дня приёмки (не больше 30 дней) против такого же числа дней до">
+              <SortTh {...items.th('offer')} kind="text" className="py-1 pr-2 font-normal">
+                Товар
+              </SortTh>
+              <SortTh {...items.th('planned')} align="right" className="py-1 pr-2 font-normal">
+                В плане
+              </SortTh>
+              <SortTh {...items.th('declared')} align="right" className="py-1 pr-2 font-normal">
+                Заявлено
+              </SortTh>
+              <SortTh {...items.th('accepted')} align="right" className="py-1 pr-2 font-normal">
+                Принято
+              </SortTh>
+              <SortTh {...items.th('after')} className="py-1 pr-2 font-normal" title="С дня приёмки (не больше 30 дней) против такого же числа дней до">
                 Продажи после приёмки
-              </th>
-              <th className="py-1 text-right font-normal">Хватит на</th>
+              </SortTh>
+              <SortTh {...items.th('lasts')} align="right" className="py-1 font-normal">
+                Хватит на
+              </SortTh>
             </tr>
           </thead>
           <tbody>
-            {d.items.map((i, k) => {
+            {items.rows.map((i, k) => {
               const a = i.sales_after
               return (
                 <tr key={i.product.id ?? `${i.product.offer_id}-${k}`} className="border-t border-line" data-testid="order-item">
                   <td className="max-w-[14rem] py-1.5 pr-2">
                     {i.product.id ? (
-                      <Link href={productHref(i.product.id)} className="block truncate font-medium hover:text-accent">
-                        {i.product.offer_id}
+                      <Link href={productHref(i.product.id)} className="block min-w-0 font-medium hover:text-accent">
+                        <CopyText value={i.product.offer_id} label="артикул" />
                       </Link>
                     ) : (
-                      <span className="block truncate">{i.product.offer_id}</span>
+                      <CopyText value={i.product.offer_id} label="артикул" />
                     )}
                     {!i.product.id && <span className="text-xs text-faint">нет в каталоге</span>}
                   </td>

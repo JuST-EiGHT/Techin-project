@@ -5,11 +5,13 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 
+import { CopyText } from '@/components/copy'
 import { FormError } from '@/components/AuthForm'
 import { fmtDay, rub, rubSigned } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { type ParticipationResult, type PromotionResults } from '@/lib/promotions'
 import { productHref } from '@/lib/stocks'
+import { SortTh, num, useSort } from '@/components/table'
 
 const pctSigned = (v: string | null) => (v === null ? '' : `${Number(v) > 0 ? '▲' : Number(v) < 0 ? '▼' : ''}${Math.abs(Number(v)).toLocaleString('ru-RU', { maximumFractionDigits: 1 })} %`)
 const tone = (v: string | null) => (v === null ? 'text-muted' : Number(v) > 0 ? 'text-ok' : Number(v) < 0 ? 'text-bad' : 'text-muted')
@@ -51,6 +53,13 @@ export function PromotionResultsBlock({ promotionId }: { promotionId: string }) 
       .then(({ data: d }) => setData(d))
       .catch((err) => setError(errorMessage(err)))
   }, [promotionId])
+  const sorted = useSort(data?.items, {
+    offer: (i) => i.product.offer_id,
+    since: (i) => i.result.during.date_from,
+    qty: (i) => i.result.during.qty,
+    revenue: (i) => num(i.result.during.revenue),
+    profit: (i) => num(i.result.during.profit),
+  })
 
   if (!data) return error ? <FormError message={error} /> : null
   if (data.items.length === 0) return null
@@ -82,21 +91,31 @@ export function PromotionResultsBlock({ promotionId }: { promotionId: string }) 
         <table className="w-full min-w-[38rem] text-[13px]" data-testid="promo-results-table">
           <thead className="text-left text-xs text-faint">
             <tr>
-              <th className="py-1 pr-2 font-normal">Товар</th>
-              <th className="py-1 pr-2 font-normal">Участие</th>
-              <th className="py-1 pr-2 text-right font-normal">Продано</th>
-              <th className="py-1 pr-2 text-right font-normal">Выручка</th>
-              <th className="py-1 text-right font-normal">Прибыль</th>
+              <SortTh {...sorted.th('offer')} kind="text" className="py-1 pr-2 font-normal">
+                Товар
+              </SortTh>
+              <SortTh {...sorted.th('since')} kind="date" className="py-1 pr-2 font-normal">
+                Участие
+              </SortTh>
+              <SortTh {...sorted.th('qty')} align="right" className="py-1 pr-2 font-normal" title="Во время участия">
+                Продано
+              </SortTh>
+              <SortTh {...sorted.th('revenue')} align="right" className="py-1 pr-2 font-normal" title="Во время участия">
+                Выручка
+              </SortTh>
+              <SortTh {...sorted.th('profit')} align="right" className="py-1 font-normal" title="Во время участия">
+                Прибыль
+              </SortTh>
             </tr>
           </thead>
           <tbody>
-            {data.items.map((i) => {
+            {sorted.rows.map((i) => {
               const r = i.result
               return (
                 <tr key={i.participation_id} className="border-t border-line" data-testid="promo-result-row">
                   <td className="max-w-[12rem] py-1.5 pr-2">
-                    <Link href={productHref(i.product.id)} className="block truncate font-medium hover:text-accent">
-                      {i.product.offer_id}
+                    <Link href={productHref(i.product.id)} className="block min-w-0 font-medium hover:text-accent">
+                      <CopyText value={i.product.offer_id} label="артикул" />
                     </Link>
                   </td>
                   <td className="whitespace-nowrap py-1.5 pr-2 text-muted">

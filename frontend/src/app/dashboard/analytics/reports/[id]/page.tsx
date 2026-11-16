@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 
+import { CopyText } from '@/components/copy'
 import { FormError } from '@/components/AuthForm'
 import { BankHintBox, ManualTotal } from '@/components/finance'
 import {
@@ -21,9 +22,17 @@ import {
 } from '@/components/reports'
 import { Panel, Skeleton, Sub, buttonClass } from '@/components/ui'
 import { api, errorMessage } from '@/lib/api'
+import { SortTh, num, useSort } from '@/components/table'
 
 function ArticlesTable({ byArticle }: { byArticle: Record<string, ArticleSales> }) {
   const rows = Object.entries(byArticle).sort((a, b) => Number(b[1].revenue) - Number(a[1].revenue))
+  const s = useSort(rows, {
+    article: ([article]) => article,
+    qty: ([, a]) => a.qty,
+    revenue: ([, a]) => num(a.revenue),
+    cost: ([, a]) => (a.has_cost ? num(a.cost) : null),
+    total: ([, a]) => (a.has_cost ? num(a.total_cost) : null),
+  })
   if (rows.length === 0) return null
   return (
     <Panel flush title="Продажи по товарам">
@@ -31,18 +40,26 @@ function ArticlesTable({ byArticle }: { byArticle: Record<string, ArticleSales> 
         <table className="w-full text-sm">
           <thead className="bg-soft/60 text-left text-xs font-medium text-muted">
             <tr>
-              <th className="px-5 py-2 font-medium">Товар</th>
-              <th className="px-5 py-2 text-right font-medium">Продано</th>
-              <th className="px-5 py-2 text-right font-medium">Выручка</th>
-              <th className="px-5 py-2 text-right font-medium">Себестоимость</th>
+              <SortTh {...s.th('article')} kind="text" className="px-5 py-2 font-medium">
+                Товар
+              </SortTh>
+              <SortTh {...s.th('qty')} align="right" className="px-5 py-2 font-medium">
+                Продано
+              </SortTh>
+              <SortTh {...s.th('revenue')} align="right" className="px-5 py-2 font-medium">
+                Выручка
+              </SortTh>
+              <SortTh {...s.th('total')} align="right" className="px-5 py-2 font-medium" title="Всего за проданное; под суммой — за штуку">
+                Себестоимость
+              </SortTh>
             </tr>
           </thead>
           <tbody>
-            {rows.map(([article, a]) => (
+            {s.rows.map(([article, a]) => (
               <tr key={article} className="border-t border-line" data-testid="article-row">
                 <td className="px-5 py-2.5">
-                  <div className="max-w-md truncate font-medium">{a.name || article}</div>
-                  <div className="text-xs text-faint">{article}</div>
+                  {a.name ? <CopyText value={a.name} label="название" className="max-w-md font-medium" /> : <div className="font-medium">{article}</div>}
+                  <CopyText value={article} label="артикул" className="text-xs text-faint" />
                 </td>
                 <td className="whitespace-nowrap px-5 py-2.5 text-right tabular-nums">{a.qty} шт.</td>
                 <td className="whitespace-nowrap px-5 py-2.5 text-right tabular-nums">{rub(a.revenue)}</td>

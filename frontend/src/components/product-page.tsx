@@ -12,6 +12,7 @@ import { since } from '@/lib/costs'
 import { FLAGS, marginTone, type ClusterStock, type PriceLevel, type ProductStats, type RiskLevel } from '@/lib/products'
 import { num, perDay, qty } from '@/lib/stocks'
 import { URGENCY } from '@/lib/supply'
+import { SortTh, num as sortNum, useSort } from '@/components/table'
 
 /** Карточка раздела страницы: заголовок, ссылки справа, содержимое. */
 export function Box({ title, more, testid, id, children }: { title: string; more?: React.ReactNode; testid: string; id?: string; children: React.ReactNode }) {
@@ -49,6 +50,7 @@ export function ProblemList({ flags }: { flags: ProductStats['detail']['item']['
 // ── юнит-экономика и расходы за период ──
 export function UnitBlock({ data, costLabel, profitHref, lowMargin }: { data: ProductStats; costLabel: string; profitHref: string; lowMargin: number }) {
   const p = data.pnl
+  const byType = useSort(Object.entries(data.pnl?.by_type ?? {}), { name: ([n]) => n, value: ([, v]) => sortNum(v) })
   const costTitle = data.cost_basis === 'without_vat' ? 'Себестоимость без НДС' : costLabel
   const period = `${fmtDay(data.period.date_from)} – ${fmtDay(data.period.date_to)}`
   return (
@@ -145,8 +147,18 @@ export function UnitBlock({ data, costLabel, profitHref, lowMargin }: { data: Pr
           <details className="mt-4 text-sm">
             <summary className="cursor-pointer text-muted hover:text-fg">Начисления по статьям: {Object.keys(p.by_type).length}</summary>
             <table className="mt-1 w-full" data-testid="unit-by-type">
+              <thead className="text-left text-xs text-faint">
+                <tr>
+                  <SortTh {...byType.th('name')} kind="text" className="py-1 pr-3 font-normal">
+                    Статья
+                  </SortTh>
+                  <SortTh {...byType.th('value')} align="right" className="py-1 font-normal">
+                    ₽
+                  </SortTh>
+                </tr>
+              </thead>
               <tbody>
-                {Object.entries(p.by_type).map(([name, v]) => (
+                {byType.rows.map(([name, v]) => (
                   <tr key={name} className="border-b border-line last:border-b-0">
                     <td className="py-1.5 pr-3">{name}</td>
                     <td className={`whitespace-nowrap py-1.5 text-right tabular-nums ${signTone(v)}`}>{rub(v)}</td>
@@ -380,6 +392,13 @@ const RISK_TITLE: Record<RiskLevel, string> = {
 
 export function StocksBlock({ data }: { data: ProductStats }) {
   const item = data.detail.item
+  const clusters = useSort(data.clusters, {
+    name: (c) => c.name,
+    present: (c) => c.present,
+    transit: (c) => c.in_transit,
+    days: (c) => sortNum(c.supply?.days_left),
+    order: (c) => c.supply?.to_order,
+  })
   return (
     <Box
       title="Остатки и поставки"
@@ -411,15 +430,25 @@ export function StocksBlock({ data }: { data: ProductStats }) {
           <table className="w-full min-w-[34rem] text-sm" data-testid="product-clusters">
             <thead className="text-left text-xs text-faint">
               <tr>
-                <th className="py-1 pr-2 font-normal">Кластер или склад</th>
-                <th className="py-1 pr-2 text-right font-normal">Доступно</th>
-                <th className="py-1 pr-2 text-right font-normal">В пути</th>
-                <th className="py-1 pr-2 text-right font-normal">Хватит на</th>
-                <th className="py-1 text-right font-normal">{data.supply_known ? 'Отправить' : 'Поставка'}</th>
+                <SortTh {...clusters.th('name')} kind="text" className="py-1 pr-2 font-normal">
+                  Кластер или склад
+                </SortTh>
+                <SortTh {...clusters.th('present')} align="right" className="py-1 pr-2 font-normal">
+                  Доступно
+                </SortTh>
+                <SortTh {...clusters.th('transit')} align="right" className="py-1 pr-2 font-normal">
+                  В пути
+                </SortTh>
+                <SortTh {...clusters.th('days')} align="right" className="py-1 pr-2 font-normal">
+                  Хватит на
+                </SortTh>
+                <SortTh {...clusters.th('order')} align="right" className="py-1 font-normal">
+                  {data.supply_known ? 'Отправить' : 'Поставка'}
+                </SortTh>
               </tr>
             </thead>
             <tbody>
-              {data.clusters.map((c) => (
+              {clusters.rows.map((c) => (
                 <ClusterRow key={`${c.type}-${c.name}`} c={c} />
               ))}
             </tbody>

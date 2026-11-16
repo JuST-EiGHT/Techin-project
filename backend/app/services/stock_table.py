@@ -25,7 +25,9 @@ PRODUCT, WAREHOUSE, CLUSTER = "product", "warehouse", "cluster"
 GROUPS = (PRODUCT, WAREHOUSE, CLUSTER)
 NO_SALES = "no_sales"
 SORTS = ("offer_id", "available", "reserved", "in_transit", "avg_daily_sales", "days_of_supply", "end_date",
-         "stock_value", "last_sale")
+         "stock_value", "last_sale", "unit_cost", "status")
+# «Ликвидность» по возрастанию — от тревожного к избытку; «нет данных» — в конце (правка 16.11.2026: сортировка везде)
+STATUS_RANK = {"critical": 0, "low": 1, "normal": 2, "excess": 3}
 
 
 @dataclass
@@ -127,9 +129,12 @@ def _sort(rows: list[dict], sort: str, order: str) -> list[dict]:
     base = sorted(rows, key=name)
     if sort == "offer_id":
         return base if order == "asc" else sorted(rows, key=name, reverse=True)
-    filled = [r for r in base if r[sort] is not None]
-    empty = [r for r in base if r[sort] is None]
-    return sorted(filled, key=lambda r: r[sort], reverse=order == "desc") + empty
+    def value(r: dict):
+        return STATUS_RANK.get(r["status"]) if sort == "status" else r[sort]
+
+    filled = [r for r in base if value(r) is not None]
+    empty = [r for r in base if value(r) is None]
+    return sorted(filled, key=value, reverse=order == "desc") + empty
 
 
 async def table(
