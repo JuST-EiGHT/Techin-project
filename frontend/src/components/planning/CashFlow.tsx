@@ -20,6 +20,7 @@ import { type Account, type CashFlow, type CashFlowPeriod, type CashFlowRow, ops
 import { fmtDay, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { addDays, todayMsk } from '@/lib/period'
+import { type SortDir, type SortState, type SortValue, SortTh, num as sortNum, sortRows } from '@/components/table'
 
 type Preset = 'month' | 'quarter' | 'half' | 'year' | 'ahead' | 'custom'
 const PRESETS: { value: Preset; label: string }[] = [
@@ -196,8 +197,18 @@ function Table({ data, side, mode }: { data: CashFlow; side: Side; mode: Mode })
   const [open, setOpen] = useState<Set<string>>(new Set()) // раскрытые статьи с подстатьями
   // в прогнозе — строки с фактом или ожидаемым; в план-факте — и строки только с планом
   const shown = (r: CashFlowRow) => Number(r.total) !== 0 || Number(r.forecast_total) !== 0 || (mode === 'planfact' && Number(r.plan_total) !== 0)
-  const income = data.rows.filter((r) => r.section === 'income' && shown(r))
-  const expense = data.rows.filter((r) => r.section === 'expense' && shown(r))
+  // сортировка статей внутри «Поступлений» и «Платежей» (и подстатей внутри статьи) — по названию, периоду или итогу;
+  // суммы — по модулю: «сначала больше» — крупные первыми и у платежей; итоговые строки — на своих местах
+  const [sort, setSort] = useState<SortState>(null)
+  const sortValue = (r: CashFlowRow, key: string): SortValue => {
+    if (key === 'name') return r.name
+    const v = sortNum(key === 'total' ? r.total : r.values[Number(key)])
+    return v === null ? null : Math.abs(v)
+  }
+  const ordered = (rows: CashFlowRow[]) => (sort ? sortRows(rows, sort.dir, (r) => sortValue(r, sort.key)) : rows)
+  const th = (key: string) => ({ active: sort?.key === key ? sort.dir : null, onSort: (dir: SortDir | null) => setSort(dir ? { key, dir } : null) })
+  const income = ordered(data.rows.filter((r) => r.section === 'income' && shown(r)))
+  const expense = ordered(data.rows.filter((r) => r.section === 'expense' && shown(r)))
   const cell = 'whitespace-nowrap px-3 py-1.5 text-right align-top tabular-nums'
   const first = 'sticky left-0 z-10 bg-card px-3 py-1.5 text-left align-top'
   const periodCls = (p: CashFlowPeriod) => (p.kind === 'future' ? 'bg-bg/40' : '')
@@ -220,7 +231,7 @@ function Table({ data, side, mode }: { data: CashFlow; side: Side; mode: Mode })
       </tr>
       {rows.map((r) => {
         const key = `${r.section}-${r.transfer ? 'transfer' : r.category_id ?? 'none'}`
-        const kids = (r.children ?? []).filter(shown)
+        const kids = ordered((r.children ?? []).filter(shown))
         const expanded = open.has(key)
         const line = (row: CashFlowRow, child: boolean) => (
           <>
@@ -287,14 +298,26 @@ function Table({ data, side, mode }: { data: CashFlow; side: Side; mode: Mode })
       <table className="min-w-full text-sm">
         <thead>
           <tr className="text-xs text-muted">
-            <th className={`${first} font-normal`}>Статья, ₽</th>
-            {data.periods.map((p) => (
-              <th key={p.date_from} className={`${cell} font-normal ${periodCls(p)}`} data-kind={p.kind}>
+            <SortTh {...th('name')} kind="text" className={`${first} font-normal`} testid="cf-sort-name">
+              Статья, ₽
+            </SortTh>
+            {data.periods.map((p, i) => (
+              <SortTh
+                key={p.date_from}
+                {...th(String(i))}
+                align="right"
+                className={`${cell} font-normal ${periodCls(p)}`}
+                sub={p.kind !== 'past' ? <span className="text-[10px]">{p.kind === 'current' ? 'идёт' : 'прогноз'}</span> : undefined}
+                title="Статьи внутри поступлений и платежей — по сумме за период"
+                attrs={{ 'data-kind': p.kind }}
+                testid={`cf-sort-${i}`}
+              >
                 {periodTitle(p, data.granularity)}
-                {p.kind !== 'past' && <span className="block text-[10px] text-faint">{p.kind === 'current' ? 'идёт' : 'прогноз'}</span>}
-              </th>
+              </SortTh>
             ))}
-            <th className={`${cell} font-normal`}>Итого</th>
+            <SortTh {...th('total')} align="right" className={`${cell} font-normal`} testid="cf-sort-total">
+              Итого
+            </SortTh>
           </tr>
         </thead>
         <tbody>

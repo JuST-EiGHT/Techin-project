@@ -4,6 +4,7 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 
+import { CopyText } from '@/components/copy'
 import { FormError } from '@/components/AuthForm'
 import { DateRangePicker, SearchBox, lastDays } from '@/components/filters'
 import { ResultLine } from '@/components/promo-results'
@@ -11,6 +12,7 @@ import { Badge, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { addDays, todayMsk } from '@/lib/period'
 import { HISTORY_STATUS, fmtDate, type HistoryResponse } from '@/lib/promotions'
+import { SortTh, num, useSort } from '@/components/table'
 
 const PERIODS = [
   { days: 30, label: '30 дней' },
@@ -44,6 +46,14 @@ export function PromoHistory({ productId, onClearProduct }: { productId: string 
     (i) => !q || [i.product.offer_id, i.product.name ?? '', i.promotion.title].some((t) => t.toLowerCase().includes(q)),
   )
   const product = productId && data?.items[0]?.product
+  const sorted = useSort(items, {
+    offer: (i) => i.product.offer_id,
+    promo: (i) => i.promotion.title,
+    since: (i) => i.entered_at,
+    price: (i) => num(i.action_price),
+    how: (i) => (i.added_automatically ? 'Ozon автоматически' : 'вы'),
+    result: (i) => (i.result?.known ? num(i.result.revenue_change_pct) : null),
+  })
   return (
     <section className="space-y-3" data-testid="promo-history">
       <div className="flex flex-wrap items-center gap-2">
@@ -82,23 +92,35 @@ export function PromoHistory({ productId, onClearProduct }: { productId: string 
             <table className="w-full min-w-[56rem] text-[13px]" data-testid="history-table">
               <thead className="border-b border-line text-left text-xs text-muted">
                 <tr>
-                  <th className="px-3 py-2 font-normal">Товар</th>
-                  <th className="px-3 py-2 font-normal">Акция</th>
-                  <th className="px-3 py-2 font-normal">Участие</th>
-                  <th className="px-3 py-2 text-right font-normal">Цена в акции</th>
-                  <th className="px-3 py-2 font-normal">Как попал</th>
-                  <th className="px-3 py-2 font-normal">Результат</th>
+                  <SortTh {...sorted.th('offer')} kind="text" className="px-3 py-2 font-normal">
+                    Товар
+                  </SortTh>
+                  <SortTh {...sorted.th('promo')} kind="text" className="px-3 py-2 font-normal">
+                    Акция
+                  </SortTh>
+                  <SortTh {...sorted.th('since')} kind="date" className="px-3 py-2 font-normal" title="По дню входа в акцию">
+                    Участие
+                  </SortTh>
+                  <SortTh {...sorted.th('price')} align="right" className="px-3 py-2 font-normal">
+                    Цена в акции
+                  </SortTh>
+                  <SortTh {...sorted.th('how')} kind="text" className="px-3 py-2 font-normal">
+                    Как попал
+                  </SortTh>
+                  <SortTh {...sorted.th('result')} className="px-3 py-2 font-normal" title="По изменению выручки к такому же периоду до акции">
+                    Результат
+                  </SortTh>
                 </tr>
               </thead>
               <tbody>
-                {items.map((i) => {
+                {sorted.rows.map((i) => {
                   const st = HISTORY_STATUS[i.status]
                   const prices = i.prices.map((p) => p.action_price).filter((v, n, all) => v !== all[n - 1])
                   return (
                     <tr key={i.id} className="border-b border-line last:border-b-0" data-testid="history-row">
                       <td className="max-w-[14rem] px-3 py-2">
-                        <div className="truncate font-medium">{i.product.offer_id}</div>
-                        {i.product.name && <div className="truncate text-xs text-muted">{i.product.name}</div>}
+                        <CopyText value={i.product.offer_id} label="артикул" className="font-medium" />
+                        {i.product.name && <CopyText value={i.product.name} label="название" className="text-xs text-muted" />}
                       </td>
                       <td className="max-w-[14rem] px-3 py-2">
                         <Link href={`/dashboard/products/promotions/${i.promotion.id}`} className="block truncate hover:text-accent">

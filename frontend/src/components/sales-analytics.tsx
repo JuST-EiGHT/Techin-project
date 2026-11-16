@@ -5,11 +5,13 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 
+import { CopyText } from '@/components/copy'
 import { FormError } from '@/components/AuthForm'
 import { ChipOptions, FilterBar, FilterButton, FilterField, SearchBox } from '@/components/filters'
 import { type ChartEvent, EVENT_MARK, MetricChart } from '@/components/analytics'
 import { Change, Hint } from '@/components/dashboard'
 import { Card } from '@/components/home'
+import { SortTh, sortRows } from '@/components/table'
 import { type AnalyticsFilter, METRICS, type MetricKey, type Metrics, formatMetric } from '@/lib/analytics'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
@@ -190,8 +192,8 @@ export function EventsList({ events }: { events: SalesEvent[] }) {
                     {e.items.map((it, j) => (
                       <span key={j}>
                         {j > 0 && ', '}
-                        <Link href={it.link} className="hover:text-accent">
-                          {it.product.offer_id}
+                        <Link href={it.link} className="inline-flex max-w-full min-w-0 align-bottom hover:text-accent">
+                          <CopyText value={it.product.offer_id} label="артикул" />
                         </Link>{' '}
                         {it.text}
                       </span>
@@ -270,16 +272,8 @@ export function SalesTable({ table, filter }: { table: SalesTableData; filter: A
       if (quick === 'up' || quick === 'down') return r.direction === quick
       return true
     })
-    // пустые значения — в конце в обе стороны
-    const filled = picked.filter((r) => value(r, sort.key) !== null)
-    const empty = picked.filter((r) => value(r, sort.key) === null)
-    filled.sort((a, b) => {
-      const x = value(a, sort.key) as number | string
-      const y = value(b, sort.key) as number | string
-      const c = x < y ? -1 : x > y ? 1 : a.product.offer_id.localeCompare(b.product.offer_id)
-      return sort.desc ? -c : c
-    })
-    return [...filled, ...empty]
+    // пустые значения — в конце в обе стороны (components/table.tsx)
+    return sortRows(picked, sort.desc ? 'desc' : 'asc', (r) => value(r, sort.key))
   }, [table.items, search, quick, sort])
 
   async function exportXlsx() {
@@ -329,17 +323,18 @@ export function SalesTable({ table, filter }: { table: SalesTableData; filter: A
           <thead>
             <tr className="border-b border-line text-xs text-muted">
               {COLUMNS.map((c) => (
-                <th key={c.key} className={`px-3 py-2 font-medium ${c.right ? 'text-right' : 'text-left'}`}>
-                  <button
-                    type="button"
-                    onClick={() => setSort((s) => ({ key: c.key, desc: s.key === c.key ? !s.desc : c.key !== 'offer_id' }))}
-                    className={`hover:text-fg ${sort.key === c.key ? 'text-fg' : ''}`}
-                    data-testid={`sales-sort-${c.key}`}
-                  >
-                    {c.label}
-                    {sort.key === c.key ? (sort.desc ? ' ↓' : ' ↑') : ''}
-                  </button>
-                </th>
+                <SortTh
+                  key={c.key}
+                  active={sort.key === c.key ? (sort.desc ? 'desc' : 'asc') : null}
+                  onSort={(dir) => setSort(dir ? { key: c.key, desc: dir === 'desc' } : { key: 'revenue', desc: true })}
+                  resettable={c.key !== 'revenue'}
+                  kind={c.key === 'offer_id' ? 'text' : 'number'}
+                  align={c.right ? 'right' : 'left'}
+                  className="px-3 py-2 font-medium"
+                  testid={`sales-sort-${c.key}`}
+                >
+                  {c.label}
+                </SortTh>
               ))}
             </tr>
           </thead>
@@ -348,13 +343,13 @@ export function SalesTable({ table, filter }: { table: SalesTableData; filter: A
               <tr key={r.product.offer_id} data-testid="sales-row">
                 <td className="max-w-[16rem] px-3 py-2">
                   {r.product.id ? (
-                    <Link href={`/dashboard/products/${r.product.id}`} className="block truncate font-medium hover:text-accent">
-                      {r.product.offer_id}
+                    <Link href={`/dashboard/products/${r.product.id}`} className="block min-w-0 font-medium hover:text-accent">
+                      <CopyText value={r.product.offer_id} label="артикул" />
                     </Link>
                   ) : (
-                    <span className="block truncate font-medium">{r.product.offer_id}</span>
+                    <CopyText value={r.product.offer_id} label="артикул" className="font-medium" />
                   )}
-                  {r.product.name && <span className="block truncate text-xs text-faint">{r.product.name}</span>}
+                  {r.product.name && <CopyText value={r.product.name} label="название" className="text-xs text-faint" />}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">
                   {r.orders === null ? <span className="text-faint">—</span> : r.orders}

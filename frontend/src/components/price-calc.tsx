@@ -23,6 +23,7 @@ import {
   type Overrides,
 } from '@/lib/pricing'
 import { notifyPriceInputsChanged, saveExtrasForAll, saveSettings, useSettings } from '@/lib/settings'
+import { SortTh, num as sortNum, useSort } from '@/components/table'
 
 const EMPTY: Overrides = { ad_pct: '', target_margin_pct: '', logistics: '', storage: '', other: '', extra_pct: '', returns: '', price: '' }
 const LIMITS: Record<keyof Overrides, [number, number, string]> = {
@@ -615,6 +616,7 @@ function whatIfPrices(data: CalculateResponse, own: number | null): number[] {
 function WhatIf({ productId, body, data }: { productId: string; body: Record<string, string>; data: CalculateResponse }) {
   const [own, setOwn] = useState('')
   const [rows, setRows] = useState<Breakdown[] | null>(null)
+  const s = useSort(rows, { price: (b) => sortNum(b.price), cost: (b) => { const p = sortNum(b.price); const r = sortNum(b.profit); return p === null || r === null ? null : p - r }, profit: (b) => sortNum(b.profit), margin: (b) => sortNum(b.margin) })
   const [error, setError] = useState<string | null>(null)
   const ownValue = fieldNumber(own)
   const ownOk = ownValue !== null && Number.isFinite(ownValue) && ownValue > 0 && ownValue <= 100_000_000
@@ -674,16 +676,22 @@ function WhatIf({ productId, body, data }: { productId: string; body: Record<str
           <table className="w-full min-w-[22rem] text-sm">
             <thead className="text-left text-xs text-faint">
               <tr>
-                <th className="py-1 pr-2 font-normal">Цена</th>
-                <th className="py-1 pr-2 text-right font-normal" title="Комиссия, эквайринг, реклама, логистика, себестоимость, налоги — на 1 шт.">
+                <SortTh {...s.th('price')} className="py-1 pr-2 font-normal">
+                  Цена
+                </SortTh>
+                <SortTh {...s.th('cost')} align="right" className="py-1 pr-2 font-normal" title="Комиссия, эквайринг, реклама, логистика, себестоимость, налоги — на 1 шт.">
                   Расходы
-                </th>
-                <th className="py-1 pr-2 text-right font-normal">Остаётся</th>
-                <th className="py-1 text-right font-normal">Маржа</th>
+                </SortTh>
+                <SortTh {...s.th('profit')} align="right" className="py-1 pr-2 font-normal">
+                  Остаётся
+                </SortTh>
+                <SortTh {...s.th('margin')} align="right" className="py-1 font-normal">
+                  Маржа
+                </SortTh>
               </tr>
             </thead>
             <tbody>
-              {rows.map((b) => {
+              {s.rows.map((b) => {
                 const price = Number(b.price)
                 const loss = Number(b.profit) < 0
                 return (

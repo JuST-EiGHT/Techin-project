@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
+import { CopyText } from '@/components/copy'
 import { FormError } from '@/components/AuthForm'
 import { PromoActionModal } from '@/components/promo-action'
 import { PromoHistory } from '@/components/promo-history'
@@ -14,6 +15,7 @@ import { Badge, EmptyState, PageHeader, Panel, QuickTabs, Skeleton, Tabs, button
 import { refreshSyncStatus, timeAgo } from '@/lib/sync'
 import { api, errorMessage } from '@/lib/api'
 import { MARGIN_TEXT, fmtDate, type AutoAddedResponse, type AutoAddedRow, type Promotion } from '@/lib/promotions'
+import { SortTh, num, useSort } from '@/components/table'
 
 type SyncStatus = {
   has_active_key: boolean
@@ -345,6 +347,12 @@ function AutoAddedTable({ refresh, onChanged }: { refresh: number; onChanged: ()
   const [leaving, setLeaving] = useState<AutoAddedRow | null>(null)
   const [done, setDone] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
+  const auto = useSort(data?.items, {
+    offer: (r) => r.product.offer_id,
+    promo: (r) => r.promotion.title,
+    price: (r) => num(r.action_price),
+    margin: (r) => num(r.margin_in_promo),
+  })
 
   useEffect(() => {
     api
@@ -366,19 +374,27 @@ function AutoAddedTable({ refresh, onChanged }: { refresh: number; onChanged: ()
             <table className="w-full min-w-[44rem] text-[13px]">
               <thead className="bg-soft/60 text-left text-xs text-muted">
                 <tr>
-                  <th className="px-3 py-2.5 font-medium">Товар</th>
-                  <th className="px-3 py-2.5 font-medium">Акция</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Цена в акции</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Маржа</th>
+                  <SortTh {...auto.th('offer')} kind="text" className="px-3 py-2.5 font-medium">
+                    Товар
+                  </SortTh>
+                  <SortTh {...auto.th('promo')} kind="text" className="px-3 py-2.5 font-medium">
+                    Акция
+                  </SortTh>
+                  <SortTh {...auto.th('price')} align="right" className="px-3 py-2.5 font-medium">
+                    Цена в акции
+                  </SortTh>
+                  <SortTh {...auto.th('margin')} align="right" className="px-3 py-2.5 font-medium">
+                    Маржа
+                  </SortTh>
                   <th className="px-3 py-2" />
                 </tr>
               </thead>
               <tbody>
-                {data.items.map((row) => (
+                {auto.rows.map((row) => (
                   <tr key={`${row.promotion.id}-${row.product.id}`} data-testid="auto-added">
                     <td className="max-w-[14rem] px-3 py-2">
-                      <div className="truncate font-medium">{row.product.offer_id}</div>
-                      {row.product.name && <div className="truncate text-xs text-faint">{row.product.name}</div>}
+                      <CopyText value={row.product.offer_id} label="артикул" className="font-medium" />
+                      {row.product.name && <CopyText value={row.product.name} label="название" className="text-xs text-faint" />}
                     </td>
                     <td className="max-w-[14rem] px-3 py-2">
                       <Link href={`/dashboard/products/promotions/${row.promotion.id}`} className="block truncate hover:text-accent">

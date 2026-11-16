@@ -6,6 +6,7 @@ import { Download, FileUp, Plus } from 'lucide-react'
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { CopyText } from '@/components/copy'
 import { FormError } from '@/components/AuthForm'
 import { Modal, input } from '@/components/planning/ui'
 import { fmtDay, rub } from '@/components/reports'
@@ -15,6 +16,7 @@ import { saveFile } from '@/lib/download'
 import { todayMsk } from '@/lib/period'
 import { isPostpay } from '@/lib/nav'
 import { useSettings } from '@/lib/settings'
+import { SortTh, num, useSort } from '@/components/table'
 
 // ---------- типы ответа /finance/payables ----------
 
@@ -382,6 +384,13 @@ function LotsTable({ lots, onOpen }: { lots: Lot[]; onOpen: (id: string) => void
   const [filter, setFilter] = useState<LotFilter>('all')
   const count = (f: LotFilter) => lots.filter((l) => match(l, f)).length
   const shown = lots.filter((l) => match(l, filter))
+  const t = useSort(shown, {
+    lot: (l) => l.day,
+    status: (l) => STATUS[l.status].label,
+    sold: (l) => l.sold,
+    debt: (l) => num(l.debt),
+    unpaid: (l) => num(l.unpaid),
+  })
   return (
     <div className="space-y-3">
       <QuickTabs
@@ -401,15 +410,25 @@ function LotsTable({ lots, onOpen }: { lots: Lot[]; onOpen: (id: string) => void
           <table className="w-full min-w-[640px] text-sm">
             <thead className="bg-soft/60 text-xs font-medium text-muted">
               <tr>
-                <th className="px-5 py-2 text-left font-medium">Поставка</th>
-                <th className="px-3 py-2 text-left font-medium">Статус</th>
-                <th className="px-3 py-2 text-right font-medium">Продано</th>
-                <th className="px-3 py-2 text-right font-medium">За проданное</th>
-                <th className="px-5 py-2 text-right font-medium">К оплате</th>
+                <SortTh {...t.th('lot')} kind="date" className="px-5 py-2 font-medium" title="По дате поставки">
+                  Поставка
+                </SortTh>
+                <SortTh {...t.th('status')} kind="text" className="px-3 py-2 font-medium">
+                  Статус
+                </SortTh>
+                <SortTh {...t.th('sold')} align="right" className="px-3 py-2 font-medium">
+                  Продано
+                </SortTh>
+                <SortTh {...t.th('debt')} align="right" className="px-3 py-2 font-medium">
+                  За проданное
+                </SortTh>
+                <SortTh {...t.th('unpaid')} align="right" className="px-5 py-2 font-medium">
+                  К оплате
+                </SortTh>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
-              {shown.map((l) => (
+              {t.rows.map((l) => (
                 <tr key={l.lot_id} className="cursor-pointer hover:bg-soft/40" onClick={() => onOpen(l.lot_id)} data-testid="lot-row">
                   <td className="px-5 py-3">
                     <button type="button" className="text-left font-medium hover:text-accent" onClick={() => onOpen(l.lot_id)}>
@@ -468,6 +487,14 @@ function LotModal({ lot, salesFrom, onClose, onChanged, onDeleted }: {
   const [editing, setEditing] = useState(false)
   const [sold, setSold] = useState<Record<string, string>>({})
   const [closing, setClosing] = useState(false)
+  const lines = useSort(lot.lines, {
+    article: (ln) => ln.article,
+    qty: (ln) => ln.qty,
+    sold: (ln) => ln.sold + ln.sold_before,
+    remaining: (ln) => ln.remaining,
+    price: (ln) => num(ln.price),
+    amount: (ln) => num(ln.amount),
+  })
   const [reason, setReason] = useState<(typeof CLOSE_REASONS)[number]['value']>('returned')
   const [comment, setComment] = useState('')
 
@@ -530,19 +557,31 @@ function LotModal({ lot, salesFrom, onClose, onChanged, onDeleted }: {
           <table className="w-full min-w-[560px] text-sm" data-testid="lot-lines">
             <thead className="bg-soft/60 text-xs text-muted">
               <tr>
-                <th className="px-3 py-2 text-left font-medium">Артикул</th>
-                <th className="px-3 py-2 text-right font-medium">В поставке</th>
-                <th className="px-3 py-2 text-right font-medium">Продано</th>
-                <th className="px-3 py-2 text-right font-medium">Осталось</th>
-                <th className="px-3 py-2 text-right font-medium">Цена</th>
-                <th className="px-3 py-2 text-right font-medium">За проданное</th>
+                <SortTh {...lines.th('article')} kind="text" className="px-3 py-2 font-medium">
+                  Артикул
+                </SortTh>
+                <SortTh {...lines.th('qty')} align="right" className="px-3 py-2 font-medium">
+                  В поставке
+                </SortTh>
+                <SortTh {...lines.th('sold')} align="right" className="px-3 py-2 font-medium">
+                  Продано
+                </SortTh>
+                <SortTh {...lines.th('remaining')} align="right" className="px-3 py-2 font-medium">
+                  Осталось
+                </SortTh>
+                <SortTh {...lines.th('price')} align="right" className="px-3 py-2 font-medium">
+                  Цена
+                </SortTh>
+                <SortTh {...lines.th('amount')} align="right" className="px-3 py-2 font-medium">
+                  За проданное
+                </SortTh>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
-              {lot.lines.map((ln) => (
+              {lines.rows.map((ln) => (
                 <tr key={ln.article}>
                   <td className="px-3 py-2">
-                    <div className="whitespace-nowrap font-medium">{ln.article}</div>
+                    <CopyText value={ln.article} label="артикул" className="font-medium" />
                     <Sub tone={ln.in_catalog ? undefined : 'warn'}>{ln.in_catalog ? ln.name ?? '' : 'нет в каталоге Ozon'}</Sub>
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">{ln.qty}</td>
@@ -602,7 +641,7 @@ function LotModal({ lot, salesFrom, onClose, onChanged, onDeleted }: {
               {lot.moves.map((m, i) => (
                 <li key={i} className="flex gap-3">
                   <span className="w-20 text-muted">{fmtDay(m.day)}</span>
-                  <span className="min-w-0 flex-1 truncate">{m.article}</span>
+                  <CopyText value={m.article} label="артикул" className="min-w-0 flex-1" />
                   <span className={m.kind === 'return' ? 'text-bad' : ''}>
                     {m.kind === 'return' ? `возврат −${m.qty}` : `продано ${m.qty}`}
                   </span>
@@ -739,7 +778,7 @@ function UploadModal({ onClose, onSaved }: { onClose: () => void; onSaved: (text
           <Button variant="primary" onClick={() => pick.current?.click()} disabled={busy} data-testid="upload-pick">
             <FileUp className="h-4 w-4" /> {file ? 'Другой файл' : 'Выбрать файл'}
           </Button>
-          {file && <span className="truncate text-muted">{file.name}</span>}
+          {file && <CopyText value={file.name} label="название" className="text-muted" />}
           <input
             ref={pick}
             type="file"
@@ -787,6 +826,7 @@ function PreviewBlock({ doc, salesFrom, sold, setSold }: {
   setSold: React.Dispatch<React.SetStateAction<Record<string, string>>>
 }) {
   const key = (article: string) => `${doc.number}|${doc.day}|${article}`
+  const lines = useSort(doc.lines, { article: (ln) => ln.article, qty: (ln) => ln.qty, price: (ln) => num(ln.price), amount: (ln) => num(ln.amount) })
   return (
     <section className="space-y-2" data-testid="preview-doc">
       <div className="flex flex-wrap items-center gap-2">
@@ -816,18 +856,26 @@ function PreviewBlock({ doc, salesFrom, sold, setSold }: {
         <table className="w-full min-w-[520px] text-sm">
           <thead className="bg-soft/60 text-xs text-muted">
             <tr>
-              <th className="px-3 py-2 text-left font-medium">Артикул</th>
-              <th className="px-3 py-2 text-right font-medium">Кол-во</th>
-              <th className="px-3 py-2 text-right font-medium">Цена</th>
-              <th className="px-3 py-2 text-right font-medium">Сумма</th>
+              <SortTh {...lines.th('article')} kind="text" className="px-3 py-2 font-medium">
+                Артикул
+              </SortTh>
+              <SortTh {...lines.th('qty')} align="right" className="px-3 py-2 font-medium">
+                Кол-во
+              </SortTh>
+              <SortTh {...lines.th('price')} align="right" className="px-3 py-2 font-medium">
+                Цена
+              </SortTh>
+              <SortTh {...lines.th('amount')} align="right" className="px-3 py-2 font-medium">
+                Сумма
+              </SortTh>
               {doc.older_than_sales && <th className="px-3 py-2 text-right font-medium">Уже продано ранее</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
-            {doc.lines.map((ln) => (
+            {lines.rows.map((ln) => (
               <tr key={ln.line}>
                 <td className="px-3 py-2">
-                  <div className="whitespace-nowrap font-medium">{ln.article || '—'}</div>
+                  {ln.article ? <CopyText value={ln.article} label="артикул" className="font-medium" /> : <div className="font-medium">—</div>}
                   {ln.error ? (
                     <Sub tone="bad">{ln.error}</Sub>
                   ) : (
@@ -912,6 +960,7 @@ function TemplatePanel({ onUpload }: { onUpload: () => void }) {
 
 function PaymentsTable({ data, onEdit, onChanged }: { data: Payables; onEdit: (p: Payment) => void; onChanged: () => void }) {
   const [error, setError] = useState<string | null>(null)
+  const pays = useSort(data.payments, { day: (p) => p.day, amount: (p) => num(p.amount), who: (p) => p.counterparty })
   async function remove(p: Payment) {
     if (!window.confirm(`Удалить оплату ${rub(p.amount)} от ${fmtDay(p.day)}?`)) return
     try {
@@ -937,14 +986,20 @@ function PaymentsTable({ data, onEdit, onChanged }: { data: Payables; onEdit: (p
         <table className="w-full min-w-[520px] text-sm">
           <thead className="bg-soft/60 text-xs text-muted">
             <tr>
-              <th className="px-5 py-2 text-left font-medium">Дата</th>
-              <th className="px-3 py-2 text-right font-medium">Сумма</th>
-              <th className="px-3 py-2 text-left font-medium">Кому и за что</th>
+              <SortTh {...pays.th('day')} kind="date" className="px-5 py-2 font-medium">
+                Дата
+              </SortTh>
+              <SortTh {...pays.th('amount')} align="right" className="px-3 py-2 font-medium">
+                Сумма
+              </SortTh>
+              <SortTh {...pays.th('who')} kind="text" className="px-3 py-2 font-medium">
+                Кому и за что
+              </SortTh>
               <th className="px-5 py-2 text-right font-medium" />
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
-            {data.payments.map((p) => (
+            {pays.rows.map((p) => (
               <tr key={`${p.source}-${p.payment_id}`}>
                 <td className="px-5 py-3 tabular-nums">{fmtDay(p.day)}</td>
                 <td className={`px-3 py-3 text-right tabular-nums whitespace-nowrap ${Number(p.amount) < 0 ? 'text-bad' : ''}`}>

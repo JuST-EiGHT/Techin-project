@@ -6,6 +6,7 @@ import { Download, History, Upload } from 'lucide-react'
 import { usePathname, useRouter } from 'next/navigation'
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 
+import { CopyText } from '@/components/copy'
 import { FormError } from '@/components/AuthForm'
 import { CheckOption, FilterBar, FilterButton, FilterField, SearchBox } from '@/components/filters'
 import { CostTemplateButton } from '@/components/CostTemplateButton'
@@ -14,6 +15,7 @@ import { Badge, fmtDateTime, fmtDay, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { VAT_OPTIONS, costPath, since, toNumber, vatText } from '@/lib/costs'
 import { downloadCostErrors, type TemplateFormat } from '@/lib/download'
+import { SortTh, num, useSort } from '@/components/table'
 
 type CostRow = {
   offer_id: string
@@ -66,6 +68,13 @@ const ORDER = Object.keys(STATUS) as ImportStatus[] // ошибки и изме�
 function HistoryRows({ offerId }: { offerId: string }) {
   const [records, setRecords] = useState<CostRecord[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const hist = useSort(records, {
+    from: (r) => r.effective_from,
+    price: (r) => num(r.cost_price),
+    vat: (r) => num(r.vat_multiplier),
+    note: (r) => r.note,
+    created: (r) => r.created_at,
+  })
   useEffect(() => {
     api
       .get<CostRecord[]>(`${costPath(offerId)}/history`)
@@ -81,16 +90,26 @@ function HistoryRows({ offerId }: { offerId: string }) {
           <table className="text-sm" data-testid="cost-history">
             <thead className="text-left text-xs text-faint">
               <tr>
-                <th className="pr-6 font-normal">Действует</th>
-                <th className="pr-6 text-right font-normal">Цена</th>
-                <th className="pr-6 font-normal">НДС</th>
-                <th className="pr-6 font-normal">Комментарий</th>
-                <th className="font-normal">Записано</th>
+                <SortTh {...hist.th('from')} kind="date" className="pr-6 font-normal">
+                  Действует
+                </SortTh>
+                <SortTh {...hist.th('price')} align="right" className="pr-6 font-normal">
+                  Цена
+                </SortTh>
+                <SortTh {...hist.th('vat')} className="pr-6 font-normal">
+                  НДС
+                </SortTh>
+                <SortTh {...hist.th('note')} kind="text" className="pr-6 font-normal">
+                  Комментарий
+                </SortTh>
+                <SortTh {...hist.th('created')} kind="date" className="font-normal">
+                  Записано
+                </SortTh>
               </tr>
             </thead>
             <tbody>
-              {records.map((r, i) => (
-                <tr key={i} className={i === 0 ? '' : 'text-muted'}>
+              {hist.rows.map((r, i) => (
+                <tr key={i} className={r === records[0] ? '' : 'text-muted'}>
                   <td className="pr-6">{since(r.effective_from)}</td>
                   <td className="pr-6 text-right tabular-nums">{rub(r.cost_price)}</td>
                   <td className="pr-6">{vatText(r.vat_multiplier)}</td>
@@ -142,7 +161,7 @@ function EditRow({ row, onSaved, onCancel }: { row: CostRow; onSaved: (row: Cost
     <tr className="border-b border-line bg-accent/5" data-testid="cost-edit">
       <td className="px-4 py-2">
         <div className="font-medium">{row.offer_id}</div>
-        {row.name && <div className="max-w-xs truncate text-xs text-muted">{row.name}</div>}
+        {row.name && <CopyText value={row.name} label="название" className="max-w-xs text-xs text-muted" />}
       </td>
       <td className="px-4 py-2 text-right">
         <input autoFocus aria-label="Себестоимость" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} onKeyDown={keys} className={`${input} w-28 text-right`} />
@@ -229,6 +248,15 @@ function ImportPanel({ allCount, missingCount, onDone, onAliases }: { allCount: 
   const actionable = sorted.filter((r) => ['error', 'changed', 'new'].includes(r.status) || r.unknown)
   const unknown = preview ? preview.rows.filter((r) => r.unknown && r.status !== 'error' && r.status !== 'skipped').length : 0
   const rows = showAll ? sorted : actionable
+  const preview_ = useSort(rows, {
+    line: (r) => r.line,
+    offer: (r) => r.offer_id,
+    current: (r) => num(r.current_cost),
+    price: (r) => num(r.cost_price),
+    vat: (r) => (r.cost_price === null ? null : num(r.vat_multiplier)),
+    from: (r) => r.effective_from,
+    status: (r) => ORDER.indexOf(r.status),
+  })
   const toApply = preview ? preview.counts.new + preview.counts.changed : 0
   const button = 'inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent disabled:opacity-60'
   return (
@@ -325,17 +353,31 @@ function ImportPanel({ allCount, missingCount, onDone, onAliases }: { allCount: 
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-card text-left text-xs text-muted">
                   <tr className="border-b border-line">
-                    <th className="px-3 py-2 font-normal">Строка</th>
-                    <th className="px-3 py-2 font-normal">Артикул</th>
-                    <th className="px-3 py-2 text-right font-normal">Сейчас</th>
-                    <th className="px-3 py-2 text-right font-normal">Будет</th>
-                    <th className="px-3 py-2 font-normal">НДС</th>
-                    <th className="px-3 py-2 font-normal">Действует</th>
-                    <th className="px-3 py-2 font-normal">Статус</th>
+                    <SortTh {...preview_.th('line')} className="px-3 py-2 font-normal">
+                      Строка
+                    </SortTh>
+                    <SortTh {...preview_.th('offer')} kind="text" className="px-3 py-2 font-normal">
+                      Артикул
+                    </SortTh>
+                    <SortTh {...preview_.th('current')} align="right" className="px-3 py-2 font-normal">
+                      Сейчас
+                    </SortTh>
+                    <SortTh {...preview_.th('price')} align="right" className="px-3 py-2 font-normal">
+                      Будет
+                    </SortTh>
+                    <SortTh {...preview_.th('vat')} className="px-3 py-2 font-normal">
+                      НДС
+                    </SortTh>
+                    <SortTh {...preview_.th('from')} kind="date" className="px-3 py-2 font-normal">
+                      Действует
+                    </SortTh>
+                    <SortTh {...preview_.th('status')} className="px-3 py-2 font-normal" title="По возрастанию — ошибки и изменения сначала">
+                      Статус
+                    </SortTh>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r) => (
+                  {preview_.rows.map((r) => (
                     <tr key={r.line} className="border-b border-line last:border-b-0" data-testid="import-row">
                       <td className="px-3 py-1.5 text-faint">{r.line}</td>
                       <td className="px-3 py-1.5">
@@ -411,6 +453,14 @@ export default function CostsPage() {
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const [historyOf, setHistoryOf] = useState<string | null>(null)
+  const costs = useSort(page?.items, {
+    offer: (r) => r.offer_id,
+    price: (r) => num(r.cost_price),
+    vat: (r) => (r.cost_price === null ? null : num(r.vat_multiplier)),
+    from: (r) => r.effective_from,
+    note: (r) => r.note,
+    qty: (r) => r.report_qty,
+  })
   const [tab, setTabState] = useState<'list' | 'import'>('list')
   const [notice, setNotice] = useState<string | null>(null)
   const [coverageKey, setCoverageKey] = useState(0)
@@ -586,17 +636,29 @@ export default function CostsPage() {
           <table className="w-full text-sm">
             <thead className="text-left text-xs text-muted">
               <tr className="border-b border-line">
-                <th className="px-4 py-2 font-normal">Артикул</th>
-                <th className="px-4 py-2 text-right font-normal">Себестоимость без НДС</th>
-                <th className="px-4 py-2 font-normal">НДС</th>
-                <th className="px-4 py-2 font-normal">Действует</th>
-                <th className="px-4 py-2 font-normal">Комментарий</th>
-                <th className="px-4 py-2 text-right font-normal">Продано в отчётах</th>
+                <SortTh {...costs.th('offer')} kind="text" className="px-4 py-2 font-normal">
+                  Артикул
+                </SortTh>
+                <SortTh {...costs.th('price')} align="right" className="px-4 py-2 font-normal">
+                  Себестоимость без НДС
+                </SortTh>
+                <SortTh {...costs.th('vat')} className="px-4 py-2 font-normal">
+                  НДС
+                </SortTh>
+                <SortTh {...costs.th('from')} kind="date" className="px-4 py-2 font-normal">
+                  Действует
+                </SortTh>
+                <SortTh {...costs.th('note')} kind="text" className="px-4 py-2 font-normal">
+                  Комментарий
+                </SortTh>
+                <SortTh {...costs.th('qty')} align="right" className="px-4 py-2 font-normal">
+                  Продано в отчётах
+                </SortTh>
                 <th className="px-4 py-2 font-normal" />
               </tr>
             </thead>
             <tbody>
-              {page.items.map((row) =>
+              {costs.rows.map((row) =>
                 editing === row.offer_id ? (
                   <EditRow key={row.offer_id} row={row} onSaved={saved} onCancel={() => setEditing(null)} />
                 ) : (
@@ -604,7 +666,7 @@ export default function CostsPage() {
                     <tr className="border-b border-line last:border-b-0" data-testid="cost-row">
                       <td className="px-4 py-2">
                         <div className="font-medium">{row.offer_id}</div>
-                        {row.name && <div className="max-w-xs truncate text-xs text-muted">{row.name}</div>}
+                        {row.name && <CopyText value={row.name} label="название" className="max-w-xs text-xs text-muted" />}
                       </td>
                       <td
                         className="cursor-pointer px-4 py-2 text-right tabular-nums hover:bg-line/40"

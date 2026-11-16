@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 
 import { AppHeader } from '@/components/AppHeader'
+import { ScrollTopButton, StickyScrollbar } from '@/components/page-tools'
 import { StoreBar } from '@/components/StoreSwitcher'
 import { useAuth } from '@/contexts/AuthContext'
 import { StoreProvider } from '@/contexts/StoreContext'
@@ -45,7 +46,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </Link>
           </div>
         )}
-        <div className="p-4 md:p-6">{children}</div>
+        <div className="p-4 md:p-6" data-page-root>
+          {children}
+        </div>
+        {/* общие для всех страниц (правка владельца 16.11.2026): «Вернуться наверх» и ползунок таблиц внизу экрана */}
+        <ScrollTopButton />
+        <StickyScrollbar />
       </div>
     </StoreProvider>
   )

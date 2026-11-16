@@ -10,6 +10,7 @@ import { FormError } from '@/components/AuthForm'
 import { input } from '@/components/planning/Operations'
 import { Badge, fmtDateTime, fmtDay, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
+import { SortTh, num, useSort } from '@/components/table'
 
 type Ref = { id: string; name: string }
 type Preview = {
@@ -268,6 +269,13 @@ function Matches({ items, onChanged }: { items: Match[]; onChanged: () => void }
 }
 
 function OzonCheckTable({ check }: { check: Check }) {
+  const s = useSort(check.rows, {
+    payout: (r) => r.payout_day,
+    ozon: (r) => num(r.ozon_amount),
+    bank_day: (r) => r.bank_day,
+    bank: (r) => num(r.bank_amount),
+    status: (r) => CHECK[r.status].label,
+  })
   if (!check.has_bank || check.rows.length === 0) return null
   const problems = (check.counts.diff ?? 0) + (check.counts.no_bank ?? 0)
   return (
@@ -283,15 +291,25 @@ function OzonCheckTable({ check }: { check: Check }) {
         <table className="min-w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-muted">
-              <th className="px-4 py-1.5 font-normal">Выплата Ozon</th>
-              <th className="px-4 py-1.5 text-right font-normal">Сумма Ozon</th>
-              <th className="px-4 py-1.5 font-normal">На счёт</th>
-              <th className="px-4 py-1.5 text-right font-normal">Сумма в банке</th>
-              <th className="px-4 py-1.5 font-normal" />
+              <SortTh {...s.th('payout')} kind="date" className="px-4 py-1.5 font-normal">
+                Выплата Ozon
+              </SortTh>
+              <SortTh {...s.th('ozon')} align="right" className="px-4 py-1.5 font-normal">
+                Сумма Ozon
+              </SortTh>
+              <SortTh {...s.th('bank_day')} kind="date" className="px-4 py-1.5 font-normal">
+                На счёт
+              </SortTh>
+              <SortTh {...s.th('bank')} align="right" className="px-4 py-1.5 font-normal">
+                Сумма в банке
+              </SortTh>
+              <SortTh {...s.th('status')} kind="text" className="px-4 py-1.5 font-normal">
+                Сверка
+              </SortTh>
             </tr>
           </thead>
           <tbody>
-            {check.rows.map((r, i) => (
+            {s.rows.map((r, i) => (
               <tr key={i} className="border-t border-line" data-testid="ozon-check-row">
                 <td className="whitespace-nowrap px-4 py-1.5">{r.payout_day ? fmtDay(r.payout_day) : '—'}</td>
                 <td className="whitespace-nowrap px-4 py-1.5 text-right tabular-nums">{r.ozon_amount ? rub(r.ozon_amount) : '—'}</td>

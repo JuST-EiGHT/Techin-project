@@ -68,7 +68,11 @@ async def _report(db: AsyncSession, user: User, report_id: uuid.UUID | None):
     return report
 
 
-SortField = Literal["revenue", "profit", "margin", "qty", "total"]
+SortField = Literal[
+    "revenue", "profit", "margin", "total", "avg_price", "commission", "logistics", "returns", "ads", "storage", "other",
+    "cost", "qty", "returned_qty", "offer_id", "name", "unit_price", "unit_commission", "unit_logistics", "unit_returns",
+    "unit_ads", "unit_storage", "unit_other", "unit_total", "unit_cost", "unit_profit",
+]  # = product_pnl.SORTS (проверяет тест)
 
 
 async def _products(db: AsyncSession, user: User, req: svc.PnLRequest, report_id: uuid.UUID | None) -> dict:

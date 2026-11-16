@@ -9,6 +9,7 @@ import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, Res
 import { TipBox } from '@/components/charts'
 import { ChipOptions, FilterButton, FilterField, SearchBox } from '@/components/filters'
 import { useTokenColors } from '@/components/finance'
+import { SortTh, useSort } from '@/components/table'
 import { Badge, Button, Delta, EmptyState, IconBox, PageHeader, Panel, Segmented, Skeleton, Stat, StatGrid, buttonClass } from '@/components/ui'
 import { useTheme } from '@/contexts/ThemeContext'
 
@@ -73,6 +74,8 @@ export default function DesignSystemPage() {
   const [detail, setDetail] = useState<'day' | 'week' | 'month'>('day')
   const [q, setQ] = useState('')
   const [status, setStatus] = useState<'all' | 'ok' | 'warn' | 'bad'>('all')
+  const shown = ROWS.filter((r) => (!q || `${r.sku} ${r.name}`.toLowerCase().includes(q.toLowerCase())) && (status === 'all' || status === r.status))
+  const table = useSort(shown, { name: (r) => r.name, sold: (r) => r.sold, revenue: (r) => r.revenue, margin: (r) => r.margin, status: (r) => STATUS[r.status].text })
   const total = COSTS.reduce((s, x) => s + x.value, 0)
 
   return (
@@ -205,15 +208,25 @@ export default function DesignSystemPage() {
             <table className="w-full min-w-[640px] text-sm">
               <thead className="bg-soft/60 text-left text-xs text-muted">
                 <tr>
-                  <th className="px-5 py-2.5 font-medium">Товар</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Продано</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Выручка</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Маржа</th>
-                  <th className="px-5 py-2.5 font-medium">Статус</th>
+                  <SortTh {...table.th('name')} kind="text" className="px-5 py-2.5 font-medium">
+                    Товар
+                  </SortTh>
+                  <SortTh {...table.th('sold')} align="right" className="px-3 py-2.5 font-medium">
+                    Продано
+                  </SortTh>
+                  <SortTh {...table.th('revenue')} align="right" className="px-3 py-2.5 font-medium">
+                    Выручка
+                  </SortTh>
+                  <SortTh {...table.th('margin')} align="right" className="px-3 py-2.5 font-medium">
+                    Маржа
+                  </SortTh>
+                  <SortTh {...table.th('status')} kind="text" className="px-5 py-2.5 font-medium">
+                    Статус
+                  </SortTh>
                 </tr>
               </thead>
               <tbody>
-                {ROWS.filter((r) => (!q || `${r.sku} ${r.name}`.toLowerCase().includes(q.toLowerCase())) && (status === 'all' || status === r.status)).map((r) => (
+                {table.rows.map((r) => (
                   <tr key={r.sku}>
                     <td className="px-5 py-3">
                       <div className="font-medium">{r.name}</div>
