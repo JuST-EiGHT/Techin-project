@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { HelpTip } from '@/components/ui'
 import { pctText, rub } from '@/components/reports'
 import { useAuth } from '@/contexts/AuthContext'
 import { api, errorMessage } from '@/lib/api'
@@ -428,12 +429,20 @@ function Figure({ label, value, hint, tone = '', testid }: { label: string; valu
 /** Из чего складывается цена одной штуки — с источником каждой цифры. */
 function BreakdownTable({ b, data }: { b: Breakdown; data: CalculateResponse }) {
   const i = data.inputs
-  const line = (label: React.ReactNode, v: string, opts: { strong?: boolean; tone?: string; note?: string; hide?: boolean } = {}) =>
+  const tips = data.result?.explain ?? {}
+  // у строки — «?» с тем, как она посчитана и из каких цифр (правка 16.11.2026: без подписей под строками)
+  const line = (label: string, v: string, key: string | null, opts: { strong?: boolean; tone?: string; hide?: boolean } = {}) =>
     opts.hide ? null : (
-      <tr className={`border-b border-line last:border-b-0 ${opts.strong ? 'font-semibold' : ''}`}>
+      <tr className={`border-b border-line last:border-b-0 ${opts.strong ? 'font-semibold' : ''}`} data-testid={key ? `calc-line-${key}` : undefined}>
         <td className="py-1.5 pr-3">
-          {label}
-          {opts.note && <span className="block text-[11px] font-normal text-faint">{opts.note}</span>}
+          <span className="inline-flex items-center gap-1.5">
+            {label}
+            {key && tips[key] && (
+              <HelpTip label={`Как считается: ${label.replace(/^[−=] /, '')}`} testid={`calc-tip-${key}`}>
+                {tips[key]}
+              </HelpTip>
+            )}
+          </span>
         </td>
         <td className={`whitespace-nowrap py-1.5 text-right tabular-nums ${opts.tone ?? ''}`}>{rub(v)}</td>
       </tr>
@@ -444,24 +453,23 @@ function BreakdownTable({ b, data }: { b: Breakdown; data: CalculateResponse }) 
       <h4 className="mb-1 text-xs text-muted">Из чего складывается цена {rub(b.price)} — на 1 шт.</h4>
       <table className="w-full text-sm" data-testid="calc-breakdown">
         <tbody>
-          {line('Цена', b.price)}
-          {line(`− Комиссия Ozon ${num(i.commission_pct)} %`, b.commission, { note: i.sources.commission_pct })}
-          {line(`− Эквайринг ${num(i.acquiring_pct)} %`, b.acquiring, { hide: zero(b.acquiring) })}
-          {line(`− Реклама ${num(i.ad_pct)} %`, b.ad, { hide: zero(b.ad), note: adNote(data) })}
-          {line(`− Доп. расходы ${num(i.extra_pct ?? '0')} %`, b.extra ?? '0', { hide: zero(b.extra ?? '0') })}
-          {line('− Логистика', b.logistics, { note: i.logistics_text })}
-          {line('− Возвраты и невыкупы', b.returns ?? '0', { hide: zero(b.returns ?? '0'), note: i.sources.returns })}
-          {line('− Хранение', b.storage, { hide: zero(b.storage), note: i.sources.storage })}
-          {line('− Прочие расходы', b.other, { hide: zero(b.other) })}
-          {line('− Себестоимость с НДС поставщика', b.cost, { note: i.sources.cost })}
-          {line('− НДС к уплате', b.vat, { hide: zero(b.vat), note: 'с продаж, за вычетом входящего — если есть вычет' })}
-          {line('− Налог с дохода', b.income_tax, { hide: zero(b.income_tax) })}
-          {line('= Остаётся до налога на прибыль', b.profit, { strong: true, tone: Number(b.profit) < 0 ? 'text-bad' : 'text-ok' })}
-          {Number(b.profit_tax) > 0 && line(`Налог на прибыль ${num(data.tax.profit_tax_pct)} % — после него`, b.net, { note: `−${rub(b.profit_tax)}` })}
+          {line('Цена', b.price, 'price')}
+          {line(`− Комиссия Ozon ${num(i.commission_pct)} %`, b.commission, 'commission')}
+          {line(`− Эквайринг ${num(i.acquiring_pct)} %`, b.acquiring, 'acquiring', { hide: zero(b.acquiring) })}
+          {line(`− Реклама ${num(i.ad_pct)} %`, b.ad, 'ad', { hide: zero(b.ad) })}
+          {line(`− Доп. расходы ${num(i.extra_pct ?? '0')} %`, b.extra ?? '0', 'extra', { hide: zero(b.extra ?? '0') })}
+          {line('− Логистика', b.logistics, 'logistics')}
+          {line('− Возвраты и невыкупы', b.returns ?? '0', 'returns', { hide: zero(b.returns ?? '0') })}
+          {line('− Хранение', b.storage, 'storage', { hide: zero(b.storage) })}
+          {line('− Прочие расходы', b.other, 'other', { hide: zero(b.other) })}
+          {line('− Себестоимость с НДС поставщика', b.cost, 'cost')}
+          {line('− НДС к уплате', b.vat, 'vat', { hide: zero(b.vat) })}
+          {line('− Налог с дохода', b.income_tax, 'income_tax', { hide: zero(b.income_tax) })}
+          {line('= Остаётся до налога на прибыль', b.profit, 'profit', { strong: true, tone: Number(b.profit) < 0 ? 'text-bad' : 'text-ok' })}
+          {Number(b.profit_tax) > 0 && line(`Налог на прибыль ${num(data.tax.profit_tax_pct)} % — после него`, b.net, null)}
         </tbody>
       </table>
       <p className="mt-1 text-xs text-faint">Маржа {pctText(b.margin)} — остаток в % от цены.</p>
-      <BuyoutNote data={data} />
     </div>
   )
 }
@@ -486,32 +494,7 @@ function ForAllNote({ forAll }: { forAll: AllExtras | null }) {
   )
 }
 
-/** Откуда реклама: своя у товара и без товара (кампании) — по начислениям; иначе — средняя или настройка. */
-function adNote(data: CalculateResponse): string {
-  const i = data.inputs
-  const f = i.facts
-  if (i.sources.ad_pct === 'сохранено для товара' || i.sources.ad_pct === 'ваше значение') return 'ваше значение — вместо начислений'
-  if (i.sources.ad_pct === FOR_ALL) return 'для всех товаров — вместо начислений'
-  if (f?.own && f.ad_own_pct !== null && f.ad_shared_pct !== null) {
-    return `${i.sources.ad_pct}: товара ${num(f.ad_own_pct)} % + без товара (кампании) ${num(f.ad_shared_pct)} % — по доле в продажах`
-  }
-  return i.sources.ad_pct ?? ''
-}
 
-/** Выкуп (4.2a): сколько доехавших купили — невыкупы и возвраты уже в «Возвратах» на каждую проданную штуку. */
-function BuyoutNote({ data }: { data: CalculateResponse }) {
-  const f = data.inputs.facts
-  if (!f?.own || f.buyout_pct === null) return null
-  const low = Number(f.buyout_pct) < 80
-  return (
-    <p className={`mt-1 text-xs ${low ? 'text-warn' : 'text-faint'}`} data-testid="calc-buyout">
-      Выкуп {num(f.buyout_pct)} % за {f.days} дн.: продано {f.qty} шт.
-      {f.not_bought > 0 && `, не выкупили ${f.not_bought}`}
-      {f.returned > 0 && `, вернули ${f.returned}`}. Обратная логистика и обработка невыкупов и возвратов — в «Возвратах» на каждую
-      проданную штуку.
-    </p>
-  )
-}
 
 /** Реклама и целевая маржа — настройки калькулятора цены («Настройки» и страница цен). */
 export function PriceSettingsForm({ onSaved }: { onSaved?: () => void }) {

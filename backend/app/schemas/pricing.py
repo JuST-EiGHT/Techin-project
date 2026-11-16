@@ -65,6 +65,9 @@ class CalcFacts(BaseModel):
     shop_storage: Decimal | None
     shop_returns: Decimal | None
     shop_ads_pct: Decimal | None
+    buyout_used_pct: Decimal | None = None  # выкуп в расчёте, % (с учётом магазина, если отправок мало — 16.11.2026)
+    shop_buyout_pct: Decimal | None = None
+    smoothed: bool = False  # отправок у товара меньше 20 — выкуп смешан с магазинным
 
 
 class SavedExtras(BaseModel):
@@ -136,6 +139,7 @@ class CalcResult(BaseModel):
     current: Breakdown | None
     promo: Breakdown | None
     what_if: list[Breakdown] = []  # по ценам из запроса, в том же порядке
+    explain: dict[str, str] = {}  # строка разбора цены → как посчитана, с цифрами («?» у строки; 16.11.2026)
 
 
 class CalcProduct(BaseModel):
