@@ -1,10 +1,11 @@
 """Прибыль по товарам (шаг 3.4): группы начислений, отнесение по отправлению, «Не распределено», API и CSV."""
 import csv
 import io
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from app.engine.product_pnl import LineIn, ProductRow, compute, group_of, per_unit
+from app.models.product import Product
 from tests.test_pnl_api import add_api_day, pnl, user_id
 from tests.test_report_pnl import MONTH, OWNER, WEEK, auth, import_reference_costs, set_profile, upload
 
@@ -116,6 +117,40 @@ async def test_sort_search_and_pages(client, tokens):
     assert (page["total"], len(page["items"]), page["offset"]) == (22, 2, 20)
     r = await client.get("/api/v1/pnl/by-product", params={"sort": "price"}, headers=auth(tokens))
     assert (r.status_code, r.json()["detail"]) == (400, "Сортировка: недопустимое значение")
+
+
+async def test_search_by_sku_barcode_and_found_totals(client, tokens, sessions):
+    """Правка 16.11: поиск — и по SKU, и по штрихкоду (как общий фильтр товара); найдено меньше, чем всё, — found:
+    итоги по найденным строкам (карточки и «Итого»), totals — по всем товарам периода, как были."""
+    await import_reference_costs(client, tokens)
+    await upload(client, tokens, WEEK)
+    everything = await by_product(client, tokens, limit=500)
+    assert everything["found"] is None  # без поиска и фильтров итог один — totals
+    acb = next(i for i in everything["items"] if i["offer_id"] == "ACB355222.NAC.JP")
+    assert acb["sku"]
+    by_sku = await by_product(client, tokens, search=acb["sku"])
+    assert [i["offer_id"] for i in by_sku["items"]] == ["ACB355222.NAC.JP"]
+    f = by_sku["found"]
+    assert (f["products"], f["qty"], f["revenue"], f["profit"], f["margin"]) == (
+        1, acb["qty"], acb["revenue"], acb["profit"], acb["margin"])
+    assert by_sku["totals"] == everything["totals"]  # итоги периода не меняются
+
+    uid = await user_id(client, tokens)  # SKU и штрихкод — и из каталога: в начислениях Ozon API SKU бывает пустым
+    async with sessions() as db:
+        db.add(Product(user_id=uid, ozon_product_id=1, ozon_sku=999000111, offer_id=acb["offer_id"], name=acb["name"],
+                       barcode="4607001234567", synced_at=datetime.now(timezone.utc)))
+        await db.commit()
+    for code in ("4607001234567", "999000111"):
+        assert [i["offer_id"] for i in (await by_product(client, tokens, search=code))["items"]] == [acb["offer_id"]]
+
+    acbs = await by_product(client, tokens, search="acb", limit=500)  # итог по найденным = сумма их строк
+    for key in ("revenue", "commission", "logistics", "total", "cost", "profit"):
+        assert Decimal(acbs["found"][key]) == sum(Decimal(i[key]) for i in acbs["items"]), key
+    none = await by_product(client, tokens, search="нет-такого")
+    assert none["total"] == 0 and none["found"]["products"] == 0 and none["found"]["revenue"] == "0.00"
+    assert none["found"]["margin"] is None  # не 0 %: считать не из чего
+    loss = await by_product(client, tokens, filter="loss", limit=500)  # быстрый фильтр — тоже по найденным
+    assert loss["found"]["products"] == loss["total"] and Decimal(loss["found"]["profit"]) < 0
 
 
 async def test_sort_by_any_column(client, tokens):

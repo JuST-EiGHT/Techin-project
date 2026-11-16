@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { CopyText } from '@/components/copy'
 import { FormError } from '@/components/AuthForm'
 import { ChipOptions, FilterBar, FilterButton, FilterField, SearchBox } from '@/components/filters'
+import { SearchMiss } from '@/components/search-miss'
 import { type ChartEvent, EVENT_MARK, MetricChart } from '@/components/analytics'
 import { Change, Hint } from '@/components/dashboard'
 import { Card } from '@/components/home'
@@ -16,7 +17,7 @@ import { type AnalyticsFilter, METRICS, type MetricKey, type Metrics, formatMetr
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
 
-type Ref = { id: string | null; offer_id: string; name: string | null }
+type Ref = { id: string | null; offer_id: string; name: string | null; sku?: string | null; barcode?: string | null }
 export type SalesRow = {
   product: Ref
   orders: number | null
@@ -239,6 +240,21 @@ function value(r: SalesRow, key: SortKey): number | string | null {
   return v === null ? null : Number(v)
 }
 
+/** Итог по строкам — как на сервере (`sales_analytics.table`): нет данных у строки — не прибавляем. */
+function totalsOf(rows: SalesRow[]): SalesTableData['totals'] {
+  const sum = (k: 'orders' | 'ordered_qty' | 'sold_qty' | 'returned_qty') => rows.reduce((a, r) => a + (r[k] ?? 0), 0)
+  const sold = sum('sold_qty')
+  const returned = sum('returned_qty')
+  return {
+    orders: sum('orders'),
+    ordered_qty: sum('ordered_qty'),
+    sold_qty: sold,
+    returned_qty: returned,
+    revenue: rows.reduce((a, r) => a + Number(r.revenue ?? 0), 0).toFixed(2),
+    return_share: sold ? ((returned / sold) * 100).toFixed(1) : null,
+  }
+}
+
 function ChangeCell({ r }: { r: SalesRow }) {
   if (r.prev_sold_qty === null || r.expected === null) return <span className="text-faint">—</span>
   const tone = r.direction === 'up' ? 'text-ok' : r.direction === 'down' ? 'text-bad' : 'text-muted'
@@ -253,7 +269,12 @@ function ChangeCell({ r }: { r: SalesRow }) {
 }
 
 /** Продажи по товарам: поиск, быстрые фильтры, сортировка по колонкам, итог и Excel. */
-export function SalesTable({ table, filter }: { table: SalesTableData; filter: AnalyticsFilter }) {
+export function SalesTable({ table, filter, onPick }: {
+  table: SalesTableData
+  filter: AnalyticsFilter
+  /** Найден один товар — показать его на карточках и графике страницы (общий фильтр товара). */
+  onPick?: (id: string) => void
+}) {
   const [search, setSearch] = useState('')
   const [quick, setQuick] = useState<Quick>('all')
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: 'revenue', desc: true })
@@ -267,7 +288,8 @@ export function SalesTable({ table, filter }: { table: SalesTableData; filter: A
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase()
     const picked = table.items.filter((r) => {
-      if (q && !r.product.offer_id.toLowerCase().includes(q) && !(r.product.name ?? '').toLowerCase().includes(q)) return false
+      // правка 16.11: как общий фильтр товара — артикул, название, SKU, штрихкод
+      if (q && ![r.product.offer_id, r.product.name, r.product.sku, r.product.barcode].some((v) => (v ?? '').toLowerCase().includes(q))) return false
       if (quick === 'returns') return (r.returned_qty ?? 0) > 0
       if (quick === 'up' || quick === 'down') return r.direction === quick
       return true
@@ -285,7 +307,10 @@ export function SalesTable({ table, filter }: { table: SalesTableData; filter: A
     }
   }
 
-  const t = table.totals
+  // правка 16.11: поиск или быстрый фильтр — «Итого» по найденным строкам, итог периода — подписью
+  const narrowed = search.trim() !== '' || quick !== 'all'
+  const t = narrowed ? totalsOf(rows) : table.totals
+  const single = narrowed && rows.length === 1 && rows[0].product.id && !filter.product ? rows[0].product : null
   return (
     <section className="rounded-xl border border-line bg-card" data-testid="sales-table">
       <div className="space-y-2 border-b border-line px-4 py-3">
@@ -310,6 +335,19 @@ export function SalesTable({ table, filter }: { table: SalesTableData; filter: A
           }
         >
           <SearchBox value={search} onChange={setSearch} testid="sales-search" className="w-full sm:w-72" />
+          {narrowed && (
+            <span className="text-xs text-muted" data-testid="sales-found">
+              найдено {rows.length} из {table.items.length}
+              {single && onPick && (
+                <>
+                  {' · '}
+                  <button type="button" onClick={() => onPick(single.id as string)} className="text-accent hover:underline" data-testid="sales-pick">
+                    показать {single.offer_id} на графике и в цифрах →
+                  </button>
+                </>
+              )}
+            </span>
+          )}
         </FilterBar>
       </div>
       <FormError message={error} />
@@ -369,15 +407,22 @@ export function SalesTable({ table, filter }: { table: SalesTableData; filter: A
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={COLUMNS.length} className="px-3 py-4 text-center text-sm text-muted">
-                  Нет товаров по этому фильтру
+                <td colSpan={COLUMNS.length} className="px-3 py-4 text-center text-sm text-muted" data-testid="sales-none">
+                  {search.trim() && quick === 'all' ? <SearchMiss search={search.trim()} what="продаж и заказов" /> : 'Нет товаров по этому фильтру'}
                 </td>
               </tr>
             )}
           </tbody>
-          <tfoot>
+          <tfoot className={rows.length === 0 ? 'hidden' : ''}>
             <tr className="border-t border-line font-medium" data-testid="sales-total">
-              <td className="px-3 py-2">Итого</td>
+              <td className="px-3 py-2">
+                {narrowed ? `Итого по найденным: ${rows.length} тов.` : 'Итого'}
+                {narrowed && (
+                  <span className="block whitespace-nowrap text-xs font-normal text-muted">
+                    всего за период: {table.totals.sold_qty} шт., {formatMetric(table.totals.revenue, 'rub')}
+                  </span>
+                )}
+              </td>
               <td className="px-3 py-2 text-right tabular-nums">{t.orders}</td>
               <td className="px-3 py-2 text-right tabular-nums">{t.sold_qty}</td>
               <td className="px-3 py-2 text-right tabular-nums">

@@ -128,6 +128,8 @@ class LeaderProduct(BaseModel):
     id: str | None  # товара нет в каталоге (продажа по артикулу из отчёта) — None
     offer_id: str
     name: str | None
+    sku: str | None = None  # SKU Ozon и штрихкод — для поиска в таблице «Продажи по товарам» (правка 16.11)
+    barcode: str | None = None
 
 
 class ProfitLeader(BaseModel):

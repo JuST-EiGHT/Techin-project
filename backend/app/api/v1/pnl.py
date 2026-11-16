@@ -99,14 +99,19 @@ async def get_pnl_by_product(
     db: AsyncSession = Depends(get_db),
 ):
     """Прибыль по товарам: продано, выручка, комиссия, логистика, прочее, себестоимость, прибыль до налога, маржа.
-    Начисления без товара — в «Не распределено»; итоги — по всем товарам периода. Быстрые фильтры и выбор товаров или
-    категории — для «Аналитики прибыльности» (10.9); filter_counts — числа у кнопок, low_margin — порог."""
+    Начисления без товара — в «Не распределено»; totals — по всем товарам периода. Поиск — артикул, название, SKU,
+    штрихкод; найдено меньше, чем всё (поиск, быстрый фильтр, товары или категория) — found: итоги по найденным, их
+    показывают карточки и «Итого» (правка 16.11). Быстрые фильтры и выбор товаров или категории — для «Аналитики
+    прибыльности» (10.9); filter_counts — числа у кнопок, low_margin — порог."""
     value = await _products(db, user, req, report_id)
     offers = await _filter_offers(db, user, product_id, category_id)
     low = await load_low_margin(db, user.id)
     picked = product_pnl.filter_rows(value["items"], filter_, low, offers)
-    rows = product_pnl.select_rows(picked, search, sort, order)
+    codes = await product_pnl.search_codes(db, user.id) if search else None
+    rows = product_pnl.select_rows(picked, search, sort, order, codes)
+    narrowed = bool(search) or bool(filter_) or offers is not None
     return {**value, "items": rows[offset:offset + limit], "total": len(rows), "limit": limit, "offset": offset,
+            "found": product_pnl.totals_of(rows) if narrowed else None,
             "filter_counts": product_pnl.filter_counts(value["items"], low, offers), "low_margin": low}
 
 
@@ -136,7 +141,8 @@ async def export_pnl_by_product(
     value = await _products(db, user, req, report_id)
     offers = await _filter_offers(db, user, product_id, category_id)
     picked = product_pnl.filter_rows(value["items"], filter_, await load_low_margin(db, user.id), offers)
-    rows = product_pnl.select_rows(picked, search, sort, order)
+    codes = await product_pnl.search_codes(db, user.id) if search else None
+    rows = product_pnl.select_rows(picked, search, sort, order, codes)
     if value["cost_basis"] == product_pnl.WITHOUT_VAT:
         cost_title = "Себестоимость без НДС, руб."
     else:

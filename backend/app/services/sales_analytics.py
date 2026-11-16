@@ -123,7 +123,8 @@ async def table(db: AsyncSession, store_id: uuid.UUID, date_from: date, date_to:
         o = orders.get(offer)
         p = catalog.get(offer)
         items.append({
-            "product": {"id": str(p.id) if p else None, "offer_id": offer, "name": p.name if p else None},
+            "product": {"id": str(p.id) if p else None, "offer_id": offer, "name": p.name if p else None,
+                        "sku": str(p.ozon_sku) if p and p.ozon_sku else None, "barcode": p.barcode if p else None},
             "orders": (o[0] if o else 0) if orders_days else None,
             "ordered_qty": (o[1] if o else 0) if orders_days else None,
             "sold_qty": sold if days else None, "returned_qty": returned if days else None,
