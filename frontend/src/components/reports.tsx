@@ -2,6 +2,7 @@
 import Link from 'next/link'
 
 import { CostTemplateButton } from '@/components/CostTemplateButton'
+import { MARGIN, PROFIT } from '@/lib/profit-terms'
 import { useCostLabel } from '@/lib/settings'
 
 export type ReportType = 'accrual' | 'realization'
@@ -183,12 +184,14 @@ export function PnLFigures({ data }: { data: FiguresData }) {
       )}
       <div className="col-span-2 bg-card sm:col-span-2 lg:col-span-1" data-testid="figure-net">
         <div className={`h-full px-4 py-3 ${resultTone}`}>
-          <div className="text-[11px] uppercase tracking-wider text-muted">Остаток (чистая прибыль)</div>
+          <div className="text-[11px] uppercase tracking-wider text-muted">{taxSet ? PROFIT.ozonNet.label : PROFIT.ozon.label}</div>
           <div className={`mt-1 text-2xl font-bold tabular-nums ${net === null ? '' : net < 0 ? 'text-bad' : 'text-ok'}`}>
             {taxSet ? rub(pnl.net) : '—'}
           </div>
           <div className={`text-sm font-semibold ${net === null ? 'text-muted' : net < 0 ? 'text-bad' : 'text-ok'}`}>
-            {taxSet ? `Маржа ${pctText(pnl.margin)}` : `до налога ${rub(pnl.profit_before_tax)}`}
+            {taxSet
+              ? `${MARGIN.after.label.toLowerCase()} ${pctText(pnl.margin)} · до налога ${pctText(pnl.pct_of_revenue.profit_before_tax)}`
+              : `до налога ${rub(pnl.profit_before_tax)}`}
           </div>
           {data.final && (
             <div className="text-xs text-muted" data-testid="figure-net-business">
@@ -255,11 +258,11 @@ export function PnLBreakdown({ report }: { report: ReportItem }) {
   const rows: { label: string; value: string | null; pct: string | null; strong?: boolean; tone?: 'ok' | 'bad' | 'accent' }[] = [
     { label: 'Пришло от Ozon', value: pnl.effective_total, pct: null },
     { label: `− ${costLabel}`, value: pnl.owed, pct: pnl.pct_of_revenue.owed },
-    { label: '= Прибыль до налога', value: pnl.profit_before_tax, pct: pnl.pct_of_revenue.profit_before_tax, strong: true, tone: 'accent' },
+    { label: `= ${PROFIT.ozon.label}`, value: pnl.profit_before_tax, pct: pnl.pct_of_revenue.profit_before_tax, strong: true, tone: 'accent' },
     { label: '− Налог', value: pnl.tax, pct: pnl.pct_of_revenue.tax },
     ...(Number(pnl.vat) > 0 ? [{ label: '− НДС к уплате', value: pnl.vat, pct: pnl.pct_of_revenue.vat }] : []),
     {
-      label: '= Остаток',
+      label: `= ${PROFIT.ozonNet.label}`,
       value: pnl.net,
       pct: pnl.pct_of_revenue.net,
       strong: true,
@@ -269,7 +272,7 @@ export function PnLBreakdown({ report }: { report: ReportItem }) {
   return (
     <section className="rounded-xl border border-line bg-card" data-testid="pnl-breakdown">
       <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-2">
-        <h2 className="text-sm font-semibold">Остаток и маржа</h2>
+        <h2 className="text-sm font-semibold">Прибыль и маржа</h2>
         <span className="text-xs text-muted">{pnl.tax_title ? `налог: ${pnl.tax_title}` : 'налог не задан'}</span>
         {pnl.tax_title === null && (
           <Link href="/dashboard/settings/taxes" className="ml-auto text-xs text-accent hover:underline">
@@ -480,7 +483,7 @@ export function PnLTable({ byType, pnl, revenue, manual }: {
         <SectionLabel>P&amp;L · % от выручки{revenue !== null ? ` (${rub(revenue)})` : ''}</SectionLabel>
         <Row label={costLabel} pct={pctText(pnl.pct_of_revenue.owed)} value={rubSigned(-Number(pnl.owed))} valueClass="text-bad" />
         <Row
-          label="Прибыль до налога"
+          label={PROFIT.ozon.label}
           pct={pctText(pnl.pct_of_revenue.profit_before_tax)}
           value={rubSigned(pnl.profit_before_tax)}
           className="bg-accent/10 font-semibold text-accent"
@@ -506,7 +509,7 @@ export function PnLTable({ byType, pnl, revenue, manual }: {
           <Row label="НДС к уплате" pct={pctText(pnl.pct_of_revenue.vat)} value={rubSigned(-Number(pnl.vat))} valueClass="text-warn" />
         )}
         <Row
-          label={net === null ? 'Остаток — после налога' : `Остаток · маржа ${pctText(pnl.margin)}`}
+          label={net === null ? `${PROFIT.ozonNet.label} — налог не задан` : `${PROFIT.ozonNet.label} · ${MARGIN.after.label.toLowerCase()} ${pctText(pnl.margin)}`}
           pct={pctText(pnl.pct_of_revenue.net)}
           value={net === null ? '—' : rub(pnl.net)}
           className={`mt-2 border font-semibold ${

@@ -360,7 +360,11 @@ export function HelpTip({ children, label = 'Как считаем', testid }: {
         type="button"
         aria-label={label}
         aria-expanded={open}
-        onClick={() => setPinned((p) => !p)}
+        onClick={(e) => {
+          e.preventDefault() // «?» внутри карточки-ссылки не уводит со страницы
+          e.stopPropagation()
+          setPinned((p) => !p)
+        }}
         className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-line text-[10px] font-semibold leading-none text-muted hover:border-accent hover:text-accent"
         data-testid={testid}
       >

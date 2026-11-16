@@ -100,6 +100,7 @@ class Metrics(BaseModel):
     filter: Filter
     coverage: Coverage
     profit_kind: Literal["net", "before_tax"]
+    margin_before_tax: str | None = None  # при profit_kind = net — маржа до налога; иначе null (маржа и так до налога)
     totals: Totals
     points: list[Point]
     previous: Previous | None

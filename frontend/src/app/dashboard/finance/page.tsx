@@ -16,6 +16,7 @@ import { opsHref } from '@/components/planning/types'
 import { fmtDay, pctText, rub } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { daysWord } from '@/lib/period'
+import { MARGIN, PROFIT } from '@/lib/profit-terms'
 
 type Figure = { value: string | null; previous: string | null; change_pct?: string | null; change_pp?: string | null }
 type Item = { key: string; title: string; kind: 'ozon' | 'cost' | 'business' | 'tax'; amount: string; share: string | null; category_id: string | null }
@@ -30,6 +31,7 @@ type FinanceOverview = {
   tax_set: boolean
   figures: Record<'revenue' | 'expenses' | 'profit' | 'margin', Figure>
   profit_ozon: string | null
+  margin_before_tax?: string | null
   business: { total: string; operations: number; uncategorized: { count: number; amount: string } } | null
   structure: Item[]
   missing_cost: number
@@ -151,6 +153,10 @@ function Empty() {
 }
 
 function Figures({ data, pnl }: { data: FinanceOverview; pnl: string }) {
+  // какая это прибыль (lib/profit-terms): с расходами бизнеса — если включено «Планирование»; после налога — если налог задан
+  const net = data.profit_kind === 'net'
+  const profitTerm = data.business === null ? PROFIT[net ? 'ozonNet' : 'ozon'] : PROFIT[net ? 'businessNet' : 'business']
+  const marginTerm = MARGIN[net ? 'after' : 'before']
   const f = data.figures
   const against = data.previous.has_data ? `к ${short(data.previous.date_from)}–${short(data.previous.date_to)}` : ''
   const was = (x: Figure, fmt: (v: string) => string) => (data.previous.has_data && x.previous !== null ? `было ${fmt(x.previous)}` : null)
@@ -168,7 +174,8 @@ function Figures({ data, pnl }: { data: FinanceOverview; pnl: string }) {
       </Card>
       <Card
         href={pnl}
-        label={data.profit_kind === 'net' ? 'Чистая прибыль' : 'Прибыль до налога'}
+        label={profitTerm.label}
+        help={profitTerm.help}
         value={rub(f.profit.value)}
         tone={profit === null ? undefined : profit < 0 ? 'bad' : 'ok'}
         testid="finance-profit"
@@ -178,12 +185,17 @@ function Figures({ data, pnl }: { data: FinanceOverview; pnl: string }) {
         <Hint>
           {data.business === null
             ? 'без расходов бизнеса — «Планирование» выключено'
-            : `с расходами бизнеса ${rub(data.business.total)}; от продаж на Ozon ${rub(data.profit_ozon)}`}
+            : `расходы бизнеса ${rub(data.business.total)}; ${PROFIT.ozon.label.toLowerCase()} ${rub(data.profit_ozon)}`}
         </Hint>
       </Card>
-      <Card href={pnl} label="Рентабельность" value={pctText(f.margin.value)} testid="finance-margin">
+      <Card href={pnl} label={marginTerm.label} help={marginTerm.help} value={pctText(f.margin.value)} testid="finance-margin">
         <Change pct={f.margin.change_pp ?? null} against={against} unit="п.п." />
-        <Hint>{was(f.margin, pctText) ?? 'прибыль / выручка'}</Hint>
+        <Hint>{was(f.margin, pctText) ?? ''}</Hint>
+        {data.margin_before_tax != null && (
+          <Hint>
+            <span data-testid="finance-margin-before-tax">до налога — {pctText(data.margin_before_tax)}</span>
+          </Hint>
+        )}
       </Card>
     </div>
   )

@@ -142,6 +142,7 @@ async def test_store_by_day_matches_pnl(client, tokens, sessions):
     t = r["totals"]
     assert t["revenue"] == f"{Decimal(pnl['revenue_base']):.2f}" == "2600.00"
     assert r["profit_kind"] == "before_tax" and pnl["pnl"]["net"] is None  # налоговый профиль не задан
+    assert r["margin_before_tax"] is None  # маржа и так до налога — второй не нужно
     assert t["profit"] == f"{Decimal(pnl['pnl']['profit_before_tax']):.2f}"
     assert t["margin"] == f"{Decimal(t['profit']) / Decimal(t['revenue']) * 100:.2f}"
     assert (t["sold_qty"], t["orders"], t["ordered_qty"], t["avg_price"]) == (5, 1, 2, "520.00")
@@ -162,6 +163,9 @@ async def test_store_profit_after_tax_like_dashboard(client, tokens, sessions):
                             headers=auth(tokens))).json()["pnl"]
     assert r["profit_kind"] == "net" and r["totals"]["profit"] == f"{Decimal(pnl['net']):.2f}"
     assert r["totals"]["margin"] == f"{Decimal(pnl['margin']):.2f}"  # маржинальность = прибыль / выручка — как в P&L
+    # рядом — маржа до налога (решение 16.11.2026): прибыль до налога / выручка, отличается от маржи после налога
+    revenue = Decimal(r["totals"]["revenue"])
+    assert r["margin_before_tax"] == f"{Decimal(pnl['profit_before_tax']) / revenue * 100:.2f}" != r["totals"]["margin"]
     in_series = sum(Decimal(p["profit"]) for p in r["points"] if p["profit"] is not None)
     assert in_series == Decimal(pnl["profit_before_tax"]) != Decimal(pnl["net"])  # в ряде — до налога: по дням он не делится
     dash = (await client.get("/api/v1/dashboard/ozon", params={"date_from": "2026-09-07", "date_to": "2026-09-13"},

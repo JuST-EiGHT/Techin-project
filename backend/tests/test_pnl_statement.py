@@ -202,6 +202,7 @@ async def test_finance_overview(client, tokens, sessions):
     assert (body["profit_kind"], body["tax_set"], body["business"], body["has_data"]) == ("net", True, None, True)
     assert (f["revenue"]["value"], f["profit"]["value"], f["expenses"]["value"], f["margin"]["value"]) == (
         "23712.03", "-1419.07", "25131.10", "-5.98")
+    assert body["margin_before_tax"] == "-5.98"  # налог 0 (убыток) — маржа до налога та же
     assert f["revenue"]["previous"] is None and f["revenue"]["change_pct"] is None
     assert body["previous"] == {"date_from": "2026-08-31", "date_to": "2026-09-06", "has_data": False}
     assert sum(D(i["amount"]) for i in body["structure"]) == D("25131.10")

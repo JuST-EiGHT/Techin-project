@@ -43,6 +43,8 @@ export type Metrics = {
   }
   coverage: MetricsCoverage
   profit_kind: 'net' | 'before_tax'
+  /** Маржа до налога — при profit_kind = net (рядом с маржой после налога). */
+  margin_before_tax?: string | null
   totals: MetricValues & { missing_days: number; orders_missing_days: number; missing_cost: number }
   points: MetricPoint[]
   previous: { date_from: string; date_to: string; coverage: MetricsCoverage; totals: MetricValues } | null
@@ -59,7 +61,7 @@ export type MetricFormat = 'rub' | 'qty' | 'count' | 'pct'
 export const METRICS: Record<MetricKey, { label: string; format: MetricFormat; upIsGood: boolean }> = {
   revenue: { label: 'Выручка', format: 'rub', upIsGood: true },
   profit: { label: 'Прибыль', format: 'rub', upIsGood: true },
-  margin: { label: 'Маржинальность', format: 'pct', upIsGood: true },
+  margin: { label: 'Маржа', format: 'pct', upIsGood: true },
   orders: { label: 'Заказы', format: 'count', upIsGood: true },
   ordered_qty: { label: 'Заказано, шт.', format: 'qty', upIsGood: true },
   ordered_amount: { label: 'Заказано на сумму', format: 'rub', upIsGood: true },

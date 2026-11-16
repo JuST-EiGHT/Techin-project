@@ -272,6 +272,10 @@ async def metrics(
         if prev is not None:
             _profit_from_pnl(prev["totals"], prev["pnl"], profit_kind == "net")
     totals = _finish(totals)
+    # маржа до налога рядом с маржой после налога (решение владельца 16.11.2026: две маржи с понятными названиями)
+    margin_before_tax = None
+    if profit_kind == "net" and totals.get("revenue"):
+        margin_before_tax = (Decimal(pnl["pnl"]["profit_before_tax"]) / totals["revenue"] * 100).quantize(m.CENT)
 
     value = {
         "date_from": date_from, "date_to": date_to, "granularity": granularity,
@@ -282,6 +286,7 @@ async def metrics(
             "product_count": None if products is None else len(products),
         },
         "coverage": _coverage(cov, days),
+        "margin_before_tax": margin_before_tax,  # только при profit_kind = net; иначе маржа и так до налога
         "profit_kind": profit_kind,  # итоговая прибыль: net — после налога, before_tax — до налога; в ряде — до налога
         "totals": {k: totals.get(k, 0 if k == "missing_cost" else None) for k in TOTAL_KEYS},
         "points": points,
