@@ -303,19 +303,25 @@ async def load_logistics(
     db: AsyncSession, user_id: uuid.UUID, offers: set[str], today: date
 ) -> tuple[dict[str, Logistics], Logistics, dict[str, Facts], ShopFacts]:
     """Логистика, возвраты, хранение и реклама по товарам и в среднем по магазину: 30 дней, кому не хватило — 90.
+    «Не хватило» — нет продаж или меньше `MIN_TRIPS` отправок за 30 дней (правка 16.11.2026): тогда 90 дней.
     Логистика и возвраты товара — на одну продажу: расход на отправку × отправок на продажу, выкуп при малом числе
-    отправок — с учётом магазина (`engine/price_calculator.per_sale`, правка 16.11.2026)."""
-    raw: dict[str, tuple[int, dict, bool]] = {}  # артикул → (окно, строка прибыли по товарам, хранение по отчёту)
+    отправок и за 90 дней — с учётом магазина (`engine/price_calculator.per_sale`)."""
+    cand: dict[str, dict[int, tuple[dict, bool]]] = {}  # артикул → окно → (строка прибыли по товарам, хранение по отчёту)
     shop = Logistics(None)
     shop_facts = ShopFacts()
+
+    def enough(offer: str) -> bool:
+        item = cand.get(offer, {}).get(WINDOWS[0], (None,))[0]
+        return item is not None and item["qty"] + item.get("not_bought", 0) >= calc.MIN_TRIPS
+
     for days in WINDOWS:
-        if offers <= set(raw) and shop.per_unit is not None:
+        if shop.per_unit is not None and all(enough(o) for o in offers):
             break
         data = await product_pnl.compute(db, user_id, PnLRequest(today - timedelta(days=days), today - timedelta(days=1)))
         by_report = bool((data.get("storage") or {}).get("has_report"))
         for item in data["items"]:
-            if item["qty"] > 0 and item["offer_id"] not in raw:
-                raw[item["offer_id"]] = (days, item, by_report)
+            if item["qty"] > 0:
+                cand.setdefault(item["offer_id"], {})[days] = (item, by_report)
         totals = data["totals"]
         if shop.per_unit is None and totals["qty"] > 0:
             qty, un = totals["qty"], data["unallocated"].get("by_group") or {}
@@ -331,7 +337,9 @@ async def load_logistics(
             )
     by_offer: dict[str, Logistics] = {}
     facts: dict[str, Facts] = {}
-    for offer, (days, item, by_report) in raw.items():
+    for offer, windows in cand.items():
+        days = WINDOWS[0] if enough(offer) else max(windows)  # мало отправок за 30 дней — самое длинное окно
+        item, by_report = windows[days]
         qty = item["qty"]
         trips = _trips(qty, item.get("not_bought", 0), item.get("returned_qty", 0), item["logistics"], item.get("returns"))
         ps = calc.per_sale(trips, shop_facts.trips)
