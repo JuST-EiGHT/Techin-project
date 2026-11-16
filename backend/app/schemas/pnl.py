@@ -280,6 +280,7 @@ class ProductsPage(BaseModel):
     limit: int
     offset: int
     totals: ProductTotals  # по всем товарам периода
+    found: ProductTotals | None = None  # по найденным — когда поиск, быстрый фильтр, товары или категория (правка 16.11)
     unallocated: Unallocated
     storage: StorageNote | None = None
     period_total: Decimal  # все начисления периода = товары + не распределено

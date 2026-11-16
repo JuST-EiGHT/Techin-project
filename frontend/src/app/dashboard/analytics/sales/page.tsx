@@ -41,7 +41,7 @@ function Sales() {
       )}
       <FormError message={salesError} />
       {table && <EventsList events={events} />}
-      {table && <SalesTable table={table} filter={filter} />}
+      {table && <SalesTable table={table} filter={filter} onPick={(product) => update({ product })} />}
     </div>
   )
 }

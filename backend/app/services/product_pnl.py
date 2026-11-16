@@ -218,11 +218,19 @@ def _row(r: engine.ProductRow) -> dict:
     }
 
 
-def select_rows(items: list[dict], search: str | None, sort: str, order: str) -> list[dict]:
-    """Поиск по артикулу и названию, сортировка; пустые значения (нет себестоимости) — всегда в конце."""
+def matches(item: dict, q: str, codes: tuple[str, ...] = ()) -> bool:
+    """Строка подходит под поиск (q — уже `norm`): артикул, название, SKU Ozon или штрихкод — как общий фильтр товара.
+    codes — SKU и штрихкод товара из каталога: в начислениях Ozon API SKU бывает пустым."""
+    return any(q in norm(v) for v in (item["offer_id"], item["name"] or "", item.get("sku") or "", *codes))
+
+
+def select_rows(items: list[dict], search: str | None, sort: str, order: str,
+                catalog: dict[str, tuple[str, ...]] | None = None) -> list[dict]:
+    """Поиск по артикулу, названию, SKU и штрихкоду (catalog — артикул → SKU и штрихкод из каталога), сортировка;
+    пустые значения (нет себестоимости) — всегда в конце."""
     if search:
-        q = norm(search)
-        items = [i for i in items if q in norm(i["offer_id"]) or q in norm(i["name"] or "")]
+        q, codes = norm(search), catalog or {}
+        items = [i for i in items if matches(i, q, codes.get(i["offer_id"], ()))]
     present = [i for i in items if sort_value(i, sort) is not None]
     empty = [i for i in items if sort_value(i, sort) is None]
     present.sort(key=lambda i: (sort_value(i, sort), norm(i["offer_id"])), reverse=order == "desc")
@@ -256,6 +264,35 @@ def passes(item: dict, kind: str, low_margin: Decimal) -> bool:
     if kind == LOW_MARGIN:  # и в минусе тоже — маржа ниже порога
         return item["margin"] is not None and Decimal(item["margin"]) < low_margin
     return bool(item["cost_missing"])
+
+
+def totals_of(items: list[dict]) -> dict:
+    """Итоги по выбранным строкам (поиск, быстрые фильтры, товары или категория) — «Итого по найденным». Суммы — из строк
+    (каждая уже до копейки); прибыль, себестоимость и маржа — только по товарам с себестоимостью, как у итогов периода."""
+    def total(key: str) -> str:
+        return _s(sum((Decimal(i[key] or 0) for i in items), Decimal(0)))
+
+    with_cost = [i for i in items if i["profit"] is not None]
+    profit = sum((Decimal(i["profit"]) for i in with_cost), Decimal(0))
+    revenue_with_cost = sum((Decimal(i["revenue"]) for i in with_cost), Decimal(0))
+    return {
+        "products": len(items), "qty": sum(i["qty"] for i in items),
+        **{k: total(k) for k in ("revenue", "commission", "logistics", "returns", "ads", "storage", "other", "total",
+                                 "sales")},
+        "not_bought": sum(i["not_bought"] for i in items), "returned_qty": sum(i["returned_qty"] for i in items),
+        "cost": _s(sum((Decimal(i["cost"]) for i in with_cost), Decimal(0))), "profit": _s(profit),
+        "margin": _s(profit / revenue_with_cost * 100) if revenue_with_cost > 0 else None,
+        "missing_cost": sum(1 for i in items if i["cost_missing"]),
+    }
+
+
+async def search_codes(db: AsyncSession, user_id: uuid.UUID) -> dict[str, tuple[str, ...]]:
+    """Артикул → SKU Ozon и штрихкод из каталога магазина — для поиска в таблице."""
+    rows = await db.execute(select(Product.offer_id, Product.ozon_sku, Product.barcode).where(Product.user_id == user_id))
+    out: dict[str, tuple[str, ...]] = {}
+    for offer, sku, code in rows.all():
+        out[offer] = out.get(offer, ()) + tuple(str(v) for v in (sku, code) if v)
+    return out
 
 
 def filter_rows(items: list[dict], kinds: list[str], low_margin: Decimal, offers: set[str] | None = None) -> list[dict]:

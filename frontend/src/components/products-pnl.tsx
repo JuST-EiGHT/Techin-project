@@ -10,6 +10,7 @@ import { FormError } from '@/components/AuthForm'
 import { ChipOptions, FilterBar, FilterButton, FilterField, SearchBox } from '@/components/filters'
 import { type Coverage, type DataSource, SourceNote } from '@/components/finance'
 import { Warnings, fmtDay, pctText, rub } from '@/components/reports'
+import { SearchMiss } from '@/components/search-miss'
 import { SortTh as TableSortTh, num, useSort } from '@/components/table'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
@@ -68,6 +69,23 @@ export type PerUnit = {
   profit_pct: string | null
 }
 
+type Totals = {
+  products: number
+  qty: number
+  revenue: string
+  commission: string
+  logistics: string
+  returns?: string
+  ads?: string
+  storage?: string
+  other: string
+  total: string
+  cost: string
+  profit: string
+  margin: string | null
+  missing_cost: number
+}
+
 type ProductsPage = {
   data_source: DataSource
   coverage: Coverage
@@ -77,22 +95,8 @@ type ProductsPage = {
   total: number
   limit: number
   offset: number
-  totals: {
-    products: number
-    qty: number
-    revenue: string
-    commission: string
-    logistics: string
-    returns?: string
-    ads?: string
-    storage?: string
-    other: string
-    total: string
-    cost: string
-    profit: string
-    margin: string | null
-    missing_cost: number
-  }
+  totals: Totals // по всем товарам периода
+  found?: Totals | null // по найденным: поиск, быстрый фильтр, товары или категория (правка 16.11)
   unallocated: { total: string; lines: number; multi_product: string; by_type: Record<string, string>; by_group?: Record<string, string> }
   storage?: { by_report: string; unallocated: string; has_report: boolean } | null // хранение по отчёту о размещении (4.2a)
   period_total: string
@@ -211,9 +215,19 @@ export function ProductsView({
   if (!data) return <p className="text-sm text-muted">Загрузка…</p>
 
   const costTitle = data.cost_basis === 'without_vat' ? 'Себестоимость без НДС' : costLabel
-  const t = data.totals
-  const periodProfit = (Number(t.profit) + Number(data.unallocated.total)).toFixed(2)
-  const empty = t.products === 0 && Number(data.unallocated.total) === 0
+  // правка 16.11: найдено меньше, чем всё (поиск, быстрый фильтр, товар или категория) — карточки и «Итого» по найденным,
+  // итог периода — подписью; «Не распределено» и «прибыль периода» относятся ко всему магазину — при поиске их нет
+  const all = data.totals
+  const narrowed = !!data.found
+  const t = data.found ?? data.totals
+  const periodProfit = (Number(all.profit) + Number(data.unallocated.total)).toFixed(2)
+  const empty = all.products === 0 && Number(data.unallocated.total) === 0
+  const resetSearch = () => {
+    setSearchText('')
+    setSearch('')
+    setQuick('all')
+    setOffset(0)
+  }
   const th = 'px-3 py-2 font-normal whitespace-nowrap'
   const SortTh = ({ s, children, title }: { s: Sort; children: React.ReactNode; title?: string }) => (
     <TableSortTh
@@ -241,14 +255,27 @@ export function ProductsView({
       ) : (
         <>
           <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line sm:grid-cols-4" data-testid="products-summary">
-            <Stat label="Товаров" value={String(t.products)} hint={`продано ${t.qty} шт.`} />
-            <Stat label="Выручка" value={rub(t.revenue)} hint="строки «Выручка»" />
+            <Stat
+              label={narrowed ? 'Найдено товаров' : 'Товаров'}
+              value={String(t.products)}
+              hint={narrowed ? `из ${all.products} · продано ${t.qty} шт.` : `продано ${t.qty} шт.`}
+            />
+            <Stat label="Выручка" value={rub(t.revenue)} hint={narrowed ? 'по найденным' : 'строки «Выручка»'} />
             <Stat
               label="Прибыль по товарам"
-              value={rub(t.profit)}
-              hint={t.margin === null ? 'до налога' : `до налога, маржа ${pctText(t.margin)}`}
-              tone={signTone(t.profit)}
+              value={narrowed && t.products === 0 ? '—' : rub(t.profit)}
+              hint={`${narrowed ? 'по найденным, ' : ''}до налога${t.margin === null ? '' : `, маржа ${pctText(t.margin)}`}`}
+              tone={narrowed && t.products === 0 ? 'text-muted' : signTone(t.profit)}
             />
+            {narrowed ? (
+              <button type="button" onClick={resetSearch} className="bg-card px-4 py-3 text-left hover:bg-line/40" data-testid="all-products-stat">
+                <div className="text-[11px] uppercase tracking-wider text-muted">Все товары периода</div>
+                <div className={`mt-1 text-lg font-bold tabular-nums ${signTone(all.profit)}`}>{rub(all.profit)}</div>
+                <div className="mt-0.5 text-xs text-faint">
+                  {all.products} тов., выручка {rub(all.revenue)} — сбросить поиск
+                </div>
+              </button>
+            ) : (
             <button type="button" onClick={() => setSelected('unallocated')} className="bg-card px-4 py-3 text-left hover:bg-line/40" data-testid="unallocated-stat">
               <div className="text-[11px] uppercase tracking-wider text-muted">Не распределено</div>
               <div className={`mt-1 text-lg font-bold tabular-nums ${signTone(data.unallocated.total)}`}>{rub(data.unallocated.total)}</div>
@@ -256,6 +283,7 @@ export function ProductsView({
                 реклама по кампаниям, подписки{data.storage?.has_report && Number(data.storage.unallocated) === 0 ? '' : ', хранение'} и др. — подробнее
               </div>
             </button>
+            )}
           </div>
 
           {/* правка 11.11: поиск снаружи; отборы и «на 1 шт.» — в «Фильтрах» */}
@@ -444,16 +472,16 @@ export function ProductsView({
                   {data.items.length === 0 && (
                     <tr>
                       <td colSpan={13} className="px-3 py-4 text-center text-sm text-muted" data-testid="products-none">
-                        Нет товаров по этому фильтру
+                        {search && quick === 'all' && !data.found?.products ? <SearchMiss search={search} what="начислений Ozon" /> : 'Нет товаров по этому фильтру'}
                       </td>
                     </tr>
                   )}
                 </tbody>
-                <tfoot className="border-t border-line text-sm">
+                <tfoot className={`border-t border-line text-sm ${narrowed && t.products === 0 ? 'hidden' : ''}`}>
                   {unit ? (
                     <>
                       <tr className="bg-line/40 font-semibold" data-testid="unit-totals-row">
-                        <td className="px-3 py-2">В среднем на 1 шт.</td>
+                        <td className="px-3 py-2">В среднем на 1 шт.{narrowed && <span className="block text-xs font-normal text-muted">по найденным</span>}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{t.qty}</td>
                         <Num v={perQty(t.revenue, t.qty)} />
                         <Num v={perQty(t.commission, t.qty)} />
@@ -478,7 +506,14 @@ export function ProductsView({
                   ) : (
                     <>
                       <tr className="bg-line/40 font-semibold" data-testid="totals-row">
-                        <td className="px-3 py-2">Итого по товарам</td>
+                        <td className="px-3 py-2" data-testid="totals-label">
+                          {narrowed ? `Итого по найденным: ${t.products} тов.` : 'Итого по товарам'}
+                          {narrowed && (
+                            <span className="block whitespace-nowrap text-xs font-normal text-muted">
+                              всего за период: {all.products} тов., {rub(all.revenue)}
+                            </span>
+                          )}
+                        </td>
                         <td className="px-3 py-2 text-right tabular-nums">{t.qty}</td>
                         <Num v={t.revenue} />
                         <td />
@@ -492,6 +527,7 @@ export function ProductsView({
                         <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${signTone(t.profit)}`}>{rub(t.profit)}</td>
                         <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${marginTone(t.margin, low)}`}>{pctText(t.margin)}</td>
                       </tr>
+                      {!narrowed && (
                       <tr onClick={() => setSelected('unallocated')} className="cursor-pointer text-muted hover:bg-line/40" data-testid="unallocated-row">
                         <td className="px-3 py-2" colSpan={11}>
                           − Не распределено: начисления без товара — реклама по кампаниям, подписки, страхование и др. ({data.unallocated.lines} строк) →
@@ -501,7 +537,8 @@ export function ProductsView({
                         </td>
                         <td />
                       </tr>
-                      {t.missing_cost === 0 && (
+                      )}
+                      {!narrowed && all.missing_cost === 0 && (
                         <tr className="font-semibold" data-testid="period-profit-row">
                           <td className="px-3 py-2" colSpan={11}>
                             = Прибыль периода до налога (как на вкладке P&amp;L)
@@ -609,6 +646,12 @@ function MoneyWent({ data, costTitle, pnlHref }: { data: ProductsPage; costTitle
             <span title="Начислено в плюс — выручка, баллы за скидки и другие компенсации Ozon" data-testid="money-went-share">
               {' '}
               — {share(total)} от начисленного в плюс ({rub(plus.toFixed(2))})
+            </span>
+          )}
+          {data.found && (
+            <span className="text-faint" data-testid="money-went-all">
+              {' '}
+              · весь магазин, поиск и фильтры на этот блок не влияют
             </span>
           )}
         </span>
