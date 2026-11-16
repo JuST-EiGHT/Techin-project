@@ -48,6 +48,7 @@ class OzonSupplyRec(Base):
     recommended: Mapped[int] = mapped_column(Integer, nullable=False)  # `recommended_supply`, шт.
     attention_level: Mapped[str | None] = mapped_column(String(16))  # LOW | MEDIUM | HIGH …
     reasons: Mapped[list | None] = mapped_column(JSON)  # [{reason, quantity, amount}] — почему переплата за логистику
+    period_days: Mapped[int | None] = mapped_column(Integer)  # на сколько дней считал Ozon (`supply_period`); до 16.11 — нет
     snapshot_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
@@ -63,3 +64,4 @@ class OzonSupplyRecSync(Base):
     ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
     error: Mapped[str | None] = mapped_column(Text)
     items: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    period_days: Mapped[int | None] = mapped_column(Integer)  # на сколько дней запрашивали рекомендацию

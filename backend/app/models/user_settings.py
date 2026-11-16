@@ -75,6 +75,8 @@ class UserSettings(Base):
     # {ключ кластера: id склада Ozon}; нет кластера — Ozon выберет склад сам
     supply_min_qty: Mapped[int | None] = mapped_column(Integer)
     supply_cluster_warehouses: Mapped[dict | None] = mapped_column(JSON)
+    # правка 16.11: рекомендация Ozon — на сколько дней (7 / 14 / 28 / 56, как «Частота поставки» в кабинете); нет — 28
+    supply_ozon_days: Mapped[int | None] = mapped_column(Integer)
     # минимальная допустимая прибыль с продажи, ₽ (10.26): в расчёте цены — «цена с минимальной прибылью»; нет — 0
     min_profit_rub: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     # порог «низкой маржи», % (шаг 7.1): акции, страница товаров, прибыль по товарам и аномалия «маржа ниже порога»;

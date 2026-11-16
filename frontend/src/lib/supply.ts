@@ -59,6 +59,8 @@ export type OzonData = {
   recs_ok: boolean | null
   recs_synced_at: string | null
   recs_error: string | null
+  recs_days: number | null // на сколько дней Ozon посчитал загруженные рекомендации
+  ozon_days: number // сколько стоит в настройках
 }
 
 export type SupplyReport = {
@@ -157,6 +159,9 @@ export const GRADE_TEXT: Record<string, string> = {
 
 export const MIN_QTY_WHY =
   'Меньше скольких штук одного товара не возить на склад — обычно столько, сколько в одной коробке. Меньше — довезём до этого числа, если Ozon советует поставку или столько продастся за срок; иначе не повезём.'
+export const OZON_DAYS = [7, 14, 28, 56] as const
+export const OZON_DAYS_WHY =
+  'Ozon советует везти столько, чтобы хватило до следующей поставки. Поставьте так же, как «Частота поставки» в «Настроить рекомендации» кабинета Ozon, — цифры совпадут с кабинетом. Рекомендация Ozon — нижняя планка поставки: меньше неё сервис не советует.'
 export const CLUSTER_WAREHOUSE_WHY =
   'Ozon принимает поставку в кластер и сам выбирает склад. Если в кластере вам важен конкретный склад, выберите его: он будет в рекомендациях и в Excel и выбран заранее при создании заявки.'
 
