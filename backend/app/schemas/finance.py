@@ -141,6 +141,7 @@ class FinanceOverview(BaseModel):
     tax_set: bool
     figures: OverviewFigures
     profit_ozon: Decimal | None  # прибыль от продаж на Ozon до налога — без расходов бизнеса
+    margin_before_tax: Decimal | None = None  # при profit_kind = net: прибыль бизнеса до налога / выручка
     business: OverviewBusiness | None  # null — «Планирование» выключено: своих расходов нет
     structure: list[StructureItem]
     missing_cost: int

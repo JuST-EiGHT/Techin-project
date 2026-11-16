@@ -5,7 +5,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Bar, CartesianGrid, Cell, ComposedChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { type Drill, MoreLink, TipBox, useDrill } from '@/components/charts'
-import { Badge, type PnL, fmtDay, rub, vatPctText } from '@/components/reports'
+import { type BankHint, type PnL, fmtDay, rub, rubSigned, vatPctText } from '@/components/reports'
+import { Badge, Button, HelpTip, Panel } from '@/components/ui'
 import { useTheme } from '@/contexts/ThemeContext'
 import { api, errorMessage } from '@/lib/api'
 import { type Range, daysWord, todayMsk } from '@/lib/period'
@@ -224,19 +225,32 @@ export function parseAmount(text: string): string | null {
 
 const plain = (v: string) => Number(v).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-/** Сумма от Ozon с ручной правкой: «сколько реально пришло». Пустая или равная сумме по начислениям — авто. */
+/** Сколько пришло от Ozon — с ручной правкой, если на счёт пришло другое. Пустая или равная сумме Ozon — как у Ozon.
+ *  Поправлено — плашка «Поправлено вручную»: по данным Ozon, введено, разница и «Вернуть как у Ozon». children — под полем
+ *  (подсказка по выписке банка). */
 export function ManualTotal({
   auto,
   manual,
   onChange,
   note,
   status,
+  autoLabel = 'по данным Ozon',
+  inline = false,
+  autoHint,
+  children,
 }: {
   auto: string
   manual: string | null
   onChange: (value: string | null) => void
+  /** Где сохраняется правка: «Сохраняется в отчёте», «Только для этого расчёта». */
   note: string
   status?: string | null
+  autoLabel?: string
+  /** Внутри другой карточки (список отчётов): без своей панели — мягкий фон (панель в панель не кладём). */
+  inline?: boolean
+  /** Подпись под полем, пока своей суммы нет (по умолчанию — «Как у Ozon — {autoLabel}»). */
+  autoHint?: string
+  children?: React.ReactNode
 }) {
   const [text, setText] = useState(plain(manual ?? auto))
   const [editing, setEditing] = useState(false)
@@ -258,16 +272,36 @@ export function ManualTotal({
     timer.current = setTimeout(() => onChange(next), delay)
   }
 
-  return (
-    <section className="rounded-xl border border-line bg-card p-4" data-testid="manual-total">
-      <h2 className="text-sm font-semibold">
-        Сумма от Ozon <span className="font-normal text-muted">— можно изменить, если на счёт пришло другое</span>
-      </h2>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
+  function reset() {
+    clearTimeout(timer.current)
+    setInvalid(false)
+    setText(plain(auto))
+    onChange(null)
+  }
+
+  const diff = manual === null ? null : Number(manual) - Number(auto)
+  const title = (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      Сколько пришло от Ozon
+      <HelpTip label="Зачем менять сумму">
+        Если на счёт пришло не столько, сколько начислил Ozon (удержание, поправка, другая выплата), введите свою
+        сумму — прибыль, налог и маржа пересчитаются от неё. Очистите поле или нажмите «Вернуть как у Ozon», чтобы
+        снова считать по данным Ozon.
+      </HelpTip>
+      {manual !== null && (
+        <Badge tone="warn" dot>
+          Поправлено вручную
+        </Badge>
+      )}
+    </span>
+  )
+  const body = (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
         <input
           value={text}
           inputMode="decimal"
-          aria-label="Сумма от Ozon"
+          aria-label="Сколько пришло от Ozon"
           data-testid="manual-input"
           onFocus={() => setEditing(true)}
           onBlur={() => {
@@ -285,36 +319,77 @@ export function ManualTotal({
               setInvalid(false)
             }
           }}
-          className={`w-full max-w-[14rem] rounded-lg border bg-bg px-3 py-2 text-lg font-bold tabular-nums text-ok outline-none focus:border-accent ${
-            invalid ? 'border-bad' : manual !== null ? 'border-accent' : 'border-line'
+          className={`h-10 w-full max-w-[14rem] rounded-lg border bg-card px-3 text-base font-semibold tabular-nums text-fg outline-none transition-colors focus:border-accent ${
+            invalid ? 'border-bad' : manual !== null ? 'border-warn' : 'border-line'
           }`}
         />
         <span className="text-sm text-muted">₽</span>
-        {manual !== null && (
-          <button
-            type="button"
-            onClick={() => {
-              clearTimeout(timer.current)
-              setInvalid(false)
-              setText(plain(auto))
-              onChange(null)
-            }}
-            className="rounded-md border border-line px-3 py-1.5 text-xs text-muted hover:border-accent hover:text-fg"
-            data-testid="manual-reset"
-          >
-            ↩ Авто
-          </button>
+        {status && (
+          <span className="text-xs text-faint" data-testid="manual-status">
+            {status}
+          </span>
         )}
-        {status && <span className="text-xs text-faint" data-testid="manual-status">{status}</span>}
       </div>
-      <p className={`mt-1 text-xs ${invalid ? 'text-bad' : 'text-muted'}`} data-testid="manual-hint">
-        {invalid
-          ? 'Введите сумму числом, например 12 000,50'
-          : manual !== null
-            ? `Введено вручную; по начислениям ${rub(auto)}. ${note}`
-            : `По начислениям Ozon. ${note}`}
-      </p>
-    </section>
+      {invalid ? (
+        <p className="mt-1.5 text-xs text-bad" data-testid="manual-hint">
+          Введите сумму числом, например 12 000,50
+        </p>
+      ) : manual === null ? (
+        <p className="mt-1.5 text-xs text-faint" data-testid="manual-hint">
+          {autoHint ?? `Как у Ozon — ${autoLabel}`}
+        </p>
+      ) : (
+        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg bg-warn/10 px-3 py-2 text-sm" data-testid="manual-diff">
+          <span>
+            <span className="text-muted">{autoLabel} </span>
+            <b className="tabular-nums">{rub(auto)}</b>
+          </span>
+          <span>
+            <span className="text-muted">введено </span>
+            <b className="tabular-nums">{rub(manual)}</b>
+          </span>
+          <span className={`tabular-nums ${diff !== null && diff < 0 ? 'text-bad' : 'text-ok'}`} data-testid="manual-delta">
+            разница {rubSigned(diff)}
+          </span>
+          <Button size="sm" onClick={reset} className="ml-auto" data-testid="manual-reset">
+            Вернуть как у Ozon
+          </Button>
+        </div>
+      )}
+      {children}
+    </>
+  )
+  if (inline) {
+    return (
+      <div className="rounded-lg bg-soft/60 p-4" data-testid="manual-total">
+        <div className="mb-3">
+          <div className="text-sm font-semibold">{title}</div>
+          <p className="mt-0.5 text-xs text-muted">{note}</p>
+        </div>
+        {body}
+      </div>
+    )
+  }
+  return (
+    <Panel testid="manual-total" title={title} description={note}>
+      {body}
+    </Panel>
+  )
+}
+
+/** Подсказка по выписке банка (3.11): сколько пришло от Ozon за продажи периода отчёта — подставляется только по кнопке. */
+export function BankHintBox({ hint, manual, onApply }: { hint: BankHint | null | undefined; manual: string | null; onApply: (amount: string) => void }) {
+  if (!hint || Number(hint.amount) === Number(manual ?? NaN)) return null
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-accent/30 bg-accent/5 px-3 py-2 text-sm" data-testid="bank-hint">
+      <span className="min-w-0 flex-1">
+        По выписке банка от Ozon пришло <b className="tabular-nums">{rub(hint.amount)}</b>
+        <span className="block text-xs text-muted">{hint.note} Проверьте и подставьте, если это выплата за этот отчёт.</span>
+      </span>
+      <Button size="sm" onClick={() => onApply(hint.amount)} data-testid="bank-hint-apply">
+        Подставить
+      </Button>
+    </div>
   )
 }
 
@@ -338,7 +413,7 @@ const VAT_OPTIONS = [
   { value: '1.00', label: 'без НДС' },
 ]
 
-const field = 'rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent'
+const field = 'h-9 rounded-lg border border-line bg-card px-3 text-sm outline-none focus:border-accent'
 
 /** «0.0600» → «6»; null → «». */
 const ratePct = (rate: string | null) => (rate === null ? '' : String(Math.round(Number(rate) * 10000) / 100).replace('.', ','))
@@ -374,9 +449,9 @@ export function ParamsPanel({
 
   const summary = `НДС поставщика по умолчанию ${vatPctText(pnl.supplier_vat)} · ${pnl.tax_title ? `налог: ${pnl.tax_title}` : 'налог не задан'}`
   return (
-    <details className="group rounded-xl border border-line bg-card" data-testid="params">
-      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
-        <span className="text-sm font-semibold">
+    <details className="group rounded-xl border border-line bg-card shadow-card" data-testid="params">
+      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-5 py-4">
+        <span className="text-base font-semibold">
           <span className="inline-block transition-transform group-open:rotate-90">▸</span> Параметры расчёта
         </span>
         <span className="text-xs text-muted" data-testid="params-summary">
@@ -384,7 +459,7 @@ export function ParamsPanel({
           {overridden && <span className="text-accent"> · свои параметры</span>}
         </span>
       </summary>
-      <div className="space-y-4 border-t border-line px-4 py-4">
+      <div className="space-y-4 border-t border-line px-5 py-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="block text-sm">
             <span className="mb-1 block text-xs text-muted">НДС поставщика (в цене закупки)</span>
@@ -448,7 +523,7 @@ export function ParamsPanel({
           </div>
         </div>
 
-        <div className="rounded-lg bg-bg/60 p-3 text-sm" data-testid="tax-explain">
+        <div className="rounded-lg bg-soft p-3 text-sm" data-testid="tax-explain">
           {pnl.tax_title ? (
             <>
               <div>
@@ -483,14 +558,9 @@ export function ParamsPanel({
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted">
           <span>{note}</span>
           {overridden && (
-            <button
-              type="button"
-              onClick={() => onChange(PROFILE_PARAMS)}
-              className="ml-auto rounded-md border border-line px-3 py-1.5 hover:border-accent hover:text-fg"
-              data-testid="params-reset"
-            >
-              ↩ Как в профиле
-            </button>
+            <Button size="sm" onClick={() => onChange(PROFILE_PARAMS)} className="ml-auto" data-testid="params-reset">
+              Как в профиле
+            </Button>
           )}
         </div>
       </div>
@@ -538,7 +608,7 @@ function ChartTooltip({ active, payload, drill }: { active?: boolean; payload?: 
           <div>
             {costLabel}: {rub(day.owed)}
           </div>
-          <div className={Number(day.profit_before_tax) < 0 ? 'text-bad' : 'text-ok'}>Прибыль до налога: {rub(day.profit_before_tax)}</div>
+          <div className={Number(day.profit_before_tax) < 0 ? 'text-bad' : 'text-ok'}>Прибыль от продаж на Ozon: {rub(day.profit_before_tax)}</div>
           <div className="text-faint">{day.source === 'xlsx' ? 'из отчёта' : 'из Ozon API'}</div>
         </div>
       )}
@@ -562,19 +632,22 @@ export function DayChart({ days, dayHref, moreHref }: { days: DayPnL[]; dayHref?
   }))
   const missing = days.length - withData.length
   return (
-    <section className="rounded-xl border border-line bg-card p-4" data-testid="day-chart">
+    <Panel
+      testid="day-chart"
+      title="По дням"
+      description="Выручка и прибыль от продаж на Ozon до налога; день — товары за этот день"
+      action={<MoreLink href={moreHref} />}
+    >
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1">
-        <h2 className="text-sm font-semibold">По дням</h2>
         <span className="flex items-center gap-1.5 text-xs text-muted">
           <span className="inline-block h-2.5 w-2.5 rounded-sm bg-accent/40" /> выручка
         </span>
         <span className="flex items-center gap-1.5 text-xs text-muted">
-          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-ok" /> прибыль до налога
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-ok" /> прибыль от продаж на Ozon
         </span>
         {missing > 0 && <span className="text-xs text-faint">без данных — {daysWord(missing)} (пропуски, а не ноль)</span>}
-        <MoreLink href={moreHref} />
       </div>
-      <div className={`h-60 ${drill.boxProps.className}`} onPointerDown={drill.boxProps.onPointerDown}>
+      <div className={`h-64 ${drill.boxProps.className}`} onPointerDown={drill.boxProps.onPointerDown}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={rows} margin={{ top: 4, right: 4, bottom: 0, left: 0 }} onClick={drill.onClick}>
             <CartesianGrid vertical={false} stroke={colors.line} />
@@ -598,7 +671,7 @@ export function DayChart({ days, dayHref, moreHref }: { days: DayPnL[]; dayHref?
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-    </section>
+    </Panel>
   )
 }
 

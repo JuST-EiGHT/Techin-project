@@ -92,26 +92,38 @@ export function Delta({ pct, unit = '%', upIsBad = false, testid = 'delta' }: {
 }
 
 /** Показатель: подпись, значение, изменение и «было …», переход в подробности. Ставятся в ряд — `StatGrid`. */
-export function Stat({ label, value, delta, hint, href, icon: I, tone, testid, children }: {
+export function Stat({ label, value, delta, hint, href, icon: I, tone, help, badge, testid, children }: {
   label: string
   value: string
+  /** «?» у подписи — как считается показатель (§7a). */
+  help?: React.ReactNode
+  /** Плашка у подписи: «вручную», «оценка». */
+  badge?: React.ReactNode
   /** Обычно `<Delta …/>`. */
   delta?: React.ReactNode
   /** «было 1 200 ₽», «нет данных за период». */
   hint?: React.ReactNode
   href?: string | null
   icon?: Icon
-  tone?: 'ok' | 'bad'
+  tone?: 'ok' | 'bad' | 'warn'
   testid?: string
   children?: React.ReactNode
 }) {
   const body = (
     <>
       <div className="flex items-start justify-between gap-2">
-        <span className="text-sm text-muted">{label}</span>
+        <span className="text-sm text-muted">
+          {label}
+          {help && (
+            <span className="ml-1.5 inline-block align-middle">
+              <HelpTip label={`Как считается: ${label}`}>{help}</HelpTip>
+            </span>
+          )}
+          {badge && <span className="ml-1.5 inline-block align-middle">{badge}</span>}
+        </span>
         {I && <span className="hidden sm:block"><IconBox icon={I} /></span>}
       </div>
-      <div className={cx('mt-2 text-xl font-semibold tracking-tight tabular-nums sm:text-2xl', tone === 'ok' && 'text-ok', tone === 'bad' && 'text-bad')}>{value}</div>
+      <div className={cx('mt-2 text-xl font-semibold tracking-tight tabular-nums sm:text-2xl', tone === 'ok' && 'text-ok', tone === 'bad' && 'text-bad', tone === 'warn' && 'text-warn')}>{value}</div>
       {(delta || hint) && (
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-faint">
           {delta}
@@ -360,7 +372,11 @@ export function HelpTip({ children, label = 'Как считаем', testid }: {
         type="button"
         aria-label={label}
         aria-expanded={open}
-        onClick={() => setPinned((p) => !p)}
+        onClick={(e) => {
+          e.preventDefault() // «?» внутри карточки-ссылки не уводит со страницы
+          e.stopPropagation()
+          setPinned((p) => !p)
+        }}
         className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-line text-[10px] font-semibold leading-none text-muted hover:border-accent hover:text-accent"
         data-testid={testid}
       >

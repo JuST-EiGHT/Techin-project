@@ -1,10 +1,11 @@
 'use client'
+
 // Главная (шаги 3.7, 10.4): ответ /dashboard/ozon и общие части карточек показателей. График — MetricChart (10.3).
 import Link from 'next/link'
 
 import { type Coverage, type DataSource } from '@/components/finance'
 import type { ForecastItem, WeekBar } from '@/components/payouts'
-import { Delta } from '@/components/ui'
+import { Delta, HelpTip } from '@/components/ui'
 
 export type Figure = { value: string | null; previous: string | null; change_pct: string | null }
 
@@ -58,9 +59,12 @@ export function FigureLink({
   children,
   testid,
   highlight,
+  help,
 }: {
   href: string
   label: string
+  /** Пояснение «?» рядом с подписью: как считается показатель. */
+  help?: React.ReactNode
   value: string
   tone?: 'ok' | 'bad' | 'warn'
   children?: React.ReactNode
@@ -71,7 +75,7 @@ export function FigureLink({
     <Link href={href} className={`group ${STAT_BOX} transition-colors hover:border-accent/50`} data-testid={testid}>
       <div className={`h-full ${highlight ?? ''}`}>
         <div className="flex items-center justify-between gap-2 text-sm text-muted">
-          <span>{label}</span>
+          <span className="inline-flex items-center gap-1.5">{label}{help && <HelpTip label={`Как считается: ${label}`}>{help}</HelpTip>}</span>
           <span className="text-accent opacity-0 transition-opacity group-hover:opacity-100" aria-hidden>
             →
           </span>

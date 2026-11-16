@@ -103,6 +103,8 @@ async def overview(db: AsyncSession, user_id: uuid.UUID, date_from: date, date_t
         "profit_kind": now["kind"] if now else None, "tax_set": bool(st and st["net"] is not None),
         "figures": {k: fig(k) for k in ("revenue", "expenses", "profit", "margin")},
         "profit_ozon": _d(st["profit_ozon"]) if st else None,
+        # маржа до налога (прибыль бизнеса до налога / выручка) — рядом с маржой после налога, если налог задан
+        "margin_before_tax": _pct(Decimal(st["profit_before_tax"]), now["revenue"]) if now and now["kind"] == "net" else None,
         "business": None if business is None else {
             "total": Decimal(business["total"]), "operations": business["operations"],
             "uncategorized": business["uncategorized"],

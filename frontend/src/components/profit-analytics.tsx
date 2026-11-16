@@ -12,6 +12,7 @@ import { Card } from '@/components/home'
 import { ProductLines } from '@/components/products-pnl'
 import { type AnalyticsFilter, type MetricKey, type MetricPoint, type Metrics, formatMetric } from '@/lib/analytics'
 import { api, errorMessage } from '@/lib/api'
+import { MARGIN, PROFIT } from '@/lib/profit-terms'
 
 type Group = {
   key: string
@@ -100,20 +101,20 @@ export function ProfitFigures({ s, costLabel }: { s: ProfitStructure; costLabel:
       </Card>
       <Card
         href={store ? pnl : null}
-        label="Прибыль до налога"
+        label={PROFIT.ozon.label}
+        help={PROFIT.ozon.help}
         value={formatMetric(s.profit, 'rub')}
         tone={profit === null ? undefined : profit < 0 ? 'bad' : 'ok'}
         testid="figure-profit"
       >
         <Change pct={change(s.profit, p?.profit)} against={against} />
-        <Hint>{s.profit === null ? 'нет данных за период' : (was(p?.profit, 'rub') ?? 'выручка − расходы')}</Hint>
+        <Hint>{s.profit === null ? 'нет данных за период' : (was(p?.profit, 'rub') ?? 'до налога')}</Hint>
         {s.net !== null && <Hint>после налога — {formatMetric(s.net, 'rub')}</Hint>}
         {!store && s.profit !== null && <Hint>по товарам — без начислений, не относящихся к товару</Hint>}
-        {store && s.profit !== null && <Hint>от продаж на Ozon, без расходов бизнеса — они в «Финансах»</Hint>}
       </Card>
-      <Card href={store ? pnl : null} label="Маржинальность" value={formatMetric(s.margin, 'pct')} testid="figure-margin">
+      <Card href={store ? pnl : null} label={MARGIN.before.label} help={MARGIN.before.help} value={formatMetric(s.margin, 'pct')} testid="figure-margin">
         <Change pct={marginPp} against={against} unit="п.п." />
-        <Hint>{s.margin === null ? 'нет данных за период' : (was(p?.margin, 'pct') ?? 'прибыль / выручка')}</Hint>
+        <Hint>{s.margin === null ? 'нет данных за период' : (was(p?.margin, 'pct') ?? '')}</Hint>
       </Card>
     </div>
   )
@@ -122,7 +123,7 @@ export function ProfitFigures({ s, costLabel }: { s: ProfitStructure; costLabel:
 const CHART: { key: MetricKey; label: string }[] = [
   { key: 'profit', label: 'Прибыль' },
   { key: 'revenue', label: 'Выручка' },
-  { key: 'margin', label: 'Маржинальность' },
+  { key: 'margin', label: 'Маржа' },
 ]
 
 /** График прибыли, выручки или маржи; точка — эта страница за день, неделю или месяц, «Подробнее →» — P&L периода. */
@@ -147,7 +148,7 @@ export function ProfitChart({ data }: { data: Metrics }) {
       <MetricChart
         data={data}
         metric={metric}
-        title={metric === 'profit' ? 'Прибыль до налога' : metric === 'margin' ? 'Маржинальность' : 'Выручка'}
+        title={metric === 'profit' ? PROFIT.ozon.label : metric === 'margin' ? MARGIN.before.label : 'Выручка'}
         pointHref={(p: MetricPoint) => `/dashboard/analytics/profit?${range(p.date_from, p.date_to)}`}
         moreHref={data.filter.product_count === null ? `/dashboard/finance/pnl?${range(data.date_from, data.date_to)}` : undefined}
       />

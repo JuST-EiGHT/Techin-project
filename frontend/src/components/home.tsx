@@ -15,9 +15,10 @@ import { weekdayShort } from '@/components/payouts'
 import { dayTitle, signed } from '@/components/planning/Calendar'
 import { type Overview, type PlanningState, opsHref } from '@/components/planning/types'
 import { fmtDay, rub } from '@/components/reports'
-import { Badge, IconBox, Segmented, Skeleton } from '@/components/ui'
+import { Badge, HelpTip, IconBox, Segmented, Skeleton } from '@/components/ui'
 import { type Granularity, METRICS, type MetricKey, type MetricPoint, type Metrics, formatMetric } from '@/lib/analytics'
 import { api } from '@/lib/api'
+import { MARGIN, PROFIT } from '@/lib/profit-terms'
 import { useLowMargin, useSettings } from '@/lib/settings'
 import { useSyncStatus } from '@/lib/sync'
 
@@ -39,18 +40,20 @@ const short = (iso: string) => fmtDay(iso).slice(0, 5)
 const withQuery = (href: string | null, query?: string) => (href && query ? `${href}&${query}` : href)
 
 /** Карточка показателя: ссылка на подробности или просто цифра, если подробной страницы пока нет. */
-export function Card({ href, label, value, testid, tone, children }: {
+export function Card({ href, label, value, testid, tone, help, children }: {
   href: string | null
   label: string
+  /** «?» у подписи — как считается (lib/profit-terms). */
+  help?: React.ReactNode
   value: string
   testid: string
   tone?: 'ok' | 'bad' | 'warn'
   children?: React.ReactNode
 }) {
-  if (href) return <FigureLink href={href} label={label} value={value} tone={tone} testid={testid}>{children}</FigureLink>
+  if (href) return <FigureLink href={href} label={label} value={value} tone={tone} testid={testid} help={help}>{children}</FigureLink>
   return (
     <div className={STAT_BOX} data-testid={testid}>
-      <div className="text-sm text-muted">{label}</div>
+      <div className="inline-flex items-center gap-1.5 text-sm text-muted">{label}{help && <HelpTip label={`Как считается: ${label}`}>{help}</HelpTip>}</div>
       <StatValue value={value} tone={tone} />
       <div className="mt-1.5 space-y-1">{children}</div>
     </div>
@@ -85,6 +88,9 @@ export function KeyFigures({ data, taxSet, costLabel, fourth = 'orders', query }
   const margin = t.margin === null ? null : Number(t.margin)
   const marginTone: 'ok' | 'bad' | 'warn' | undefined =
     margin === null ? undefined : margin < 0 ? 'bad' : margin < low ? 'warn' : target !== null && margin >= target ? 'ok' : undefined
+  // какая это прибыль и маржа: после налога — только у магазина целиком с заданным налогом (lib/profit-terms)
+  const profitTerm = data.profit_kind === 'net' ? 'ozonNet' : 'ozon'
+  const marginTerm = data.profit_kind === 'net' ? 'after' : 'before'
   const pp = (v: number) => `${v.toLocaleString('ru-RU', { maximumFractionDigits: 1 })} п.п.`
   return (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="key-figures">
@@ -102,7 +108,8 @@ export function KeyFigures({ data, taxSet, costLabel, fourth = 'orders', query }
       </Card>
       <Card
         href={link('profit')}
-        label={data.profit_kind === 'net' ? 'Прибыль после налога' : 'Прибыль до налога'}
+        label={PROFIT[profitTerm].label}
+        help={PROFIT[profitTerm].help}
         value={formatMetric(t.profit, 'rub')}
         tone={profit === null ? undefined : profit < 0 ? 'bad' : 'ok'}
         testid="figure-profit"
@@ -117,19 +124,29 @@ export function KeyFigures({ data, taxSet, costLabel, fourth = 'orders', query }
         {t.profit !== null && data.profit_kind === 'before_tax' && (
           <Hint>
             {byProducts
-              ? 'по товарам — до налога, как в «Прибыли по товарам»'
+              ? 'до налога, как в «Прибыли по товарам»'
               : taxSet
                 ? 'до налога — в прошлом периоде налог не посчитан'
-                : 'налог не задан — без налога'}
+                : 'до налога — налог не задан'}
           </Hint>
         )}
-        {/* решение 10.22: главная и аналитика — прибыль от продаж на Ozon; с расходами бизнеса — «Финансы» */}
-        {t.profit !== null && !byProducts && <Hint>от продаж на Ozon, без расходов бизнеса</Hint>}
         <Sparkline values={series('profit')} zero tone={profit !== null && profit < 0 ? 'bad' : 'ok'} testid="spark-profit" />
       </Card>
-      <Card href={link('margin')} label="Маржинальность" value={formatMetric(t.margin, 'pct')} tone={marginTone} testid="figure-margin">
+      <Card
+        href={link('margin')}
+        label={MARGIN[marginTerm].label}
+        help={MARGIN[marginTerm].help}
+        value={formatMetric(t.margin, 'pct')}
+        tone={marginTone}
+        testid="figure-margin"
+      >
         {ch && <Change pct={ch.margin_pp} against={against} unit="п.п." />}
-        <Hint>{noData('margin') ?? was('margin') ?? 'прибыль / выручка'}</Hint>
+        <Hint>{noData('margin') ?? was('margin') ?? ''}</Hint>
+        {data.margin_before_tax != null && (
+          <Hint>
+            <span data-testid="figure-margin-before-tax">до налога — {formatMetric(data.margin_before_tax, 'pct')}</span>
+          </Hint>
+        )}
         {margin !== null && (
           <span data-testid="margin-threshold">
             {margin < 0 ? (
