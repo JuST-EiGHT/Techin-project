@@ -8,17 +8,21 @@ import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { ManualTotal } from '@/components/finance'
 import {
   Badge,
   type Conflict,
   ConflictDialog,
   type ReportItem,
   type ReportType,
-  ReportFigures,
   ReportHeading,
   fmtDay,
   fmtDateTime,
+  reportFigures,
+  PnLFigures,
+  rub,
 } from '@/components/reports'
+import { Button, buttonClass } from '@/components/ui'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
 
@@ -50,10 +54,25 @@ const ym = (y: number, m: number) => `${y}-${String(m).padStart(2, '0')}`
 const monthRange = (from: string | null, to: string | null) => (from && to ? `period=custom&from=${from}&to=${to}` : null)
 
 // ── история ──
-function ReportCard({ report, onDelete }: { report: ReportItem; onDelete: () => void }) {
+function ReportCard({ report, onDelete, onUpdate }: { report: ReportItem; onDelete: () => void; onUpdate: (r: ReportItem) => void }) {
   const range = monthRange(report.period_start, report.period_end)
+  const [editing, setEditing] = useState(false)
+  const [status, setStatus] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  // «Сколько пришло от Ozon» — прямо в списке (решение владельца 16.11.2026); та же правка, что в P&L отчёта
+  async function saveManual(value: string | null) {
+    setStatus('Сохраняем…')
+    try {
+      onUpdate((await api.patch<ReportItem>(`/reports/${report.id}`, { manual_total: value })).data)
+      setError(null)
+      setStatus('Сохранено в отчёте')
+    } catch (err) {
+      setError(errorMessage(err))
+      setStatus(null)
+    }
+  }
   return (
-    <section className="space-y-3 rounded-xl border border-line bg-card/40 p-4" data-testid="report-card">
+    <section className="space-y-4 rounded-xl border border-line bg-card p-5 shadow-card" data-testid="report-card">
       <div className="flex flex-wrap items-start gap-3">
         <ReportHeading report={report} link />
         <div className="flex flex-wrap gap-2">
@@ -63,10 +82,10 @@ function ReportCard({ report, onDelete }: { report: ReportItem; onDelete: () => 
           {report.warnings_count > 0 && <Badge tone="muted">Предупреждений: {report.warnings_count}</Badge>}
         </div>
         <div className="ml-auto flex gap-2">
-          <Link href={`/dashboard/analytics/reports/${report.id}`} className="rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent">
+          <Link href={`/dashboard/analytics/reports/${report.id}`} className={buttonClass('secondary', 'sm')}>
             Открыть
           </Link>
-          <button onClick={onDelete} className="rounded-lg border border-line px-3 py-1.5 text-sm hover:border-bad hover:text-bad">
+          <button onClick={onDelete} className={buttonClass('ghost', 'sm')}>
             Удалить
           </button>
         </div>
@@ -77,7 +96,29 @@ function ReportCard({ report, onDelete }: { report: ReportItem; onDelete: () => 
           отчёт и нажмите «Перечитать» ещё раз или загрузите файл заново.
         </p>
       )}
-      <ReportFigures report={report} />
+      <PnLFigures data={reportFigures(report)} compact />
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+        <span className="text-muted">
+          Пришло от Ozon {report.manual_total !== null ? `— введено вручную ${rub(report.manual_total)}, по отчёту ${rub(report.auto_total)}` : `— как в отчёте, ${rub(report.auto_total)}`}
+        </span>
+        <Button size="sm" variant="ghost" onClick={() => setEditing(!editing)} aria-expanded={editing} data-testid="manual-edit">
+          {editing ? 'Скрыть' : 'Изменить сумму'}
+        </Button>
+      </div>
+      {editing && (
+        <>
+          <FormError message={error} />
+          <ManualTotal
+            auto={report.auto_total}
+            manual={report.manual_total}
+            onChange={saveManual}
+            autoLabel="по отчёту Ozon"
+            note="Сохраняется в отчёте — та же сумма в P&L."
+            status={status}
+            inline
+          />
+        </>
+      )}
       {range && (
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm" data-testid="report-links">
           {report.report_type === 'accrual' && (
@@ -282,7 +323,12 @@ function History({ type, fetchFor }: { type: ReportType; fetchFor: { year: numbe
         <>
           <div className="space-y-4">
             {page.items.map((r) => (
-              <ReportCard key={r.id} report={r} onDelete={() => remove(r)} />
+              <ReportCard
+                key={r.id}
+                report={r}
+                onDelete={() => remove(r)}
+                onUpdate={(next) => setPage((p) => p && { ...p, items: p.items.map((x) => (x.id === next.id ? { ...x, ...next } : x)) })}
+              />
             ))}
           </div>
           {page.items.length < page.total && (

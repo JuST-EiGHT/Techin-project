@@ -2,6 +2,7 @@
 import Link from 'next/link'
 
 import { CostTemplateButton } from '@/components/CostTemplateButton'
+import { Badge, Panel, Stat, StatGrid, Sub } from '@/components/ui'
 import { MARGIN, PROFIT } from '@/lib/profit-terms'
 import { useCostLabel } from '@/lib/settings'
 
@@ -118,6 +119,8 @@ export type FiguresData = {
   revenueHint: string
   received: string // пришло от Ozon: ручная сумма или по начислениям
   receivedHint: string
+  /** Сумма от Ozon введена вручную (своя у периода или у отчёта) — плашка «вручную». */
+  receivedManual?: boolean
   costSales: string | null // себестоимость без НДС
   missingCostCount: number
   pnl: PnL
@@ -134,73 +137,106 @@ export const vatPctText = (multiplier: string) => {
 const effectiveVat = (owed: string, costSales: string | null, fallback: string) =>
   costSales !== null && Number(costSales) > 0 ? String(Number(owed) / Number(costSales)) : fallback
 
-/** Полоса из пяти цифр: продано, получено от Ozon, себестоимость с НДС, налог, остаток и маржа (самый заметный блок). */
-export function PnLFigures({ data }: { data: FiguresData }) {
+const pctOf = (part: string | null, whole: string | null) =>
+  part === null || whole === null || Number(whole) <= 0 ? null : String((Number(part) / Number(whole)) * 100)
+
+/** Четыре главные цифры P&L (§7a: сводка — 3–4 цифры): выручка, пришло от Ozon, себестоимость с НДС, прибыль с маржой
+ *  и налогом. compact — без карточек, строкой внутри другой панели (список отчётов). */
+export function PnLFigures({ data, compact = false }: { data: FiguresData; compact?: boolean }) {
   const costLabel = useCostLabel()
   const pnl = data.final ? { ...data.pnl, ...data.final } : data.pnl
   const taxSet = pnl.tax !== null
-  const net = pnl.net === null ? null : Number(pnl.net)
-  const resultTone = net === null ? '' : net < 0 ? 'bg-bad/10' : 'bg-ok/10'
+  const term = data.final ? PROFIT[taxSet ? 'businessNet' : 'business'] : PROFIT[taxSet ? 'ozonNet' : 'ozon']
+  const profit = taxSet ? pnl.net : pnl.profit_before_tax
+  const profitN = profit === null ? null : Number(profit)
+  const pbtPct = pctOf(pnl.profit_before_tax, data.revenue)
+  const taxTotal = taxSet ? String(Number(pnl.tax) + Number(pnl.vat ?? 0)) : null
+  const manualBadge = data.receivedManual ? (
+    <Badge tone="warn" title="Сумма от Ozon введена вручную — все цифры посчитаны от неё">
+      вручную
+    </Badge>
+  ) : null
+  const costHint =
+    data.missingCostCount > 0 ? (
+      <Sub tone="warn">не найдена для {data.missingCostCount} арт. — занижена</Sub>
+    ) : (
+      <Sub>
+        без НДС {rub(data.costSales)} · НДС {vatPctText(effectiveVat(pnl.owed, data.costSales, pnl.supplier_vat))}
+      </Sub>
+    )
+  const profitSubs = (
+    <>
+      <Sub tone={profitN !== null && profitN < 0 ? 'bad' : undefined}>
+        <span data-testid="figure-margin">
+          {taxSet ? `${MARGIN.after.label.toLowerCase()} ${pctText(pnl.margin)} · до налога ${pctText(pbtPct)}` : `${MARGIN.before.label.toLowerCase()} ${pctText(pbtPct)}`}
+        </span>
+      </Sub>
+      <Sub>
+        <span data-testid="figure-tax">
+          {taxSet ? (
+            `${Number(pnl.vat) > 0 ? 'налог и НДС' : 'налог'} ${rub(taxTotal)}${pnl.tax_title ? ` · ${pnl.tax_title}` : ''}`
+          ) : (
+            <>
+              налог не задан —{' '}
+              <Link href="/dashboard/settings/taxes" className="text-accent hover:underline">
+                указать →
+              </Link>
+            </>
+          )}
+        </span>
+      </Sub>
+      {data.final && (
+        <Sub>
+          <span data-testid="figure-net-business">расходы бизнеса {rub(data.final.business)}</span>
+        </Sub>
+      )}
+    </>
+  )
+  if (compact) {
+    const cell = (label: string, value: string, sub: React.ReactNode, testid: string, tone?: string, badge?: React.ReactNode) => (
+      <div className="min-w-0" data-testid={testid}>
+        <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+          {label}
+          {badge}
+        </div>
+        <div className={`mt-0.5 text-base font-semibold tabular-nums ${tone ?? ''}`}>{value}</div>
+        {sub}
+      </div>
+    )
+    return (
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4" data-testid="report-figures">
+        {cell('Выручка', rub(data.revenue), <Sub>{data.revenueHint}</Sub>, 'figure-revenue')}
+        {cell('Пришло от Ozon', rub(data.received), <Sub>{data.receivedHint}</Sub>, 'figure-received', Number(data.received) < 0 ? 'text-bad' : '', manualBadge)}
+        {cell(costLabel, rub(pnl.owed), costHint, 'figure-cost')}
+        {cell(term.label, rub(profit), profitSubs, 'figure-net', profitN === null ? '' : profitN < 0 ? 'text-bad' : 'text-ok')}
+      </div>
+    )
+  }
   return (
-    <div
-      className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line sm:grid-cols-3 lg:grid-cols-[1fr_1fr_1fr_1fr_1.3fr]"
-      data-testid="report-figures"
-    >
-      <Cell label="Продано (выручка)" value={rub(data.revenue)} hint={data.revenueHint} tone="ok" testid="figure-revenue" />
-      <Cell
-        label="Получено от Ozon"
+    <StatGrid testid="report-figures">
+      <Stat label="Выручка" value={rub(data.revenue)} hint={data.revenueHint} testid="figure-revenue" />
+      <Stat
+        label="Пришло от Ozon"
+        help="Все начисления Ozon за период: выручка минус комиссии, логистика, хранение, реклама и прочие удержания, плюс доплаты Ozon. От этой суммы считаются прибыль и налог."
+        badge={manualBadge}
         value={rub(data.received)}
         hint={data.receivedHint}
         tone={Number(data.received) < 0 ? 'bad' : undefined}
         testid="figure-received"
       />
-      <Cell
-        label={costLabel}
-        value={rub(pnl.owed)}
-        hint={
-          data.missingCostCount > 0
-            ? `не найдена для ${data.missingCostCount} арт. — занижена`
-            : `без НДС ${rub(data.costSales)}; НДС поставщика ${vatPctText(effectiveVat(pnl.owed, data.costSales, pnl.supplier_vat))}`
-        }
-        hintTone={data.missingCostCount > 0 ? 'warn' : undefined}
-        testid="figure-cost"
-      />
-      {taxSet ? (
-        <Cell
-          label={Number(pnl.vat) > 0 ? 'Налог и НДС' : 'Налог'}
-          value={rub(String(Number(pnl.tax) + Number(pnl.vat ?? 0)))}
-          hint={Number(pnl.vat) > 0 ? `налог ${rub(pnl.tax)}, НДС ${rub(pnl.vat)}` : (pnl.tax_title ?? '')}
-          tone="warn"
-          testid="figure-tax"
-        />
-      ) : (
-        <div className="bg-card px-4 py-3" data-testid="figure-tax">
-          <div className="text-[11px] uppercase tracking-wider text-muted">Налог</div>
-          <div className="mt-1 text-lg font-bold text-warn">не задан</div>
-          <Link href="/dashboard/settings/taxes" className="mt-0.5 block text-xs text-accent hover:underline">
-            Указать систему налогообложения →
-          </Link>
-        </div>
-      )}
-      <div className="col-span-2 bg-card sm:col-span-2 lg:col-span-1" data-testid="figure-net">
-        <div className={`h-full px-4 py-3 ${resultTone}`}>
-          <div className="text-[11px] uppercase tracking-wider text-muted">{taxSet ? PROFIT.ozonNet.label : PROFIT.ozon.label}</div>
-          <div className={`mt-1 text-2xl font-bold tabular-nums ${net === null ? '' : net < 0 ? 'text-bad' : 'text-ok'}`}>
-            {taxSet ? rub(pnl.net) : '—'}
-          </div>
-          <div className={`text-sm font-semibold ${net === null ? 'text-muted' : net < 0 ? 'text-bad' : 'text-ok'}`}>
-            {taxSet
-              ? `${MARGIN.after.label.toLowerCase()} ${pctText(pnl.margin)} · до налога ${pctText(pnl.pct_of_revenue.profit_before_tax)}`
-              : `до налога ${rub(pnl.profit_before_tax)}`}
-          </div>
-          {data.final && (
-            <div className="text-xs text-muted" data-testid="figure-net-business">
-              с расходами бизнеса {rub(data.final.business)}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
+      <Stat label={costLabel} value={rub(pnl.owed)} testid="figure-cost">
+        {costHint}
+      </Stat>
+      <Stat
+        label={term.label}
+        help={term.help}
+        value={rub(profit)}
+        tone={profitN === null ? undefined : profitN < 0 ? 'bad' : 'ok'}
+        testid="figure-net"
+      >
+        <div className="mt-1.5">{profitSubs}</div>
+      </Stat>
+    </StatGrid>
   )
 }
 
@@ -214,36 +250,12 @@ export function reportFigures(report: ReportItem): FiguresData {
     revenue: report.revenue_base,
     revenueHint: report.report_type === 'accrual' ? 'начисления «Выручка»' : 'итого реализовано',
     received: report.effective_total,
-    receivedHint: report.manual_total !== null ? `введено вручную, по отчёту ${rub(report.auto_total)}` : 'по отчёту',
+    receivedHint: report.manual_total !== null ? `по отчёту ${rub(report.auto_total)}` : 'по отчёту',
+    receivedManual: report.manual_total !== null,
     costSales: report.cost_sales,
     missingCostCount: report.missing_cost_count,
     pnl: report.pnl,
   }
-}
-
-function Cell({
-  label,
-  value,
-  hint,
-  tone,
-  hintTone,
-  testid,
-}: {
-  label: string
-  value: string
-  hint: string
-  tone?: 'ok' | 'bad' | 'warn'
-  hintTone?: 'warn'
-  testid?: string
-}) {
-  const valueTone = tone ? { ok: 'text-ok', bad: 'text-bad', warn: 'text-warn' }[tone] : ''
-  return (
-    <div className="bg-card px-4 py-3" data-testid={testid}>
-      <div className="text-[11px] uppercase tracking-wider text-muted">{label}</div>
-      <div className={`mt-1 text-lg font-bold tabular-nums ${valueTone}`}>{value}</div>
-      <div className={`mt-0.5 text-xs ${hintTone === 'warn' ? 'text-warn' : 'text-faint'}`}>{hint}</div>
-    </div>
-  )
 }
 
 const TONE = { ok: 'text-ok', bad: 'text-bad', accent: 'text-accent' } as const
@@ -270,38 +282,43 @@ export function PnLBreakdown({ report }: { report: ReportItem }) {
     },
   ]
   return (
-    <section className="rounded-xl border border-line bg-card" data-testid="pnl-breakdown">
-      <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-2">
-        <h2 className="text-sm font-semibold">Прибыль и маржа</h2>
-        <span className="text-xs text-muted">{pnl.tax_title ? `налог: ${pnl.tax_title}` : 'налог не задан'}</span>
-        {pnl.tax_title === null && (
-          <Link href="/dashboard/settings/taxes" className="ml-auto text-xs text-accent hover:underline">
+    <Panel
+      flush
+      testid="pnl-breakdown"
+      title="Прибыль и маржа"
+      description={pnl.tax_title ? `налог: ${pnl.tax_title}` : 'налог не задан'}
+      action={
+        pnl.tax_title === null && (
+          <Link href="/dashboard/settings/taxes" className="text-accent hover:underline">
             Указать систему налогообложения →
           </Link>
-        )}
-      </div>
-      <table className="w-full text-sm">
-        <thead className="text-left text-xs text-faint">
-          <tr>
-            <th className="px-4 pt-2 font-normal" />
-            <th className="px-4 pt-2 text-right font-normal">₽</th>
-            <th className="px-4 pt-2 text-right font-normal">% от выручки</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.label} className={r.strong ? 'font-semibold' : ''}>
-              <td className="px-4 py-1.5">{r.label}</td>
-              <td className={`whitespace-nowrap px-4 py-1.5 text-right tabular-nums ${r.tone ? TONE[r.tone] : ''}`}>
-                {r.value === null ? 'не задан' : rub(r.value)}
-              </td>
-              <td className="whitespace-nowrap px-4 py-1.5 text-right tabular-nums text-muted">{pctText(r.pct)}</td>
+        )
+      }
+    >
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-soft/60 text-left text-xs font-medium text-muted">
+            <tr>
+              <th className="px-5 py-2 font-medium" />
+              <th className="px-5 py-2 text-right font-medium">₽</th>
+              <th className="px-5 py-2 text-right font-medium">% от выручки</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.label} className={`border-t border-line ${r.strong ? 'bg-soft/60 font-semibold' : ''}`}>
+                <td className="px-5 py-2.5">{r.label}</td>
+                <td className={`whitespace-nowrap px-5 py-2.5 text-right tabular-nums ${r.tone ? TONE[r.tone] : ''}`}>
+                  {r.value === null ? 'не задан' : rub(r.value)}
+                </td>
+                <td className="whitespace-nowrap px-5 py-2.5 text-right tabular-nums text-muted">{pctText(r.pct)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       {pnl.tax_lines.length > 0 && (
-        <details className="border-t border-line px-4 py-2 text-sm">
+        <details className="border-t border-line px-5 py-3 text-sm">
           <summary className="cursor-pointer text-muted hover:text-fg">Как посчитан налог</summary>
           <ul className="mt-2 space-y-1 text-muted" data-testid="tax-lines">
             {pnl.tax_lines.map((line, i) => (
@@ -310,55 +327,64 @@ export function PnLBreakdown({ report }: { report: ReportItem }) {
           </ul>
         </details>
       )}
-    </section>
+    </Panel>
   )
 }
 
 export function MissingCostTable({ items }: { items: ReportSummary['missing_cost'] }) {
   if (items.length === 0) return null
   return (
-    <section className="rounded-xl border border-warn/40 bg-card">
-      <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-2">
-        <h2 className="text-sm font-semibold text-warn">Не найдена себестоимость — прибыль завышена</h2>
-        <span className="ml-auto flex flex-wrap items-center gap-4">
+    <Panel
+      flush
+      title={
+        <span className="inline-flex flex-wrap items-center gap-2">
+          Не найдена себестоимость <Badge tone="warn">{items.length} арт. — прибыль завышена</Badge>
+        </span>
+      }
+      action={
+        <span className="flex flex-wrap items-center gap-4">
           <CostTemplateButton rows="missing">Скачать шаблон с этими товарами</CostTemplateButton>
-          <Link href="/dashboard/products/costs?missing=1" className="text-sm text-accent hover:underline">
+          <Link href="/dashboard/products/costs?missing=1" className="text-accent hover:underline">
             Указать себестоимость →
           </Link>
         </span>
-      </div>
+      }
+    >
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="text-left text-xs text-muted">
-            <tr className="border-b border-line">
-              <th className="px-4 py-2 font-normal">Артикул</th>
-              <th className="px-4 py-2 font-normal">Название</th>
-              <th className="px-4 py-2 text-right font-normal">Продано, шт.</th>
+          <thead className="bg-soft/60 text-left text-xs font-medium text-muted">
+            <tr>
+              <th className="px-5 py-2 font-medium">Товар</th>
+              <th className="px-5 py-2 text-right font-medium">Продано</th>
             </tr>
           </thead>
           <tbody>
             {items.map((m) => (
-              <tr key={m.article} className="border-b border-line last:border-b-0" data-testid="missing-cost">
-                <td className="px-4 py-2 font-medium">{m.article}</td>
-                <td className="max-w-md truncate px-4 py-2 text-muted">{m.name || '—'}</td>
-                <td className="px-4 py-2 text-right tabular-nums">{m.qty}</td>
+              <tr key={m.article} className="border-t border-line" data-testid="missing-cost">
+                <td className="px-5 py-2.5">
+                  <div className="max-w-md truncate font-medium">{m.name || m.article}</div>
+                  <div className="text-xs text-faint">{m.article}</div>
+                </td>
+                <td className="whitespace-nowrap px-5 py-2.5 text-right tabular-nums">{m.qty} шт.</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-    </section>
+    </Panel>
   )
 }
 
 export function Warnings({ items }: { items: string[] }) {
   if (items.length === 0) return null
   return (
-    <section className="rounded-xl border border-line bg-card p-4">
-      <h2 className="mb-2 text-sm font-semibold text-warn">Предупреждения</h2>
-      <ul className="list-disc space-y-1 pl-5 text-sm text-fg">
+    <section className="rounded-xl border border-warn/30 bg-warn/10 px-5 py-3" data-testid="warnings">
+      <ul className="space-y-1 text-sm text-fg">
         {items.map((w, i) => (
-          <li key={i}>{w}</li>
+          <li key={i} className="flex gap-2">
+            <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-warn" aria-hidden />
+            <span>{w}</span>
+          </li>
         ))}
       </ul>
     </section>
@@ -371,20 +397,19 @@ export function ByTypeTable({ byType, pct }: { byType: Record<string, string>; p
   const income = rows.filter(([, v]) => Number(v) >= 0).sort((a, b) => Number(b[1]) - Number(a[1]))
   const expense = rows.filter(([, v]) => Number(v) < 0).sort((a, b) => Number(a[1]) - Number(b[1]))
   return (
-    <section className="rounded-xl border border-line bg-card">
-      <h2 className="border-b border-line px-4 py-2 text-sm font-semibold">Начисления по типам</h2>
+    <Panel flush title="Начисления по типам">
       <table className="w-full text-sm">
         <tbody>
           {[...income, ...expense].map(([name, value]) => (
-            <tr key={name} className="border-b border-line last:border-b-0">
-              <td className="px-4 py-1.5">{name}</td>
-              <td className={`whitespace-nowrap px-4 py-1.5 text-right tabular-nums ${Number(value) < 0 ? 'text-bad' : 'text-ok'}`}>{rub(value)}</td>
-              {pct && <td className="w-20 whitespace-nowrap px-4 py-1.5 text-right tabular-nums text-muted">{pctText(pct[name] ?? null)}</td>}
+            <tr key={name} className="border-t border-line">
+              <td className="px-5 py-2">{name}</td>
+              <td className={`whitespace-nowrap px-5 py-2 text-right tabular-nums ${Number(value) < 0 ? 'text-bad' : 'text-ok'}`}>{rubSigned(value)}</td>
+              {pct && <td className="w-20 whitespace-nowrap px-5 py-2 text-right tabular-nums text-muted">{pctText(pct[name] ?? null)}</td>}
             </tr>
           ))}
         </tbody>
       </table>
-    </section>
+    </Panel>
   )
 }
 
@@ -427,7 +452,7 @@ function Row({ label, pct, value, className = '', valueClass = '', testid }: {
 }
 
 const SectionLabel = ({ children }: { children: React.ReactNode }) => (
-  <div className="px-3 pb-0.5 pt-3 text-[11px] uppercase tracking-wider text-muted">{children}</div>
+  <div className="px-3 pb-0.5 pt-3 text-xs font-medium text-muted">{children}</div>
 )
 
 /** Начисления по типам и P&L (как в калькуляторе): доходы и расходы Ozon — каждая группа 100 %,
@@ -448,10 +473,9 @@ export function PnLTable({ byType, pnl, revenue, manual }: {
   const net = pnl.net === null ? null : Number(pnl.net)
   const pct = (name: string) => pctText(pnl.by_type_pct[name] ?? null)
   return (
-    <section className="rounded-xl border border-line bg-card pb-3" data-testid="pnl-table">
-      <h2 className="border-b border-line px-4 py-2 text-sm font-semibold">Начисления по типам и P&amp;L</h2>
+    <section className="pb-3" data-testid="pnl-table">
       <div className="px-1 sm:px-2">
-        <div className={`${ROW} border-b border-line text-[11px] uppercase tracking-wider text-muted`}>
+        <div className={`${ROW} rounded-md bg-soft/60 text-xs font-medium text-muted`}>
           <span>Тип начисления</span>
           <span className="text-right">% группы</span>
           <span className="text-right">Сумма</span>
@@ -464,19 +488,19 @@ export function PnLTable({ byType, pnl, revenue, manual }: {
             pct={pct(name)}
             value={rubSigned(v)}
             valueClass="text-ok"
-            className={`hover:bg-line/40 ${name.trim().toLowerCase() === 'выручка' ? 'font-semibold' : ''}`}
+            className={`hover:bg-soft ${name.trim().toLowerCase() === 'выручка' ? 'font-semibold' : ''}`}
             testid="type-row"
           />
         ))}
         {expense.length > 0 && <SectionLabel>Расходы Ozon · итого {rub(String(Math.abs(expenseSum)))}</SectionLabel>}
         {expense.map(([name, v]) => (
-          <Row key={name} label={name} pct={pct(name)} value={rubSigned(v)} valueClass="text-bad" className="hover:bg-line/40" testid="type-row" />
+          <Row key={name} label={name} pct={pct(name)} value={rubSigned(v)} valueClass="text-bad" className="hover:bg-soft" testid="type-row" />
         ))}
         <Row
           label={manual ? 'Итого к получению от Ozon (введено вручную)' : 'Итого к получению от Ozon'}
           pct={incomeSum > 0 ? pctText(String((Math.abs(received) / incomeSum) * 100)) : '—'}
           value={rubSigned(pnl.effective_total)}
-          className="mt-2 border-y border-line bg-line/40 font-semibold"
+          className="mt-2 bg-soft/60 font-semibold"
           valueClass={received < 0 ? 'text-bad' : 'text-ok'}
           testid="received-row"
         />

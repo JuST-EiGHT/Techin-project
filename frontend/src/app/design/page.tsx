@@ -110,9 +110,9 @@ export default function DesignSystemPage() {
         {/* показатели */}
         <StatGrid testid="ds-stats">
           <Stat label="Выручка" value="6 128 400 ₽" icon={Wallet} delta={<Delta pct="12.4" />} hint="было 5 452 100 ₽" href="#" testid="ds-stat-revenue" />
-          <Stat label="Прибыль от продаж" value="1 041 830 ₽" icon={TrendingUp} delta={<Delta pct="-3.1" />} hint="было 1 075 200 ₽" href="#" />
+          <Stat label="Прибыль от продаж" help="Пришло от Ozon минус себестоимость с НДС" value="1 041 830 ₽" icon={TrendingUp} delta={<Delta pct="-3.1" />} hint="было 1 075 200 ₽" href="#" />
           <Stat label="Расходы на рекламу" value="310 000 ₽" icon={ShoppingCart} delta={<Delta pct="8.0" upIsBad />} hint="рост — плохо" />
-          <Stat label="Маржинальность" value="17,0 %" icon={Package} delta={<Delta pct="-1.6" unit="п.п." />} hint="нет данных за 2 дня" />
+          <Stat label="Маржа до налога" badge={<Badge tone="warn">вручную</Badge>} value="17,0 %" icon={Package} delta={<Delta pct="-1.6" unit="п.п." />} hint="нет данных за 2 дня" />
         </StatGrid>
 
         {/* графики */}

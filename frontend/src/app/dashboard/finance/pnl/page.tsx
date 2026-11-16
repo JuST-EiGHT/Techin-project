@@ -9,6 +9,7 @@ import { DateRangePicker, FilterBar, FilterButton, FilterField, selectClass } fr
 import { type BusinessExpenses, type Statement, StatementTable } from '@/components/pnl-statement'
 import { ProductsView } from '@/components/products-pnl'
 import {
+  BankHintBox,
   type CalcParams,
   type Coverage,
   type DataSource,
@@ -34,7 +35,9 @@ import {
   periodLabel,
   reportFigures,
   rub,
+  rubSigned,
 } from '@/components/reports'
+import { Badge, EmptyState, HelpTip, PageHeader, Panel, Skeleton, StatGrid, Tabs, buttonClass } from '@/components/ui'
 import { api, errorMessage } from '@/lib/api'
 import { PRESETS, type Preset, type Range, daysCount, daysWord, monthTitle, presetRange, todayMsk } from '@/lib/period'
 
@@ -70,7 +73,7 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/
 const dayProductsHref = (day: string) => `/dashboard/finance/pnl?period=custom&from=${day}&to=${day}&tab=products`
 
 /** «Налог не задан» уже видно в цифрах — в списке предупреждений не повторяем. */
-const shown = (warnings: string[]) => warnings.filter((w) => !w.startsWith('Налог не задан'))
+const shown = (warnings: string[]) => warnings.filter((w) => !w.startsWith('Налог не задан') && !w.startsWith('Учтены ручные суммы'))
 
 /** Параметры расчёта → query для /pnl. */
 function calcQuery(c: CalcParams): Record<string, string> {
@@ -126,143 +129,137 @@ function Finance() {
   const productsHref = `/dashboard/finance/pnl?${current}&tab=products` // «Подробнее →» у графика по дням
 
   return (
-    <div className={`mx-auto space-y-5 ${tab === 'products' ? 'max-w-7xl' : 'max-w-5xl'}`}>
-      <div>
-        <h1 className="text-2xl font-semibold">P&amp;L — прибыль и убытки</h1>
-        <p className="mt-1 text-sm text-muted">
-          По начислениям Ozon — за что и когда заработано, а не когда деньги пришли на счёт; прочие расходы бизнеса (аренда,
-          зарплата …) — из «Операций», статьи с отметкой «в P&amp;L». Деньги на счетах (ДДС) — отдельный раздел{' '}
-          <Link href="/dashboard/planning/cashflow" className="text-accent hover:underline">
-            «Планирование»
-          </Link>
-          .
-        </p>
-      </div>
-
-      <div className="flex gap-1 border-b border-line" role="tablist" aria-label="Что показать">
-        {(
-          [
-            ['pnl', 'P&L за период'],
-            ['products', 'По товарам'],
-          ] as const
-        ).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            role="tab"
-            aria-selected={tab === value}
-            onClick={() => open(current, value)}
-            className={`-mb-px border-b-2 px-4 py-2 text-sm ${tab === value ? 'border-accent font-medium text-fg' : 'border-transparent text-muted hover:text-fg'}`}
-            data-testid={`tab-${value}`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {/* правка 11.11: период — одной кнопкой; загруженный отчёт — в «Фильтрах» */}
-      <FilterBar
-        end={
-          <FilterButton count={reportId ? 1 : 0} onReset={() => go(`period=${preset}`)}>
-            <FilterField label="Загруженный отчёт" hint="P&L по одному отчёту Ozon вместо периода">
-              <select
-                value={reportId ?? ''}
-                onChange={(e) => go(e.target.value ? `report=${e.target.value}` : `period=${preset}`)}
-                className={selectClass}
-                aria-label="Открыть загруженный отчёт"
-                data-testid="report-select"
-              >
-                <option value="">Нет — за период</option>
-                {periods?.reports.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {TYPE_SHORT[r.report_type]} · {periodLabel(r)}
-                  </option>
-                ))}
-              </select>
-            </FilterField>
-          </FilterButton>
+    <div className={`mx-auto ${tab === 'products' ? 'max-w-7xl' : 'max-w-5xl'}`}>
+      <PageHeader
+        title="P&L — прибыль и убытки"
+        description={
+          <span className="inline-flex flex-wrap items-center gap-1.5">
+            По начислениям Ozon: за что заработано, а не когда деньги пришли на счёт
+            <HelpTip label="Что входит в P&L">
+              Выручка и удержания Ozon — по начислениям за период; себестоимость — по справочнику; прочие расходы бизнеса
+              (аренда, зарплата …) — из «Операций», статьи с отметкой «в P&amp;L»; налог — по налоговому профилю. Деньги на
+              счетах (ДДС) — в разделе «Планирование».
+            </HelpTip>
+          </span>
         }
       >
-        <DateRangePicker
-          value={report?.period_start && report.period_end ? { from: report.period_start, to: report.period_end } : range}
-          preset={reportId || preset === 'custom' ? null : preset}
-          presets={PRESETS.filter((p) => p.value !== 'custom').map((p) => ({
-            value: p.value,
-            label: p.label,
-            range: presetRange(p.value as Exclude<Preset, 'custom'>, today),
-          }))}
-          maxDays={366}
-          onChange={({ range: r, preset: p }) => (p ? go(`period=${p}`) : goRange(r))}
+        <Tabs
+          value={tab}
+          onChange={(v) => open(current, v)}
+          label="Что показать"
+          items={[
+            { value: 'pnl', label: 'P&L за период' },
+            { value: 'products', label: 'По товарам' },
+          ]}
+          itemTestid={(v) => `tab-${v}`}
         />
-        {reportId && (
-          <span className="text-sm text-muted" data-testid="report-mode">
-            {report ? `Отчёт: ${TYPE_SHORT[report.report_type]} · ${periodLabel(report)}` : 'Отчёт'}
-          </span>
-        )}
-      </FilterBar>
 
-      {tab === 'products' ? (
-        reportId ? (
-          <>
-            <div className="flex flex-wrap items-center gap-3 text-sm">
-              <span className="font-semibold" data-testid="range-label">
-                {report ? `${report.report_type === 'accrual' ? 'Отчёт по начислениям' : 'Отчёт о реализации'} · ${periodLabel(report)}` : 'Отчёт'}
-              </span>
-              <button type="button" onClick={() => go(`period=${preset}`)} className="ml-auto text-muted hover:text-fg" data-testid="close-report">
-                ✕ Закрыть отчёт
-              </button>
-            </div>
-            {report?.report_type === 'realization' ? (
-              <section className="rounded-xl border border-line bg-card p-6 text-sm text-muted" data-testid="realization-note">
-                В отчёте о реализации нет удержаний Ozon по товарам (комиссии, логистики) — прибыль по товарам считается по отчётам
-                по начислениям и данным Ozon API. Продажи и себестоимость по товарам этого отчёта —{' '}
-                <Link href={`/dashboard/analytics/reports/${reportId}`} className="text-accent hover:underline">
-                  на странице отчёта
-                </Link>
-                .
-              </section>
-            ) : (
-              <ProductsView key={reportId} query={{ report_id: reportId }} showSource={false} pnlHref={`/dashboard/finance/pnl?report=${reportId}`} />
-            )}
-          </>
-        ) : (
-          <>
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
-              <span>
+        {/* правка 11.11: период — одной кнопкой; загруженный отчёт — в «Фильтрах» */}
+        <FilterBar
+          end={
+            <FilterButton count={reportId ? 1 : 0} onReset={() => go(`period=${preset}`)}>
+              <FilterField label="Загруженный отчёт" hint="P&L по одному отчёту Ozon вместо периода">
+                <select
+                  value={reportId ?? ''}
+                  onChange={(e) => go(e.target.value ? `report=${e.target.value}` : `period=${preset}`)}
+                  className={selectClass}
+                  aria-label="Открыть загруженный отчёт"
+                  data-testid="report-select"
+                >
+                  <option value="">Нет — за период</option>
+                  {periods?.reports.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {TYPE_SHORT[r.report_type]} · {periodLabel(r)}
+                    </option>
+                  ))}
+                </select>
+              </FilterField>
+            </FilterButton>
+          }
+        >
+          <DateRangePicker
+            value={report?.period_start && report.period_end ? { from: report.period_start, to: report.period_end } : range}
+            preset={reportId || preset === 'custom' ? null : preset}
+            presets={PRESETS.filter((p) => p.value !== 'custom').map((p) => ({
+              value: p.value,
+              label: p.label,
+              range: presetRange(p.value as Exclude<Preset, 'custom'>, today),
+            }))}
+            maxDays={366}
+            onChange={({ range: r, preset: p }) => (p ? go(`period=${p}`) : goRange(r))}
+          />
+          {reportId && (
+            <span className="text-sm text-muted" data-testid="report-mode">
+              {report ? `Отчёт: ${TYPE_SHORT[report.report_type]} · ${periodLabel(report)}` : 'Отчёт'}
+            </span>
+          )}
+        </FilterBar>
+      </PageHeader>
+
+      <div className="space-y-5">
+        {tab === 'products' ? (
+          reportId ? (
+            <>
+              <div className="flex flex-wrap items-center gap-3 text-sm">
                 <span className="font-semibold" data-testid="range-label">
-                  {fmtDay(range.from)} – {fmtDay(range.to)}
+                  {report ? `${report.report_type === 'accrual' ? 'Отчёт по начислениям' : 'Отчёт о реализации'} · ${periodLabel(report)}` : 'Отчёт'}
                 </span>
-                <span className="text-muted"> · {daysWord(daysCount(range))}</span>
-              </span>
-              <Link
-                href={`/dashboard/analytics/profit?period=custom&from=${range.from}&to=${range.to}`}
-                className="ml-auto text-accent hover:underline"
-                data-testid="products-analytics-link"
-                title="Структура расходов, товары в минус и с низкой маржой, исходные строки начислений"
-              >
-                Аналитика прибыльности →
-              </Link>
-            </div>
-            <ProductsView
-              key={`${range.from}:${range.to}`}
-              query={{ date_from: range.from, date_to: range.to }}
-              showSource
-              pnlHref={`/dashboard/finance/pnl?${current}`}
-            />
-          </>
-        )
-      ) : reportId ? (
-        <ReportView key={reportId} id={reportId} onClose={() => go(`period=${preset}`)} productsHref={productsHref} />
-      ) : (
-        <PeriodView
-          key={`${range.from}:${range.to}`}
-          range={range}
-          periods={periods}
-          onRange={goRange}
-          onReport={(id) => go(`report=${id}`)}
-          productsHref={productsHref}
-        />
-      )}
+                <button type="button" onClick={() => go(`period=${preset}`)} className="ml-auto text-muted hover:text-fg" data-testid="close-report">
+                  ✕ Закрыть отчёт
+                </button>
+              </div>
+              {report?.report_type === 'realization' ? (
+                <section className="rounded-xl border border-line bg-card p-5 text-sm text-muted shadow-card" data-testid="realization-note">
+                  В отчёте о реализации нет удержаний Ozon по товарам (комиссии, логистики) — прибыль по товарам считается по отчётам
+                  по начислениям и данным Ozon API. Продажи и себестоимость по товарам этого отчёта —{' '}
+                  <Link href={`/dashboard/analytics/reports/${reportId}`} className="text-accent hover:underline">
+                    на странице отчёта
+                  </Link>
+                  .
+                </section>
+              ) : (
+                <ProductsView key={reportId} query={{ report_id: reportId }} showSource={false} pnlHref={`/dashboard/finance/pnl?report=${reportId}`} />
+              )}
+            </>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
+                <span>
+                  <span className="font-semibold" data-testid="range-label">
+                    {fmtDay(range.from)} – {fmtDay(range.to)}
+                  </span>
+                  <span className="text-muted"> · {daysWord(daysCount(range))}</span>
+                </span>
+                <Link
+                  href={`/dashboard/analytics/profit?period=custom&from=${range.from}&to=${range.to}`}
+                  className="ml-auto text-accent hover:underline"
+                  data-testid="products-analytics-link"
+                  title="Структура расходов, товары в минус и с низкой маржой, исходные строки начислений"
+                >
+                  Аналитика прибыльности →
+                </Link>
+              </div>
+              <ProductsView
+                key={`${range.from}:${range.to}`}
+                query={{ date_from: range.from, date_to: range.to }}
+                showSource
+                pnlHref={`/dashboard/finance/pnl?${current}`}
+              />
+            </>
+          )
+        ) : reportId ? (
+          <ReportView key={reportId} id={reportId} onClose={() => go(`period=${preset}`)} productsHref={productsHref} />
+        ) : (
+          <PeriodView
+            key={`${range.from}:${range.to}`}
+            range={range}
+            periods={periods}
+            onRange={goRange}
+            onReport={(id) => go(`report=${id}`)}
+            productsHref={productsHref}
+          />
+        )}
+      </div>
     </div>
   )
 }
@@ -305,15 +302,17 @@ function PnLBody({
       {statement ? (
         <>
           {statement}
-          <details className="rounded-xl border border-line bg-card" data-testid="by-type-details">
-            <summary className="cursor-pointer px-4 py-2 text-sm text-muted hover:text-fg">Начисления Ozon по типам — % внутри доходов и расходов, как в отчёте</summary>
-            <div className="border-t border-line">
+          <details className="rounded-xl border border-line bg-card shadow-card" data-testid="by-type-details">
+            <summary className="cursor-pointer px-5 py-4 text-sm text-muted hover:text-fg">Начисления Ozon по типам — % внутри доходов и расходов, как в отчёте</summary>
+            <div className="border-t border-line pt-2">
               <PnLTable byType={byType} pnl={figures.pnl} revenue={revenue} manual={manual} />
             </div>
           </details>
         </>
       ) : (
-        <PnLTable byType={byType} pnl={figures.pnl} revenue={revenue} manual={manual} />
+        <Panel flush title="Начисления по типам и P&amp;L" description="Доходы и расходы Ozon — каждая группа 100 %; ниже — P&amp;L, % от выручки">
+          <PnLTable byType={byType} pnl={figures.pnl} revenue={revenue} manual={manual} />
+        </Panel>
       )}
       {days && <DayChart days={days} dayHref={dayProductsHref} moreHref={productsHref} />}
       <MissingCostTable items={missing} />
@@ -391,7 +390,7 @@ function PeriodView({
         <OzonApiStatus range={range} coverage={data?.coverage} onLoaded={reloaded} />
       </div>
       <FormError message={error} />
-      {!data && !error && <p className="text-sm text-muted">Загрузка…</p>}
+      {!data && !error && <Loading />}
       {data && pnl === null && <Empty data={data} periods={periods} onRange={onRange} onReport={onReport} />}
       {data && pnl !== null && base !== null && (
         <PnLBody
@@ -401,10 +400,11 @@ function PeriodView({
             received: pnl.effective_total,
             receivedHint:
               manual !== null
-                ? `введено вручную, по начислениям ${rub(base)}`
+                ? `по начислениям ${rub(base)}`
                 : applied.length > 0
-                  ? `с ручными суммами отчётов; по начислениям ${rub(data.auto_total)}`
+                  ? `по начислениям ${rub(data.auto_total)}`
                   : 'по начислениям',
+            receivedManual: manual !== null || applied.length > 0,
             costSales: data.cost_sales,
             missingCostCount: data.missing_cost.length,
             pnl,
@@ -419,8 +419,14 @@ function PeriodView({
               auto={base}
               manual={manual}
               onChange={setManual}
-              note="Для периода не сохраняется — сохранить можно в отчёте за этот период."
-            />
+              autoLabel={applied.length > 0 ? 'с ручными суммами отчётов' : 'по начислениям Ozon'}
+              autoHint={applied.length > 0 ? 'Своей суммы для периода нет — в расчёте ручные суммы отчётов, ниже' : undefined}
+              note="Только для этого расчёта — сохранить можно в отчёте за этот период."
+            >
+              {applied.length > 0 && (
+                <AppliedManual reports={applied} auto={data.auto_total} withManual={base} onReport={onReport} />
+              )}
+            </ManualTotal>
           }
           paramsBlock={<ParamsPanel pnl={pnl} value={calc} onChange={setCalc} note="Только для этого расчёта — профиль не меняется." />}
           days={days}
@@ -447,24 +453,26 @@ function Empty({
 }) {
   const months = (periods?.months ?? []).filter((m) => m.xlsx_days + m.api_days > 0).slice(0, 6)
   const reports = (periods?.reports ?? []).slice(0, 4)
-  const chip = 'rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent'
+  const chip = buttonClass('secondary', 'sm')
+  const notes = shown(data.warnings).filter((w) => !w.startsWith('За период нет данных'))
   return (
-    <section className="space-y-4 rounded-xl border border-line bg-card p-6" data-testid="empty">
-      <div>
-        <h2 className="text-lg font-semibold">За этот период данных нет</h2>
-        <p className="mt-1 text-sm text-muted">
-          P&amp;L считается по начислениям Ozon: загрузите отчёт по начислениям из личного кабинета или подключите ключ Ozon
-          API — начисления загрузятся сами.
-        </p>
-      </div>
-      <div className="flex flex-wrap gap-3">
-        <Link href="/dashboard/analytics/reports/upload" className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90">
-          Загрузить отчёт
-        </Link>
-        <Link href="/dashboard/settings/integrations" className={chip}>
-          Подключить ключ Ozon API
-        </Link>
-      </div>
+    <Panel testid="empty">
+      <EmptyState
+        title="За этот период данных нет"
+        action={
+          <div className="flex flex-wrap justify-center gap-3">
+            <Link href="/dashboard/analytics/reports/upload" className={buttonClass('primary')}>
+              Загрузить отчёт
+            </Link>
+            <Link href="/dashboard/settings/integrations" className={buttonClass('secondary')}>
+              Подключить ключ Ozon API
+            </Link>
+          </div>
+        }
+      >
+        P&amp;L считается по начислениям Ozon: загрузите отчёт по начислениям из личного кабинета или подключите ключ Ozon API —
+        начисления загрузятся сами. Это пропуск, а не ноль.
+      </EmptyState>
       {(months.length > 0 || reports.length > 0) && (
         <div className="space-y-2 border-t border-line pt-4">
           {months.length > 0 && (
@@ -489,16 +497,64 @@ function Empty({
           )}
         </div>
       )}
-      {shown(data.warnings).filter((w) => !w.startsWith('За период нет данных')).length > 0 && (
-        <ul className="list-disc space-y-1 pl-5 text-sm text-muted">
-          {shown(data.warnings)
-            .filter((w) => !w.startsWith('За период нет данных'))
-            .map((w, i) => (
-              <li key={i}>{w}</li>
-            ))}
+      {notes.length > 0 && (
+        <ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-muted">
+          {notes.map((w, i) => (
+            <li key={i}>{w}</li>
+          ))}
         </ul>
       )}
-    </section>
+    </Panel>
+  )
+}
+
+/** Загрузка: заглушки той же формы — четыре цифры и таблица. */
+function Loading() {
+  return (
+    <div className="space-y-5" aria-busy>
+      <StatGrid>
+        {[0, 1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-28 rounded-xl" />
+        ))}
+      </StatGrid>
+      <Skeleton className="h-24 rounded-xl" />
+      <Skeleton className="h-96 rounded-xl" />
+    </div>
+  )
+}
+
+/** У периода есть отчёты с ручной суммой «сколько пришло»: какие, на сколько поправлено и где изменить. */
+function AppliedManual({ reports, auto, withManual, onReport }: {
+  reports: PeriodPnL['reports']
+  auto: string | null
+  withManual: string
+  onReport: (id: string) => void
+}) {
+  const diff = auto === null ? null : Number(withManual) - Number(auto)
+  return (
+    <div className="mt-3 space-y-2 rounded-lg bg-warn/10 px-3 py-2 text-sm" data-testid="applied-manual">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <Badge tone="warn" dot>
+          Поправлено вручную в {reports.length === 1 ? 'отчёте' : `${reports.length} отчётах`}
+        </Badge>
+        <span>
+          <span className="text-muted">по начислениям </span>
+          <b className="tabular-nums">{rub(auto)}</b>
+        </span>
+        <span>
+          <span className="text-muted">с поправками </span>
+          <b className="tabular-nums">{rub(withManual)}</b>
+        </span>
+        {diff !== null && <span className={`tabular-nums ${diff < 0 ? 'text-bad' : 'text-ok'}`}>разница {rubSigned(diff)}</span>}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1">
+        {reports.map((r) => (
+          <button key={r.id} type="button" onClick={() => onReport(r.id)} className="text-accent hover:underline" data-testid="applied-report">
+            {periodLabel(r)} — изменить или вернуть →
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -547,7 +603,7 @@ function ReportView({ id, onClose, productsHref }: { id: string; onClose: () => 
   }
 
   if (error && !report) return <FormError message={error} />
-  if (!report) return <p className="text-sm text-muted">Загрузка…</p>
+  if (!report) return <Loading />
   const r = report
   return (
     <>
@@ -560,12 +616,12 @@ function ReportView({ id, onClose, productsHref }: { id: string; onClose: () => 
           </div>
           <p className="truncate text-xs text-muted">{r.filename}</p>
         </div>
-        <div className="ml-auto flex flex-wrap gap-3 text-sm">
-          <Link href={`/dashboard/analytics/reports/${id}`} className="text-accent hover:underline">
+        <div className="ml-auto flex flex-wrap gap-2">
+          <Link href={`/dashboard/analytics/reports/${id}`} className={buttonClass('ghost', 'sm')}>
             Страница отчёта: товары →
           </Link>
-          <button type="button" onClick={onClose} className="text-muted hover:text-fg" data-testid="close-report">
-            ✕ Закрыть отчёт
+          <button type="button" onClick={onClose} className={buttonClass('ghost', 'sm')} data-testid="close-report">
+            Закрыть отчёт
           </button>
         </div>
       </div>
@@ -577,26 +633,16 @@ function ReportView({ id, onClose, productsHref }: { id: string; onClose: () => 
         byType={r.summary.by_type}
         revenue={r.revenue_base}
         manualBlock={
-          <>
-            <ManualTotal
-              auto={r.auto_total}
-              manual={r.manual_total}
-              onChange={(v) => save({ manual_total: v })}
-              note="Сохраняется в отчёте."
-              status={status}
-            />
-            {r.bank_hint && Number(r.bank_hint.amount) !== Number(r.manual_total ?? NaN) && (
-              <div className="rounded-lg border border-accent/40 bg-card px-4 py-3 text-sm" data-testid="bank-hint">
-                <div>
-                  По выписке банка от Ozon пришло <b className="tabular-nums">{rub(r.bank_hint.amount)}</b>
-                </div>
-                <div className="mt-0.5 text-xs text-muted">{r.bank_hint.note} Проверьте и подставьте, если это выплата за этот отчёт.</div>
-                <button type="button" onClick={() => save({ manual_total: r.bank_hint!.amount })} className="mt-2 rounded-lg border border-line px-3 py-1.5 text-xs hover:border-accent hover:text-accent" data-testid="bank-hint-apply">
-                  Подставить в «сколько пришло»
-                </button>
-              </div>
-            )}
-          </>
+          <ManualTotal
+            auto={r.auto_total}
+            manual={r.manual_total}
+            onChange={(v) => save({ manual_total: v })}
+            autoLabel="по отчёту Ozon"
+            note="Сохраняется в отчёте — та же сумма в «Отчётах Ozon»."
+            status={status}
+          >
+            <BankHintBox hint={r.bank_hint} manual={r.manual_total} onApply={(amount) => save({ manual_total: amount })} />
+          </ManualTotal>
         }
         paramsBlock={
           <ParamsPanel

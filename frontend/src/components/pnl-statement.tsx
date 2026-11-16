@@ -8,6 +8,8 @@ import { useState } from 'react'
 
 import { opsHref } from '@/components/planning/types'
 import { pctText, rub, rubSigned } from '@/components/reports'
+import { HelpTip } from '@/components/ui'
+import { MARGIN, PROFIT } from '@/lib/profit-terms'
 
 export type BusinessCategory = { id: string; name: string; amount: string; children: BusinessCategory[] }
 
@@ -27,6 +29,8 @@ export type StatementRow = {
   pct: string | null
   types: { name: string; amount: string }[]
   categories: BusinessCategory[]
+  /** Только во фронтенде: «· маржа после налога 12 %» у итоговой строки. */
+  margin_title?: string
 }
 
 export type Statement = {
@@ -46,8 +50,15 @@ export type Statement = {
 const GRID = 'grid grid-cols-[minmax(0,1fr)_3.75rem_6.75rem] items-center gap-x-1.5 px-2 sm:gap-x-2 sm:px-3 sm:grid-cols-[minmax(0,1fr)_5.5rem_9.5rem]'
 const NOTES: Record<string, string> = {
   profit_ozon: 'до налога и без расходов бизнеса — как на главной и в «Аналитике»',
-  profit_before_tax: 'с расходами бизнеса',
   ozon_total: 'начислено Ozon за период',
+}
+
+/** Названия итоговых строк — одни на всех страницах (lib/profit-terms, решение владельца 16.11.2026). */
+function termOf(key: string, hasBusiness: boolean) {
+  if (key === 'profit_ozon') return PROFIT.ozon
+  if (key === 'profit_before_tax') return PROFIT.business
+  if (key === 'net') return hasBusiness ? PROFIT.businessNet : PROFIT.ozonNet
+  return null
 }
 
 /** Итог без «+», минус — тем же знаком «−», что у строк. */
@@ -77,7 +88,8 @@ function Category({ c, range, depth }: { c: BusinessCategory; range: { from: str
   )
 }
 
-function Line({ row, range }: { row: StatementRow; range: { from: string; to: string } }) {
+function Line({ row, range, hasBusiness = false }: { row: StatementRow; range: { from: string; to: string }; hasBusiness?: boolean }) {
+  const term = termOf(row.key, hasBusiness)
   const detail = row.types.length > 1 || (row.types.length === 1 && row.types[0].name !== row.title) || row.categories.length > 0
   const [open, setOpen] = useState(row.key === 'business')
   const sub = row.kind === 'subtotal'
@@ -86,11 +98,11 @@ function Line({ row, range }: { row: StatementRow; range: { from: string; to: st
   const box = total
     ? `mt-2 border font-semibold ${net === null ? 'border-line' : net < 0 ? 'border-bad bg-bad/10 text-bad' : 'border-ok bg-ok/10 text-ok'}`
     : sub
-      ? 'border-y border-line bg-line/40 font-semibold'
+      ? 'bg-soft/60 font-semibold'
       : ''
   return (
     <div data-testid="statement-row" data-key={row.key}>
-      <div className={`${GRID} py-1.5 text-[13px] sm:text-sm ${box}`}>
+      <div className={`${GRID} rounded-md py-2 text-[13px] sm:text-sm ${box}`}>
         <span className="min-w-0">
           {detail ? (
             <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="text-left hover:text-accent" data-testid="statement-toggle">
@@ -98,7 +110,15 @@ function Line({ row, range }: { row: StatementRow; range: { from: string; to: st
               {row.title}
             </button>
           ) : (
-            <span className={sub || total ? '' : 'pl-4'}>{row.title}</span>
+            <span className={sub || total ? '' : 'pl-4'}>
+              {term ? term.label : row.title}
+              {row.margin_title && ` ${row.margin_title}`}
+              {term && (
+                <span className="ml-1.5 inline-block align-middle font-normal">
+                  <HelpTip label={`Как считается: ${term.label}`}>{term.help}</HelpTip>
+                </span>
+              )}
+            </span>
           )}
           {NOTES[row.key] && <span className="block text-xs font-normal text-faint">{NOTES[row.key]}</span>}
         </span>
@@ -145,25 +165,31 @@ export function StatementTable({ statement, business, range }: {
   const rows = statement.rows
   const at = rows.findIndex((r) => r.key === 'profit_ozon')
   const loose = business?.uncategorized
+  const hasBusiness = business !== null && statement.business !== null
   return (
-    <section className="rounded-xl border border-line bg-card pb-3" data-testid="pnl-statement">
-      <div className="flex flex-wrap items-baseline gap-x-3 border-b border-line px-4 py-2">
-        <h2 className="text-sm font-semibold">Прибыли и убытки</h2>
-        <span className="text-xs text-faint">% — от выручки; ▸ — из чего сложилась строка</span>
+    <section className="rounded-xl border border-line bg-card pb-3 shadow-card" data-testid="pnl-statement">
+      <div className="flex flex-wrap items-baseline gap-x-3 px-5 pb-3 pt-4">
+        <h2 className="text-base font-semibold">Прибыли и убытки</h2>
+        <span className="text-sm text-muted">% — от выручки; ▸ — из чего сложилась строка</span>
       </div>
       <div className="px-1 sm:px-2">
-        <div className={`${GRID} border-b border-line py-1.5 text-[11px] uppercase tracking-wider text-muted`}>
+        <div className={`${GRID} rounded-md bg-soft/60 py-2 text-xs font-medium text-muted`}>
           <span>Статья</span>
           <span className="text-right">%</span>
           <span className="text-right">Сумма</span>
         </div>
         {rows.slice(0, at + 1).map((r) => (
-          <Line key={r.key} row={r} range={range} />
+          <Line key={r.key} row={r} range={range} hasBusiness={hasBusiness} />
         ))}
         {business === null && <NoBusiness />}
         {rows.slice(at + 1).map((r) =>
           r.key === 'net' ? (
-            <Line key={r.key} row={{ ...r, title: statement.margin === null ? r.title : `${r.title} · рентабельность ${pctText(statement.margin)}` }} range={range} />
+            <Line
+              key={r.key}
+              row={{ ...r, margin_title: statement.margin === null ? undefined : `· ${MARGIN.after.label.toLowerCase()} ${pctText(statement.margin)}` }}
+              range={range}
+              hasBusiness={hasBusiness}
+            />
           ) : r.key === 'tax' && r.amount === null ? (
             <div key={r.key} className={`${GRID} py-1.5 text-[13px] sm:text-sm`} data-testid="statement-row" data-key="tax">
               <span className="pl-4">
@@ -176,7 +202,7 @@ export function StatementTable({ statement, business, range }: {
               <span className="text-right text-muted">—</span>
             </div>
           ) : (
-            <Line key={r.key} row={r} range={range} />
+            <Line key={r.key} row={r} range={range} hasBusiness={hasBusiness} />
           ),
         )}
       </div>
