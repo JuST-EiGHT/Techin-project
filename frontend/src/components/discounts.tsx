@@ -53,14 +53,20 @@ export function DiscountsTable({
     onSort: (dir: SortDir | null) => onSort?.(key, dir),
   })
   const sortable = Boolean(onSort)
-  const head = (key: string, label: React.ReactNode, opts: { align?: 'right'; kind?: 'number' | 'text' | 'date'; sub?: React.ReactNode } = {}) =>
-    sortable ? (
-      <SortTh {...th(key)} align={opts.align} kind={opts.kind ?? 'number'} sub={opts.sub} className="px-3 py-2.5 font-medium">
+  const head = (
+    key: string,
+    label: React.ReactNode,
+    opts: { align?: 'right'; kind?: 'number' | 'text' | 'date'; sub?: React.ReactNode; first?: boolean } = {},
+  ) => {
+    const pad = `py-3 pr-3 font-medium ${opts.first ? 'pl-5' : 'pl-3'}`
+    return sortable ? (
+      <SortTh {...th(key)} align={opts.align} kind={opts.kind ?? 'number'} sub={opts.sub} className={pad}>
         {label}
       </SortTh>
     ) : (
-      <th className={`px-3 py-2.5 font-medium ${opts.align === 'right' ? 'text-right' : ''}`}>{label}</th>
+      <th className={`${pad} ${opts.align === 'right' ? 'text-right' : ''}`}>{label}</th>
     )
+  }
   const choosable = rows.filter((r) => r.can_decide)
   const allOn = selected !== undefined && choosable.length > 0 && choosable.every((r) => selected.has(r.id))
   return (
@@ -69,7 +75,7 @@ export function DiscountsTable({
         <thead className="bg-soft/60 text-left text-xs text-muted">
           <tr>
             {onSelect && (
-              <th className="w-9 px-3 py-2.5">
+              <th className="w-9 py-3 pl-5 pr-3">
                 <input
                   type="checkbox"
                   aria-label="Выбрать все заявки, по которым можно решить"
@@ -81,22 +87,22 @@ export function DiscountsTable({
                 />
               </th>
             )}
-            {head('offer_id', 'Товар', { kind: 'text' })}
+            {head('offer_id', 'Товар', { kind: 'text', first: !onSelect })}
             {head('price', 'Ваша цена', { align: 'right' })}
             {head('requested_price', 'Просят', { align: 'right' })}
             {head('breakeven_price', 'Мин. для участия', { align: 'right' })}
             {head('margin', 'Маржа', { align: 'right', sub: 'при их цене' })}
             {!compact && head('stock', 'Остаток', { align: 'right' })}
             {head('end_at', 'Срок', { kind: 'date' })}
-            <th className="px-3 py-2.5 font-medium">Пометки</th>
-            <th className="px-3 py-2.5" />
+            <th className="px-3 py-3 font-medium">Пометки</th>
+            <th className="py-3 pl-3 pr-5" />
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => (
             <tr key={r.id} className={`border-t border-line ${selected?.has(r.id) ? 'bg-accent/5' : ''}`} data-testid="discount-row" data-task={r.ozon_task_id}>
               {onSelect && (
-                <td className="px-3 py-2.5 align-top">
+                <td className="py-3 pl-5 pr-3 align-top">
                   <input
                     type="checkbox"
                     aria-label={`Выбрать заявку ${r.ozon_task_id}`}
@@ -108,7 +114,7 @@ export function DiscountsTable({
                   />
                 </td>
               )}
-              <td className="max-w-[16rem] px-3 py-2.5 align-top">
+              <td className={`max-w-[16rem] py-3 pr-3 align-top ${onSelect ? 'pl-3' : 'pl-5'}`}>
                 {r.product ? (
                   <>
                     <Link href={`/dashboard/products/${r.product.id}`} className="block min-w-0 hover:text-accent">
@@ -125,23 +131,23 @@ export function DiscountsTable({
                   </>
                 )}
               </td>
-              <td className="whitespace-nowrap px-3 py-2.5 text-right align-top tabular-nums">
+              <td className="whitespace-nowrap px-3 py-3 text-right align-top tabular-nums">
                 {rub(r.price)}
                 {r.min_auto_price && <Sub>мин. в Ozon {rub(r.min_auto_price)}</Sub>}
               </td>
-              <td className="whitespace-nowrap px-3 py-2.5 text-right align-top font-medium tabular-nums" data-testid="discount-requested">
+              <td className="whitespace-nowrap px-3 py-3 text-right align-top font-medium tabular-nums" data-testid="discount-requested">
                 {rub(r.requested_price)}
                 <Sub>
                   {r.discount_pct !== null ? `−${Number(r.discount_pct).toLocaleString('ru-RU')} %` : '—'}
                   {r.requested_quantity ? ` · ${r.requested_quantity} шт.` : ''}
                 </Sub>
               </td>
-              <td className="whitespace-nowrap px-3 py-2.5 text-right align-top tabular-nums">
+              <td className="whitespace-nowrap px-3 py-3 text-right align-top tabular-nums">
                 {rub(r.breakeven_price)}
                 {r.target_price && <Sub>целевая {rub(r.target_price)}</Sub>}
               </td>
               <td
-                className={`whitespace-nowrap px-3 py-2.5 text-right align-top font-medium tabular-nums ${
+                className={`whitespace-nowrap px-3 py-3 text-right align-top font-medium tabular-nums ${
                   r.margin === null ? 'text-muted' : Number(r.margin) < 0 ? 'text-bad' : r.marks.includes('low_margin') ? 'text-warn' : 'text-ok'
                 }`}
                 data-testid="discount-margin"
@@ -153,8 +159,8 @@ export function DiscountsTable({
                   </Sub>
                 )}
               </td>
-              {!compact && <td className="whitespace-nowrap px-3 py-2.5 text-right align-top tabular-nums">{r.stock === null ? '—' : `${r.stock} шт.`}</td>}
-              <td className="whitespace-nowrap px-3 py-2.5 align-top">
+              {!compact && <td className="whitespace-nowrap px-3 py-3 text-right align-top tabular-nums">{r.stock === null ? '—' : `${r.stock} шт.`}</td>}
+              <td className="whitespace-nowrap px-3 py-3 align-top">
                 {r.can_decide ? (
                   <>
                     <span className={Number(r.hours_left) <= 24 ? 'font-medium text-bad' : ''}>{leftText(r.hours_left)}</span>
@@ -175,7 +181,7 @@ export function DiscountsTable({
                   </>
                 )}
               </td>
-              <td className="px-3 py-2.5 align-top">
+              <td className="px-3 py-3 align-top">
                 <div className="flex max-w-[12rem] flex-wrap gap-1">
                   {r.marks.map((m, i) => (
                     <Badge key={m} tone={MARK_TONE[m]}>
@@ -194,7 +200,7 @@ export function DiscountsTable({
                   )}
                 </div>
               </td>
-              <td className="whitespace-nowrap px-3 py-2.5 text-right align-top">
+              <td className="whitespace-nowrap py-3 pl-3 pr-5 text-right align-top">
                 {r.can_decide && (
                   <div className="flex justify-end gap-1.5">
                     <button type="button" onClick={() => onDecide([r], 'approve')} className={buttonClass('primary', 'sm')} data-testid="discount-approve">
@@ -473,7 +479,24 @@ export function ProductDiscounts({ productId }: { productId: string }) {
       .catch((err) => setError(errorMessage(err)))
   }, [productId, reload])
 
-  if (error) return null // блок необязательный — ошибка не ломает страницу товара
+  if (error)
+    return (
+      <Panel title="Заявки на скидку" testid="product-discounts">
+        <p className="text-sm text-bad" data-testid="product-discounts-error">
+          Заявки не загрузились: {error}{' '}
+          <button
+            type="button"
+            onClick={() => {
+              setError(null)
+              setReload((n) => n + 1)
+            }}
+            className="text-accent underline"
+          >
+            Повторить
+          </button>
+        </p>
+      </Panel>
+    )
   if (!data) return <Skeleton className="h-24" />
   if (data.items.length === 0) return null
   const rows = data.items.slice(0, 5)
