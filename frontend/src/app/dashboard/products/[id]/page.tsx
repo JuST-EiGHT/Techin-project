@@ -11,6 +11,7 @@ import { Copyable } from '@/components/copy'
 import { AnalyticsFilters, CoverageNote, MetricsState, useAnalyticsFilter, useMetrics } from '@/components/analytics'
 import { FormError } from '@/components/AuthForm'
 import { DynamicsChart, KeyFigures } from '@/components/home'
+import { ProductDiscounts } from '@/components/discounts'
 import { PriceCalcBlock } from '@/components/price-calc'
 import { PriceChangeModal } from '@/components/price-change'
 import { CostBlock, IdLine, PriceChart } from '@/components/product-panel'
@@ -162,6 +163,8 @@ function ProductPage() {
             </Box>
             <PromosBlock data={data} lowMargin={lowMargin} />
           </div>
+
+          <ProductDiscounts productId={data.detail.item.id} />
 
           <StocksBlock data={data} />
 

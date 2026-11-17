@@ -7,7 +7,17 @@ import { api } from '@/lib/api'
 export type Severity = 'red' | 'yellow'
 export type AlertGroup = 'sales' | 'price' | 'margin' | 'stock' | 'promo' | 'money' | 'data'
 // разделы уведомлений по карте сервиса (10.25): каждая аномалия — ровно в одном
-export type AlertSection = 'sales' | 'margin' | 'stock' | 'cash' | 'payouts' | 'auto_promo' | 'prices' | 'data' | 'automation'
+export type AlertSection =
+  | 'sales'
+  | 'margin'
+  | 'stock'
+  | 'cash'
+  | 'payouts'
+  | 'auto_promo'
+  | 'discounts'
+  | 'prices'
+  | 'data'
+  | 'automation'
 export type AlertStatus = 'active' | 'resolved' | 'all'
 
 export type Anomaly = {
@@ -68,6 +78,7 @@ export const SECTIONS: { value: AlertSection; label: string; hint: string; soon?
   { value: 'cash', label: 'Кассовый разрыв', hint: 'прогноз остатка на счетах ниже нуля или порога; операции без статьи' },
   { value: 'payouts', label: 'Выплаты Ozon и банк', hint: 'выплата не пришла, разошлась с прогнозом, не дошла до счёта' },
   { value: 'auto_promo', label: 'Автодобавление в акцию', hint: 'Ozon сам добавил товар в акцию' },
+  { value: 'discounts', label: 'Заявки на скидку', hint: 'покупатель просит скидку; заявка скоро истечёт' },
   { value: 'prices', label: 'Изменения цен', hint: 'цена или комиссия Ozon изменились за 7 дней' },
   { value: 'data', label: 'Синхронизация и отчёты', hint: 'ключ не принят, данные не обновляются, пропуски, отчёты с ошибкой' },
   { value: 'automation', label: 'Автоматизация', hint: 'появится с автоматическими правилами цен, акций и поставок', soon: true },

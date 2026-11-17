@@ -16,7 +16,7 @@ from app.models.sync_run import ACTIVE_STATUSES, FAILED, SUCCESS, SyncRun
 from app.services import bank_connections
 from app.services.sync import runner
 
-OZON_KINDS = ("products", "stocks", "promotions", "finance", "balance", "postings", "supplies")
+OZON_KINDS = ("products", "stocks", "promotions", "finance", "balance", "postings", "supplies", "discounts")
 BANK = "bank"
 KINDS = (*OZON_KINDS, BANK)
 
@@ -28,25 +28,26 @@ TITLES = {
     "balance": "Баланс и выплаты",
     "postings": "Отправления",
     "supplies": "Заявки на поставку",
+    "discounts": "Заявки на скидку",
     BANK: "Банк",
 }
 # как часто обновляется сам (расписание — tasks/celery_app.py); данные старше двух интервалов — «давно не обновлялись»
 SCHEDULE = {
     "products": timedelta(hours=1), "stocks": timedelta(minutes=30), "promotions": timedelta(hours=3),
     "finance": timedelta(hours=6), "balance": timedelta(hours=6), "postings": timedelta(hours=6),
-    "supplies": timedelta(hours=3), BANK: timedelta(hours=1),
+    "supplies": timedelta(hours=3), "discounts": timedelta(minutes=30), BANK: timedelta(hours=1),
 }
 SCHEDULE_TEXT = {
     "products": "сами — раз в час", "stocks": "сами — раз в 30 минут", "promotions": "сами — раз в 3 часа",
     "finance": "сами — раз в 6 часов", "balance": "сами — раз в 6 часов", "postings": "сами — раз в 6 часов",
-    "supplies": "сами — раз в 3 часа",
+    "supplies": "сами — раз в 3 часа", "discounts": "сами — раз в 30 минут",
     BANK: "сами — раз в час",
 }
 # вручную — не чаще: лимиты Ozon и банков; отправления и начисления — тяжёлые запросы за много дней
 RECENT = {
     "products": timedelta(minutes=10), "stocks": timedelta(minutes=10), "promotions": timedelta(minutes=15),
     "finance": timedelta(minutes=30), "balance": timedelta(minutes=30), "postings": timedelta(minutes=60),
-    "supplies": timedelta(minutes=10),
+    "supplies": timedelta(minutes=10), "discounts": timedelta(minutes=5),
     BANK: timedelta(minutes=10),
 }
 

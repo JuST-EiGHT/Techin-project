@@ -275,6 +275,38 @@ Seller API нельзя: есть только отчёты по вывозу и
 - Кросс-докинг и несколько кластеров (`/v1/draft/crossdock/create`, `/v1/draft/multi-cluster/create`) — не используем:
   план поставки — в один кластер.
 
+### Заявки на скидку (шаг 4.3a, сверено с выгрузкой документации 2026-10)
+
+Покупатель просит у продавца скидку на товар; продавец одобряет (можно со своей ценой и количеством) или отклоняет
+заявки в статусе «новая». Чтение — синхронизация `discounts`, раз в 30 минут (`services/sync/discount_tasks.py`).
+
+- **Список — `/v2/actions/discounts-task/list` (бета, решение владельца 17.11.2026).** `/v1/actions/discounts-task/list`
+  Ozon пометил устаревающим (22.01.2026: «будет отключён в будущем») — не используем. Запрос: `status` (`ALL` / `NEW` /
+  `APPROVED` / `DECLINED`, по умолчанию `ALL`), `limit` — только 5, 10, 15, 20, 30 или 50, `last_id` (первый запрос —
+  без него). Ответ: `tasks[]` — `id`, `sku`, `name`, `status`, `created_at`, `end_at` (окончание действия заявки) и
+  `end_at_duration` (секунд), `edited_till` (до какого времени можно изменить решение) и `edited_till_duration`,
+  `requested_price`, `requested_discount` (скидка, %), `requested_quantity_max`, `original_price` (до всех скидок),
+  `min_auto_price` (минимальная цена после автоприменения скидок и акций), `reduction_factor`, `approved_price`,
+  `approved_discount` (₽), `approved_quantity_max`, `moderated_at`, `is_auto_moderated`, `auto_moderated_info`
+  (`min_price`, `max_price`, `min_percent`, `max_percent`), сотрудник, который обработал (`email`, `first_name`,
+  `last_name`, `patronymic`). Поля `last_id` в ответе в выгрузке нет — следующая страница: `last_id` = `id` последней
+  заявки, пока страница полная.
+- **Статусы в v2 — только `NEW`, `APPROVED`, `DECLINED`.** «Просмотрена», «одобрена частично», «отклонена
+  автоматически», «отменена покупателем», «по купону», «куплено» были только в v1. «Истекла» в API нет: считаем сами —
+  новая заявка, у которой прошёл `end_at`.
+- **Персональные данные.** В v2 имени покупателя нет; имя, фамилию и e-mail сотрудника продавца не храним (в `raw_json`
+  они вырезаются) — только «обработал сотрудник» и `is_auto_moderated`.
+- **Одобрить — `/v1/actions/discounts-task/approve`:** `tasks[{id, approved_price, seller_comment,
+  approved_quantity_min, approved_quantity_max}]` — только заявки `NEW` (и `SEEN` в v1). **Отклонить —
+  `/v1/actions/discounts-task/decline`:** `tasks[{id, seller_comment}]`. Ответ обоих: `result.success_count`,
+  `fail_count`, `fail_details[{task_id, error_for_user}]` — текст ошибки показываем пользователю как есть. Какие поля
+  `tasks[]` обязательны, в выгрузке не раскрыто (есть только пример) — передаём все поля примера: `approved_quantity_min`
+  = 1, `approved_quantity_max` — сколько разрешили (по умолчанию `requested_quantity_max`).
+- Одобрение не меняет цену товара: это персональная цена для покупателя заявки, в «Историю цен» не попадает — только
+  в журнал действий и «Историю событий».
+- Свой лимит запросов у методов в выгрузке не указан — общий 50 в секунду. Повтор одобрения после таймаута Ozon
+  отклонит (заявка уже не `NEW`), поэтому запрос — без повторов (`retry=False`), таймаут — «могло примениться».
+
 ## Изменение (только через систему безопасности, см. BUSINESS_LOGIC.md §8)
 
 | Назначение | Метод | Эндпоинт | Важное |
@@ -282,6 +314,7 @@ Seller API нельзя: есть только отчёты по вывозу и
 | Цена, мин. цена, зачёркнутая | POST | `/v1/product/import/prices` | цену товара — не больше 10 раз в час; `prices.auto_action_enabled` устарел |
 | Добавить или обновить товар в акции | POST | `/v1/actions/products/update` | заменяет `/v1/actions/products/activate` |
 | Убрать товар из акции | POST | `/v2/actions/products/deactivate` | заменяет `/v1/actions/products/deactivate` |
+| Одобрить / отклонить заявку на скидку | POST | `/v1/actions/discounts-task/approve`, `/decline` | только заявки «новая»; ответ по каждой заявке (шаг 4.3a) |
 | Остатки FBS | POST | `/v2/products/stocks` | 100 пар за запрос, 80 запросов/мин, пара — раз в 30 с |
 
 Все методы Ozon — POST: повтор после таймаута может применить изменение дважды. Для

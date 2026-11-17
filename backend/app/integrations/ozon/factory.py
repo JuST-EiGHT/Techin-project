@@ -14,12 +14,13 @@ from app.services.encryption import DecryptionError, decrypt
 log = logging.getLogger(__name__)
 
 
-async def get_ozon_client(user_id: uuid.UUID, db: AsyncSession) -> OzonClient:
+async def get_ozon_client(user_id: uuid.UUID, db: AsyncSession, *, retry: bool = True) -> OzonClient:
     """Берёт действующий ключ пользователя (активный и не истёкший), расшифровывает,
     отмечает last_used_at. Если ключей несколько — последний использованный.
 
     Бросает OzonNotConfiguredError, если рабочего ключа нет. Клиент нужно закрыть
-    (async with / aclose).
+    (async with / aclose). retry=False — без повторов (изменение, которое нельзя повторить вслепую: решение по
+    заявке на скидку, шаг 4.3a).
     """
     now = datetime.now(timezone.utc)
     res = await db.execute(
@@ -42,4 +43,4 @@ async def get_ozon_client(user_id: uuid.UUID, db: AsyncSession) -> OzonClient:
 
     cred.last_used_at = now
     await db.commit()
-    return OzonClient(cred.client_id, api_key)
+    return OzonClient(cred.client_id, api_key, retry=retry)

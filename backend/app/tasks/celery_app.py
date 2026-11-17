@@ -33,6 +33,8 @@ celery_app.conf.update(
         "sync-postings-every-6h": {"task": "tasks.sync_postings_all", "schedule": crontab(minute=38, hour="*/6")},
         # заявки на поставку FBO (шаг 10.18): статусы и таймслоты — раз в 3 часа
         "sync-supplies-every-3h": {"task": "tasks.sync_supplies_all", "schedule": crontab(minute=47, hour="*/3")},
+        # заявки покупателей на скидку (шаг 4.3a): каждые 30 минут — у заявки ограниченное время на решение
+        "sync-discounts-every-30-min": {"task": "tasks.sync_discounts_all", "schedule": crontab(minute="4,34")},
         # аномалии (шаг 7.1): раз в час, после синхронизаций часа (товары :07, остатки :43, банки :52)
         "detect-anomalies-hourly": {"task": "tasks.detect_anomalies_all", "schedule": crontab(minute=57)},
         # уведомления в Telegram, отложенные тихими часами или сбоем (шаг 7.3): каждые 5 минут

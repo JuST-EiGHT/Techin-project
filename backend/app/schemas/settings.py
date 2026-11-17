@@ -51,6 +51,7 @@ class SettingsResponse(BaseModel):
     anomaly_uncategorized_days: int  # операция без статьи дольше (планирование)
     anomaly_sync_stale_hours: int  # данные не обновлялись дольше, часов (10.5)
     anomaly_data_gap_days: int  # дней без начислений между загруженными — уже проблема (10.5)
+    anomaly_discount_expiry_hours: int = 24  # заявка на скидку истекает меньше чем через столько часов — красная (4.3a)
     recommendation_hide_days: int  # «Скрыть» рекомендацию — на сколько дней (10.6)
     abc_a_pct: int  # ABC-анализ (10.10): граница группы A, % накопленной доли
     abc_b_pct: int  # граница группы B
@@ -90,6 +91,7 @@ class SettingsUpdate(BaseModel):
     anomaly_uncategorized_days: int | None = Field(None, ge=1, le=90)
     anomaly_sync_stale_hours: int | None = Field(None, ge=1, le=720)
     anomaly_data_gap_days: int | None = Field(None, ge=1, le=30)
+    anomaly_discount_expiry_hours: int | None = Field(None, ge=1, le=168)
     recommendation_hide_days: int | None = Field(None, ge=1, le=90)
     abc_a_pct: int | None = Field(None, ge=10, le=98)
     abc_b_pct: int | None = Field(None, ge=11, le=99)
