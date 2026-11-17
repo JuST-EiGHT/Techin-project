@@ -16,6 +16,7 @@ const MAP: { prefix: string; group: string; title: string; exact?: boolean }[] =
   { prefix: '/dashboard/operations', group: 'planning', title: 'Операции: счета, остатки, ДДС' },
   { prefix: '/dashboard/planning', group: 'planning', title: 'Планирование: прогноз и кассовый разрыв' },
   { prefix: '/dashboard/finance', group: 'accounting', title: 'Финансы: налоги и учёт закупки' },
+  { prefix: '/dashboard/advertising', group: 'traffic', title: 'Продвижение: префикс для метки UTM_CAMPAIGN' },
 ]
 
 /** Настройки раздела, на странице которого пользователь; null — у страницы своих настроек нет (сами «Настройки»). */

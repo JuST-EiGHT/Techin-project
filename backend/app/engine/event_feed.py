@@ -351,6 +351,8 @@ ACTIONS: dict[tuple[str, str], Action] = {
     ("POST", f"{P}/bank/matches/dismiss"): Action("Операции отмечены разными", "/dashboard/operations", "Операции"),
     ("POST", f"{P}/reports/documents"): Action("Запрошен документ Ozon", "/dashboard/finance/documents?tab=documents",
                                               "Документы"),
+    ("PUT", f"{P}/traffic/settings"): Action("Изменён префикс для метки UTM_CAMPAIGN", "/dashboard/settings#traffic",
+                                            "Настройки"),
 }
 REPORT_UPLOAD = ("POST", f"{P}/reports/upload")  # загрузка — событие отчёта; не загрузился — ошибка загрузки
 # не события ленты: вход и токены; «Обновить» (синхронизация — свои события); предпросмотры и расчёты (в журнал не
@@ -381,6 +383,7 @@ IGNORED: set[tuple[str, str]] = {
     ("POST", f"{P}/planning/rules/preview"), ("POST", f"{P}/planning/rules/check"),
     ("POST", f"{P}/planning/budgets/import/errors"),
     ("POST", f"{P}/supply/plans/{{plan_id}}/ozon-check"),
+    ("POST", f"{P}/traffic/links/build"), ("POST", f"{P}/traffic/links/export"),
 }
 COSTS_TEMPLATE = f"{P}/costs/{{offer_id:path}}"
 
