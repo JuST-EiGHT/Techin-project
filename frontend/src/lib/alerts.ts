@@ -5,9 +5,9 @@ import { useAuth } from '@/contexts/AuthContext'
 import { api } from '@/lib/api'
 
 export type Severity = 'red' | 'yellow'
-export type AlertGroup = 'sales' | 'price' | 'margin' | 'stock' | 'promo' | 'money' | 'data'
+export type AlertGroup = 'sales' | 'price' | 'margin' | 'stock' | 'promo' | 'money' | 'data' | 'traffic'
 // разделы уведомлений по карте сервиса (10.25): каждая аномалия — ровно в одном
-export type AlertSection = 'sales' | 'margin' | 'stock' | 'cash' | 'payouts' | 'auto_promo' | 'prices' | 'data' | 'automation'
+export type AlertSection = 'sales' | 'margin' | 'stock' | 'cash' | 'payouts' | 'auto_promo' | 'prices' | 'data' | 'traffic' | 'automation'
 export type AlertStatus = 'active' | 'resolved' | 'all'
 
 export type Anomaly = {
@@ -58,6 +58,7 @@ export const GROUPS: { value: AlertGroup; label: string; hint: string }[] = [
   { value: 'promo', label: 'Акции', hint: 'Ozon сам добавил товар в акцию или в акции маржа ниже нуля' },
   { value: 'money', label: 'Деньги', hint: 'выплаты Ozon, сверка с банком, кассовый разрыв, операции без статьи' },
   { value: 'data', label: 'Данные', hint: 'синхронизация, пропуски в начислениях, отчёты с ошибкой, продажи без себестоимости' },
+  { value: 'traffic', label: 'Внешний трафик', hint: 'ссылка с диплинком скоро перестанет работать' },
 ]
 
 /** Разделы «Уведомлений» в порядке карты сервиса (SITEMAP п. 9); «Автоматизация» — с шагов 9.x. */
@@ -70,6 +71,7 @@ export const SECTIONS: { value: AlertSection; label: string; hint: string; soon?
   { value: 'auto_promo', label: 'Автодобавление в акцию', hint: 'Ozon сам добавил товар в акцию' },
   { value: 'prices', label: 'Изменения цен', hint: 'цена или комиссия Ozon изменились за 7 дней' },
   { value: 'data', label: 'Синхронизация и отчёты', hint: 'ключ не принят, данные не обновляются, пропуски, отчёты с ошибкой' },
+  { value: 'traffic', label: 'Внешний трафик', hint: 'ссылка с диплинком скоро перестанет работать — откройте её' },
   { value: 'automation', label: 'Автоматизация', hint: 'появится с автоматическими правилами цен, акций и поставок', soon: true },
 ]
 export const SECTION_LABEL = Object.fromEntries(SECTIONS.map((s) => [s.value, s.label])) as Record<AlertSection, string>

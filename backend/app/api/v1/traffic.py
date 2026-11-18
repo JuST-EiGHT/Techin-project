@@ -1,6 +1,9 @@
-"""«Продвижение → Внешний трафик» (фаза 11). Шаг 11.1: префикс для метки UTM_CAMPAIGN (настройка магазина) и конструктор
+"""«Продвижение → Внешний трафик» (фаза 11). Шаг 11.2: собранные ссылки сохраняются (POST /links), история — версии,
+диплинк и подменный артикул из кабинета, срок диплинка, «Открыть» продлевает. Шаг 11.1: префикс для метки UTM_CAMPAIGN (настройка магазина) и конструктор
 ссылок с UTM-метками — товары из каталога или список ссылок, выгрузка Excel / CSV, QR-код. API у Ozon для внешнего трафика
 нет: ссылки сервис собирает сам по правилам Ozon (engine/traffic_links)."""
+import uuid
+from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -14,6 +17,11 @@ from app.schemas.traffic import (
     BuildRequest,
     BuildResult,
     ChannelOut,
+    LinkList,
+    LinkRow,
+    LinkSaved,
+    LinkUpdate,
+    LinkVersion,
     MacroOut,
     PrefixUpdate,
     ProductOption,
@@ -21,6 +29,7 @@ from app.schemas.traffic import (
 )
 from app.services import audit
 from app.services import traffic as svc
+from app.services import traffic_history as history
 from app.services.stores import get_current_store
 from app.services.sync.finance import today_msk
 
@@ -112,3 +121,114 @@ async def qr_code(
     if download:
         return attachment(content, media, f"QR-код.{format}", f"qr.{format}")
     return Response(content, media_type=media)
+
+
+# ---------- история ссылок (шаг 11.2) ----------
+
+Tab = Literal["all", "deeplink", "expiring", "substitute", "deleted"]
+
+
+def _gone() -> HTTPException:
+    return HTTPException(status.HTTP_404_NOT_FOUND, "Ссылка не найдена")
+
+
+@router.post("/links", response_model=BuildResult, status_code=status.HTTP_201_CREATED)
+async def create_links(data: BuildRequest, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
+    """Собрать и сохранить в «Созданные ссылки»: собранные строки — новые ссылки (такая же уже есть — она же), строки с
+    ошибкой не сохраняются."""
+    try:
+        return await history.save_build(db, user.id, data)
+    except tl.LinkError as exc:
+        raise _bad(exc) from exc
+
+
+async def _list(db, user, tab, search, date_from, date_to, campaign, source, medium, channel) -> LinkList:
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Период: дата начала позже даты окончания")
+    return await history.list_links(db, user.id, tab=tab, search=search, date_from=date_from, date_to=date_to,
+                                    campaign=campaign, source=source, medium=medium, channel=channel)
+
+
+@router.get("/links", response_model=LinkList)
+async def list_links(
+    tab: Tab = Query("all", description="all · deeplink — с диплинком · expiring — диплинк истекает за 7 дней или уже "
+                     "не работает · substitute — с подменным артикулом · deleted — удалённые"),
+    search: str | None = Query(None, max_length=200, description="Артикул, название, SKU, ссылка, кампания"),
+    date_from: date | None = Query(None, description="Создана с"),
+    date_to: date | None = Query(None),
+    campaign: str | None = Query(None, max_length=64, description="Название кампании (после префикса)"),
+    source: str | None = Query(None, max_length=200),
+    medium: str | None = Query(None, max_length=200),
+    channel: str | None = Query(None, max_length=16),
+    user: User = Depends(get_current_store),
+    db: AsyncSession = Depends(get_db),
+):
+    return await _list(db, user, tab, search, date_from, date_to, campaign, source, medium, channel)
+
+
+@router.get("/links/export", response_class=Response)
+async def export_history(
+    tab: Tab = Query("all"),
+    search: str | None = Query(None, max_length=200),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+    campaign: str | None = Query(None, max_length=64),
+    source: str | None = Query(None, max_length=200),
+    medium: str | None = Query(None, max_length=200),
+    channel: str | None = Query(None, max_length=16),
+    user: User = Depends(get_current_store),
+    db: AsyncSession = Depends(get_db),
+):
+    """Созданные ссылки в Excel — те же, что на странице (вкладка, поиск, период, фильтры)."""
+    res = await _list(db, user, tab, search, date_from, date_to, campaign, source, medium, channel)
+    return attachment(history.to_xlsx(res.items), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                      f"Ссылки с UTM {today_msk():%d.%m.%Y}.xlsx", "utm-links-history.xlsx")
+
+
+@router.patch("/links/{link_id}", response_model=LinkSaved)
+async def update_link(link_id: uuid.UUID, data: LinkUpdate, user: User = Depends(get_current_store),
+                      db: AsyncSession = Depends(get_db)):
+    """Правка — новая версия, прежняя остаётся в истории ссылки."""
+    try:
+        return await history.update(db, user.id, link_id, data)
+    except history.NotFound as exc:
+        raise _gone() from exc
+    except tl.LinkError as exc:
+        raise _bad(exc) from exc
+
+
+@router.delete("/links/{link_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_link(link_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
+    """Удалить из списка: ссылка и её версии остаются — «Удалённые», можно вернуть."""
+    try:
+        await history.delete(db, user.id, link_id)
+    except history.NotFound as exc:
+        raise _gone() from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/links/{link_id}/restore", response_model=LinkRow)
+async def restore_link(link_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
+    try:
+        return await history.restore(db, user.id, link_id)
+    except history.NotFound as exc:
+        raise _gone() from exc
+
+
+@router.post("/links/{link_id}/opened", response_model=LinkRow)
+async def link_opened(link_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
+    """Ссылку с диплинком открыли из сервиса — отсчёт 30 дней начинается заново."""
+    try:
+        return await history.opened(db, user.id, link_id)
+    except history.NotFound as exc:
+        raise _gone() from exc
+    except tl.LinkError as exc:
+        raise _bad(exc) from exc
+
+
+@router.get("/links/{link_id}/versions", response_model=list[LinkVersion])
+async def link_versions(link_id: uuid.UUID, user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
+    try:
+        return await history.versions(db, user.id, link_id)
+    except history.NotFound as exc:
+        raise _gone() from exc

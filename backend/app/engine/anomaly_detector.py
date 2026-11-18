@@ -56,6 +56,7 @@ SYNC_PROBLEM = "sync_problem"  # ошибка загрузки или данны
 ACCRUAL_GAPS = "accrual_gaps"  # дни без начислений между загруженными — P&L за них неполный
 REPORT_ERROR = "report_error"  # отчёт XLSX не удалось перечитать
 MISSING_COST = "missing_cost"  # продажи без себестоимости — прибыль по ним не посчитать (правило 5)
+DEEPLINK_EXPIRING = "deeplink_expiring"  # ссылка с диплинком скоро перестанет работать — 30 дней без переходов (11.2)
 
 # группа — для фильтров и настроек уведомлений (7.2, 7.3): товары, акции, деньги, данные (10.5)
 GROUPS = {
@@ -64,6 +65,7 @@ GROUPS = {
     PAYOUT_MISSED: "money", PAYOUT_DIFF: "money", BANK_MISSING: "money", BANK_DIFF: "money",
     CASH_GAP: "money", UNCATEGORIZED: "money",
     SYNC_PROBLEM: "data", ACCRUAL_GAPS: "data", REPORT_ERROR: "data", MISSING_COST: "data",
+    DEEPLINK_EXPIRING: "traffic",
 }
 TYPES = tuple(GROUPS)
 # финансовые проблемы — «Финансы → Обзор» (10.22): деньги (выплаты, банк, разрыв, операции без статьи) и данные, без
@@ -851,3 +853,33 @@ def reconcile(active: list[Active], checks: list[Check], gone_products: set[uuid
                 continue
             plan.resolve[a.id] = GONE if a.product_id is not None and a.product_id in gone_products else NORMAL
     return plan
+
+
+# ── внешний трафик (шаг 11.2) ──
+@dataclass(frozen=True)
+class DeeplinkItem:
+    """Ссылка с диплинком: когда перестанет работать без новых переходов (engine/traffic_links.deeplink_state)."""
+
+    link_id: uuid.UUID
+    product_id: uuid.UUID | None
+    what: str  # название товара или ссылка
+    campaign: str
+    state: str  # ok | soon | expired
+    expires_on: date
+    days_left: int
+
+
+def deeplink_expiring(items: list[DeeplinkItem]) -> Check:
+    """Диплинк истекает за 7 дней — жёлтая (откройте ссылку — отсчёт начнётся заново); уже не работает — красная (нужен
+    новый в кабинете Ozon). Открыли, убрали диплинк, удалили ссылку — закрывается."""
+    check = Check(DEEPLINK_EXPIRING)
+    for it in items:
+        if it.state == "ok":
+            continue
+        check.findings.append(Finding(
+            DEEPLINK_EXPIRING, f"link:{it.link_id}", RED if it.state == "expired" else YELLOW, product_id=it.product_id,
+            metric_after=Decimal(it.days_left),
+            details={"link_id": str(it.link_id), "what": it.what, "campaign": it.campaign,
+                     "expires_on": it.expires_on.isoformat(), "days_left": it.days_left},
+        ))
+    return check

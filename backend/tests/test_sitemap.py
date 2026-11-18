@@ -204,6 +204,9 @@ def anomaly_links() -> tuple[dict[str, str | None], set[str]]:
         "accrual_gaps": (det.ACCRUAL_GAPS, det.YELLOW, None, {"count": 2, "ranges": [["2026-10-05", "2026-10-06"]]}),
         "report_error": (det.REPORT_ERROR, det.YELLOW, None, {"filename": "sept.xlsx"}),
         "missing_cost": (det.MISSING_COST, det.YELLOW, None, {"count": 1, "revenue": "500", "top": []}),
+        # шаг 11.2: ссылка с диплинком
+        "deeplink": (det.DEEPLINK_EXPIRING, det.YELLOW, None, {"link_id": ID, "what": "Подшипник", "campaign": "vk",
+                                                               "expires_on": "2026-10-20", "days_left": 5}),
     }
     links = {
         name: describe(t, sev, Decimal(100), Decimal(50), Decimal(10), d, pid_, "Подшипник 6001", today).link
@@ -231,6 +234,7 @@ def test_anomaly_links_lead_to_new_pages():
     assert links["sync_stale"] == "/dashboard?sync=1"  # открывает окно «Синхронизация»
     assert links["accrual_gaps"] == links["report_error"] == "/dashboard/analytics/reports"
     assert links["missing_cost"] == "/dashboard/products/costs?missing=1"
+    assert links["deeplink"] == f"/dashboard/advertising/links?tab=history&link={ID}"  # 11.2: прямо к ссылке
     # товар — страница «Статистика товара» (10.14), а не панель
     assert links["low_stock"] == links["sales_product"] == links["low_margin"] == f"/dashboard/products/{ID}"
 

@@ -46,6 +46,8 @@ export type BuildRow = {
   section: string | null
   error: string | null
   product: { id: string; offer_id: string; name: string | null; sku: number | null } | null
+  /** сохранённая ссылка (шаг 11.2); у строки с ошибкой — нет */
+  link_id: string | null
 }
 
 export type BuildResult = {
@@ -76,6 +78,9 @@ export const searchTrafficProducts = (search: string) =>
 
 export const buildLinks = (body: BuildRequest) => api.post<BuildResult>('/traffic/links/build', body).then((r) => r.data)
 
+/** Собрать и сохранить в «Созданные ссылки» (шаг 11.2). */
+export const createLinks = (body: BuildRequest) => api.post<BuildResult>('/traffic/links', body).then((r) => r.data)
+
 export const exportLinks = (body: BuildRequest, format: 'xlsx' | 'csv') =>
   saveFile(api.post('/traffic/links/export', body, { params: { format }, responseType: 'blob' }), `utm-links.${format}`)
 
@@ -87,3 +92,99 @@ export async function qrObjectUrl(url: string): Promise<string> {
 
 export const downloadQr = (url: string, format: 'png' | 'svg') =>
   saveFile(api.get('/traffic/qr', { params: { url, format, download: true }, responseType: 'blob' }), `qr.${format}`)
+
+// ---------- история ссылок (шаг 11.2) ----------
+
+export type LinkTab = 'all' | 'deeplink' | 'expiring' | 'substitute' | 'deleted'
+
+export type DeeplinkStatus = { state: 'ok' | 'soon' | 'expired'; expires_on: string; days_left: number; last_activity: string }
+
+export type LinkRow = {
+  link_id: string
+  version: number
+  versions: number
+  created_at: string
+  updated_at: string
+  product: { id: string; offer_id: string; name: string | null; sku: number | null } | null
+  source_url: string
+  section: string
+  channel: string
+  campaign: string
+  campaign_name: string
+  utm_source: string
+  utm_medium: string
+  utm_term: string
+  utm_content: string
+  url: string
+  deeplink: string | null
+  deeplink_status: DeeplinkStatus | null
+  substitute_code: string | null
+  deleted: boolean
+}
+
+export type LinkList = {
+  items: LinkRow[]
+  total: number
+  counts: Record<LinkTab, number>
+  facets: { campaigns: string[]; sources: string[]; mediums: string[] }
+}
+
+export type LinkFilters = {
+  tab: LinkTab
+  search?: string
+  date_from?: string
+  date_to?: string
+  campaign?: string
+  source?: string
+  medium?: string
+  channel?: string
+}
+
+export type LinkUpdate = Partial<{
+  campaign: string
+  source: string
+  medium: string
+  term: string
+  content: string
+  deeplink: string
+  substitute_code: string
+}>
+
+export type LinkVersion = {
+  version: number
+  created_at: string
+  campaign: string
+  utm_source: string
+  utm_medium: string
+  utm_term: string
+  utm_content: string
+  url: string
+  deeplink: string | null
+  substitute_code: string | null
+  deleted_at: string | null
+  superseded_at: string | null
+}
+
+const clean = (f: LinkFilters) => Object.fromEntries(Object.entries(f).filter(([, v]) => v !== undefined && v !== ''))
+
+export const listLinks = (f: LinkFilters) => api.get<LinkList>('/traffic/links', { params: clean(f) }).then((r) => r.data)
+
+export const exportLinkHistory = (f: LinkFilters) =>
+  saveFile(api.get('/traffic/links/export', { params: clean(f), responseType: 'blob' }), 'utm-links-history.xlsx')
+
+export const updateLink = (id: string, body: LinkUpdate) =>
+  api.patch<{ link: LinkRow; warnings: string[] }>(`/traffic/links/${id}`, body).then((r) => r.data)
+
+export const deleteLink = (id: string) => api.delete(`/traffic/links/${id}`)
+
+export const restoreLink = (id: string) => api.post<LinkRow>(`/traffic/links/${id}/restore`).then((r) => r.data)
+
+export const markOpened = (id: string) => api.post<LinkRow>(`/traffic/links/${id}/opened`).then((r) => r.data)
+
+export const linkVersions = (id: string) => api.get<LinkVersion[]>(`/traffic/links/${id}/versions`).then((r) => r.data)
+
+/** Зачем поля из кабинета (правило 15). */
+export const DEEPLINK_WHY =
+  'Диплинк откроет страницу в приложении Ozon. Его создаёт только кабинет Ozon — скопируйте ссылку https://ozon.onelink.me/… из списка созданных ссылок. Без переходов 30 дней он перестаёт работать — сервис напомнит заранее.'
+export const SUBSTITUTE_WHY =
+  'Подменный артикул (O-4374100) блогеры и соцсети показывают вместо обычного — по нему Ozon тоже считает переходы. Он есть не у всех продавцов, берётся в кабинете Ozon.'

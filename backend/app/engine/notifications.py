@@ -65,6 +65,8 @@ SECTIONS: tuple[Section, ...] = (
     Section("data", "Синхронизация и отчёты", "Ключ Ozon или токен банка не принят, данные давно не обновлялись, "
             "пропуски в начислениях, отчёт с ошибкой, продажи без себестоимости.",
             (det.SYNC_PROBLEM, det.ACCRUAL_GAPS, det.REPORT_ERROR, det.MISSING_COST)),
+    Section("traffic", "Внешний трафик", "Ссылка с диплинком скоро перестанет работать: 30 дней без переходов — "
+            "откройте её, и отсчёт начнётся заново.", (det.DEEPLINK_EXPIRING,)),
     Section("automation", "Автоматизация", "Что сделали автоматические правила цен, акций и поставок и где они "
             "остановились.", (), soon="9.x"),
 )
@@ -101,7 +103,7 @@ def legacy_sections(red: bool = True, yellow: bool = False, auto_promo: bool = T
     out = {k: by_severity for k in ("sales", "margin", "stock", "prices")}
     out.update(cash=SectionPrefs(telegram=money), payouts=SectionPrefs(telegram=money),
                auto_promo=SectionPrefs(telegram=auto_promo), data=SectionPrefs(telegram=data),
-               automation=SectionPrefs())
+               traffic=SectionPrefs(telegram=True), automation=SectionPrefs())
     return out
 
 

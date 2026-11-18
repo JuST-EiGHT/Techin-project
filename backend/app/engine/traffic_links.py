@@ -10,6 +10,7 @@
 """
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from urllib.parse import parse_qsl, quote, urlsplit, urlunsplit
 
 MAX_LINKS = 100  # как в конструкторе Ozon: до 100 ссылок за раз
@@ -290,3 +291,86 @@ def build_rows(items: list[tuple[int, str, str | None]], labels: Labels) -> list
         seen[key] = line
         rows.append(BuildRow(line, text, url=tagged_url(link, labels), section=link.section, product_id=product_id))
     return rows
+
+
+# ---------- диплинк и подменный артикул (шаг 11.2) ----------
+# Оба создаёт только кабинет Ozon (галочка «Использовать диплинк», подменный артикул — у товара); сервис их хранит у ссылки.
+
+DEEPLINK_DAYS = 30  # ссылка с диплинком перестаёт вести на страницу через 30 дней без переходов (база знаний Ozon)
+DEEPLINK_WARN_DAYS = 7  # предупреждаем за неделю
+_SUBSTITUTE = re.compile(r"^[OoОо0]-?(\d{3,12})$")
+
+
+def check_deeplink(text: str | None, labels: "Labels | None" = None) -> str | None:
+    """Ссылка с диплинком из кабинета Ozon: https://ozon.onelink.me/<код>/<код>. Пусто — без диплинка. С макросами сети
+    диплинк в кабинете не включить — такая пара ошибка."""
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    if not _URL_LIKE.match(raw):
+        raw = "https://" + raw
+    try:
+        parts = urlsplit(raw)
+    except ValueError as exc:
+        raise LinkError("Диплинк — ссылка из кабинета Ozon вида https://ozon.onelink.me/…") from exc
+    host = (parts.hostname or "").lower()
+    if parts.scheme.lower() not in ("http", "https") or not (host == "onelink.me" or host.endswith(".onelink.me")):
+        raise LinkError("Диплинк — ссылка из кабинета Ozon вида https://ozon.onelink.me/… Скопируйте её из списка "
+                        "созданных ссылок в разделе «Внешний трафик»")
+    if len(parts.path.strip("/")) < 2 or any(c.isspace() for c in raw):
+        raise LinkError("Диплинк неполный — скопируйте ссылку из кабинета Ozon целиком")
+    if labels is not None and any("{" in v for v in (labels.term, labels.content)):
+        raise LinkError("С макросами рекламной сети диплинк в кабинете Ozon не включить — уберите макросы или диплинк")
+    return urlunsplit(("https", host, parts.path, parts.query, ""))
+
+
+def check_substitute(text: str | None) -> str | None:
+    """Подменный артикул Ozon для соцсетей и блогеров: «O-4374100»; первая буква «О» или ноль, кириллица или латиница —
+    как угодно, храним как «O-<цифры>». Пусто — нет."""
+    raw = (text or "").strip().replace(" ", "")
+    if not raw:
+        return None
+    m = _SUBSTITUTE.match(raw)
+    if not m:
+        raise LinkError("Подменный артикул выглядит так: O-4374100 — буква «О» и цифры, как в кабинете Ozon")
+    return f"O-{m.group(1)}"
+
+
+def campaign_name_of(campaign: str) -> str:
+    """Название кампании из utm_campaign: то, что после префикса vendor_org_<цифры>_."""
+    m = re.match(r"^vendor_org_\d+_(.+)$", campaign)
+    return m.group(1) if m else campaign
+
+
+DL_OK, DL_SOON, DL_EXPIRED = "ok", "soon", "expired"
+
+
+@dataclass(frozen=True)
+class DeeplinkState:
+    state: str  # ok | soon | expired
+    last_activity: datetime  # последний переход, о котором знаем, или когда диплинк добавлен
+    expires_at: datetime
+    days_left: int  # 0 — истекает сегодня, отрицательное — уже не работает
+
+
+def deeplink_state(since: datetime, opens: list[datetime], now: datetime) -> DeeplinkState:
+    """Срок ссылки с диплинком: 30 дней от последнего перехода, о котором знаем (кнопка «Открыть» в сервисе), а пока
+    переходов нет — от дня, когда диплинк добавили. Переходы из отчётов Ozon добавятся в шаге 11.3."""
+    last = max([since, *opens])
+    expires = last + timedelta(days=DEEPLINK_DAYS)
+    left = (expires.date() - now.date()).days
+    state = DL_EXPIRED if now >= expires else DL_SOON if left <= DEEPLINK_WARN_DAYS else DL_OK
+    return DeeplinkState(state, last, expires, left)
+
+
+def plain_url(link: OzonLink) -> str:
+    """Что размечено — без меток, со своими параметрами ссылки (для истории и пересборки при правке)."""
+    if not link.params:
+        return link.base
+    return link.base + "?" + "&".join(f"{quote(k, safe=_SAFE)}={quote(v, safe=_SAFE)}" for k, v in link.params)
+
+
+def campaign_value_prefix(campaign: str) -> str | None:
+    """Префикс из сохранённой метки — если в настройках магазина его потом убрали, правка ссылки не ломается."""
+    m = re.match(r"^(vendor_org_\d+)_", campaign)
+    return m.group(1) if m else None

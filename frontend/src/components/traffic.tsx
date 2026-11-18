@@ -5,13 +5,15 @@
 // придёт из отчётов Ozon (шаги 11.3–11.4). Ссылки пока не сохраняются — история появится в шаге 11.2.
 import { Check, ChevronsUpDown, Copy, ExternalLink, FileSpreadsheet, Link2, QrCode, Tag, X } from 'lucide-react'
 import Link from 'next/link'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import { CopyText, writeText } from '@/components/copy'
 import { SearchBox, selectClass } from '@/components/filters'
 import { Modal, input } from '@/components/planning/ui'
 import { SortTh, useSort } from '@/components/table'
-import { Badge, Button, EmptyState, HelpTip, PageHeader, Panel, Segmented, Skeleton, Sub, buttonClass } from '@/components/ui'
+import { LinkHistory } from '@/components/traffic-history'
+import { Badge, Button, EmptyState, HelpTip, PageHeader, Panel, Segmented, Skeleton, Sub, Tabs, buttonClass } from '@/components/ui'
 import { errorMessage } from '@/lib/api'
 import {
   type BuildRequest,
@@ -22,7 +24,7 @@ import {
   PREFIX_WHY,
   type ProductOption,
   type TrafficSettings,
-  buildLinks,
+  createLinks,
   downloadQr,
   exportLinks,
   getTrafficSettings,
@@ -31,7 +33,7 @@ import {
   searchTrafficProducts,
 } from '@/lib/traffic'
 
-const plural = (n: number, one: string, few: string, many: string) => {
+export const plural = (n: number, one: string, few: string, many: string) => {
   const m10 = n % 10
   const m100 = n % 100
   if (m10 === 1 && m100 !== 11) return one
@@ -229,7 +231,7 @@ function ProductPicker({ selected, onChange }: { selected: ProductOption[]; onCh
   )
 }
 
-function Field({ label, hint, help, children, htmlFor, required }: {
+export function Field({ label, hint, help, children, htmlFor, required }: {
   label: string
   hint?: React.ReactNode
   help?: React.ReactNode
@@ -258,7 +260,7 @@ function Field({ label, hint, help, children, htmlFor, required }: {
 
 /** Поле с выпадающим списком подсказок, как в конструкторе Ozon: выбрать из списка или вписать своё. Список фильтруется по
  *  набранному, ↑ ↓ — выбор, Enter — подставить, Esc — закрыть. */
-function SuggestInput({ id, value, onChange, options, placeholder, disabled, required, testid }: {
+export function SuggestInput({ id, value, onChange, options, placeholder, disabled, required, testid }: {
   id: string
   value: string
   onChange: (v: string) => void
@@ -480,7 +482,7 @@ function Labels({ settings, form, set }: { settings: TrafficSettings; form: Labe
   )
 }
 
-function QrModal({ url, onClose }: { url: string; onClose: () => void }) {
+export function QrModal({ url, onClose }: { url: string; onClose: () => void }) {
   const [src, setSrc] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
@@ -533,7 +535,12 @@ function CopyAll({ text }: { text: string }) {
   )
 }
 
-function Results({ result, request, sections }: { result: BuildResult; request: BuildRequest; sections: Record<string, string> }) {
+function Results({ result, request, sections, onHistory }: {
+  result: BuildResult
+  request: BuildRequest
+  sections: Record<string, string>
+  onHistory: () => void
+}) {
   const [qr, setQr] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const order = useMemo(() => new Map(result.rows.map((r, i) => [r, i])), [result])
@@ -573,6 +580,9 @@ function Results({ result, request, sections }: { result: BuildResult; request: 
           <Button size="sm" onClick={() => file('csv')} data-testid="traffic-csv">
             CSV
           </Button>
+          <button type="button" onClick={onHistory} className="ml-auto self-center text-sm text-accent hover:underline" data-testid="traffic-saved">
+            Сохранено в «Созданные ссылки» →
+          </button>
         </div>
       )}
       {(result.warnings.length > 0 || error) && (
@@ -655,7 +665,16 @@ function Results({ result, request, sections }: { result: BuildResult; request: 
   )
 }
 
+type PageTab = 'build' | 'history'
+
 export function LinkBuilderPage() {
+  const params = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
+  const tab: PageTab = params.get('tab') === 'history' ? 'history' : 'build'
+  const focus = params.get('link')
+  const setTab = (v: PageTab) => router.replace(v === 'history' ? `${pathname}?tab=history` : pathname, { scroll: false })
+  const [saved, setSaved] = useState(0) // сохранили новые ссылки — история перечитывается
   const [settings, setSettings] = useState<TrafficSettings | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [source, setSource] = useState<Source>('products')
@@ -699,7 +718,8 @@ export function LinkBuilderPage() {
     setError(null)
     setBusy(true)
     try {
-      setResult({ result: await buildLinks(request), request })
+      setResult({ result: await createLinks(request), request })
+      setSaved((n) => n + 1)
     } catch (err) {
       setError(errorMessage(err, 'Не получилось собрать ссылки — попробуйте ещё раз'))
     } finally {
@@ -719,7 +739,19 @@ export function LinkBuilderPage() {
           </a>
         )
       }
-    />
+    >
+      <Tabs
+        value={tab}
+        onChange={setTab}
+        label="Ссылки с UTM"
+        testid="traffic-tabs"
+        itemTestid={(v) => `traffic-tab-${v}`}
+        items={[
+          { value: 'build', label: 'Конструктор' },
+          { value: 'history', label: 'Созданные ссылки' },
+        ]}
+      />
+    </PageHeader>
   )
 
   if (loadError)
@@ -739,6 +771,14 @@ export function LinkBuilderPage() {
           <Skeleton className="h-80 lg:col-span-2" />
           <Skeleton className="h-80" />
         </div>
+      </div>
+    )
+
+  if (tab === 'history')
+    return (
+      <div>
+        {header}
+        <LinkHistory settings={settings} focus={focus} version={saved} />
       </div>
     )
 
@@ -844,18 +884,18 @@ export function LinkBuilderPage() {
       </form>
       <div className="mt-5">
         {result ? (
-          <Results result={result.result} request={result.request} sections={settings.sections} />
+          <Results result={result.result} request={result.request} sections={settings.sections} onHistory={() => setTab('history')} />
         ) : (
           <EmptyState icon={Tag} title="Здесь появятся ссылки с метками" testid="traffic-empty">
             Выберите товары или вставьте ссылки, задайте кампанию и нажмите «Собрать ссылки». Готовые ссылки можно скопировать, скачать
-            Excel или CSV и QR-код. Сохранение ссылок и их история появятся в следующем шаге.
+            Excel или CSV и QR-код. Собранные ссылки сохраняются во вкладке «Созданные ссылки».
           </EmptyState>
         )}
       </div>
       <p className="mt-5 flex items-start gap-2 text-xs text-muted">
         <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-        Диплинк в приложение Ozon и подменный артикул для блогеров создаёт только кабинет Ozon. Статистика по ссылкам — в кабинете
-        Ozon; загрузка её отчётов в сервис — следующие шаги.
+        Диплинк в приложение Ozon и подменный артикул для блогеров создаёт только кабинет Ozon — вставьте их к ссылке во вкладке
+        «Созданные ссылки», сервис напомнит, когда диплинк пора продлить. Статистика по ссылкам — пока в кабинете Ozon.
       </p>
     </div>
   )

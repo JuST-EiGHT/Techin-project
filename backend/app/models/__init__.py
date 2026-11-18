@@ -42,3 +42,4 @@ from app.models.price_extras import ProductPriceExtras  # noqa: F401
 from app.models.storage import StorageCost  # noqa: F401
 from app.models.cluster_metrics import ClusterStockMetric, OzonSupplyRec, OzonSupplyRecSync  # noqa: F401
 from app.models.supplier_lot import SupplierDocument, SupplierLot, SupplierLotLine, SupplierPayment  # noqa: F401
+from app.models.traffic import TrafficLink, TrafficLinkOpen  # noqa: F401

@@ -28,7 +28,7 @@ export type NotifySettings = {
   pending: number
   last_sent_at: string | null
 }
-export type SectionKey = 'sales' | 'margin' | 'stock' | 'cash' | 'payouts' | 'auto_promo' | 'prices' | 'data' | 'automation'
+export type SectionKey = 'sales' | 'margin' | 'stock' | 'cash' | 'payouts' | 'auto_promo' | 'prices' | 'data' | 'traffic' | 'automation'
 export type NotifySection = {
   key: SectionKey
   title: string

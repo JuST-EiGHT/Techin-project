@@ -384,6 +384,10 @@ IGNORED: set[tuple[str, str]] = {
     ("POST", f"{P}/planning/budgets/import/errors"),
     ("POST", f"{P}/supply/plans/{{plan_id}}/ozon-check"),
     ("POST", f"{P}/traffic/links/build"), ("POST", f"{P}/traffic/links/export"),
+    # ссылки внешнего трафика: события ленты «создание и правка ссылок» — шаг 11.6
+    ("POST", f"{P}/traffic/links"), ("PATCH", f"{P}/traffic/links/{{link_id}}"),
+    ("DELETE", f"{P}/traffic/links/{{link_id}}"), ("POST", f"{P}/traffic/links/{{link_id}}/restore"),
+    ("POST", f"{P}/traffic/links/{{link_id}}/opened"),
 }
 COSTS_TEMPLATE = f"{P}/costs/{{offer_id:path}}"
 
