@@ -40,6 +40,9 @@ SKU_BATCH = 100  # SKU в одном запросе: фильтр `skus` обя�
 PERIOD_DAYS = 28  # за сколько дней Ozon смотрит продажи — как ads в «Управлении остатками»
 SUPPLY_PERIODS = {7: "ONE_WEEK", 14: "TWO_WEEKS", 28: "FOUR_WEEKS", 56: "EIGHT_WEEKS"}  # дней → `supply_period`
 DEFAULT_SUPPLY_DAYS = 28
+# правка 18.11: рекомендация поставки у Ozon — для FBO («Рекомендуемая поставка на FBO» в кабинете); с `ALL` Ozon на
+# реальном ключе прислал нули по всем товарам, хотя в кабинете советовал 8, 8, 4, 2 шт.
+DELIVERY_SCHEMA = "FBO"
 
 Rec = tuple  # (recommended, attention_level, reasons)
 _CENT = Decimal("0.01")
@@ -60,7 +63,8 @@ def parse(item: dict) -> tuple[int, int, Rec] | None:
                           reasons or None)
 
 
-async def fetch(client: OzonClient, today, skus: list[int], days: int = DEFAULT_SUPPLY_DAYS) -> list[dict]:
+async def fetch(client: OzonClient, today, skus: list[int], days: int = DEFAULT_SUPPLY_DAYS,
+                schema: str = DELIVERY_SCHEMA) -> list[dict]:
     """Рекомендации по товарам `skus` (пачками по SKU_BATCH) на `days` дней; товаров нет — запроса нет."""
     period = {"from": (today - timedelta(days=PERIOD_DAYS)).isoformat(), "to": (today - timedelta(days=1)).isoformat()}
     out: list[dict] = []
@@ -69,7 +73,7 @@ async def fetch(client: OzonClient, today, skus: list[int], days: int = DEFAULT_
         offset = 0
         for _ in range(MAX_PAGES):
             body = {
-                "filter": {"delivery_schema": "ALL", "period": period, "skus": batch,
+                "filter": {"delivery_schema": schema, "period": period, "skus": batch,
                            "supply_period": SUPPLY_PERIODS[days]},
                 "limit": PAGE, "offset": offset, "sort_by": "IMPACT_SHARE", "sort_dir": "DESC",
             }
@@ -80,6 +84,23 @@ async def fetch(client: OzonClient, today, skus: list[int], days: int = DEFAULT_
             total = to_count(data.get("total"))
             if len(page) < PAGE or (total and offset >= total):
                 break
+    return out
+
+
+async def probe(client: OzonClient, today, skus: list[int], days: int) -> dict[str, dict]:
+    """Проверка для администратора (`admin.sh supply-recs-check`): что Ozon отвечает на одни и те же товары по схемам FBO и
+    ALL — строк, с рекомендацией > 0, сумма, кластеры, первые рекомендации. Только чтение, без записи в базу."""
+    out: dict[str, dict] = {}
+    for schema in (DELIVERY_SCHEMA, "ALL"):
+        try:
+            rows = [p for p in (parse(r) for r in await fetch(client, today, skus, days, schema)) if p]
+        except Exception as e:  # noqa: BLE001 — для отчёта: какая схема не прошла и почему
+            out[schema] = {"error": getattr(e, "message", str(e))[:300]}
+            continue
+        positive = [(sku, cluster, rec[0]) for sku, cluster, rec in rows if rec[0] > 0]
+        out[schema] = {"rows": len(rows), "positive": len(positive), "total": sum(q for *_, q in positive),
+                       "clusters": sorted({c for _, c, _ in rows}),
+                       "top": sorted(positive, key=lambda x: -x[2])[:10]}
     return out
 
 

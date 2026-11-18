@@ -251,10 +251,53 @@ async def resync(db: AsyncSession, args, out, _ask) -> None:
         out(f"«{names[store.id]}»: в очереди — {', '.join(done) or 'ничего'}.")
 
 
+async def supply_recs_check(db: AsyncSession, args, out, _ask) -> None:
+    """Что Ozon отвечает на рекомендации поставок (правка 18.11): для каждого магазина аккаунта — одни и те же товары по
+    схемам FBO и ALL: строк, с рекомендацией > 0, сумма, кластеры (совпадают ли с кластерами складов) и первые рекомендации.
+    Только чтение: в базу ничего не пишет, ключ не показывает."""
+    from sqlalchemy import select
+
+    from app.crud.credential import has_active
+    from app.integrations.ozon.factory import get_ozon_client
+    from app.models.product import Product
+    from app.models.warehouse import Warehouse
+    from app.services import stores
+    from app.services.sync import supply_recs
+    from app.services.sync.finance import today_msk
+    from app.services.user_settings import get_settings, supply_ozon_days
+
+    user = await _user(db, args.email)
+    names = await stores.names(db, user.id)
+    for store in await stores.stores_of(db, user, active_only=True):
+        title = f"«{names[store.id]}»"
+        if not await has_active(db, store.id):
+            out(f"{title}: нет действующего ключа Ozon — пропущен.")
+            continue
+        catalog = list((await db.execute(select(Product).where(Product.user_id == store.id))).scalars())
+        offers = {p.ozon_sku: p.offer_id for p in catalog if p.ozon_sku}
+        skus = sorted(p.ozon_sku for p in catalog if p.ozon_sku and not p.is_archived)[:args.limit]
+        ours = {w.macrolocal_cluster_id: w.cluster_name for w in (await db.execute(
+            select(Warehouse).where(Warehouse.user_id == store.id, Warehouse.type == "FBO"))).scalars()
+            if w.macrolocal_cluster_id}
+        days = supply_ozon_days(await get_settings(db, store.id))
+        out(f"{title}: товаров в запросе {len(skus)}, срок рекомендации {days} дн., кластеров у складов {len(ours)}")
+        async with await get_ozon_client(store.id, db) as client:
+            report = await supply_recs.probe(client, today_msk(), skus, days)
+        for schema, r in report.items():
+            if "error" in r:
+                out(f"  {schema}: ошибка — {r['error']}")
+                continue
+            known = sum(1 for c in r["clusters"] if c in ours)
+            out(f"  {schema}: строк {r['rows']}, с рекомендацией {r['positive']} (всего {r['total']} шт.), кластеров "
+                f"{len(r['clusters'])} — из них у ваших складов {known}")
+            for sku, cluster, qty in r["top"]:
+                out(f"    {offers.get(sku, sku)} → кластер {cluster} {ours.get(cluster) or ''}: {qty} шт.")
+
+
 COMMANDS = {
     "create-user": create_user, "reset-password": reset_password, "invite": invite, "invites": invites,
     "revoke-invite": revoke_invite, "users": users, "deactivate": deactivate, "activate": activate, "unblock": unblock,
-    "resync": resync,
+    "resync": resync, "supply-recs-check": supply_recs_check,
 }
 
 
@@ -283,6 +326,9 @@ def parser() -> argparse.ArgumentParser:
                        ("unblock", "снять блокировку входа"),
                        ("resync", "загрузить данные всех магазинов аккаунта из Ozon заново (90 дней)")):
         sub.add_parser(name, help=text).add_argument("email")
+    c = sub.add_parser("supply-recs-check", help="что Ozon отвечает на рекомендации поставок (FBO и все схемы)")
+    c.add_argument("email")
+    c.add_argument("--limit", type=int, default=100, help="сколько товаров спросить (по умолчанию 100)")
     for c in sub.choices.values():
         c._positionals.title, c._optionals.title = "аргументы", "параметры"
     return p

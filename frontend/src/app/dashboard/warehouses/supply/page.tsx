@@ -575,6 +575,9 @@ function Result({ data, busy, onExport, onSync, syncing, picked, onToggle, onQty
           {od.recs_known && od.recs_synced_at
             ? `рекомендации Ozon${od.recs_days ? ` на ${od.recs_days} дн.` : ''} от ${fmtDateTime(od.recs_synced_at)}`
             : 'рекомендаций Ozon пока нет — по продажам'}
+          {od.recs_known && od.recs_rows !== undefined && (
+            <span data-testid="recs-counts"> (Ozon советует везти в {od.recs_positive} из {od.recs_rows} пар «товар — кластер»)</span>
+          )}
           {od.recs_known && od.recs_days !== null && od.recs_days !== od.ozon_days && ` · в настройках — на ${od.ozon_days} дн., обновятся со следующей загрузкой`}
           {data.has_own_warehouses && data.fbs && ` · свои склады — заказы за ${data.fbs.days} дн.`}
         </span>

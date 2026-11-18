@@ -60,6 +60,8 @@ export type OzonData = {
   recs_synced_at: string | null
   recs_error: string | null
   recs_days: number | null // на сколько дней Ozon посчитал загруженные рекомендации
+  recs_rows?: number // строк товар × кластер от Ozon (правка 18.11)
+  recs_positive?: number // из них с рекомендацией > 0
   ozon_days: number // сколько стоит в настройках
 }
 

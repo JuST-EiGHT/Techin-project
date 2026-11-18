@@ -443,6 +443,9 @@ async def report(db: AsyncSession, user_id: uuid.UUID, params: engine.Params) ->
             "recs_error": rec_state.error if rec_state and not rec_state.ok else None,
             # правка 16.11: на сколько дней Ozon посчитал загруженные рекомендации и сколько стоит в настройках
             "recs_days": rec_state.period_days if rec_state else None,
+            # правка 18.11: сколько строк прислал Ozon и в скольких рекомендация > 0 — видно, если Ozon прислал одни нули
+            "recs_rows": len(ozon_recs),
+            "recs_positive": sum(1 for r in ozon_recs.values() if r[0] > 0),
             "ozon_days": supply_ozon_days(settings),
         },
         "min_qty": min_qty,
