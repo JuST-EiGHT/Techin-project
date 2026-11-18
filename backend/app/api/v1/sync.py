@@ -19,7 +19,7 @@ from app.schemas.sync import (
 from app.services import bank_connections
 from app.services.stores import get_current_store
 from app.services.sync import overview
-from app.services.sync.runner import QUEUE, SyncAlreadyRunning, active_run, fail_run, latest_run, start_run
+from app.services.sync.runner import QUEUE, SyncAlreadyRunning, active_run, fail_run, latest_run, latest_runs, start_run
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/sync", tags=["sync"])
@@ -101,10 +101,11 @@ async def sync_discounts_now(user: User = Depends(get_current_store), db: AsyncS
     return await _sync_now("discounts", user, db)
 
 
-async def _kind_status(db: AsyncSession, user_id: uuid.UUID, kind: str) -> KindStatus:
-    await active_run(db, user_id, kind)  # помечает зависшие запуски проваленными
-    last = await latest_run(db, user_id, kind)
-    success = await latest_run(db, user_id, kind, status=SUCCESS)
+STATUS_KINDS = ["products", "stocks", "finance", "promotions", "balance", "bank", "postings", "supplies", "discounts"]
+
+
+def _kind_status(runs: overview.RunsByKind, kind: str) -> KindStatus:
+    last, success = runs.get(kind, (None, None))
     return KindStatus(
         last_run=SyncRunResponse.from_model(last) if last else None,
         last_success_at=utc(success.finished_at) if success else None,
@@ -124,19 +125,20 @@ def _kind_out(s: overview.KindState) -> KindOverview:
 @router.get("/status", response_model=SyncStatusResponse)
 async def sync_status(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
     """Статус каждого вида (как раньше — для страниц разделов) и обзор для кнопки «Синхронизация» (шаг 10.2)."""
-    view = await overview.build(db, user.id)
+    runs = await latest_runs(db, user.id, sorted({*STATUS_KINDS, *overview.OZON_KINDS, overview.BANK}))
+    view = await overview.build(db, user.id, runs=runs)
     return SyncStatusResponse(
-        has_active_key=await crud_credential.has_active(db, user.id),
-        products=await _kind_status(db, user.id, "products"),
-        stocks=await _kind_status(db, user.id, "stocks"),
-        finance=await _kind_status(db, user.id, "finance"),
-        promotions=await _kind_status(db, user.id, "promotions"),
-        balance=await _kind_status(db, user.id, "balance"),
-        has_bank=bool(await bank_connections.list_connections(db, user.id)),
-        bank=await _kind_status(db, user.id, "bank"),
-        postings=await _kind_status(db, user.id, "postings"),
-        supplies=await _kind_status(db, user.id, "supplies"),
-        discounts=await _kind_status(db, user.id, "discounts"),
+        has_active_key=view.has_active_key,
+        products=_kind_status(runs, "products"),
+        stocks=_kind_status(runs, "stocks"),
+        finance=_kind_status(runs, "finance"),
+        promotions=_kind_status(runs, "promotions"),
+        balance=_kind_status(runs, "balance"),
+        has_bank=view.has_bank,
+        bank=_kind_status(runs, "bank"),
+        postings=_kind_status(runs, "postings"),
+        supplies=_kind_status(runs, "supplies"),
+        discounts=_kind_status(runs, "discounts"),
         state=view.state,
         oldest_kind=view.oldest_kind,
         oldest_success_at=view.oldest_at,

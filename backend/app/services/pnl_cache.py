@@ -26,6 +26,7 @@ class PnLCache:
         self._failed_at: float | None = None
         self._memory: dict[str, tuple[float, str]] = {}
         self._versions: dict[str, int] = {}
+        self._objects: dict[tuple[uuid.UUID, str], tuple[float, int, object]] = {}
 
     async def _redis(self):
         loop = asyncio.get_running_loop()
@@ -98,11 +99,27 @@ class PnLCache:
             prefix = f"pnl:{user_id}:"
             for k in [k for k in self._memory if k.startswith(prefix)]:
                 del self._memory[k]
+        for k in [k for k in self._objects if k[0] == user_id]:
+            del self._objects[k]
+
+    async def object(self, user_id: uuid.UUID, kind: str, ttl: float, factory):
+        """Готовый расчёт магазина как объект Python (не JSON) в памяти процесса на ttl секунд — для тяжёлых расчётов,
+        которые нужны сразу нескольким страницам (рекомендации, отчёт поставок: главная, страница каждого товара;
+        жалоба 18.11.2026 — страница товара ~6 с на слабом сервере). Сбрасывается вместе с кэшем P&L (invalidate:
+        начисления, отчёты, себестоимость, налоги, успешная синхронизация). Результат не изменять — он общий."""
+        version = await self._version(user_id)
+        hit = self._objects.get((user_id, kind))
+        if hit is not None and hit[0] > time.monotonic() and hit[1] == version:
+            return hit[2]
+        value = await factory()
+        self._objects[(user_id, kind)] = (time.monotonic() + ttl, version, value)
+        return value
 
     def clear_memory(self) -> None:
         """Для тестов: пустой кэш в памяти."""
         self._memory.clear()
         self._versions.clear()
+        self._objects.clear()
 
 
 cache = PnLCache()
