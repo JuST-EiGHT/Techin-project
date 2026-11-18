@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react'
 import { FormError } from '@/components/AuthForm'
 import { Segmented } from '@/components/ui'
 import { PriceSettingsForm } from '@/components/price-calc'
+import { TrafficPrefixSettings } from '@/components/traffic'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { api, errorMessage } from '@/lib/api'
@@ -52,6 +53,7 @@ const GROUPS = [
   { id: 'supply', label: 'Поставки' },
   { id: 'profit', label: 'Прибыльность' },
   { id: 'prices', label: 'Цены' },
+  { id: 'traffic', label: 'Продвижение' },
   { id: 'planning', label: 'Планирование' },
   { id: 'analytics', label: 'Аналитика' },
   { id: 'accounting', label: 'Налоги и учёт' },
@@ -960,6 +962,11 @@ export default function SettingsPage() {
       </Group>
       <Group id="prices" title="Цены" hint="Параметры калькулятора минимальной и целевой цены.">
         <PriceSection />
+      </Group>
+      <Group id="traffic" title="Продвижение" hint="Внешний трафик Ozon: префикс, по которому Ozon узнаёт ваши ссылки с UTM-метками.">
+        <Section title="Префикс для метки UTM_CAMPAIGN">
+          <TrafficPrefixSettings />
+        </Section>
       </Group>
       <Group id="planning" title="Планирование" hint="Прогноз денег, кассовый разрыв, начальные остатки и ДДС.">
         <PlanningSection />

@@ -104,6 +104,9 @@ class UserSettings(Base):
     # ABC-анализ (шаг 10.10): границы групп, % накопленной доли; пусто — 80 и 95 (engine/abc)
     abc_a_pct: Mapped[int | None] = mapped_column(Integer)
     abc_b_pct: Mapped[int | None] = mapped_column(Integer)
+    # «Внешний трафик» (шаг 11.1): префикс для метки UTM_CAMPAIGN из кабинета Ozon (vendor_org_<ID организации>) — свой
+    # у каждого магазина; пусто — не задан, конструктор ссылок просит его указать
+    traffic_utm_prefix: Mapped[str | None] = mapped_column(String(40))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

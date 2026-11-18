@@ -30,6 +30,7 @@ TYPE_TITLES = {
     det.ACCRUAL_GAPS: "Пропуски в начислениях",
     det.REPORT_ERROR: "Отчёт с ошибкой",
     det.MISSING_COST: "Продажи без себестоимости",
+    det.DEEPLINK_EXPIRING: "Диплинк скоро перестанет работать",
     det.DISCOUNT_REQUEST: "Заявка на скидку",
 }
 UNITS = {
@@ -281,6 +282,19 @@ def describe(
                     f"посчитана (не ноль). Больше всего: {top}. Укажите себестоимость — можно шаблоном Excel.",
                     "/dashboard/products/costs?missing=1")
 
+    if type_ == det.DEEPLINK_EXPIRING:
+        left = int(d.get("days_left", after or 0))
+        until = _day(d.get("expires_on"))
+        where = f"«{d.get('what')}», кампания {d.get('campaign')}" if d.get("what") else f"кампания {d.get('campaign')}"
+        link = f"/dashboard/advertising/links?tab=history&link={d.get('link_id')}"
+        if severity == det.RED:
+            return Text("Ссылка с диплинком перестала работать",
+                        f"{where}: 30 дней без переходов — с {until} диплинк больше не ведёт на страницу. Создайте "
+                        "новый в кабинете Ozon и вставьте его к ссылке.", link)
+        when = "сегодня" if left <= 0 else f"через {left} {plural(left, 'день', 'дня', 'дней')}"
+        return Text(f"Диплинк перестанет работать {when}",
+                    f"{where}: ссылка с диплинком работает до {until}, если по ней никто не перейдёт. Откройте её — "
+                    "отсчёт 30 дней начнётся заново.", link)
     if type_ == det.DISCOUNT_REQUEST:
         who = f"«{product_name or d.get('name') or d.get('offer_id') or 'товар'}»"
         qty = d.get("quantity")

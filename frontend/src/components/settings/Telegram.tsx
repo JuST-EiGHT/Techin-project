@@ -38,6 +38,7 @@ export type SectionKey =
   | 'discounts'
   | 'prices'
   | 'data'
+  | 'traffic'
   | 'automation'
 export type NotifySection = {
   key: SectionKey

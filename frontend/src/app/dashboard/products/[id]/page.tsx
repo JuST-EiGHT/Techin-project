@@ -16,6 +16,7 @@ import { PriceCalcBlock } from '@/components/price-calc'
 import { PriceChangeModal } from '@/components/price-change'
 import { CostBlock, IdLine, PriceChart } from '@/components/product-panel'
 import { Box, CostHistory, PriceChangesList, PricesBlock, ProblemList, PromosBlock, StocksBlock, UnitBlock } from '@/components/product-page'
+import { ProductTrafficLinks } from '@/components/traffic-history'
 import { Recommendations } from '@/components/recommendations'
 import { Badge } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
@@ -167,6 +168,8 @@ function ProductPage() {
           <ProductDiscounts productId={data.detail.item.id} />
 
           <StocksBlock data={data} />
+
+          <ProductTrafficLinks productId={id} />
 
           <div className="grid gap-5 lg:grid-cols-2">
             {/* у блоков панели товара свои заголовки — карточки без второго */}

@@ -27,7 +27,7 @@ def auth(tokens):
 
 def test_sections_cover_every_anomaly_once():
     assert [x.key for x in engine.SECTIONS] == [
-        "sales", "margin", "stock", "cash", "payouts", "auto_promo", "discounts", "prices", "data", "automation"]
+        "sales", "margin", "stock", "cash", "payouts", "auto_promo", "discounts", "prices", "data", "traffic", "automation"]
     assert sorted(engine.SECTION_OF) == sorted(det.TYPES)  # каждая аномалия — ровно в одном разделе
     assert engine.BY_KEY["automation"].soon == "9.x" and engine.BY_KEY["automation"].types == ()
     assert engine.section_of(det.PROMO_LOSS) == "margin" and engine.section_of(det.UNCATEGORIZED) == "cash"
@@ -41,7 +41,7 @@ def test_legacy_categories_become_sections():
     assert got == {
         "sales": (True, "all"), "margin": (True, "all"), "stock": (True, "all"), "prices": (True, "all"),
         "cash": (False, "all"), "payouts": (False, "all"), "auto_promo": (False, "all"), "data": (True, "all"),
-        "automation": (True, "all"), "discounts": (True, "all"),
+        "automation": (True, "all"), "discounts": (True, "all"), "traffic": (True, "all"),
     }
     default = engine.Prefs()
     assert engine.wanted(default, det.LOW_STOCK, "red") and not engine.wanted(default, det.LOW_STOCK, "yellow")
@@ -103,7 +103,7 @@ async def test_settings_sections_channels_and_legacy(client, tokens, sessions):
     body = (await client.get(f"{URL}/settings", headers=auth(tokens))).json()
     sections = {x["key"]: x for x in body["sections"]}
     assert list(sections) == ["sales", "margin", "stock", "cash", "payouts", "auto_promo", "discounts", "prices", "data",
-                              "automation"]
+                              "traffic", "automation"]
     assert (sections["sales"]["telegram"], sections["sales"]["severity"]) == (True, "all")  # перенесено без потери
     assert sections["payouts"]["telegram"] is False and sections["data"]["telegram"] is True
     assert sections["margin"]["severities"] == ["red"] and sections["automation"]["soon"] == "9.x"

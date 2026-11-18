@@ -32,6 +32,7 @@ from app.api.v1 import (
     stocks,
     stores,
     supply,
+    traffic,
     sync,
     tax_profile,
 )
@@ -71,3 +72,4 @@ api_router.include_router(planning_overview.router)
 api_router.include_router(planning_rules.router)
 api_router.include_router(budgets.router)
 api_router.include_router(bank.router)
+api_router.include_router(traffic.router)

@@ -259,6 +259,19 @@ async def _reports(db: AsyncSession, ctx: Context) -> list[det.Check]:
     return [det.report_error([det.ReportItem(r.id, r.filename, r.period, r.error_message) for r in rows])]
 
 
+async def _traffic(db: AsyncSession, ctx: Context) -> list[det.Check]:
+    """Ссылки внешнего трафика с диплинком (шаг 11.2): сколько дней осталось до 30 без переходов."""
+    from app.services import traffic_history  # внутри: модуль трафика тянет конструктор ссылок, здесь он не нужен
+
+    res = await traffic_history.list_links(db, ctx.user_id, tab="deeplink", now=ctx.now)
+    items = [det.DeeplinkItem(
+        r.link_id, r.product.id if r.product else None,
+        (r.product.name or r.product.offer_id) if r.product else r.source_url, r.campaign_name,
+        r.deeplink_status.state, r.deeplink_status.expires_on, r.deeplink_status.days_left,
+    ) for r in res.items if r.deeplink_status]
+    return [det.deeplink_expiring(items)]
+
+
 async def _discounts(db: AsyncSession, ctx: Context) -> list[det.Check]:
     """Заявки на скидку, которые ждут решения (шаг 4.3a): прибыль при запрошенной цене — калькулятором 4.2."""
     from app.services import discounts
@@ -275,7 +288,8 @@ async def _discounts(db: AsyncSession, ctx: Context) -> list[det.Check]:
 # порядок важен: товары дают «нулевой остаток» и архив для продаж
 GATHERERS = (("products", _products), ("sales", _sales), ("prices", _prices), ("payouts", _payouts),
              ("bank", _bank), ("cash_gap", _cash_gap), ("uncategorized", _uncategorized),
-             ("sync", _sync), ("finance_data", _finance_data), ("reports", _reports), ("discounts", _discounts))
+             ("sync", _sync), ("finance_data", _finance_data), ("reports", _reports), ("discounts", _discounts),
+             ("traffic", _traffic))
 
 
 async def active(db: AsyncSession, user_id: uuid.UUID) -> list[Anomaly]:
