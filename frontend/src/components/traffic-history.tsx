@@ -3,9 +3,11 @@
 // «Продвижение → Ссылки с UTM → Созданные ссылки» (шаг 11.2): история ссылок — версии (правка — новая запись), диплинк и
 // подменный артикул из кабинета Ozon, срок диплинка (30 дней без переходов) и «Открыть» — отсчёт заново.
 import { ExternalLink, FileSpreadsheet, History, Pencil, QrCode, RotateCcw, Tag, Trash2 } from 'lucide-react'
+import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { CopyText } from '@/components/copy'
+import { Box } from '@/components/product-page'
 import { DateRangePicker, FilterButton, FilterField, SearchBox, lastDays, selectClass } from '@/components/filters'
 import { Modal, input } from '@/components/planning/ui'
 import { SortTh, useSort } from '@/components/table'
@@ -487,3 +489,65 @@ function IconAction({ label, onClick, icon: I, testid }: { label: string; onClic
 }
 
 export { fmtDay }
+
+const LINKS = '/dashboard/advertising/links'
+
+/** «Статистика товара» (шаг 11.6): ссылки с UTM этого товара — кампания, источник, срок диплинка, копирование.
+ *  Переходы и заказы по ним появятся, когда сервис начнёт читать отчёты Ozon о внешнем трафике (11.3–11.4). */
+export function ProductTrafficLinks({ productId }: { productId: string }) {
+  const [data, setData] = useState<LinkList | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    listLinks({ tab: 'all', product_id: productId }).then(setData, (err) => setError(errorMessage(err)))
+  }, [productId])
+  const shown = data?.items.slice(0, 5) ?? []
+  return (
+    <Box
+      title="Ссылки с UTM"
+      testid="product-traffic"
+      more={
+        <>
+          {data && data.total > 0 && (
+            <Link href={`${LINKS}?tab=history`} className="text-accent hover:underline">
+              Все ссылки →
+            </Link>
+          )}
+          <Link href={LINKS} className="text-accent hover:underline">
+            Создать ссылку →
+          </Link>
+        </>
+      }
+    >
+      {error && <p className="text-sm text-bad">{error}</p>}
+      {!data && !error && <Skeleton className="h-16" />}
+      {data && data.total === 0 && (
+        <p className="text-sm text-muted" data-testid="product-traffic-empty">
+          Для внешней рекламы этого товара ссылок с метками пока нет. По ссылке с метками Ozon посчитает переходы и заказы из
+          соцсетей, блогов и рекламы.
+        </p>
+      )}
+      {shown.length > 0 && (
+        <ul className="divide-y divide-line" data-testid="product-traffic-list">
+          {shown.map((r) => (
+            <li key={r.link_id} className="flex flex-wrap items-start gap-x-3 gap-y-1 py-2 first:pt-0">
+              <div className="min-w-0 flex-1">
+                <Link href={`${LINKS}?tab=history&link=${r.link_id}`} className="font-mono text-sm hover:text-accent">
+                  {r.campaign_name}
+                </Link>
+                <Sub>
+                  {r.utm_source} / {r.utm_medium} · создана {fmtDay(r.created_at)}
+                  {r.substitute_code && ` · подменный ${r.substitute_code}`}
+                </Sub>
+              </div>
+              <DeeplinkBadge row={r} />
+              <CopyText value={r.url} label="Скопировать ссылку" inline className="max-w-full sm:max-w-[16rem]">
+                <span className="font-mono text-xs text-muted">{r.url.replace(/^https:\/\/www\./, '')}</span>
+              </CopyText>
+            </li>
+          ))}
+        </ul>
+      )}
+      {data && data.total > shown.length && <p className="mt-2 text-xs text-muted">И ещё {data.total - shown.length}</p>}
+    </Box>
+  )
+}

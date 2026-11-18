@@ -212,3 +212,35 @@ async def test_deeplink_expiry_open_and_notification(client, tokens, sessions):
 async def test_list_is_store_scoped_in_service(sessions):
     async with sessions() as db:
         assert (await traffic_history.list_links(db, uuid.uuid4())).total == 0
+
+
+# ── шаг 11.6: связи ──
+
+
+async def test_link_actions_in_event_feed(client, tokens, sessions):
+    """Создание, правка, удаление и возврат ссылок — в «Истории изменений и событий»; правка ведёт прямо к ссылке."""
+    ids = await setup(client, tokens, sessions)
+    lid = (await client.post(f"{API}/links", json=body(ids, urls=""), headers=auth(tokens))).json()["rows"][0]["link_id"]
+    await client.patch(f"{API}/links/{lid}", json={"medium": "reels"}, headers=auth(tokens))
+    await client.delete(f"{API}/links/{lid}", headers=auth(tokens))
+    await client.post(f"{API}/links/{lid}/restore", headers=auth(tokens))
+    await client.post(f"{API}/links/{lid}/opened", headers=auth(tokens))  # служебное — не событие
+    r = await client.get("/api/v1/analytics/events", params={"kind": "action", "limit": 50}, headers=auth(tokens))
+    assert r.status_code == 200, r.text
+    events = {e["title"]: e for e in r.json()["items"]}
+    assert "Созданы ссылки с UTM" in events and "Удалена ссылка с UTM" in events
+    edit = events["Изменена ссылка с UTM: метки, диплинк или подменный артикул"]
+    assert edit["link"] == f"/dashboard/advertising/links?tab=history&link={lid}"
+    assert events["Возвращена ссылка с UTM"]["link"].endswith(f"link={lid}")
+    assert "Изменён префикс для метки UTM_CAMPAIGN" in events
+    assert not any("Открыт" in t for t in events)
+
+
+async def test_product_links_filter(client, tokens, sessions):
+    """«Статистика товара» показывает ссылки этого товара (GET /traffic/links?product_id=)."""
+    ids = await setup(client, tokens, sessions)
+    await client.post(f"{API}/links", json=body(ids), headers=auth(tokens))  # товар A + магазин
+    r = await client.get(f"{API}/links", params={"product_id": str(ids["A"])}, headers=auth(tokens))
+    items = r.json()["items"]
+    assert len(items) == 1 and items[0]["product"]["id"] == str(ids["A"])
+    assert (await client.get(f"{API}/links", params={"product_id": str(ids["E"])}, headers=auth(tokens))).json()["total"] == 0

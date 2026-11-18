@@ -131,6 +131,8 @@ export type LinkList = {
 
 export type LinkFilters = {
   tab: LinkTab
+  /** ссылки одного товара — «Статистика товара» (11.6) */
+  product_id?: string
   search?: string
   date_from?: string
   date_to?: string

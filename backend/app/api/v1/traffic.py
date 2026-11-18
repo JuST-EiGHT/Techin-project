@@ -142,11 +142,13 @@ async def create_links(data: BuildRequest, user: User = Depends(get_current_stor
         raise _bad(exc) from exc
 
 
-async def _list(db, user, tab, search, date_from, date_to, campaign, source, medium, channel) -> LinkList:
+async def _list(db, user, tab, search, date_from, date_to, campaign, source, medium, channel,
+                product_id=None) -> LinkList:
     if date_from and date_to and date_from > date_to:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Период: дата начала позже даты окончания")
     return await history.list_links(db, user.id, tab=tab, search=search, date_from=date_from, date_to=date_to,
-                                    campaign=campaign, source=source, medium=medium, channel=channel)
+                                    campaign=campaign, source=source, medium=medium, channel=channel,
+                                    product_id=product_id)
 
 
 @router.get("/links", response_model=LinkList)
@@ -160,10 +162,11 @@ async def list_links(
     source: str | None = Query(None, max_length=200),
     medium: str | None = Query(None, max_length=200),
     channel: str | None = Query(None, max_length=16),
+    product_id: uuid.UUID | None = Query(None, description="Ссылки одного товара — для «Статистики товара» (11.6)"),
     user: User = Depends(get_current_store),
     db: AsyncSession = Depends(get_db),
 ):
-    return await _list(db, user, tab, search, date_from, date_to, campaign, source, medium, channel)
+    return await _list(db, user, tab, search, date_from, date_to, campaign, source, medium, channel, product_id)
 
 
 @router.get("/links/export", response_class=Response)

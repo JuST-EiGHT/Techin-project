@@ -221,10 +221,12 @@ class Action:
     link: str | None = None
     label: str | None = None
     with_id: bool = False  # link + «/<id из пути>» (отчёт)
+    id_param: str | None = None  # link + «?<параметр>=<id из пути>» (ссылка с UTM — открыть её)
 
 
 P = "/api/v1"
 INTEGRATIONS = "/dashboard/settings/integrations"
+LINKS = "/dashboard/advertising/links"
 # (метод, шаблон пути) → понятное действие. Каждый изменяющий эндпоинт — здесь или в IGNORED (тест следит за этим).
 ACTIONS: dict[tuple[str, str], Action] = {
     ("PATCH", f"{P}/auth/me"): Action("Изменён профиль", "/dashboard/settings/account", "Профиль"),
@@ -353,6 +355,14 @@ ACTIONS: dict[tuple[str, str], Action] = {
                                               "Документы"),
     ("PUT", f"{P}/traffic/settings"): Action("Изменён префикс для метки UTM_CAMPAIGN", "/dashboard/settings#traffic",
                                             "Настройки"),
+    # ссылки внешнего трафика (шаг 11.6)
+    ("POST", f"{P}/traffic/links"): Action("Созданы ссылки с UTM", f"{LINKS}?tab=history", "Ссылки с UTM"),
+    ("PATCH", f"{P}/traffic/links/{{link_id}}"): Action(
+        "Изменена ссылка с UTM: метки, диплинк или подменный артикул", f"{LINKS}?tab=history", "Ссылки с UTM",
+        id_param="link"),
+    ("DELETE", f"{P}/traffic/links/{{link_id}}"): Action("Удалена ссылка с UTM", f"{LINKS}?tab=history", "Ссылки с UTM"),
+    ("POST", f"{P}/traffic/links/{{link_id}}/restore"): Action("Возвращена ссылка с UTM", f"{LINKS}?tab=history",
+                                                               "Ссылки с UTM", id_param="link"),
 }
 REPORT_UPLOAD = ("POST", f"{P}/reports/upload")  # загрузка — событие отчёта; не загрузился — ошибка загрузки
 # не события ленты: вход и токены; «Обновить» (синхронизация — свои события); предпросмотры и расчёты (в журнал не
@@ -384,9 +394,7 @@ IGNORED: set[tuple[str, str]] = {
     ("POST", f"{P}/planning/budgets/import/errors"),
     ("POST", f"{P}/supply/plans/{{plan_id}}/ozon-check"),
     ("POST", f"{P}/traffic/links/build"), ("POST", f"{P}/traffic/links/export"),
-    # ссылки внешнего трафика: события ленты «создание и правка ссылок» — шаг 11.6
-    ("POST", f"{P}/traffic/links"), ("PATCH", f"{P}/traffic/links/{{link_id}}"),
-    ("DELETE", f"{P}/traffic/links/{{link_id}}"), ("POST", f"{P}/traffic/links/{{link_id}}/restore"),
+    # «Открыть — продлить» у ссылки с диплинком — как «Ок»: служебное, не событие
     ("POST", f"{P}/traffic/links/{{link_id}}/opened"),
 }
 COSTS_TEMPLATE = f"{P}/costs/{{offer_id:path}}"
@@ -417,6 +425,8 @@ def action(key: str, at: datetime, method: str, template: str, path: str | None)
         title, link = f"Изменена себестоимость {pid}", f"/dashboard/products/costs?search={quote(pid)}"
     elif a.with_id and pid:
         link = f"{a.link}/{pid}"
+    elif a.id_param and pid and link:
+        link = f"{link}{'&' if '?' in link else '?'}{a.id_param}={quote(pid)}"
     return Event(key, at, ACTION, title, "через сервис", None, None, link, a.label)
 
 

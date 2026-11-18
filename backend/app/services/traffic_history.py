@@ -136,6 +136,7 @@ async def list_links(
     db: AsyncSession, store_id: uuid.UUID, *, tab: str = "all", search: str | None = None,
     date_from: date | None = None, date_to: date | None = None, campaign: str | None = None,
     source: str | None = None, medium: str | None = None, channel: str | None = None, now: datetime | None = None,
+    product_id: uuid.UUID | None = None,
 ) -> LinkList:
     """Действующие версии ссылок, новые сверху. Счётчики вкладок и значения фильтров — по ссылкам с учётом поиска,
     периода и фильтров (без вкладки), как у быстрых вкладок Ozon."""
@@ -153,6 +154,8 @@ async def list_links(
     q = _fold(search)
 
     def fits(r: LinkRow) -> bool:
+        if product_id and (r.product is None or r.product.id != product_id):
+            return False
         day = r.created_at.date()
         if date_from and day < date_from or date_to and day > date_to:
             return False
