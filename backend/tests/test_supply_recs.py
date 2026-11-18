@@ -36,8 +36,14 @@ class FakeLocalSale:
     def __init__(self, mock: respx.MockRouter) -> None:
         self.data = json.loads((FIX / "local_sale_items_clusters.json").read_text(encoding="utf-8"))
         self.calls: list[dict] = []
+        self.cluster_calls: list[dict] = []
         self.status = 200
+        self.items_zero = False  # как на реальном ключе 18.11: «товар → кластеры» — строки есть, рекомендации везде 0
+        self.mount(mock)
+
+    def mount(self, mock: respx.MockRouter) -> None:
         mock.post(recs_mod.LOCAL_SALE_PATH).mock(side_effect=self._handle)
+        mock.post(recs_mod.CLUSTERS_PATH).mock(side_effect=self._handle_clusters)
 
     def _handle(self, request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
@@ -48,6 +54,22 @@ class FakeLocalSale:
         if not skus:  # как Ozon: фильтр skus обязателен
             return httpx.Response(400, json={"code": 3, "message": "invalid request: filter.skus: value is required"})
         found = [i for i in self.data["items"] if str(i["sku"]) in skus]
+        if self.items_zero:
+            found = [{**i, "metrics": {**i["metrics"], "recommended_supply": 0}} for i in found]
+        page = found[body["offset"]:body["offset"] + body["limit"]]
+        return httpx.Response(200, json={"items": page, "total": len(found)})
+
+    def _handle_clusters(self, request: httpx.Request) -> httpx.Response:
+        """«Кластер → товары»: кластеры доставки обязательны, SKU — по желанию; строка — {cluster_to_id, item, metrics}."""
+        body = json.loads(request.content)
+        self.cluster_calls.append(body)
+        clusters = body["filter"].get("macrolocal_cluster_to_ids")
+        if not clusters:
+            return httpx.Response(400, json={"code": 3, "message": "invalid request: macrolocal_cluster_to_ids is required"})
+        skus = body["filter"].get("skus")
+        found = [{"cluster_to_id": i["macrolocal_cluster_to_id"], "item": {"sku": i["sku"], "offer_id": f"o-{i['sku']}"},
+                  "metrics": i["metrics"]} for i in self.data["items"]
+                 if str(i["macrolocal_cluster_to_id"]) in clusters and (not skus or str(i["sku"]) in skus)]
         page = found[body["offset"]:body["offset"] + body["limit"]]
         return httpx.Response(200, json={"items": page, "total": len(found)})
 
@@ -82,7 +104,7 @@ async def test_sync_recs_request_and_snapshots(sessions, client, tokens, stocks_
     skus = await catalog_skus(sessions, user_id)
     assert "900001001" in skus and "900009999" not in skus  # SKU не из каталога Ozon не спрашиваем
     stats = await sync_recs(sessions, user_id)
-    assert stats == {"ozon_recs": 3, "ozon_recs_changed": 3, "ozon_recs_positive": 2}
+    assert stats == {"ozon_recs": 3, "ozon_recs_changed": 3, "ozon_recs_positive": 2, "ozon_recs_source": "items"}
     today = today_msk()
     first = local_sale.calls[0]
     # skus — обязательно, строками; срок рекомендации — 28 дней (раз в 4 недели), как «на 28 дней» в кабинете
@@ -142,7 +164,7 @@ async def test_supplies_job_survives_recs_failure(sessions, client, tokens, stoc
     with respx.mock(base_url=settings.OZON_API_URL, assert_all_called=False) as mock:
         FakeSupply(mock)
         local_sale.status = 400  # как было на реальном ключе: Ozon отклонил запрос
-        mock.post(recs_mod.LOCAL_SALE_PATH).mock(side_effect=local_sale._handle)
+        local_sale.mount(mock)
         run = await runner.run_sync("supplies", user_id, sessions)
     assert run.status == SUCCESS and run.stats["orders"] == 3 and "ozon_recs_failed" in run.stats
     async with sessions() as db:
@@ -154,7 +176,7 @@ async def test_supplies_job_survives_recs_failure(sessions, client, tokens, stoc
     with respx.mock(base_url=settings.OZON_API_URL, assert_all_called=False) as mock:
         FakeSupply(mock)
         local_sale.status = 200
-        mock.post(recs_mod.LOCAL_SALE_PATH).mock(side_effect=local_sale._handle)
+        local_sale.mount(mock)
         run = await runner.run_sync("supplies", user_id, sessions)
     assert run.stats["ozon_recs"] == 3 and run.stats["ozon_recs_positive"] == 2
     async with sessions() as db:
@@ -189,19 +211,61 @@ async def test_cluster_metrics_from_stock_sync(sessions, client, tokens, stocks_
     assert macros == {154: 154, 2: 2, 12: 999}
 
 
-async def test_admin_supply_recs_check(sessions, client, tokens, stocks_ozon, local_sale):  # noqa: F811
-    """`admin.sh supply-recs-check`: одни и те же товары по FBO и ALL — что ответил Ozon; в базу ничего не пишет."""
+async def test_sync_falls_back_to_clusters_items(sessions, client, tokens, stocks_ozon, local_sale):  # noqa: F811
+    """Правка 19.11, как на реальном ключе: «товар → кластеры» прислал строки, но везде 0 — спрашиваем «кластер → товары»
+    по кластерам Ozon и складов магазина и берём его рекомендации; только товары магазина."""
+    user_id = await api_user(sessions, client, tokens, stocks_ozon)
+    local_sale.items_zero = True
+    stats = await sync_recs(sessions, user_id)
+    assert (stats["ozon_recs_source"], stats["ozon_recs_positive"]) == ("clusters", 2)
+    flt = local_sale.cluster_calls[0]["filter"]
+    assert flt["macrolocal_cluster_to_ids"] == ["2", "154", "777", "999"]  # /v1/cluster/list + кластеры складов
+    assert flt["delivery_schema"] == "FBO" and flt["supply_period"] == "FOUR_WEEKS" and "skus" not in flt
+    assert (await latest(sessions, user_id))[(900001001, 154)][0] == 30
+    # «товар → кластеры» снова даёт цифры — второй метод не нужен
+    local_sale.items_zero, local_sale.cluster_calls = False, []
+    assert (await sync_recs(sessions, user_id))["ozon_recs_source"] == "items" and local_sale.cluster_calls == []
+
+
+async def test_sync_zero_everywhere_stays_zero(sessions, client, tokens, stocks_ozon, local_sale):  # noqa: F811
+    """Оба метода — нули: сохраняем нули «товар → кластеры» (нет данных ≠ рекомендация), загрузка не падает."""
+    user_id = await api_user(sessions, client, tokens, stocks_ozon)
+    local_sale.items_zero = True
+    local_sale.data["items"] = [{**i, "metrics": {**i["metrics"], "recommended_supply": 0}} for i in local_sale.data["items"]]
+    stats = await sync_recs(sessions, user_id)
+    assert (stats["ozon_recs_source"], stats["ozon_recs"], stats["ozon_recs_positive"]) == ("items", 3, 0)
+
+
+async def test_admin_supply_recs_check(sessions, client, tokens, stocks_ozon, local_sale, monkeypatch):  # noqa: F811
+    """`admin.sh supply-recs-check`: одни и те же товары разными запросами — что ответил Ozon, поля и первая строка
+    ответа; `--offer` — только эти товары; в базу ничего не пишет."""
     from tests.conftest import USER
     from tests.test_deploy import run_admin
 
+    monkeypatch.setattr(recs_mod, "PROBE_PAUSE", 0)
     user_id = await api_user(sessions, client, tokens, stocks_ozon)
+    local_sale.items_zero = True
     with respx.mock(base_url=settings.OZON_API_URL, assert_all_called=False) as mock:
-        mock.post(recs_mod.LOCAL_SALE_PATH).mock(side_effect=local_sale._handle)
+        FakeSupply(mock)  # /v1/cluster/list — названия кластеров
+        local_sale.mount(mock)
         code, text = await run_admin(sessions, "supply-recs-check", USER["email"])
     assert code == 0, text
-    assert [c["filter"]["delivery_schema"] for c in local_sale.calls] == ["FBO", "ALL"]
-    assert "FBO: строк 3, с рекомендацией 2 (всего 33 шт.)" in text and "ALL: строк 3" in text
-    assert "→ кластер 154" in text and ": 30 шт." in text
+    assert [c["filter"]["delivery_schema"] for c in local_sale.calls] == ["FBO", "ALL", "FBO", "FBO"]
+    assert "supply_period" not in local_sale.calls[3]["filter"]  # вариант «без срока поставки»
+    assert local_sale.calls[2]["filter"]["period"]["to"] == today_msk().isoformat()  # «период до сегодня»
+    assert "товар → кластеры, FBO, 28 дн.: строк 3, с рекомендацией 0" in text
+    # спрашиваем кластеры из /v1/cluster/list и складов магазина; Новосибирска (777) там нет — его строки нет
+    assert "кластер → товары, FBO, 28 дн.: строк 2, с рекомендацией 1 (всего 30 шт.)" in text
+    assert "→ кластер 154 Екатеринбург: 30 шт." in text
+    assert "поля metrics: attention_level, impact_share, local_data" in text
+    assert 'первая строка: {"cluster_to_id": 154, "item": {' in text  # как прислал Ozon, а не переложенная
+
+    local_sale.calls.clear()
+    with respx.mock(base_url=settings.OZON_API_URL, assert_all_called=False) as mock:
+        FakeSupply(mock)
+        local_sale.mount(mock)
+        code, text = await run_admin(sessions, "supply-recs-check", USER["email"], "--offer", "НЕТ-ТАКОГО")
+    assert code == 0 and "нет в каталоге (или без SKU): нет-такого" in text and "нет товаров для запроса" in text
     async with sessions() as db:
         assert await db.scalar(select(func.count()).select_from(OzonSupplyRec)) == 0  # только чтение
         assert await db.get(OzonSupplyRecSync, user_id) is None
