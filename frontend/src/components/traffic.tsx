@@ -562,20 +562,19 @@ function Results({ result, request, sections }: { result: BuildResult; request: 
           <span className="break-all font-mono">{result.campaign}</span>
         </>
       }
-      action={
-        result.ok > 0 && (
-          <>
-            <CopyAll text={all} />
-            <Button size="sm" onClick={() => file('xlsx')} data-testid="traffic-xlsx">
-              <FileSpreadsheet className="h-4 w-4" aria-hidden /> Excel
-            </Button>
-            <Button size="sm" onClick={() => file('csv')} data-testid="traffic-csv">
-              CSV
-            </Button>
-          </>
-        )
-      }
     >
+      {result.ok > 0 && (
+        // кнопки — отдельной строкой под заголовком: справа от него на телефоне заголовок сжимался в колонку
+        <div className="flex flex-wrap gap-2 px-5 pb-3" data-testid="traffic-actions">
+          <CopyAll text={all} />
+          <Button size="sm" onClick={() => file('xlsx')} data-testid="traffic-xlsx">
+            <FileSpreadsheet className="h-4 w-4" aria-hidden /> Excel
+          </Button>
+          <Button size="sm" onClick={() => file('csv')} data-testid="traffic-csv">
+            CSV
+          </Button>
+        </div>
+      )}
       {(result.warnings.length > 0 || error) && (
         <div className="space-y-1 px-5 pb-3 text-sm">
           {result.warnings.map((w) => (
@@ -586,7 +585,8 @@ function Results({ result, request, sections }: { result: BuildResult; request: 
           {error && <p className="text-bad">{error}</p>}
         </div>
       )}
-      <div className="overflow-x-auto">
+      {/* relative — скрытая подпись колонки (sr-only, absolute) остаётся внутри прокрутки и не растягивает страницу вбок */}
+      <div className="relative overflow-x-auto">
         <table className="w-full min-w-[640px] text-sm" data-testid="traffic-table">
           <thead className="bg-soft/60 text-xs text-muted">
             <tr>
