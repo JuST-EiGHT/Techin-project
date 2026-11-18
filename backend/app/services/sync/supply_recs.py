@@ -16,6 +16,8 @@ supply_period}`, по 1000 строк, `offset` до `total`. Без `skus` Ozon
 (вид «Заявки на поставку», раз в 3 часа); сбой метода не мешает заявкам — пишется в `ozon_supply_rec_syncs`, а расчёт
 идёт по продажам. Снимок — только при изменении, пара пропала из ответа — нулевая запись.
 """
+import asyncio
+import json
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -25,8 +27,15 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.integrations.ozon.client import OzonClient
+from app.integrations.ozon.errors import (
+    OzonAPIError,
+    OzonAuthError,
+    OzonNotConfiguredError,
+)
 from app.models.cluster_metrics import OzonSupplyRec, OzonSupplyRecSync
 from app.models.product import Product
+from app.models.warehouse import FBO as WH_FBO
+from app.models.warehouse import Warehouse
 from app.services.sync.finance import today_msk
 from app.services.sync.parsing import to_count, to_decimal, to_id, to_str
 from app.services.user_settings import get_settings, supply_ozon_days
@@ -34,6 +43,12 @@ from app.services.user_settings import get_settings, supply_ozon_days
 log = logging.getLogger(__name__)
 
 LOCAL_SALE_PATH = "/v1/analytics/local-sale/items-clusters/info"
+# правка 19.11: «товар → кластеры» на реальном ключе отдаёт строки, но везде recommended_supply = 0 (FBO и ALL одинаково),
+# а кабинет советует 8, 8, 4, 2 шт. Тогда спрашиваем соседний метод «кластер → товары» (вид «По кластерам» в кабинете):
+# фильтр `macrolocal_cluster_to_ids` обязателен, `skus` — нет; ответ `items[]{cluster_to_id, item{sku}, metrics}`.
+CLUSTERS_PATH = "/v1/analytics/local-sale/clusters-items/info"
+CLUSTER_BATCH = 50  # кластеров в одном запросе
+ITEMS, CLUSTERS = "items", "clusters"  # каким методом получены рекомендации
 PAGE = 1000  # максимум limit
 MAX_PAGES = 50
 SKU_BATCH = 100  # SKU в одном запросе: фильтр `skus` обязателен, предел Ozon не назвал
@@ -63,44 +78,97 @@ def parse(item: dict) -> tuple[int, int, Rec] | None:
                           reasons or None)
 
 
-async def fetch(client: OzonClient, today, skus: list[int], days: int = DEFAULT_SUPPLY_DAYS,
-                schema: str = DELIVERY_SCHEMA) -> list[dict]:
-    """Рекомендации по товарам `skus` (пачками по SKU_BATCH) на `days` дней; товаров нет — запроса нет."""
-    period = {"from": (today - timedelta(days=PERIOD_DAYS)).isoformat(), "to": (today - timedelta(days=1)).isoformat()}
+def _period(today, to_today: bool = False) -> dict:
+    end = today if to_today else today - timedelta(days=1)
+    return {"from": (end - timedelta(days=PERIOD_DAYS - 1)).isoformat(), "to": end.isoformat()}
+
+
+async def _pages(client: OzonClient, path: str, flt: dict) -> list[dict]:
     out: list[dict] = []
-    for start in range(0, len(skus), SKU_BATCH):
-        batch = [str(s) for s in skus[start:start + SKU_BATCH]]
-        offset = 0
-        for _ in range(MAX_PAGES):
-            body = {
-                "filter": {"delivery_schema": schema, "period": period, "skus": batch,
-                           "supply_period": SUPPLY_PERIODS[days]},
-                "limit": PAGE, "offset": offset, "sort_by": "IMPACT_SHARE", "sort_dir": "DESC",
-            }
-            data = await client.request("POST", LOCAL_SALE_PATH, body) or {}
-            page = [i for i in data.get("items") or [] if isinstance(i, dict)]
-            out.extend(page)
-            offset += len(page)
-            total = to_count(data.get("total"))
-            if len(page) < PAGE or (total and offset >= total):
-                break
+    offset = 0
+    for _ in range(MAX_PAGES):
+        body = {"filter": flt, "limit": PAGE, "offset": offset, "sort_by": "IMPACT_SHARE", "sort_dir": "DESC"}
+        data = await client.request("POST", path, body) or {}
+        page = [i for i in data.get("items") or [] if isinstance(i, dict)]
+        out.extend(page)
+        offset += len(page)
+        total = to_count(data.get("total"))
+        if len(page) < PAGE or (total and offset >= total):
+            break
     return out
 
 
-async def probe(client: OzonClient, today, skus: list[int], days: int) -> dict[str, dict]:
-    """Проверка для администратора (`admin.sh supply-recs-check`): что Ozon отвечает на одни и те же товары по схемам FBO и
-    ALL — строк, с рекомендацией > 0, сумма, кластеры, первые рекомендации. Только чтение, без записи в базу."""
+def _filter(today, days: int | None, schema: str, to_today: bool) -> dict:
+    flt: dict = {"delivery_schema": schema, "period": _period(today, to_today)}
+    if days is not None:
+        flt["supply_period"] = SUPPLY_PERIODS[days]
+    return flt
+
+
+async def fetch(client: OzonClient, today, skus: list[int], days: int | None = DEFAULT_SUPPLY_DAYS,
+                schema: str = DELIVERY_SCHEMA, *, to_today: bool = False) -> list[dict]:
+    """«Товар → кластеры»: рекомендации по товарам `skus` (пачками по SKU_BATCH); товаров нет — запроса нет.
+    `days=None` — без `supply_period` (для проверки администратора)."""
+    out: list[dict] = []
+    for start in range(0, len(skus), SKU_BATCH):
+        flt = _filter(today, days, schema, to_today) | {"skus": [str(s) for s in skus[start:start + SKU_BATCH]]}
+        out.extend(await _pages(client, LOCAL_SALE_PATH, flt))
+    return out
+
+
+async def fetch_by_clusters(client: OzonClient, today, clusters: list[int], days: int | None = DEFAULT_SUPPLY_DAYS,
+                            schema: str = DELIVERY_SCHEMA, *, skus: list[int] | None = None) -> list[dict]:
+    """«Кластер → товары» по кластерам доставки `clusters` (пачками по CLUSTER_BATCH); строки — в том же виде, что у
+    «товар → кластеры» (`sku`, `macrolocal_cluster_to_id`, `metrics`), чтобы разбирать одним `parse`."""
+    out: list[dict] = []
+    for start in range(0, len(clusters), CLUSTER_BATCH):
+        flt = _filter(today, days, schema, False) | {
+            "macrolocal_cluster_to_ids": [str(c) for c in clusters[start:start + CLUSTER_BATCH]]}
+        if skus:
+            flt["skus"] = [str(s) for s in skus]
+        for row in await _pages(client, CLUSTERS_PATH, flt):
+            item = row.get("item") if isinstance(row.get("item"), dict) else {}
+            out.append({"sku": item.get("sku", row.get("sku")), "offer_id": item.get("offer_id"),
+                        "macrolocal_cluster_to_id": row.get("cluster_to_id", row.get("macrolocal_cluster_to_id")),
+                        "metrics": row.get("metrics"), "raw": row})  # raw — для проверки администратора
+    return out
+
+
+def _has_positive(rows: list[dict]) -> bool:
+    return any((p := parse(r)) is not None and p[2][0] > 0 for r in rows)
+
+
+PROBE_PAUSE = 1.1  # с между вариантами проверки: у метода лимит запросов в секунду (429 на реальном ключе)
+
+
+async def probe(client: OzonClient, today, skus: list[int], days: int, clusters: list[int]) -> dict[str, dict]:
+    """Проверка для администратора (`admin.sh supply-recs-check`): одни и те же товары — разными запросами («товар →
+    кластеры» по FBO и ALL, с концом периода вчера и сегодня, без `supply_period`; «кластер → товары» по кластерам
+    `clusters`). У каждого: строк, с рекомендацией > 0, сумма, кластеры, первые рекомендации, поля `metrics` и первая
+    строка ответа как есть. Только чтение, без записи в базу."""
+    variants = [
+        (f"товар → кластеры, {DELIVERY_SCHEMA}, {days} дн.", lambda: fetch(client, today, skus, days)),
+        ("товар → кластеры, ALL", lambda: fetch(client, today, skus, days, "ALL")),
+        ("товар → кластеры, период до сегодня", lambda: fetch(client, today, skus, days, to_today=True)),
+        ("товар → кластеры, без срока поставки", lambda: fetch(client, today, skus, None)),
+        (f"кластер → товары, {DELIVERY_SCHEMA}, {days} дн.",
+         lambda: fetch_by_clusters(client, today, clusters, days, skus=skus)),
+    ]
     out: dict[str, dict] = {}
-    for schema in (DELIVERY_SCHEMA, "ALL"):
+    for i, (title, call) in enumerate(variants):
+        if i:
+            await asyncio.sleep(PROBE_PAUSE)
         try:
-            rows = [p for p in (parse(r) for r in await fetch(client, today, skus, days, schema)) if p]
-        except Exception as e:  # noqa: BLE001 — для отчёта: какая схема не прошла и почему
-            out[schema] = {"error": getattr(e, "message", str(e))[:300]}
+            raw = await call()
+        except Exception as e:  # noqa: BLE001 — для отчёта: какой запрос не прошёл и почему
+            out[title] = {"error": getattr(e, "message", str(e))[:300]}
             continue
+        rows = [p for p in (parse(r) for r in raw) if p]
         positive = [(sku, cluster, rec[0]) for sku, cluster, rec in rows if rec[0] > 0]
-        out[schema] = {"rows": len(rows), "positive": len(positive), "total": sum(q for *_, q in positive),
-                       "clusters": sorted({c for _, c, _ in rows}),
-                       "top": sorted(positive, key=lambda x: -x[2])[:10]}
+        keys = sorted({k for r in raw if isinstance(r.get("metrics"), dict) for k in r["metrics"]})
+        out[title] = {"rows": len(rows), "positive": len(positive), "total": sum(q for *_, q in positive),
+                      "clusters": sorted({c for _, c, _ in rows}), "top": sorted(positive, key=lambda x: -x[2])[:10],
+                      "metric_keys": keys, "sample": json.dumps(raw[0].get("raw", raw[0]), ensure_ascii=False)[:600] if raw else None}
     return out
 
 
@@ -143,7 +211,23 @@ async def sync_supply_recs(db: AsyncSession, user_id: uuid.UUID, client: OzonCli
     catalog = list((await db.execute(select(Product).where(Product.user_id == user_id))).scalars())
     products = {p.ozon_sku: p.id for p in catalog if p.ozon_sku}
     skus = sorted(p.ozon_sku for p in catalog if p.ozon_sku and not p.is_archived)
-    rows = await fetch(client, today_msk(), skus, days)
+    today = today_msk()
+    rows = await fetch(client, today, skus, days)
+    source = ITEMS
+    ours = {w for w in (await db.execute(select(Warehouse.macrolocal_cluster_id).where(
+        Warehouse.user_id == user_id, Warehouse.type == WH_FBO))).scalars() if w}
+    clusters = sorted(set(names) | ours)
+    if clusters and not _has_positive(rows):  # правка 19.11: везде нули — спрашиваем «кластер → товары»
+        try:
+            wanted = set(skus)
+            alt = [r for r in await fetch_by_clusters(client, today, clusters, days) if to_id(r.get("sku")) in wanted]
+        except (OzonAuthError, OzonNotConfiguredError):
+            raise
+        except OzonAPIError as e:
+            log.warning("Рекомендации Ozon «кластер → товары» не получены: %s (%s)", e.message, e.ozon_message)
+            alt = []
+        if _has_positive(alt):
+            rows, source = alt, CLUSTERS
     current: dict[tuple[int, int], Rec] = {}
     for row in rows:
         if (parsed := parse(row)) is not None:
@@ -167,6 +251,7 @@ async def sync_supply_recs(db: AsyncSession, user_id: uuid.UUID, client: OzonCli
     state.attempted_at = state.synced_at = now
     state.ok, state.error, state.items, state.period_days = True, None, len(current), days
     await db.commit()
-    log.info("Рекомендации Ozon по поставкам: пользователь %s → строк %d, изменилось %d", user_id, len(current), changed)
+    log.info("Рекомендации Ozon по поставкам: пользователь %s → строк %d, изменилось %d, метод %s", user_id,
+             len(current), changed, source)
     return {"ozon_recs": len(current), "ozon_recs_changed": changed,
-            "ozon_recs_positive": sum(1 for r in current.values() if r[0] > 0)}
+            "ozon_recs_positive": sum(1 for r in current.values() if r[0] > 0), "ozon_recs_source": source}

@@ -148,7 +148,13 @@ Seller API нельзя: есть только отчёты по вывозу и
   настройка `supply_ozon_days` (7 / 14 / 28 / 56, по умолчанию 28, как «на 28 дней» в кабинете владельца).
   `delivery_schema` — `ALL` / `FBO` / `FBS`; шлём **`FBO`** (правка 18.11: с `ALL` Ozon на реальном ключе прислал нули
   по всем товарам, хотя в кабинете советовал 8, 8, 4, 2 шт.; проверка — `./scripts/admin.sh supply-recs-check email`:
-  одни и те же товары по FBO и ALL, строк, с рекомендацией, кластеры); `attention_level` — `LOW` / `MEDIUM` / `HIGH`; причины переплаты —
+  одни и те же товары по FBO и ALL, строк, с рекомендацией, кластеры);
+  **правка 19.11:** на реальном ключе и FBO, и ALL — строки есть (21 на 100 товаров), но `recommended_supply` везде 0,
+  а кабинет советует 8, 8, 4, 2 шт. Тогда загрузка спрашивает соседний `/v1/analytics/local-sale/clusters-items/info`
+  («кластер → товары», вид «По кластерам» в кабинете): обязателен `filter.macrolocal_cluster_to_ids` (строки — кластеры
+  из `/v1/cluster/list` и складов магазина, по 50), `skus` — по желанию; ответ `items[]{cluster_to_id, item{sku,
+  offer_id, name}, metrics}` — те же `metrics`. Берём его, если там есть рекомендации > 0 (`stats.ozon_recs_source`).
+  `supply-recs-check` (`--offer` — свои артикулы) сравнивает 5 запросов и печатает поля `metrics` и первую строку как есть; `attention_level` — `LOW` / `MEDIUM` / `HIGH`; причины переплаты —
   `NO_SUPPLIES_TO_CLUSTER`, `MISSING_ITEMS_IN_CLUSTER`, `FREQUENT_OUT_OF_STOCK`. Соседний `/clusters-items/info`
   требует `macrolocal_cluster_to_ids`, а не SKU. Сбой метода — в `ozon_supply_rec_syncs` с методом и текстом Ozon
   (`runner.ozon_error_text`), заявкам не мешает.

@@ -252,18 +252,21 @@ async def resync(db: AsyncSession, args, out, _ask) -> None:
 
 
 async def supply_recs_check(db: AsyncSession, args, out, _ask) -> None:
-    """Что Ozon отвечает на рекомендации поставок (правка 18.11): для каждого магазина аккаунта — одни и те же товары по
-    схемам FBO и ALL: строк, с рекомендацией > 0, сумма, кластеры (совпадают ли с кластерами складов) и первые рекомендации.
-    Только чтение: в базу ничего не пишет, ключ не показывает."""
+    """Что Ozon отвечает на рекомендации поставок (правки 18.11, 19.11): для каждого магазина аккаунта — одни и те же
+    товары (`--offer` — свои артикулы, иначе первые `--limit`) разными запросами «товар → кластеры» и «кластер → товары»:
+    строк, с рекомендацией > 0, сумма, кластеры (совпадают ли с кластерами складов), первые рекомендации, поля ответа и
+    первая строка как есть. Только чтение: в базу ничего не пишет, ключ не показывает."""
     from sqlalchemy import select
 
     from app.crud.credential import has_active
+    from app.integrations.ozon.errors import OzonAPIError
     from app.integrations.ozon.factory import get_ozon_client
     from app.models.product import Product
     from app.models.warehouse import Warehouse
     from app.services import stores
     from app.services.sync import supply_recs
     from app.services.sync.finance import today_msk
+    from app.services.sync.supply_orders import fetch_clusters
     from app.services.user_settings import get_settings, supply_ozon_days
 
     user = await _user(db, args.email)
@@ -275,23 +278,40 @@ async def supply_recs_check(db: AsyncSession, args, out, _ask) -> None:
             continue
         catalog = list((await db.execute(select(Product).where(Product.user_id == store.id))).scalars())
         offers = {p.ozon_sku: p.offer_id for p in catalog if p.ozon_sku}
-        skus = sorted(p.ozon_sku for p in catalog if p.ozon_sku and not p.is_archived)[:args.limit]
+        if args.offer:
+            wanted = {o.strip().lower() for o in args.offer}
+            skus = sorted(p.ozon_sku for p in catalog if p.ozon_sku and p.offer_id.lower() in wanted)
+            missing = wanted - {p.offer_id.lower() for p in catalog if p.ozon_sku}
+            if missing:
+                out(f"{title}: нет в каталоге (или без SKU): {', '.join(sorted(missing))}")
+        else:
+            skus = sorted(p.ozon_sku for p in catalog if p.ozon_sku and not p.is_archived)[:args.limit]
+        if not skus:
+            out(f"{title}: нет товаров для запроса — пропущен.")
+            continue
         ours = {w.macrolocal_cluster_id: w.cluster_name for w in (await db.execute(
             select(Warehouse).where(Warehouse.user_id == store.id, Warehouse.type == "FBO"))).scalars()
             if w.macrolocal_cluster_id}
         days = supply_ozon_days(await get_settings(db, store.id))
         out(f"{title}: товаров в запросе {len(skus)}, срок рекомендации {days} дн., кластеров у складов {len(ours)}")
         async with await get_ozon_client(store.id, db) as client:
-            report = await supply_recs.probe(client, today_msk(), skus, days)
-        for schema, r in report.items():
+            try:
+                names, _, _ = await fetch_clusters(client)
+            except OzonAPIError:
+                names = {}
+            report = await supply_recs.probe(client, today_msk(), skus, days, sorted(set(names) | set(ours)))
+        for variant, r in report.items():
             if "error" in r:
-                out(f"  {schema}: ошибка — {r['error']}")
+                out(f"  {variant}: ошибка — {r['error']}")
                 continue
             known = sum(1 for c in r["clusters"] if c in ours)
-            out(f"  {schema}: строк {r['rows']}, с рекомендацией {r['positive']} (всего {r['total']} шт.), кластеров "
+            out(f"  {variant}: строк {r['rows']}, с рекомендацией {r['positive']} (всего {r['total']} шт.), кластеров "
                 f"{len(r['clusters'])} — из них у ваших складов {known}")
             for sku, cluster, qty in r["top"]:
-                out(f"    {offers.get(sku, sku)} → кластер {cluster} {ours.get(cluster) or ''}: {qty} шт.")
+                out(f"    {offers.get(sku, sku)} → кластер {cluster} {names.get(cluster) or ours.get(cluster) or ''}: {qty} шт.")
+            out(f"    поля metrics: {', '.join(r['metric_keys']) or '—'}")
+            if r["sample"]:
+                out(f"    первая строка: {r['sample']}")
 
 
 COMMANDS = {
@@ -329,6 +349,7 @@ def parser() -> argparse.ArgumentParser:
     c = sub.add_parser("supply-recs-check", help="что Ozon отвечает на рекомендации поставок (FBO и все схемы)")
     c.add_argument("email")
     c.add_argument("--limit", type=int, default=100, help="сколько товаров спросить (по умолчанию 100)")
+    c.add_argument("--offer", action="append", help="артикул товара (можно несколько раз) — спросить только эти")
     for c in sub.choices.values():
         c._positionals.title, c._optionals.title = "аргументы", "параметры"
     return p
