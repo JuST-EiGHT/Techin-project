@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.router import api_router
 from app.core.audit_middleware import AuditMiddleware
+from app.core.timing import TimingMiddleware
 from app.core.config import settings
 from app.core.errors import register_error_handlers
 from app.core.monitoring import init_sentry
@@ -70,6 +71,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     application.add_middleware(AuditMiddleware)  # изменяющие запросы → audit_log (шаг 6.1)
+    application.add_middleware(TimingMiddleware)  # время запроса и базы: Server-Timing, медленные — в журнал
     register_error_handlers(application)
     application.include_router(api_router)
 
