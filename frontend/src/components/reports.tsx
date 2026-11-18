@@ -114,7 +114,9 @@ export function periodLabel(r: { period: string; period_start: string | null; pe
 // плашка — общий элемент дизайн-системы (10.27a); здесь — для старых импортов
 export { Badge } from '@/components/ui'
 
-export const pctText = (v: string | null) => (v === null ? '—' : `${Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} %`)
+/** Процент: «12,5 %», минус — типографский «−» (DESIGN.md §8), нет данных — «—». */
+export const pctText = (v: string | null) =>
+  v === null ? '—' : `${Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 2 }).replace('-', '−')} %`
 
 /** Пять главных цифр P&L: откуда они взяты — подсказки под суммами. */
 export type FiguresData = {

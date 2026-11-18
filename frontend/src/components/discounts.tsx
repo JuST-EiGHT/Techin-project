@@ -71,7 +71,7 @@ export function DiscountsTable({
   const allOn = selected !== undefined && choosable.length > 0 && choosable.every((r) => selected.has(r.id))
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[60rem] text-[13px]" data-testid="discounts-table">
+      <table className="w-full min-w-[54rem] text-[13px]" data-testid="discounts-table">
         <thead className="bg-soft/60 text-left text-xs text-muted">
           <tr>
             {onSelect && (
@@ -94,7 +94,6 @@ export function DiscountsTable({
             {head('margin', 'Маржа', { align: 'right', sub: 'при их цене' })}
             {!compact && head('stock', 'Остаток', { align: 'right' })}
             {head('end_at', 'Срок', { kind: 'date' })}
-            <th className="px-3 py-3 font-medium">Пометки</th>
             <th className="py-3 pl-3 pr-5" />
           </tr>
         </thead>
@@ -130,6 +129,26 @@ export function DiscountsTable({
                     <Sub tone="warn">нет в каталоге — обновите товары</Sub>
                   </>
                 )}
+                {/* пометки — под товаром (DESIGN §7a: без отдельной широкой колонки, действие строки остаётся на виду) */}
+                {(r.marks.length > 0 || (ruleOn && r.rule_ok === true) || (r.decision && r.decision.status !== 'applied')) && (
+                  <div className="mt-1.5 flex flex-wrap gap-1" data-testid="discount-marks">
+                    {r.marks.map((m, i) => (
+                      <Badge key={m} tone={MARK_TONE[m]}>
+                        {r.mark_titles[i]}
+                      </Badge>
+                    ))}
+                    {ruleOn && r.rule_ok === true && (
+                      <Badge tone="ok" title="Маржа при запрошенной цене не ниже порога вашего правила">
+                        По правилу — одобрить
+                      </Badge>
+                    )}
+                    {r.decision && r.decision.status !== 'applied' && (
+                      <Badge tone="bad" title={r.decision.error ?? undefined}>
+                        Решение не прошло
+                      </Badge>
+                    )}
+                  </div>
+                )}
               </td>
               <td className="whitespace-nowrap px-3 py-3 text-right align-top tabular-nums">
                 {rub(r.price)}
@@ -155,7 +174,9 @@ export function DiscountsTable({
                 {r.margin === null ? <span title={r.missing.join(' ')}>нет данных</span> : pctText(r.margin)}
                 {r.unit_profit !== null && (
                   <Sub tone={Number(r.unit_profit) < 0 ? 'bad' : undefined}>
-                    {rub(r.unit_profit)} с 1 шт.{r.total_profit !== null && r.requested_quantity && r.requested_quantity > 1 ? ` · ${rub(r.total_profit)} за все` : ''}
+                    <span title={r.total_profit !== null && r.requested_quantity ? `За ${r.requested_quantity} шт.: ${rub(r.total_profit)}` : undefined}>
+                      {rub(r.unit_profit)} с 1 шт.
+                    </span>
                   </Sub>
                 )}
               </td>
@@ -180,25 +201,6 @@ export function DiscountsTable({
                     {r.state !== 'APPROVED' && <Sub>{msk(r.moderated_at ?? r.end_at)}</Sub>}
                   </>
                 )}
-              </td>
-              <td className="px-3 py-3 align-top">
-                <div className="flex max-w-[12rem] flex-wrap gap-1">
-                  {r.marks.map((m, i) => (
-                    <Badge key={m} tone={MARK_TONE[m]}>
-                      {r.mark_titles[i]}
-                    </Badge>
-                  ))}
-                  {ruleOn && r.rule_ok === true && (
-                    <Badge tone="ok" title="Маржа при запрошенной цене не ниже порога вашего правила">
-                      По правилу — одобрить
-                    </Badge>
-                  )}
-                  {r.decision && r.decision.status !== 'applied' && (
-                    <Badge tone="bad" title={r.decision.error ?? undefined}>
-                      Решение не прошло
-                    </Badge>
-                  )}
-                </div>
               </td>
               <td className="whitespace-nowrap py-3 pl-3 pr-5 text-right align-top">
                 {r.can_decide && (
