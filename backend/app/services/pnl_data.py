@@ -14,6 +14,7 @@ from decimal import Decimal
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 
 from app.integrations.xlsx.common import norm
 from app.integrations.xlsx.parsers.base import MISSING_COST_WARNING
@@ -148,6 +149,8 @@ async def load_lines(db: AsyncSession, user_id: uuid.UUID, cov: Coverage) -> lis
     if any(s == SOURCE_API for s in cov.days.values()):
         res = await db.execute(
             select(Accrual, AccrualType.name_ru, Product.offer_id, Product.name)
+            # исходная запись Ozon (килобайты на строку) строкам API не нужна — не читаем
+            .options(defer(Accrual.raw_json))
             .outerjoin(AccrualType, AccrualType.id == Accrual.accrual_type_id)
             .outerjoin(Product, Product.id == Accrual.product_id)
             .where(
