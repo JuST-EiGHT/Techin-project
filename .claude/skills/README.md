@@ -6,6 +6,7 @@
 | Скилл | Для чего | Источник | Лицензия |
 |---|---|---|---|
 | `impeccable` | Дизайн интерфейса: разбор (`critique`), проверка (`audit`), полировка (`polish`), раскладка, шрифт, тексты (`clarify`), адаптив, пустые состояния | [pbakaus/impeccable](https://github.com/pbakaus/impeccable), `plugin/skills/impeccable`, коммит `b4bff16` (11.11.2026), v4.8.2 | Apache 2.0 |
+| `verify` | Проверка изменения в работающем сервисе перед коммитом: поднять базу, API и фронтенд, тестовый магазин (`seed.py`), сценарий в браузере, замер `Server-Timing` | свой (18.11.2026), по статье команды Claude Code о проверке | — |
 | `ui-ux-pro-max` | База правил UX с поиском: доступность, формы, навигация, таблицы, выбор графиков, советы под Next.js / Tailwind | [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill), `.claude/skills/ui-ux-pro-max`, коммит `6ae86f6` (10.11.2026) | MIT |
 
 ## Русская адаптация
