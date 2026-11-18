@@ -45,7 +45,7 @@ async def stats(db: AsyncSession, user_id: uuid.UUID, product_id: uuid.UUID, dat
     detail, ctx = await products.detail_parts(db, user_id, product, 30, (date_from, date_to))
     rows, period = await products.load_period(db, user_id, date_from, date_to)
     pnl_data = await product_pnl.compute(db, user_id, PnLRequest(date_from, date_to))
-    report = await supply.report(db, user_id, await supply.load_params(db, user_id))
+    report = await supply.saved_report(db, user_id)
     own = [i for i in report["items"] if i["product"]["id"] == product.id]
     clusters = stock_clusters(detail["stocks"], own)
     today = ctx.today

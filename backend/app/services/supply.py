@@ -34,6 +34,7 @@ from app.models.warehouse import FBS as WH_FBS
 from app.models.warehouse import RFBS, ProductStock, Warehouse
 from app.schemas.sync import utc
 from app.models.cluster_metrics import OzonSupplyRecSync
+from app.services.pnl_cache import cache
 from app.services.stocks import latest_stocks
 from app.services.sync.finance import MSK, today_msk
 from app.services.sync.postings import is_cancelled
@@ -294,6 +295,17 @@ async def cluster_choices(db: AsyncSession, user_id: uuid.UUID) -> list[dict]:
         for c in oz.values() if c.warehouses
     ]
     return sorted(out, key=lambda c: c["name"])
+
+
+REPORT_TTL = 60  # с, общий расчёт для рекомендаций и страниц товаров
+
+
+async def saved_report(db: AsyncSession, user_id: uuid.UUID) -> dict:
+    """Отчёт поставок с сохранёнными параметрами магазина — для главной (рекомендации) и страницы товара: считается раз в
+    минуту, а не на каждый открытый товар (pnl_cache.object; сбрасывается вместе с кэшем P&L). Не изменять — общий."""
+    async def build() -> dict:
+        return await report(db, user_id, await load_params(db, user_id))
+    return await cache.object(user_id, "supply_report", REPORT_TTL, build)
 
 
 async def report(db: AsyncSession, user_id: uuid.UUID, params: engine.Params) -> dict:

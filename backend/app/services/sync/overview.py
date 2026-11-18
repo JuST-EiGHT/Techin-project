@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud import credential as crud_credential
-from app.models.sync_run import ACTIVE_STATUSES, FAILED, SUCCESS, SyncRun
+from app.models.sync_run import ACTIVE_STATUSES, FAILED, SyncRun
 from app.services import bank_connections
 from app.services.sync import runner
 
@@ -186,29 +186,33 @@ class Overview:
     oldest_at: datetime | None
 
 
-async def _last(db: AsyncSession, user_id: uuid.UUID, kind: str) -> tuple[SyncRun | None, datetime | None]:
-    await runner.active_run(db, user_id, kind)  # зависший запуск — проваленный («прервалась»)
-    last = await runner.latest_run(db, user_id, kind)
-    success = await runner.latest_run(db, user_id, kind, status=SUCCESS)
+RunsByKind = dict[str, tuple[SyncRun | None, SyncRun | None]]
+
+
+def _last(runs: RunsByKind, kind: str) -> tuple[SyncRun | None, datetime | None]:
+    last, success = runs.get(kind, (None, None))
     return last, success.finished_at if success else None
 
 
-async def build(db: AsyncSession, user_id: uuid.UUID, now: datetime | None = None) -> Overview:
+async def build(db: AsyncSession, user_id: uuid.UUID, now: datetime | None = None,
+                runs: RunsByKind | None = None) -> Overview:
     """Обзор магазина. Ключа Ozon никогда не было (только отчёты XLSX) — виды Ozon не показываем и ошибкой не считаем;
     был, но истёк или отключён — это проблема каждого вида Ozon («Заменить ключ»)."""
     now = now or datetime.now(timezone.utc)
     has_key = await crud_credential.has_active(db, user_id)
     had_key = has_key or bool(await crud_credential.list_for_user(db, user_id))
     connections = await bank_connections.list_connections(db, user_id)
+    if runs is None:  # все виды разом (зависшие запуски — проваленными, как active_run)
+        runs = await runner.latest_runs(db, user_id, [*OZON_KINDS, BANK])
     states: list[KindState] = []
     if had_key:
         blocked = None if has_key else PROBLEMS[runner.NO_KEY]
         for kind in OZON_KINDS:
-            states.append(kind_state(kind, *await _last(db, user_id, kind), now, blocked))
+            states.append(kind_state(kind, *_last(runs, kind), now, blocked))
     if connections:
         # все подключения ждут новый токен — банк не обновить, пока его не заменят
         blocked = PROBLEMS[runner.BANK_TOKEN] if all(c.status == "auth" for c in connections) else None
-        state = kind_state(BANK, *await _last(db, user_id, BANK), now, blocked)
+        state = kind_state(BANK, *_last(runs, BANK), now, blocked)
         if state.problem is None and any(c.status == "auth" for c in connections):
             state.state, state.problem = ERROR, PROBLEMS[runner.BANK_TOKEN]  # один из банков — без токена
         states.append(state)
