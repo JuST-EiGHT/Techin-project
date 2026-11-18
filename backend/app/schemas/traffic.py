@@ -18,6 +18,8 @@ class ChannelOut(BaseModel):
     fixed_source: bool  # рекламная сеть: utm_source задаётся сам
     hint: str
     macros: list[MacroOut]
+    source_options: list[str]  # подсказки в выпадающем списке; можно вписать своё
+    medium_options: list[str]
 
 
 class TrafficSettings(BaseModel):

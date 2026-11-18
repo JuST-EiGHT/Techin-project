@@ -105,18 +105,35 @@ def test_campaign_name():
             tl.check_campaign(bad)
 
 
-def test_ad_network_source_is_fixed_and_hints():
+def test_ad_network_source_is_fixed():
     labels = tl.make_labels(prefix=PREFIX, campaign="autumn", channel="yandex", source="mine")
     assert (labels.source, labels.medium, labels.campaign) == ("yandex", "cpc", f"{PREFIX}_autumn")
-    assert tl.label_warnings(labels) == []
     social = tl.make_labels(prefix=PREFIX, campaign="blog", channel="social", source="inst")
     assert (social.source, social.medium) == ("inst", "social")
-    bare = tl.make_labels(prefix=PREFIX, campaign="blog", channel="other")
-    assert "разбивки по источникам" in tl.label_warnings(bare)[0]
     with pytest.raises(tl.LinkError, match="Выберите канал"):
         tl.make_labels(prefix=PREFIX, campaign="x", channel="tv")
     with pytest.raises(tl.LinkError, match="префикс"):
         tl.make_labels(prefix=None, campaign="x", channel="other")
+
+
+def test_source_and_medium_required():
+    """Как в конструкторе Ozon (решение владельца 17.11.2026): utm_source и utm_medium обязательны."""
+    with pytest.raises(tl.LinkError, match="Укажите utm_source"):
+        tl.make_labels(prefix=PREFIX, campaign="blog", channel="other", medium="post")
+    with pytest.raises(tl.LinkError, match="Укажите utm_medium"):
+        tl.make_labels(prefix=PREFIX, campaign="blog", channel="other", source="site", medium="  ")
+    with pytest.raises(tl.LinkError, match="Укажите utm_medium"):
+        tl.make_labels(prefix=PREFIX, campaign="blog", channel="vk", medium="")  # у сети source сам, medium — нет
+    # у рекламной сети и «Соцсетей» medium по умолчанию свой — можно не передавать
+    assert tl.make_labels(prefix=PREFIX, campaign="x", channel="vk").medium == "cpc"
+
+
+def test_channels_have_suggestions():
+    for ch in tl.CHANNELS.values():
+        assert ch.medium_options, ch.key
+        assert ch.source_options or ch.fixed_source, ch.key
+        if ch.fixed_source:
+            assert ch.source_options == (ch.source,)
 
 
 def test_build_rows_errors_per_line_and_limit():
@@ -161,6 +178,14 @@ async def test_prefix_setting(client, tokens):
     assert body["cabinet_url"] == "https://seller.ozon.ru/app/advertisement/vendor-traffic"
     assert [c["key"] for c in body["channels"]] == ["yandex", "mytarget", "vk", "social", "other"]
     assert body["channels"][0]["fixed_source"] and body["channels"][0]["macros"]
+    social = body["channels"][3]
+    assert "inst" in social["source_options"] and "story" in social["medium_options"]
+
+    r = await client.put(f"{API}/settings", json={"utm_prefix": PREFIX}, headers=auth(tokens))
+    r = await client.post(f"{API}/links/build", json={"channel": "social", "campaign": "x", "source": "inst", "medium": "",
+                                                      "urls": "ozon.ru/product/1/"}, headers=auth(tokens))
+    assert r.status_code == 400 and "Укажите utm_medium" in r.json()["detail"]
+    await client.put(f"{API}/settings", json={"utm_prefix": None}, headers=auth(tokens))
 
     r = await client.put(f"{API}/settings", json={"utm_prefix": "vendor_org_123456_promo"}, headers=auth(tokens))
     assert r.status_code == 400 and "Префикс — только" in r.json()["detail"]
@@ -177,7 +202,7 @@ async def test_prefix_setting(client, tokens):
 async def test_build_without_prefix_asks_for_it(client, tokens):
     r = await client.post(f"{API}/links/build", json={"channel": "other", "campaign": "x", "urls": "ozon.ru/product/1/"},
                           headers=auth(tokens))
-    assert r.status_code == 400 and "UTM_CAMPAIGN" in r.json()["detail"]
+    assert r.status_code == 400 and "UTM_CAMPAIGN" in r.json()["detail"]  # префикс — первым, раньше source и medium
 
 
 async def test_product_search(client, tokens, sessions):
@@ -267,8 +292,9 @@ async def test_build_is_not_a_change(client, tokens, sessions):
 
     await seed_products(sessions, await me(client, tokens))
     await client.put(f"{API}/settings", json={"utm_prefix": PREFIX}, headers=auth(tokens))
-    await client.post(f"{API}/links/build", json={"channel": "other", "campaign": "x", "urls": "ozon.ru/product/1/"},
-                      headers=auth(tokens))
+    r = await client.post(f"{API}/links/build", json={"channel": "other", "campaign": "x", "source": "site",
+                                                      "medium": "banner", "urls": "ozon.ru/product/1/"}, headers=auth(tokens))
+    assert r.status_code == 200 and r.json()["ok"] == 1
     async with sessions() as db:
         paths = [a.entity_id for a in (await db.scalars(select(AuditLog))).all()]
     assert "/api/v1/traffic/settings" in paths and "/api/v1/traffic/links/build" not in paths

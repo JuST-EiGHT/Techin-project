@@ -152,6 +152,9 @@ class Channel:
     fixed_source: bool  # рекламная сеть: utm_source задаётся сам
     hint: str
     macros: tuple[Macro, ...] = field(default=())
+    # подсказки значений в выпадающем списке (как у Ozon); можно вписать своё
+    source_options: tuple[str, ...] = field(default=())
+    medium_options: tuple[str, ...] = field(default=())
 
 
 _MT_MACROS = (
@@ -163,17 +166,25 @@ _MT_MACROS = (
 )
 
 # каналы — как в конструкторе Ozon; у рекламных сетей utm_source задаётся сам, макросы сеть подставит при показе
+_AD_MEDIUM = ("cpc", "cpm", "cpa")
+
 CHANNELS: dict[str, Channel] = {c.key: c for c in (
     Channel("yandex", "Яндекс (Директ, РСЯ)", "yandex", "cpc", True,
             "Поиск и Рекламная сеть Яндекса",
             (Macro("{source_type}", "Тип площадки: поиск или сеть"), Macro("{source}", "Площадка"),
              Macro("{region_name}", "Регион"), Macro("{device_type}", "Устройство"),
-             Macro("{campaign_id}", "ID кампании"), Macro("{ad_id}", "ID объявления"), Macro("{keyword}", "Ключевая фраза"))),
-    Channel("mytarget", "myTarget", "mytarget", "cpc", True, "Рекламная платформа myTarget", _MT_MACROS),
-    Channel("vk", "VK Реклама", "vk", "cpc", True, "Рекламный кабинет VK", _MT_MACROS),
+             Macro("{campaign_id}", "ID кампании"), Macro("{ad_id}", "ID объявления"), Macro("{keyword}", "Ключевая фраза")),
+            ("yandex",), _AD_MEDIUM),
+    Channel("mytarget", "myTarget", "mytarget", "cpc", True, "Рекламная платформа myTarget", _MT_MACROS,
+            ("mytarget",), _AD_MEDIUM),
+    Channel("vk", "VK Реклама", "vk", "cpc", True, "Рекламный кабинет VK", _MT_MACROS, ("vk",), _AD_MEDIUM),
     Channel("social", "Социальные сети и платформы", "", "social", False,
-            "Блогеры, свои страницы и сообщества: источник — сеть (inst, tg, vk), канал — где ссылка (description, post)"),
-    Channel("other", "Другое", "", "", False, "Сайты, рассылки, QR-коды: источник и канал — свои"),
+            "Блогеры, свои страницы и сообщества: utm_source — сеть (inst, tg, vk), utm_medium — где ссылка",
+            (), ("inst", "vk", "tg", "youtube", "dzen", "ok", "tiktok", "pinterest", "rutube"),
+            ("social", "description", "post", "story", "reels", "video", "comment", "blogger")),
+    Channel("other", "Другое", "", "", False, "Сайты, рассылки, QR-коды: utm_source и utm_medium — свои",
+            (), ("site", "email", "sms", "qr", "partner", "blog", "forum", "offline"),
+            ("referral", "email", "banner", "qr", "offline", "article", "cpc")),
 )}
 
 
@@ -190,25 +201,27 @@ def make_labels(
     *, prefix: str | None, campaign: str | None, channel: str, source: str | None = None, medium: str | None = None,
     term: str | None = None, content: str | None = None,
 ) -> Labels:
+    """Метки ссылки. utm_source и utm_medium обязательны, как в конструкторе Ozon (решение владельца 17.11.2026): без них
+    в отчёте Ozon нет разбивки по источникам."""
     ch = CHANNELS.get(channel)
     if ch is None:
         raise LinkError("Выберите канал")
-    src = ch.source if ch.fixed_source else _label(source, "Источник (utm_source)")
+    utm_campaign = campaign_value(prefix or "", campaign or "")  # сначала префикс и кампания — без них ничего не засчитается
+    src = ch.source if ch.fixed_source else _label(source, "utm_source")
+    med = _label(medium if medium is not None else ch.medium, "utm_medium")
+    if not src:
+        raise LinkError("Укажите utm_source — откуда переход: inst, vk, tg, site… "
+                        "Без него в отчёте Ozon не будет разбивки по источникам")
+    if not med:
+        raise LinkError("Укажите utm_medium — какой это трафик или где ссылка: post, story, description… "
+                        "Без него в отчёте Ozon не будет разбивки по источникам")
     return Labels(
-        campaign=campaign_value(prefix or "", campaign or ""),
+        campaign=utm_campaign,
         source=src,
-        medium=_label(medium if medium is not None else ch.medium, "Канал (utm_medium)"),
-        term=_label(term, "Ключевое слово (utm_term)"),
-        content=_label(content, "Содержание (utm_content)"),
+        medium=med,
+        term=_label(term, "utm_term"),
+        content=_label(content, "utm_content"),
     )
-
-
-def label_warnings(labels: Labels) -> list[str]:
-    """Не ошибки — подсказки: без source и medium Ozon не покажет разбивку по источникам."""
-    missing = [n for n, v in (("utm_source", labels.source), ("utm_medium", labels.medium)) if not v]
-    if not missing:
-        return []
-    return [f"Не заполнено: {', '.join(missing)} — переходы засчитаются, но в отчёте Ozon не будет разбивки по источникам"]
 
 
 _SAFE = "{}_-.~"  # фигурные скобки — не кодируем: рекламная сеть подставит макрос

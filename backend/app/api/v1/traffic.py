@@ -32,7 +32,8 @@ def _settings(prefix: str | None) -> TrafficSettings:
         utm_prefix=prefix, cabinet_url=tl.OZON_CABINET_URL, sections=tl.SECTIONS, max_links=tl.MAX_LINKS,
         channels=[
             ChannelOut(key=c.key, label=c.label, source=c.source, medium=c.medium, fixed_source=c.fixed_source,
-                       hint=c.hint, macros=[MacroOut(code=m.code, label=m.label) for m in c.macros])
+                       hint=c.hint, macros=[MacroOut(code=m.code, label=m.label) for m in c.macros],
+                       source_options=list(c.source_options), medium_options=list(c.medium_options))
             for c in tl.CHANNELS.values()
         ],
     )

@@ -3,9 +3,9 @@
 // «Продвижение → Ссылки с UTM» (шаг 11.1): префикс для метки UTM_CAMPAIGN и конструктор ссылок «Внешнего трафика» Ozon.
 // API для внешнего трафика у Ozon нет: ссылки собирает сервис по правилам Ozon (backend engine/traffic_links), статистика
 // придёт из отчётов Ozon (шаги 11.3–11.4). Ссылки пока не сохраняются — история появится в шаге 11.2.
-import { Check, Copy, ExternalLink, FileSpreadsheet, Link2, QrCode, Tag, X } from 'lucide-react'
+import { Check, ChevronsUpDown, Copy, ExternalLink, FileSpreadsheet, Link2, QrCode, Tag, X } from 'lucide-react'
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import { CopyText, writeText } from '@/components/copy'
 import { SearchBox, selectClass } from '@/components/filters'
@@ -229,17 +229,139 @@ function ProductPicker({ selected, onChange }: { selected: ProductOption[]; onCh
   )
 }
 
-function Field({ label, hint, help, children, htmlFor }: { label: string; hint?: React.ReactNode; help?: React.ReactNode; htmlFor: string; children: React.ReactNode }) {
+function Field({ label, hint, help, children, htmlFor, required }: {
+  label: string
+  hint?: React.ReactNode
+  help?: React.ReactNode
+  htmlFor: string
+  required?: boolean
+  children: React.ReactNode
+}) {
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-1">
         <label htmlFor={htmlFor} className="text-sm font-medium">
           {label}
+          {required && (
+            <span className="text-bad" aria-hidden>
+              {' '}*
+            </span>
+          )}
         </label>
         {help && <HelpTip label={`Что такое «${label}»`}>{help}</HelpTip>}
       </div>
       {children}
       {hint && <p className="text-xs text-muted">{hint}</p>}
+    </div>
+  )
+}
+
+/** Поле с выпадающим списком подсказок, как в конструкторе Ozon: выбрать из списка или вписать своё. Список фильтруется по
+ *  набранному, ↑ ↓ — выбор, Enter — подставить, Esc — закрыть. */
+function SuggestInput({ id, value, onChange, options, placeholder, disabled, required, testid }: {
+  id: string
+  value: string
+  onChange: (v: string) => void
+  options: string[]
+  placeholder?: string
+  disabled?: boolean
+  required?: boolean
+  testid: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [active, setActive] = useState(-1)
+  const box = useRef<HTMLDivElement>(null)
+  const listId = useId()
+  const q = value.trim().toLowerCase()
+  const shown = q && options.some((o) => o.toLowerCase().startsWith(q)) ? options.filter((o) => o.toLowerCase().includes(q)) : options
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => box.current && !box.current.contains(e.target as Node) && setOpen(false)
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open])
+
+  const pick = (v: string) => {
+    onChange(v)
+    setOpen(false)
+    setActive(-1)
+  }
+  function onKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      setOpen(true)
+      if (!shown.length) return
+      setActive((i) => (e.key === 'ArrowDown' ? (i + 1) % shown.length : (i - 1 + shown.length) % shown.length))
+    } else if (e.key === 'Enter' && open && active >= 0 && shown[active]) {
+      e.preventDefault()
+      pick(shown[active])
+    } else if (e.key === 'Escape' && open) {
+      e.preventDefault()
+      setOpen(false)
+    }
+  }
+
+  return (
+    <div ref={box} className="relative">
+      <input
+        id={id}
+        role="combobox"
+        aria-expanded={open && shown.length > 0}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        aria-required={required}
+        aria-activedescendant={open && active >= 0 ? `${listId}-${active}` : undefined}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => {
+          onChange(e.target.value)
+          setOpen(true)
+          setActive(-1)
+        }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={onKey}
+        placeholder={placeholder}
+        className={`${input} pr-9 disabled:opacity-60`}
+        autoComplete="off"
+        spellCheck={false}
+        data-testid={testid}
+      />
+      <button
+        type="button"
+        tabIndex={-1}
+        disabled={disabled}
+        onClick={() => setOpen((o) => !o)}
+        className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-muted hover:text-fg disabled:opacity-40"
+        aria-label="Показать подсказки"
+        data-testid={`${testid}-toggle`}
+      >
+        <ChevronsUpDown className="h-4 w-4" aria-hidden />
+      </button>
+      {open && !disabled && shown.length > 0 && (
+        <ul
+          id={listId}
+          role="listbox"
+          className="absolute left-0 right-0 z-30 mt-1 max-h-56 overflow-y-auto rounded-xl border border-line bg-card py-1 shadow-pop"
+          data-testid={`${testid}-options`}
+        >
+          {shown.map((o, i) => (
+            <li
+              key={o}
+              id={`${listId}-${i}`}
+              role="option"
+              aria-selected={o === value}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => pick(o)}
+              onMouseEnter={() => setActive(i)}
+              className={`flex cursor-pointer items-center justify-between px-3 py-2 font-mono text-sm ${i === active ? 'bg-soft' : ''}`}
+            >
+              {o}
+              {o === value && <Check className="h-3.5 w-3.5 text-accent" aria-hidden />}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
@@ -250,7 +372,6 @@ function Labels({ settings, form, set }: { settings: TrafficSettings; form: Labe
   const channel = settings.channels.find((c) => c.key === form.channel) as Channel
   const [target, setTarget] = useState<'content' | 'term'>('content')
   const campaignPreview = `${settings.utm_prefix ?? 'vendor_org_…'}_${form.campaign.trim().toLowerCase().replace(/\s+/g, '_') || 'название'}`
-  const noBreakdown = !channel.fixed_source && (!form.source.trim() || !form.medium.trim())
   const addMacro = (code: string) => set({ [target]: form[target] + code })
 
   return (
@@ -276,6 +397,7 @@ function Labels({ settings, form, set }: { settings: TrafficSettings; form: Labe
       <Field
         label="Название кампании"
         htmlFor="traffic-campaign"
+        required
         help="Идёт в метку utm_campaign после вашего префикса. По нему кампания видна в отчётах Ozon и в сервисе."
         hint={
           <>
@@ -289,19 +411,39 @@ function Labels({ settings, form, set }: { settings: TrafficSettings; form: Labe
         <Field
           label="Источник"
           htmlFor="traffic-source"
-          help="Метка utm_source: откуда переход — сеть или площадка (yandex, vk, inst, tg). У рекламных сетей задаётся сама."
+          required
+          hint="utm_source"
+          help="Метка utm_source: откуда переход — сеть или площадка (yandex, vk, inst, tg). Обязательна: без неё в отчёте Ozon нет разбивки по источникам. У рекламных сетей задаётся сама."
         >
-          <input id="traffic-source" value={form.source} disabled={channel.fixed_source} onChange={(e) => set({ source: e.target.value })} placeholder="inst" className={`${input} disabled:opacity-60`} autoComplete="off" spellCheck={false} data-testid="traffic-source" />
+          <SuggestInput
+            id="traffic-source"
+            value={form.source}
+            onChange={(v) => set({ source: v })}
+            options={channel.source_options}
+            disabled={channel.fixed_source}
+            required
+            placeholder="Выберите или впишите"
+            testid="traffic-source"
+          />
         </Field>
-        <Field label="Тип трафика" htmlFor="traffic-medium" help="Метка utm_medium: какой это трафик или где ссылка (cpc — оплата за клик, description, post, story).">
-          <input id="traffic-medium" value={form.medium} onChange={(e) => set({ medium: e.target.value })} placeholder="post" className={input} autoComplete="off" spellCheck={false} data-testid="traffic-medium" />
+        <Field
+          label="Тип трафика"
+          htmlFor="traffic-medium"
+          required
+          hint="utm_medium"
+          help="Метка utm_medium: какой это трафик или где ссылка (cpc — оплата за клик, description, post, story). Обязательна: без неё в отчёте Ozon нет разбивки по источникам."
+        >
+          <SuggestInput
+            id="traffic-medium"
+            value={form.medium}
+            onChange={(v) => set({ medium: v })}
+            options={channel.medium_options}
+            required
+            placeholder="Выберите или впишите"
+            testid="traffic-medium"
+          />
         </Field>
       </div>
-      {noBreakdown && (
-        <p className="text-xs text-warn" data-testid="traffic-breakdown-hint">
-          Заполните источник и тип трафика — без них переходы засчитаются, но в отчёте Ozon не будет разбивки по источникам.
-        </p>
-      )}
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Содержание" htmlFor="traffic-content" hint="Необязательно" help="Метка utm_content: какое объявление или место ссылки (link_in_bio, banner_1).">
           <input id="traffic-content" value={form.content} onChange={(e) => set({ content: e.target.value })} onFocus={() => setTarget('content')} className={input} autoComplete="off" spellCheck={false} data-testid="traffic-content" />
@@ -529,6 +671,13 @@ export function LinkBuilderPage() {
     getTrafficSettings().then(setSettings, (err) => setLoadError(errorMessage(err)))
   }, [])
 
+  const current = settings?.channels.find((c) => c.key === form.channel)
+  // обязательные поля, как в конструкторе Ozon: название кампании, utm_source (у сетей — сам), utm_medium
+  const missing = [
+    !form.campaign.trim() && 'название кампании',
+    !current?.fixed_source && !form.source.trim() && 'источник (utm_source)',
+    !form.medium.trim() && 'тип трафика (utm_medium)',
+  ].filter(Boolean) as string[]
   const lines = urls.split('\n').filter((s) => s.trim()).length
   const total = products.length + lines
   const max = settings?.max_links ?? 100
@@ -678,10 +827,14 @@ export function LinkBuilderPage() {
           </Panel>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <Button type="submit" variant="primary" disabled={busy || total === 0 || total > max || !form.campaign.trim()} data-testid="traffic-build">
+          <Button type="submit" variant="primary" disabled={busy || total === 0 || total > max || missing.length > 0} data-testid="traffic-build">
             <Link2 className="h-4 w-4" aria-hidden /> Собрать ссылки
           </Button>
-          {!form.campaign.trim() && total > 0 && <span className="text-sm text-muted">Укажите название кампании</span>}
+          {total > 0 && missing.length > 0 && (
+            <span className="text-sm text-muted" data-testid="traffic-missing">
+              Заполните: {missing.join(', ')}
+            </span>
+          )}
           {error && (
             <p className="text-sm text-bad" role="alert" data-testid="traffic-error">
               {error}

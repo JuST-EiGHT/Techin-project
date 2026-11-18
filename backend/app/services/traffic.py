@@ -92,7 +92,7 @@ async def build(db: AsyncSession, store_id: uuid.UUID, data: BuildRequest) -> Bu
     ok = sum(1 for r in rows if r.url)
     return BuildResult(
         campaign=labels.campaign, source=labels.source, medium=labels.medium, term=labels.term, content=labels.content,
-        rows=rows, ok=ok, errors=len(rows) - ok, warnings=tl.label_warnings(labels),
+        rows=rows, ok=ok, errors=len(rows) - ok, warnings=[],
     )
 
 

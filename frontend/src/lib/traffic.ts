@@ -4,7 +4,18 @@ import { api } from '@/lib/api'
 import { saveFile } from '@/lib/download'
 
 export type Macro = { code: string; label: string }
-export type Channel = { key: string; label: string; source: string; medium: string; fixed_source: boolean; hint: string; macros: Macro[] }
+export type Channel = {
+  key: string
+  label: string
+  source: string
+  medium: string
+  fixed_source: boolean
+  hint: string
+  macros: Macro[]
+  /** подсказки в выпадающем списке, как у Ozon; можно вписать своё */
+  source_options: string[]
+  medium_options: string[]
+}
 
 export type TrafficSettings = {
   utm_prefix: string | null

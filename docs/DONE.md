@@ -3637,3 +3637,9 @@ OpenAPI Ozon `analytics.v1.AnalyticsLocalSaleItemsClustersInfoRequest`). Рек�
   товаров и ссылок, чужой магазин, Excel, CSV, QR SVG / PNG, сборка не пишется в журнал. Полный `pytest` зелёный,
   `tsc` — без ошибок. Проверка в браузере (Playwright: обе темы, 390 px, ширина шапки с новым пунктом на 1280 px) — ждёт
   разрешения владельца поднять `next dev`.
+- Правка владельца 17.11.2026 (сверка с конструктором Ozon): `utm_source` и `utm_medium` — обязательные, как у Ozon
+  (`make_labels` — «Укажите utm_source / utm_medium…», префикс и кампания проверяются первыми; подсказка «без них не будет
+  разбивки» больше не нужна — `label_warnings` убран); у полей — выпадающий список подсказок с вводом своего
+  (`SuggestInput` в `components/traffic.tsx`: фильтр по набранному, ↑ ↓, Enter, Esc; у канала — `source_options`,
+  `medium_options`: соцсети — inst, vk, tg, youtube…, description, post, story…; сети — cpc, cpm, cpa; «Другое» — site,
+  email, qr…); звёздочка у обязательных, «Собрать ссылки» — «Заполните: …», пока чего-то нет.
