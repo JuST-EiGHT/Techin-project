@@ -5,7 +5,7 @@
 - кампанию Ozon узнаёт только по `utm_campaign` = префикс продавца `vendor_org_<ID организации>` (+ «_название»); без
   префикса переходы не попадут в статистику продавца;
 - размечать можно только ссылки на ozon.ru / ozon.kz / ozon.by и только на товар (`/product/`), магазин
-  (`/product/seller/`), бренд (`/brand/`), акцию или подборку (`/highlight/`);
+  (`/seller/…`, в базе знаний — `/product/seller/`), бренд (`/brand/`), акцию или подборку (`/highlight/`);
 - остальные метки (source, medium, term, content) — обычные: без source и medium в отчёте не будет разбивки по источникам.
 """
 import re
@@ -38,14 +38,19 @@ SECTIONS = {
 
 
 def section_of(path: str) -> str | None:
-    """Раздел Ozon по пути ссылки: магазин — раньше товара (`/product/seller/` начинается с `/product/`)."""
+    """Раздел Ozon по пути ссылки. Магазин — `/seller/<имя>/` (так страница магазина открывается в браузере, ссылка
+    владельца 18.11.2026) и `/product/seller/…` (как в базе знаний Ozon); проверяется раньше товара — `/product/seller/`
+    начинается с `/product/`."""
     p = "/" + path.lstrip("/").lower()
-    if p.startswith("/product/seller/") and len(p) > len("/product/seller/"):
-        return "seller"
-    for prefix, kind in (("/product/", "product"), ("/brand/", "brand"), ("/highlight/", "highlight")):
-        if p.startswith(prefix) and len(p) > len(prefix):
-            return kind
+    for prefix, kind in (("/product/seller/", "seller"), ("/seller/", "seller"), ("/product/", "product"),
+                         ("/brand/", "brand"), ("/highlight/", "highlight")):
+        if p.startswith(prefix):
+            return kind if len(p.rstrip("/")) > len(prefix.rstrip("/")) else None
     return None
+
+
+# служебные параметры кнопки «Поделиться» Ozon (у каждого, кто поделился, свои) — в ссылку с метками не переносим
+SHARE_PARAMS = {"at", "sh", "_bctx", "hs"}
 
 
 @dataclass(frozen=True)
@@ -78,10 +83,13 @@ def parse_link(text: str) -> OzonLink:
     section = section_of(parts.path)
     if section is None:
         raise LinkError(
-            "Размечать можно только ссылки на товар (/product/), магазин (/product/seller/), бренд (/brand/) "
+            "Размечать можно только ссылки на товар (/product/), магазин (/seller/), бренд (/brand/) "
             "или акцию и подборку (/highlight/)"
         )
-    params = tuple((k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if not k.lower().startswith("utm_"))
+    params = tuple(
+        (k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
+        if not k.lower().startswith("utm_") and k.lower() not in SHARE_PARAMS
+    )
     base = urlunsplit(("https", f"www.{bare}", parts.path or "/", "", ""))
     return OzonLink(base=base, section=section, params=params)
 

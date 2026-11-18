@@ -31,6 +31,8 @@ def query(url: str) -> dict[str, str]:
     ("ozon.ru/product/123456789/", "product", "https://www.ozon.ru/product/123456789/"),
     ("http://OZON.KZ/product/123/", "product", "https://www.ozon.kz/product/123/"),
     ("https://www.ozon.by/product/seller/shop-777/", "seller", "https://www.ozon.by/product/seller/shop-777/"),
+    ("https://www.ozon.ru/seller/myshop/", "seller", "https://www.ozon.ru/seller/myshop/"),  # как открывается магазин
+    ("ozon.ru/seller/myshop-12345", "seller", "https://www.ozon.ru/seller/myshop-12345"),
     ("https://www.ozon.ru/brand/nachi-100500/", "brand", "https://www.ozon.ru/brand/nachi-100500/"),
     ("https://www.ozon.ru/highlight/rasprodazha-1/", "highlight", "https://www.ozon.ru/highlight/rasprodazha-1/"),
 ])
@@ -47,6 +49,8 @@ def test_allowed_links(text, section, base):
     ("https://www.ozon.ru/category/podshipniki/", "только ссылки на товар"),
     ("https://www.ozon.ru/", "только ссылки на товар"),
     ("https://www.ozon.ru/product/", "только ссылки на товар"),
+    ("https://www.ozon.ru/seller/", "только ссылки на товар"),
+    ("https://www.ozon.ru/product/seller/", "только ссылки на товар"),
     ("https://ozon.ru/t/AbCdEf", "только ссылки на товар"),
     ("ftp://ozon.ru/product/1/", "https://"),
     ("https://www.ozon.ru/product/1/ https://www.ozon.ru/product/2/", "по одной ссылке в строке"),
@@ -65,6 +69,12 @@ def test_own_params_kept_old_utm_replaced():
     assert url.startswith("https://www.ozon.ru/product/1/?asb=abc&avtc=1&")
     assert query(url) == {"asb": "abc", "avtc": "1", "utm_source": "vk", "utm_medium": "cpc", "utm_campaign": f"{PREFIX}_vk"}
     assert "#" not in url
+
+
+def test_share_params_dropped():
+    """Ссылка из кнопки «Поделиться»: at, sh, _bctx, hs — служебные, у каждого свои; в ссылку с метками не идут."""
+    link = tl.parse_link("https://www.ozon.ru/product/mochalka-123/?_bctx=CAQQ&at=abc-DEF&hs=1&sh=xyz&avtc=1")
+    assert link.base == "https://www.ozon.ru/product/mochalka-123/" and link.params == (("avtc", "1"),)
 
 
 def test_labels_encoded_macros_kept():

@@ -763,7 +763,7 @@ export function LinkBuilderPage() {
             description={`Товары из каталога и ссылки списком — вместе до ${max} за раз`}
             action={
               <HelpTip label="Какие ссылки можно разметить">
-                Только ссылки на ozon.ru, ozon.kz или ozon.by и только на товар (/product/), магазин (/product/seller/), бренд
+                Только ссылки на ozon.ru, ozon.kz или ozon.by и только на товар (/product/), магазин (/seller/), бренд
                 (/brand/) или акцию и подборку (/highlight/). Остальные Ozon не посчитает — у такой строки будет ошибка.
               </HelpTip>
             }
