@@ -146,7 +146,9 @@ Seller API нельзя: есть только отчёты по вывозу и
   магазина (не в архиве) пачками по 100. `supply_period` — `ONE_WEEK` / `TWO_WEEKS` / `FOUR_WEEKS` / `EIGHT_WEEKS`
   («Частота поставки» в «Настроить рекомендации» кабинета; Ozon советует столько, чтобы хватило до следующей поставки) —
   настройка `supply_ozon_days` (7 / 14 / 28 / 56, по умолчанию 28, как «на 28 дней» в кабинете владельца).
-  `delivery_schema` — `ALL` / `FBO` / `FBS`; `attention_level` — `LOW` / `MEDIUM` / `HIGH`; причины переплаты —
+  `delivery_schema` — `ALL` / `FBO` / `FBS`; шлём **`FBO`** (правка 18.11: с `ALL` Ozon на реальном ключе прислал нули
+  по всем товарам, хотя в кабинете советовал 8, 8, 4, 2 шт.; проверка — `./scripts/admin.sh supply-recs-check email`:
+  одни и те же товары по FBO и ALL, строк, с рекомендацией, кластеры); `attention_level` — `LOW` / `MEDIUM` / `HIGH`; причины переплаты —
   `NO_SUPPLIES_TO_CLUSTER`, `MISSING_ITEMS_IN_CLUSTER`, `FREQUENT_OUT_OF_STOCK`. Соседний `/clusters-items/info`
   требует `macrolocal_cluster_to_ids`, а не SKU. Сбой метода — в `ozon_supply_rec_syncs` с методом и текстом Ozon
   (`runner.ozon_error_text`), заявкам не мешает.

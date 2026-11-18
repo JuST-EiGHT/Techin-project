@@ -86,7 +86,8 @@ async def test_sync_recs_request_and_snapshots(sessions, client, tokens, stocks_
     today = today_msk()
     first = local_sale.calls[0]
     # skus — обязательно, строками; срок рекомендации — 28 дней (раз в 4 недели), как «на 28 дней» в кабинете
-    assert first["filter"] == {"delivery_schema": "ALL", "supply_period": "FOUR_WEEKS", "skus": skus,
+    # схема — FBO: рекомендация поставки у Ozon — для FBO (с ALL реальный Ozon прислал нули, правка 18.11)
+    assert first["filter"] == {"delivery_schema": "FBO", "supply_period": "FOUR_WEEKS", "skus": skus,
                                "period": {"from": (today - timedelta(days=28)).isoformat(),
                                           "to": (today - timedelta(days=1)).isoformat()}}
     assert [(c["offset"], c["limit"]) for c in local_sale.calls] == [(0, 2), (2, 2)]
@@ -186,3 +187,22 @@ async def test_cluster_metrics_from_stock_sync(sessions, client, tokens, stocks_
         macros = {w.cluster_id: w.macrolocal_cluster_id for w in (await db.execute(select(Warehouse))).scalars()
                   if w.cluster_id}
     assert macros == {154: 154, 2: 2, 12: 999}
+
+
+async def test_admin_supply_recs_check(sessions, client, tokens, stocks_ozon, local_sale):  # noqa: F811
+    """`admin.sh supply-recs-check`: одни и те же товары по FBO и ALL — что ответил Ozon; в базу ничего не пишет."""
+    from tests.conftest import USER
+    from tests.test_deploy import run_admin
+
+    user_id = await api_user(sessions, client, tokens, stocks_ozon)
+    with respx.mock(base_url=settings.OZON_API_URL, assert_all_called=False) as mock:
+        mock.post(recs_mod.LOCAL_SALE_PATH).mock(side_effect=local_sale._handle)
+        code, text = await run_admin(sessions, "supply-recs-check", USER["email"])
+    assert code == 0, text
+    assert [c["filter"]["delivery_schema"] for c in local_sale.calls] == ["FBO", "ALL"]
+    assert "FBO: строк 3, с рекомендацией 2 (всего 33 шт.)" in text and "ALL: строк 3" in text
+    assert "→ кластер 154" in text and ": 30 шт." in text
+    async with sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(OzonSupplyRec)) == 0  # только чтение
+        assert await db.get(OzonSupplyRecSync, user_id) is None
+

@@ -4,6 +4,7 @@
 #   ./scripts/admin.sh reset-password you@mail.ru              новый пароль, выход на всех устройствах
 #   ./scripts/admin.sh invite --email friend@mail.ru           приглашение: код и ссылка
 #   ./scripts/admin.sh invites | users | revoke-invite ID | deactivate EMAIL | activate EMAIL | unblock EMAIL
+#   ./scripts/admin.sh supply-recs-check you@mail.ru            что Ozon отвечает на рекомендации поставок
 #   ./scripts/admin.sh --help                                  все команды
 set -euo pipefail
 exec "$(dirname "$0")/compose.sh" exec api python -m app.admin "$@"
