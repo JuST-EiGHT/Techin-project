@@ -8,7 +8,7 @@ from pydantic import BaseModel
 Severity = Literal["yellow", "red"]
 Group = Literal["sales", "price", "margin", "stock", "promo", "money", "data"]
 # разделы уведомлений по карте сервиса (10.25, engine/notifications.SECTIONS)
-Section = Literal["sales", "margin", "stock", "cash", "payouts", "auto_promo", "prices", "data", "automation"]
+Section = Literal["sales", "margin", "stock", "cash", "payouts", "auto_promo", "discounts", "prices", "data", "automation"]
 
 
 class AnomalyProduct(BaseModel):

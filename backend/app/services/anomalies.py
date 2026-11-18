@@ -259,10 +259,23 @@ async def _reports(db: AsyncSession, ctx: Context) -> list[det.Check]:
     return [det.report_error([det.ReportItem(r.id, r.filename, r.period, r.error_message) for r in rows])]
 
 
+async def _discounts(db: AsyncSession, ctx: Context) -> list[det.Check]:
+    """Заявки на скидку, которые ждут решения (шаг 4.3a): прибыль при запрошенной цене — калькулятором 4.2."""
+    from app.services import discounts
+
+    rows = [r for r in await discounts.all_rows(db, ctx.user_id) if r["can_decide"]]
+    items = [det.DiscountItem(
+        r["id"], r["ozon_task_id"], (r["product"] or {}).get("id"), (r["product"] or {}).get("offer_id"),
+        (r["product"] or {}).get("name") or r["name"], r["requested_price"], r["price"], r["requested_quantity"],
+        r["end_at"], r["unit_profit"], "loss" in r["marks"],
+    ) for r in rows]
+    return [det.discount_requests(items, ctx.now, ctx.th)]
+
+
 # порядок важен: товары дают «нулевой остаток» и архив для продаж
 GATHERERS = (("products", _products), ("sales", _sales), ("prices", _prices), ("payouts", _payouts),
              ("bank", _bank), ("cash_gap", _cash_gap), ("uncategorized", _uncategorized),
-             ("sync", _sync), ("finance_data", _finance_data), ("reports", _reports))
+             ("sync", _sync), ("finance_data", _finance_data), ("reports", _reports), ("discounts", _discounts))
 
 
 async def active(db: AsyncSession, user_id: uuid.UUID) -> list[Anomaly]:
@@ -273,9 +286,11 @@ def _active(a: Anomaly) -> det.Active:
     return det.Active(a.id, a.type, a.key, a.severity, a.product_id)
 
 
-async def detect(db: AsyncSession, user_id: uuid.UUID, now: datetime | None = None) -> dict:
+async def detect(db: AsyncSession, user_id: uuid.UUID, now: datetime | None = None,
+                 only: tuple[str, ...] | None = None) -> dict:
     """Поиск аномалий пользователя: новые — записи, прошедшие — закрываются. Коммит — здесь. Возвращает статистику и id
-    новых аномалий (для уведомлений — шаг 7.3)."""
+    новых аномалий (для уведомлений — шаг 7.3). only — только эти проверки (после загрузки заявок на скидку — их
+    проверка, шаг 4.3a); аномалии других типов не трогаются (reconcile — только по типам прошедших проверок)."""
     now = now or _now()
     settings = await get_settings(db, user_id)
     planning = await db.get(PlanningSettings, user_id)
@@ -284,6 +299,8 @@ async def detect(db: AsyncSession, user_id: uuid.UUID, now: datetime | None = No
     checks: list[det.Check] = []
     failed: list[str] = []
     for name, gather in GATHERERS:
+        if only is not None and name not in only:
+            continue
         try:
             checks += await gather(db, ctx)
         except Exception:  # noqa: BLE001 — сбой одной проверки не мешает остальным; её аномалии остаются как были

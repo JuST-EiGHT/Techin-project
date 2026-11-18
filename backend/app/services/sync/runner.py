@@ -29,6 +29,7 @@ from app.integrations.ozon.factory import get_ozon_client
 from app.models.sync_run import ACTIVE_STATUSES, FAILED, QUEUED, RUNNING, SUCCESS, SyncRun
 from app.services import storage_report
 from app.services.sync.categories import refresh as sync_categories
+from app.services.sync.discount_tasks import sync_discount_tasks
 from app.services.sync.products import sync_products
 from app.services.sync.promotions import sync_promotions
 from app.services.sync.finance import sync_finance
@@ -153,6 +154,24 @@ async def _supplies_job(db: AsyncSession, user_id: uuid.UUID, client: OzonClient
     return stats
 
 
+async def _discounts_job(db: AsyncSession, user_id: uuid.UUID, client: OzonClient) -> dict:
+    """Заявки на скидку (шаг 4.3a) и сразу — их уведомления: новая заявка и «скоро истекает» не ждут часовой проверки
+    аномалий. Сбой уведомлений не отменяет загрузку."""
+    stats = (await sync_discount_tasks(db, user_id, client)).as_dict()
+    from app.services.anomalies import detect
+    from app.services.notifier import after_detect
+
+    try:
+        found = await detect(db, user_id, only=("discounts",))
+        stats["anomalies"] = {k: found[k] for k in ("created", "resolved", "escalated")}
+        stats["telegram"] = await after_detect(db, user_id, found["new_ids"])
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+        log.exception("Заявки на скидку: уведомления для %s не обновлены", user_id)
+        stats["anomalies"] = {"error": "не обновлены"}
+    return stats
+
+
 async def _bank_job(db: AsyncSession, user_id: uuid.UUID, connection_id: str | None = None) -> dict:
     from app.services.bank_connections import sync_user
 
@@ -182,6 +201,7 @@ JOBS: dict[str, Job] = {
     "bank": _bank_job,
     "postings": _postings_job,
     "supplies": _supplies_job,
+    "discounts": _discounts_job,
     "anomalies": _anomalies_job,
 }
 NO_OZON_CLIENT = {"bank", "anomalies"}  # задачи, которым клиент Ozon не нужен

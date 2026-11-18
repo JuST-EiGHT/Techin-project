@@ -60,6 +60,8 @@ SECTIONS: tuple[Section, ...] = (
             "пришла другой суммой.", (det.PAYOUT_MISSED, det.PAYOUT_DIFF, det.BANK_MISSING, det.BANK_DIFF)),
     Section("auto_promo", "Автодобавление в акцию", "Ozon сам добавил товар в акцию — успейте убрать, если она невыгодна.",
             (det.PROMO_AUTO_ADDED,), ("yellow",)),
+    Section("discounts", "Заявки на скидку", "Покупатель просит скидку — новая заявка ждёт решения; заявка скоро "
+            "истечёт — красная.", (det.DISCOUNT_REQUEST,)),
     Section("prices", "Изменения цен", "Цена или комиссия Ozon заметно изменились за 7 дней — через сервис или нет.",
             (det.PRICE_CHANGE, det.COMMISSION_CHANGE)),
     Section("data", "Синхронизация и отчёты", "Ключ Ozon или токен банка не принят, данные давно не обновлялись, "
@@ -101,6 +103,7 @@ def legacy_sections(red: bool = True, yellow: bool = False, auto_promo: bool = T
     out = {k: by_severity for k in ("sales", "margin", "stock", "prices")}
     out.update(cash=SectionPrefs(telegram=money), payouts=SectionPrefs(telegram=money),
                auto_promo=SectionPrefs(telegram=auto_promo), data=SectionPrefs(telegram=data),
+               discounts=SectionPrefs(),  # раздел шага 4.3a: новые заявки и «скоро истечёт» — сразу, любой важности
                automation=SectionPrefs())
     return out
 
