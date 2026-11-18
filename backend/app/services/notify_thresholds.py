@@ -47,6 +47,9 @@ THRESHOLDS: tuple[Threshold, ...] = (
               "ошибку.", D(1), D(99)),
     Threshold("anomaly_commission_pp", "prices", "Комиссия изменилась больше чем на", "п. п.", "Вместе с комиссией "
               "меняются маржа и минимальная цена.", D("0.1"), D(50), 1),
+    Threshold("anomaly_discount_expiry_hours", "discounts", "Заявка скоро истечёт — меньше чем за", "ч", "Заявка, "
+              "по которой осталось меньше этого времени, становится красной и приходит в Telegram ещё раз.",
+              D(1), D(168)),
     Threshold("anomaly_sync_stale_hours", "data", "Данные не обновлялись дольше", "ч", "Ozon или банк не отвечает: "
               "разовый сбой между плановыми загрузками не тревожит, а долгий — да.", D(1), D(720)),
     Threshold("anomaly_data_gap_days", "data", "Дней без начислений между загруженными — от", "дн.", "Пропуск в "
@@ -65,6 +68,7 @@ NOTES = {
     "auto_promo": "Ozon сам добавил товар в акцию — сразу жёлтая, без порогов; маржа в акции ниже нуля — в «Низкой марже».",
     "prices": "Сравниваем с тем, что было 7 дней назад: изменения в кабинете Ozon, самим Ozon и через сервис.",
     "data": "Ключ Ozon или токен банка не принят — красная сразу, без порогов.",
+    "discounts": "Каждая заявка, которая ждёт решения, — свой пункт; решили или срок прошёл — уходит сама.",
 }
 
 
@@ -81,7 +85,7 @@ def out(s) -> dict:
     d = det.DEFAULT_THRESHOLDS
     stock = svc.stock_thresholds(s)
     sections = []
-    for key in ("sales", "margin", "stock", "cash", "payouts", "auto_promo", "prices", "data"):
+    for key in ("sales", "margin", "stock", "cash", "payouts", "auto_promo", "discounts", "prices", "data"):
         items = [{"key": t.key, "label": t.label, "unit": t.unit, "why": t.why, "value": _value(t, now),
                   "default": _value(t, d), "min": t.min, "max": t.max, "places": t.places}
                  for t in THRESHOLDS if t.section == key]

@@ -11,6 +11,7 @@ from app.api.v1 import (
     costs,
     credentials,
     dashboard,
+    discounts,
     finance,
     notifications,
     ozon,
@@ -52,6 +53,7 @@ api_router.include_router(products.router)
 api_router.include_router(price.router)
 api_router.include_router(prices.router)
 api_router.include_router(promotions.router)
+api_router.include_router(discounts.router)
 api_router.include_router(audit.router)
 api_router.include_router(anomalies.router)
 api_router.include_router(recommendations.router)

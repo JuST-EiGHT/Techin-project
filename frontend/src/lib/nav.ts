@@ -84,6 +84,11 @@ export const NAV: NavSection[] = [
         label: 'Акции',
         description: 'Маржа в акции, вход и выход, добавленные Ozon сами, история участия',
       },
+      {
+        href: '/dashboard/products/discounts',
+        label: 'Заявки на скидку',
+        description: 'Покупатели просят скидку: прибыль при их цене, одобрить или отклонить',
+      },
     ],
   },
   {

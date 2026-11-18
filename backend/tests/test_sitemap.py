@@ -207,6 +207,8 @@ def anomaly_links() -> tuple[dict[str, str | None], set[str]]:
         # шаг 11.2: ссылка с диплинком
         "deeplink": (det.DEEPLINK_EXPIRING, det.YELLOW, None, {"link_id": ID, "what": "Подшипник", "campaign": "vk",
                                                                "expires_on": "2026-10-20", "days_left": 5}),
+        # шаг 4.3a: заявка на скидку — сразу на неё
+        "discount": (det.DISCOUNT_REQUEST, det.RED, pid, {"task_id": "abc", "end_at": "2026-10-15T12:00:00+00:00"}),
     }
     links = {
         name: describe(t, sev, Decimal(100), Decimal(50), Decimal(10), d, pid_, "Подшипник 6001", today).link
@@ -217,7 +219,8 @@ def anomaly_links() -> tuple[dict[str, str | None], set[str]]:
 
 def test_anomaly_links_lead_to_new_pages():
     links, types = anomaly_links()
-    assert types == set(det.TYPES)  # все 19 проверок (14 — шаг 7.1, 5 — шаг 10.5)
+    assert types == set(det.TYPES)  # все 20 проверок (14 — шаг 7.1, 5 — шаг 10.5, 1 — шаг 4.3a)
+    assert links["discount"] == "/dashboard/products/discounts?task=abc"
     assert links["sales_shop"] == "/dashboard/analytics/sales"  # 10.25: продажи магазина — «Аналитика продаж»
     assert links["price_service"] == f"/dashboard/products/prices/history?product={ID}"
     assert links["promo_auto"] == "/dashboard/products/promotions/1234567"

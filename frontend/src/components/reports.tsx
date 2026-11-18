@@ -92,10 +92,11 @@ export const TYPE_LABEL: Record<ReportType, string> = {
   realization: 'Отчёт о реализации',
 }
 
+/** Сумма с копейками: «1 234,50 ₽», минус — типографский «−» (DESIGN.md §8), нет данных — «—». */
 export const rub = (v: string | null) =>
   v === null
     ? '—'
-    : `${Number(v).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽`
+    : `${Number(v).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).replace('-', '−')} ₽`
 
 /** «2026-09-07» → «07.09.2026» без сдвига часового пояса. */
 export const fmtDay = (iso: string | null) => (iso ? iso.split('-').reverse().join('.') : '—')
@@ -113,7 +114,9 @@ export function periodLabel(r: { period: string; period_start: string | null; pe
 // плашка — общий элемент дизайн-системы (10.27a); здесь — для старых импортов
 export { Badge } from '@/components/ui'
 
-export const pctText = (v: string | null) => (v === null ? '—' : `${Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} %`)
+/** Процент: «12,5 %», минус — типографский «−» (DESIGN.md §8), нет данных — «—». */
+export const pctText = (v: string | null) =>
+  v === null ? '—' : `${Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 2 }).replace('-', '−')} %`
 
 /** Пять главных цифр P&L: откуда они взяты — подсказки под суммами. */
 export type FiguresData = {

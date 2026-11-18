@@ -31,12 +31,13 @@ TYPE_TITLES = {
     det.REPORT_ERROR: "Отчёт с ошибкой",
     det.MISSING_COST: "Продажи без себестоимости",
     det.DEEPLINK_EXPIRING: "Диплинк скоро перестанет работать",
+    det.DISCOUNT_REQUEST: "Заявка на скидку",
 }
 UNITS = {
     det.SALES_DROP: "шт./день", det.SALES_GROWTH: "шт./день", det.PRICE_CHANGE: "₽", det.COMMISSION_CHANGE: "%",
     det.LOW_MARGIN: "%", det.LOW_STOCK: "дн.", det.PROMO_AUTO_ADDED: "%", det.PROMO_LOSS: "%", det.PAYOUT_MISSED: "₽",
     det.PAYOUT_DIFF: "₽", det.BANK_MISSING: "₽", det.BANK_DIFF: "₽", det.CASH_GAP: "₽", det.UNCATEGORIZED: "шт.",
-    det.EXCESS_STOCK: "дн.", det.ACCRUAL_GAPS: "дн.",
+    det.EXCESS_STOCK: "дн.", det.ACCRUAL_GAPS: "дн.", det.DISCOUNT_REQUEST: "₽",
 }
 SYNC_WINDOW = "/dashboard?sync=1"  # открывает окно «Синхронизация» (10.2)
 
@@ -76,6 +77,15 @@ def _day(iso: str | None, year: bool = False) -> str:
         return "—"
     d = date.fromisoformat(iso[:10])
     return d.strftime("%d.%m.%Y" if year else "%d.%m")
+
+
+def _time(iso: str) -> str:
+    """Срок заявки по Москве: «18.11 15:30»."""
+    from datetime import datetime, timedelta, timezone
+
+    dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    msk = (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).astimezone(timezone(timedelta(hours=3)))
+    return msk.strftime("%d.%m %H:%M")
 
 
 def _pct(v) -> str:
@@ -285,5 +295,22 @@ def describe(
         return Text(f"Диплинк перестанет работать {when}",
                     f"{where}: ссылка с диплинком работает до {until}, если по ней никто не перейдёт. Откройте её — "
                     "отсчёт 30 дней начнётся заново.", link)
+    if type_ == det.DISCOUNT_REQUEST:
+        who = f"«{product_name or d.get('name') or d.get('offer_id') or 'товар'}»"
+        qty = d.get("quantity")
+        ask = f"по {rub(after)}" + (f" за {qty} шт." if qty and qty > 1 else "") if after is not None else ""
+        price = f" (ваша цена {rub(before)})" if before is not None else ""
+        end = d.get("end_at")
+        until = f" до {_time(end)}" if end else ""
+        if severity == det.RED:
+            title = f"Заявка на скидку истекает{until}: {who}"
+        else:
+            title = f"Заявка на скидку: {who} {ask}".rstrip()
+        verdict = ("По этой цене каждая продажа в минус — одобряйте только сознательно." if d.get("loss")
+                   else "Посмотрите прибыль при запрошенной цене и решите: одобрить, одобрить со своей ценой или "
+                        "отклонить.")
+        return Text(title, f"Покупатель просит скидку {ask}{price}. Решить нужно{until}. {verdict}",
+                    f"/dashboard/products/discounts?task={d.get('task_id')}" if d.get("task_id")
+                    else "/dashboard/products/discounts")
 
     return Text(TYPE_TITLES.get(type_, type_), "", None)

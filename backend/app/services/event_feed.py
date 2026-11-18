@@ -9,6 +9,8 @@
 - акции — вход (`first_seen_at`, «Ozon добавил сам») и выход (`left_at`) из участия;
 - остатки — товар закончился на всех складах и снова появился (пришла поставка): по снимкам остатков; первый снимок
   товара только запоминаем; изменения на нескольких складах в одну минуту — одно состояние;
+- заявки на скидку (шаг 4.3a) — одобрение и отклонение: через сервис (решение, дошедшее до Ozon) и в кабинете Ozon или
+  автоматически (смена статуса при загрузке, если сервис эту заявку не решал);
 - поставки — смена статуса заявки на поставку FBO (`supply_order_events`, шаг 10.18); фильтр товара — заявки с ним;
 - аномалии — появилась (с важностью) и прошла (кроме «стала красной» — тогда появляется новая, красная);
 - действия — журнал запросов (`audit_log`, только успешные), понятным текстом; загрузка отчёта — по самому отчёту;
@@ -27,6 +29,8 @@ from app.engine import event_feed as ef
 from app.engine.anomaly_text import SYNC_WINDOW, TYPE_TITLES, describe
 from app.engine.supply_orders import group_of, state_text
 from app.models.anomaly import ESCALATED, RED, Anomaly
+from app.models.discount import APPLIED as DISCOUNT_APPLIED
+from app.models.discount import FROM_OZON, FROM_SERVICE, DiscountDecision, DiscountTask, DiscountTaskEvent
 from app.models.audit import HTTP_ENTITY, OK, AuditLog
 from app.models.price_change import APPLIED, MANUAL_BULK, PREVIEW, QUEUED, UNKNOWN, PriceChange
 from app.models.product import Product, ProductPrice
@@ -231,6 +235,31 @@ async def _supplies(db: AsyncSession, c: Ctx) -> tuple[list[ef.Event], bool]:
     return out, len(rows) == c.k
 
 
+async def _discounts(db: AsyncSession, c: Ctx) -> tuple[list[ef.Event], bool]:
+    """Заявки на скидку: одобрена или отклонена. Событие сервиса — его решение; событие Ozon — только если сервис эту
+    заявку не решал (иначе это подтверждение того же решения при загрузке)."""
+    decided = (select(DiscountDecision.id).where(DiscountDecision.task_id == DiscountTaskEvent.task_id,
+                                                 DiscountDecision.status == DISCOUNT_APPLIED)
+               .correlate(DiscountTaskEvent).exists())
+    at = func.coalesce(DiscountTaskEvent.moderated_at, DiscountTaskEvent.seen_at)  # когда решили — по Ozon
+    q = (select(DiscountTaskEvent, DiscountTask, at.label("at"))
+         .join(DiscountTask, DiscountTask.id == DiscountTaskEvent.task_id)
+         .where(DiscountTask.user_id == c.store_id, DiscountTaskEvent.status.in_(("APPROVED", "DECLINED")),
+                c.upto(at), c.of_products(DiscountTask.product_id),
+                or_(DiscountTaskEvent.source == FROM_SERVICE, and_(DiscountTaskEvent.source == FROM_OZON, ~decided)))
+         .order_by(at.desc()).limit(c.k))
+    rows = (await db.execute(q)).all()
+    catalog = await _catalog(db, [t.product_id for _, t, _ in rows])
+    out = []
+    for e, t, when in rows:
+        p = catalog.get(t.product_id)
+        via = ("через сервис" if e.source == FROM_SERVICE else "автоматически Ozon" if e.is_auto_moderated
+               else "в кабинете Ozon")
+        out.append(ef.discount_decision(f"discount:{e.id}", ef.utc(when), _ref(p) if p else None, str(t.id),
+                                        e.status == "APPROVED", e.approved_price, e.approved_quantity_max, via))
+    return out, len(rows) == c.k
+
+
 # ── аномалии ──
 async def _anomalies(db: AsyncSession, c: Ctx) -> tuple[list[ef.Event], bool]:
     today = today_msk()
@@ -328,7 +357,7 @@ async def _sync_failures(db: AsyncSession, c: Ctx) -> tuple[list[ef.Event], bool
 
 SOURCES = {
     ef.PRICE: (_price_changes, _price_batches, _price_cabinet),
-    ef.PROMO: (_promotions,),
+    ef.PROMO: (_promotions, _discounts),
     ef.STOCK: (_stock, _supplies),
     ef.ANOMALY: (_anomalies,),
     ef.ACTION: (lambda db, c: _actions(db, c, False), lambda db, c: _reports(db, c, False)),

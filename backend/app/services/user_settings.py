@@ -125,6 +125,11 @@ def supply_cluster_warehouses(s: UserSettings) -> dict[str, int]:
     return {str(k): int(v) for k, v in (s.supply_cluster_warehouses or {}).items() if v}
 
 
+def discount_rule_margin(s: UserSettings) -> Decimal | None:
+    """Заявки на скидку (шаг 4.3a): «одобрили бы по правилу „маржа ≥ X %“» — порог; не задан — подсказки нет."""
+    return None if s.discount_rule_margin_pct is None else _plain(s.discount_rule_margin_pct)
+
+
 def supply_safety_days(s: UserSettings) -> int:
     """Страховой запас для поставок (шаг 10.18), дней; не задан — 0."""
     return DEFAULT_SAFETY_DAYS if s.supply_safety_days is None else s.supply_safety_days
@@ -137,6 +142,7 @@ ANOMALY_FIELDS = {
     "anomaly_commission_pp": "commission_pp", "low_margin_pct": "low_margin", "anomaly_payout_diff_pct": "payout_diff",
     "anomaly_cash_gap_days": "cash_gap_days", "anomaly_uncategorized_days": "uncategorized_days",
     "anomaly_sync_stale_hours": "sync_stale_hours", "anomaly_data_gap_days": "data_gap_days",
+    "anomaly_discount_expiry_hours": "discount_expiry_hours",
 }
 
 

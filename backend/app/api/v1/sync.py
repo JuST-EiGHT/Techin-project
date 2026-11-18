@@ -95,6 +95,12 @@ async def sync_supplies_now(user: User = Depends(get_current_store), db: AsyncSe
     return await _sync_now("supplies", user, db)
 
 
+@router.post("/discounts", response_model=SyncRunResponse, status_code=status.HTTP_202_ACCEPTED)
+async def sync_discounts_now(user: User = Depends(get_current_store), db: AsyncSession = Depends(get_db)):
+    """Заявки покупателей на скидку (шаг 4.3a)."""
+    return await _sync_now("discounts", user, db)
+
+
 async def _kind_status(db: AsyncSession, user_id: uuid.UUID, kind: str) -> KindStatus:
     await active_run(db, user_id, kind)  # помечает зависшие запуски проваленными
     last = await latest_run(db, user_id, kind)
@@ -130,6 +136,7 @@ async def sync_status(user: User = Depends(get_current_store), db: AsyncSession 
         bank=await _kind_status(db, user.id, "bank"),
         postings=await _kind_status(db, user.id, "postings"),
         supplies=await _kind_status(db, user.id, "supplies"),
+        discounts=await _kind_status(db, user.id, "discounts"),
         state=view.state,
         oldest_kind=view.oldest_kind,
         oldest_success_at=view.oldest_at,

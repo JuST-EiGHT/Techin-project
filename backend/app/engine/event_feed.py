@@ -180,6 +180,15 @@ def supply_order(key: str, at: datetime, order_id: str, number: str, state_text:
                  f"/dashboard/warehouses/supply?tab=orders&order={order_id}", "Заявка")
 
 
+def discount_decision(key: str, at: datetime, product: ProductRef | None, task_id: str, approved: bool,
+                      price: Decimal | None, qty: int | None, via: str) -> Event:
+    """Заявка покупателя на скидку одобрена или отклонена (шаг 4.3a): через сервис, в кабинете Ozon или автоматически."""
+    what = "Одобрена заявка на скидку" if approved else "Отклонена заявка на скидку"
+    terms = (f" по {rub(price)}" + (f" × {qty} шт." if qty and qty > 1 else "")) if approved and price else ""
+    return Event(key, at, PROMO, what + terms, via, OK if approved else None, product,
+                 f"/dashboard/products/discounts?task={task_id}", "Заявка")
+
+
 # ── аномалии ──
 RESOLUTION = {"normal": "вернулось в норму", "gone": "больше не относится — товар в архиве или проверка выключена"}
 
@@ -363,6 +372,8 @@ ACTIONS: dict[tuple[str, str], Action] = {
     ("DELETE", f"{P}/traffic/links/{{link_id}}"): Action("Удалена ссылка с UTM", f"{LINKS}?tab=history", "Ссылки с UTM"),
     ("POST", f"{P}/traffic/links/{{link_id}}/restore"): Action("Возвращена ссылка с UTM", f"{LINKS}?tab=history",
                                                                "Ссылки с UTM", id_param="link"),
+    ("PUT", f"{P}/discounts/rule"): Action("Изменено правило подсказки по заявкам на скидку",
+                                          "/dashboard/products/discounts", "Заявки на скидку"),
 }
 REPORT_UPLOAD = ("POST", f"{P}/reports/upload")  # загрузка — событие отчёта; не загрузился — ошибка загрузки
 # не события ленты: вход и токены; «Обновить» (синхронизация — свои события); предпросмотры и расчёты (в журнал не
@@ -373,6 +384,7 @@ IGNORED: set[tuple[str, str]] = {
     ("POST", f"{P}/credentials/{{cred_id}}/verify"),
     ("POST", f"{P}/sync/products"), ("POST", f"{P}/sync/stocks"), ("POST", f"{P}/sync/balance"),
     ("POST", f"{P}/sync/promotions"), ("POST", f"{P}/sync/postings"), ("POST", f"{P}/sync/supplies"),
+    ("POST", f"{P}/sync/discounts"),
     ("POST", f"{P}/sync/all"),
     ("POST", f"{P}/finance/sync"), ("POST", f"{P}/sales/rebuild"),
     ("POST", f"{P}/bank/connections/sync"), ("POST", f"{P}/bank/connections/{{conn_id}}/sync"),
@@ -382,6 +394,7 @@ IGNORED: set[tuple[str, str]] = {
     ("POST", f"{P}/prices/bulk/upload"), ("POST", f"{P}/prices/bulk/upload/errors"), ("POST", f"{P}/prices/bulk/apply"),
     ("POST", f"{P}/promotions/{{promotion_id}}/products/{{product_id}}/join"),
     ("POST", f"{P}/promotions/{{promotion_id}}/products/{{product_id}}/leave"),
+    ("POST", f"{P}/discounts/preview"), ("POST", f"{P}/discounts/apply"),
     ("POST", f"{P}/anomalies/acknowledge-all"), ("POST", f"{P}/anomalies/{{anomaly_id}}/acknowledge"),
     ("POST", f"{P}/recommendations/hide"), ("POST", f"{P}/recommendations/unhide"),
     ("POST", f"{P}/notifications/link-code"), ("POST", f"{P}/notifications/test"),

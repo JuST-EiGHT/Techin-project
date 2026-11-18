@@ -57,6 +57,7 @@ ACCRUAL_GAPS = "accrual_gaps"  # дни без начислений между �
 REPORT_ERROR = "report_error"  # отчёт XLSX не удалось перечитать
 MISSING_COST = "missing_cost"  # продажи без себестоимости — прибыль по ним не посчитать (правило 5)
 DEEPLINK_EXPIRING = "deeplink_expiring"  # ссылка с диплинком скоро перестанет работать — 30 дней без переходов (11.2)
+DISCOUNT_REQUEST = "discount_request"  # заявка покупателя на скидку ждёт решения; скоро истечёт — красная (4.3a)
 
 # группа — для фильтров и настроек уведомлений (7.2, 7.3): товары, акции, деньги, данные (10.5)
 GROUPS = {
@@ -66,6 +67,7 @@ GROUPS = {
     CASH_GAP: "money", UNCATEGORIZED: "money",
     SYNC_PROBLEM: "data", ACCRUAL_GAPS: "data", REPORT_ERROR: "data", MISSING_COST: "data",
     DEEPLINK_EXPIRING: "traffic",
+    DISCOUNT_REQUEST: "promo",
 }
 TYPES = tuple(GROUPS)
 # финансовые проблемы — «Финансы → Обзор» (10.22): деньги (выплаты, банк, разрыв, операции без статьи) и данные, без
@@ -106,6 +108,7 @@ class Thresholds:
     uncategorized_days: int = 7
     sync_stale_hours: int = 24  # данные не обновлялись дольше — жёлтая (шаг 10.5)
     data_gap_days: int = 1  # дней без начислений между загруженными — уже проблема
+    discount_expiry_hours: int = 24  # заявка на скидку истекает меньше чем через столько часов — красная (4.3a)
 
     def error(self) -> str | None:
         """Текст для пользователя, если пороги не подходят; иначе None."""
@@ -117,6 +120,8 @@ class Thresholds:
             return "Данные давно не обновлялись: от 1 до 720 часов"
         if not 1 <= self.data_gap_days <= DATA_DAYS:
             return f"Дни без начислений: от 1 до {DATA_DAYS}"
+        if not 1 <= self.discount_expiry_hours <= 168:
+            return "Заявка на скидку скоро истечёт: от 1 до 168 часов"
         return None
 
 
@@ -800,6 +805,45 @@ def missing_cost(items: list[CostGap], sales_known: bool) -> Check:
                  "qty": sum(x.qty for x in items),
                  "top": [{"offer_id": x.offer_id, "name": x.name, "revenue": str(x.revenue)} for x in top[:TOP_ITEMS]]},
     ))
+    return check
+
+
+@dataclass(frozen=True)
+class DiscountItem:
+    """Заявка на скидку, которая ждёт решения (новая, срок не прошёл; шаг 4.3a)."""
+
+    task_id: uuid.UUID
+    ozon_task_id: int
+    product_id: uuid.UUID | None
+    offer_id: str | None
+    name: str | None
+    requested_price: Decimal | None
+    price: Decimal | None  # ваша цена сейчас
+    quantity: int | None
+    end_at: datetime | None
+    unit_profit: Decimal | None  # прибыль с 1 шт. при запрошенной цене; нет расчёта — None
+    loss: bool = False  # ниже минимальной цены для участия
+
+
+def discount_requests(items: list[DiscountItem], now: datetime, th: Thresholds) -> Check:
+    """Каждая заявка, которая ждёт решения, — свой пункт: новая — жёлтая, до конца меньше порога часов — красная
+    (новой записью: в Telegram придёт «скоро истечёт»). Решили или истекла — закрывается. Деньги под риском — убыток,
+    если одобрить в минус: прибыль с 1 шт. × сколько просят."""
+    check = Check(DISCOUNT_REQUEST)
+    soon = timedelta(hours=th.discount_expiry_hours)
+    for it in items:
+        if it.end_at is not None and it.end_at <= now:
+            continue
+        red = it.end_at is not None and it.end_at - now <= soon
+        risk = -it.unit_profit * (it.quantity or 1) if it.unit_profit is not None and it.unit_profit < 0 else None
+        check.findings.append(Finding(
+            DISCOUNT_REQUEST, f"discount:{it.ozon_task_id}", RED if red else YELLOW, product_id=it.product_id,
+            metric_before=it.price, metric_after=it.requested_price, at_risk=_money(risk),
+            details={"task_id": str(it.task_id), "ozon_task_id": it.ozon_task_id, "offer_id": it.offer_id,
+                     "name": it.name, "quantity": it.quantity, "loss": it.loss,
+                     "end_at": it.end_at.isoformat() if it.end_at else None,
+                     "unit_profit": None if it.unit_profit is None else str(it.unit_profit)},
+        ))
     return check
 
 

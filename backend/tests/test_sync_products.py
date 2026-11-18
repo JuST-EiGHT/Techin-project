@@ -383,6 +383,7 @@ async def test_api_sync_without_key(client, tokens, enqueued):
                       "balance": empty, "has_bank": False, "bank": empty,  # банк по API — шаг 3.12
                       "postings": empty,  # отправления — шаг 5.2
                       "supplies": empty,  # заявки на поставку — шаг 10.18
+                      "discounts": empty,  # заявки на скидку — шаг 4.3a
                       "state": "no_source", "oldest_kind": None, "oldest_success_at": None, "kinds": []}  # шаг 10.2
 
 

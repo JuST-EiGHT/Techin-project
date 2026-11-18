@@ -95,6 +95,10 @@ class UserSettings(Base):
     # проверки данных (шаг 10.5): данные не обновлялись дольше, часов (24); дней без начислений между загруженными (1)
     anomaly_sync_stale_hours: Mapped[int | None] = mapped_column(Integer)
     anomaly_data_gap_days: Mapped[int | None] = mapped_column(Integer)
+    # заявки на скидку (шаг 4.3a): «скоро истекает» — меньше стольких часов до конца заявки (пусто — 24); подсказка
+    # «одобрили бы по правилу» — маржа при запрошенной цене не ниже, % (пусто — правило не задано, подсказки нет)
+    anomaly_discount_expiry_hours: Mapped[int | None] = mapped_column(Integer)
+    discount_rule_margin_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     # «Рекомендуемые действия» (шаг 10.6): «Скрыть» — на сколько дней; пусто — 7
     recommendation_hide_days: Mapped[int | None] = mapped_column(Integer)
     # ABC-анализ (шаг 10.10): границы групп, % накопленной доли; пусто — 80 и 95 (engine/abc)

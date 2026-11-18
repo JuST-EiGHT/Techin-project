@@ -165,6 +165,17 @@ def sync_supplies_all() -> int:
     return _fan_out("supplies", sync_supplies_for_user)
 
 
+@celery_app.task(name="tasks.sync_discounts_for_user")
+def sync_discounts_for_user(user_id: str, run_id: str | None = None) -> dict:
+    """Заявки покупателей на скидку (шаг 4.3a): новые, решения, сроки — и их уведомления."""
+    return asyncio.run(_sync_for_user("discounts", user_id, run_id))
+
+
+@celery_app.task(name="tasks.sync_discounts_all")
+def sync_discounts_all() -> int:
+    return _fan_out("discounts", sync_discounts_for_user)
+
+
 async def _bank_users() -> list[uuid.UUID]:
     from app.services.bank_connections import users_with_connections
 
@@ -244,6 +255,7 @@ FOR_USER_TASKS = {
     "bank": sync_bank_for_user,
     "postings": sync_postings_for_user,
     "supplies": sync_supplies_for_user,
+    "discounts": sync_discounts_for_user,
     "anomalies": detect_anomalies_for_user,
 }
 
