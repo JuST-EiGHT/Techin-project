@@ -43,6 +43,7 @@ def test_allowed_links(text, section, base):
 
 @pytest.mark.parametrize("text, error", [
     ("https://www.wildberries.ru/catalog/1/detail.aspx", "ozon.ru, ozon.kz или ozon.by"),
+    ("https://ozon.onelink.me/SNMZ/abc123", "ссылка с диплинком из кабинета Ozon"),  # конструктор Ozon с диплинком
     ("https://ozon.ru.evil.com/product/1/", "ozon.ru, ozon.kz или ozon.by"),
     ("https://evilozon.ru/product/1/", "ozon.ru, ozon.kz или ozon.by"),
     ("https://user:pass@ozon.ru/product/1/", "ozon.ru, ozon.kz или ozon.by"),

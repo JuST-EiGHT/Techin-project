@@ -77,6 +77,12 @@ def parse_link(text: str) -> OzonLink:
     if parts.scheme.lower() not in ("http", "https"):
         raise LinkError("Ссылка должна начинаться с https://")
     host = (parts.hostname or "").lower().rstrip(".")
+    if host == "onelink.me" or host.endswith(".onelink.me"):
+        # так выглядит ссылка из конструктора Ozon с галочкой «Использовать диплинк» (образец владельца 18.11.2026)
+        raise LinkError(
+            "Это ссылка с диплинком из кабинета Ozon — метки в ней уже есть, повторно её не размечают. Вставьте сюда "
+            "обычную ссылку на товар, магазин, бренд или акцию"
+        )
     bare = host[4:] if host.startswith("www.") else host
     if bare not in HOSTS or port not in (None, 443, 80) or parts.username or parts.password:
         raise LinkError("Ozon считает только ссылки на ozon.ru, ozon.kz или ozon.by")
