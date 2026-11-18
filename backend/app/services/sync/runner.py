@@ -14,7 +14,7 @@ from collections.abc import Awaitable, Callable
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.integrations.bank.base import (
@@ -27,6 +27,7 @@ from app.integrations.ozon.errors import (
 )
 from app.integrations.ozon.factory import get_ozon_client
 from app.models.sync_run import ACTIVE_STATUSES, FAILED, QUEUED, RUNNING, SUCCESS, SyncRun
+from app.services.pnl_cache import cache
 from app.services import storage_report
 from app.services.sync.categories import refresh as sync_categories
 from app.services.sync.discount_tasks import sync_discount_tasks
@@ -223,6 +224,37 @@ async def latest_run(db: AsyncSession, user_id: uuid.UUID, kind: str, status: st
     return res.scalar_one_or_none()
 
 
+async def latest_runs(db: AsyncSession, user_id: uuid.UUID, kinds: list[str]) -> dict[str, tuple[SyncRun | None, SyncRun | None]]:
+    """Последний запуск и последний успешный — сразу по всем видам: два запроса вместо двух на каждый вид (статус в шапке
+    опрашивается постоянно, на слабом сервере 60 запросов к базе — секунда, жалоба 18.11.2026). Зависший запуск, как в
+    active_run, помечается проваленным."""
+    out: dict[str, tuple[SyncRun | None, SyncRun | None]] = {k: (None, None) for k in kinds}
+    if not kinds:
+        return out
+
+    async def newest(only_success: bool) -> dict[str, SyncRun]:
+        cond = [SyncRun.user_id == user_id, SyncRun.kind.in_(kinds)]
+        if only_success:
+            cond.append(SyncRun.status == SUCCESS)
+        rank = func.row_number().over(partition_by=SyncRun.kind, order_by=SyncRun.started_at.desc()).label("rn")
+        sub = select(SyncRun.id, rank).where(*cond).subquery()
+        res = await db.execute(select(SyncRun).join(sub, sub.c.id == SyncRun.id).where(sub.c.rn == 1))
+        return {r.kind: r for r in res.scalars()}
+
+    last, success = await newest(False), await newest(True)
+    stale = False
+    for run in last.values():
+        if run.status in ACTIVE_STATUSES and datetime.now(timezone.utc) - _utc(run.started_at) > STALE_AFTER:
+            run.status, run.error = FAILED, "Синхронизация прервалась, запустите её снова"
+            run.finished_at, run.stats = datetime.now(timezone.utc), {"error_kind": INTERRUPTED}
+            stale = True
+    if stale:
+        await db.commit()
+    for k in kinds:
+        out[k] = (last.get(k), success.get(k))
+    return out
+
+
 async def active_run(db: AsyncSession, user_id: uuid.UUID, kind: str) -> SyncRun | None:
     run = await latest_run(db, user_id, kind)
     if run is None or run.status not in ACTIVE_STATUSES:
@@ -301,4 +333,5 @@ async def run_sync(
 
         run.status, run.stats, run.finished_at = SUCCESS, stats, datetime.now(timezone.utc)
         await db.commit()
+        await cache.invalidate(user_id)  # новые цены, остатки, акции, отправления — готовые расчёты магазина устарели
         return run

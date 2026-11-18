@@ -19,6 +19,7 @@ from app.engine import supply_planner
 from app.engine import withdrawal as withdrawal_engine
 from app.models.recommendation import RecommendationHide
 from app.schemas.sync import utc
+from app.services.pnl_cache import cache
 from app.services import pnl_data, pricing, sales, supply, withdrawal
 from app.services.costs import sales_without_cost
 from app.services.stocks import avg_daily_sales
@@ -32,6 +33,9 @@ def _now() -> datetime:
 
 def _day(dt: datetime | None) -> date | None:
     return None if dt is None else utc(dt).astimezone(MSK).date()
+
+
+INPUTS_TTL = 60  # с
 
 
 async def gather(db: AsyncSession, user_id: uuid.UUID) -> engine.Inputs:
@@ -59,7 +63,7 @@ async def gather(db: AsyncSession, user_id: uuid.UUID) -> engine.Inputs:
         )
 
     params = await supply.load_params(db, user_id)
-    plan = await supply.report(db, user_id, params)
+    plan = await supply.saved_report(db, user_id)
     # дней с данными: поставки в Ozon (10.18a) — продажи Ozon по кластеру за 28 дней, закупки на свой склад — заказы FBS
     days = {supply_planner.SUPPLY: 28 if plan["ozon_data"]["clusters_known"] else 0,
             supply_planner.PURCHASE: (plan["fbs"] or {}).get("days", 0)}
@@ -107,7 +111,8 @@ async def build(db: AsyncSession, user_id: uuid.UUID, product_id: uuid.UUID | No
                 now: datetime | None = None) -> dict:
     """Рекомендации магазина (или товара) без скрытых — по порядку правил."""
     now = now or _now()
-    inp = await gather(db, user_id)
+    # исходные данные магазина — раз в минуту на всех: главная и страница каждого товара (pnl_cache.object)
+    inp = await cache.object(user_id, "recommendations", INPUTS_TTL, lambda: gather(db, user_id))
     recs = engine.recommend(inp, product_id)
     hidden = await active_hides(db, user_id, now)
     shown = [r for r in recs if r.key not in hidden]
