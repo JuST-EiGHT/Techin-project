@@ -28,6 +28,7 @@ import {
   GRADE_TEXT,
   KIND,
   LEAD_WHY,
+  ozonFormulaText,
   type PlanDetail,
   type RowStatus,
   SAFETY_WHY,
@@ -575,8 +576,13 @@ function Result({ data, busy, onExport, onSync, syncing, picked, onToggle, onQty
           {od.recs_known && od.recs_synced_at
             ? `рекомендации Ozon${od.recs_days ? ` на ${od.recs_days} дн.` : ''} от ${fmtDateTime(od.recs_synced_at)}`
             : 'рекомендаций Ozon пока нет — по продажам'}
-          {od.recs_known && od.recs_rows !== undefined && (
+          {od.recs_known && od.recs_rows !== undefined && (od.recs_positive || !od.formula) ? (
             <span data-testid="recs-counts"> (Ozon советует везти в {od.recs_positive} из {od.recs_rows} пар «товар — кластер»)</span>
+          ) : null}
+          {od.formula && (
+            <span data-testid="recs-formula">
+              {' '}· {od.recs_positive ? 'где Ozon не прислал число' : 'Ozon не присылает число в API'} — «Ozon советует» по его формуле
+            </span>
           )}
           {od.recs_known && od.recs_days !== null && od.recs_days !== od.ozon_days && ` · в настройках — на ${od.ozon_days} дн., обновятся со следующей загрузкой`}
           {data.has_own_warehouses && data.fbs && ` · свои склады — заказы за ${data.fbs.days} дн.`}
@@ -586,7 +592,7 @@ function Result({ data, busy, onExport, onSync, syncing, picked, onToggle, onQty
           (запас после поставки + страховой + дни в пути) минус остаток и то, что уже едет. «Отправить» — не меньше, чем
           рекомендует Ozon. Вся поставка в кластер — не меньше {data.min_qty} шт.: не хватает — довозим товарами, которые там
           продаются лучше, пока запаса хватает не больше чем на {data.topup_days ?? 60} дн.; иначе в кластер не везём.
-          Кластер затоварен и Ozon не советует — не везём. Свои склады (FBS / rFBS) — закупка по заказам. «Нужно ещё» — за вычетом того, что уже в ваших планах и в
+          Кластер затоварен и Ozon не советует — не везём. {ozonFormulaText(od.ozon_days)} Свои склады (FBS / rFBS) — закупка по заказам. «Нужно ещё» — за вычетом того, что уже в ваших планах и в
           заявках Ozon. Пороги «Срочно» и «Скоро» — те же, что у остатков, в «Настройках».
         </HelpTip>
         <Link href="/dashboard/settings#supply" className="text-accent hover:underline">
@@ -662,10 +668,19 @@ function Where({ item }: { item: SupplyItem }) {
   )
 }
 
+/** «Ozon советует» у группы: часть чисел — по формуле Ozon (правка 21.11). */
+const ozonLabel = (g: { ozon: number | null; estimated: boolean }) =>
+  g.estimated ? `Ozon советует ${g.ozon} (по формуле)` : `Ozon советует ${g.ozon}`
+
 /** Откуда число «отправить»: рекомендация Ozon (нижняя планка) или продажи, и довели ли до минимума на склад. */
 function Basis({ item, minQty }: { item: SupplyItem; minQty: number }) {
   if (item.kind !== 'supply') return <span className="block text-xs text-faint">закупить</span>
-  const ozon = item.ozon_recommended === null ? 'Ozon — нет данных' : `Ozon советует ${item.ozon_recommended}`
+  const ozon =
+    item.ozon_recommended === null
+      ? 'Ozon — нет данных'
+      : item.ozon_estimated
+        ? `по формуле Ozon ${item.ozon_recommended}`
+        : `Ozon советует ${item.ozon_recommended}`
   const own = item.own_need === null ? 'продаж здесь нет' : `по продажам ${item.own_need}`
   return (
     <>
@@ -688,7 +703,7 @@ function Sales({ item }: { item: SupplyItem }) {
     return (
       <>
         <span className="tabular-nums">{perDay(item.avg_daily)}</span>
-        <span className="block text-xs text-faint">в кластере, Ozon</span>
+        <span className="block text-xs text-faint">{item.from_demand ? 'спрос покупателей кластера' : 'в кластере, Ozon'}</span>
       </>
     )
   // стрелка — только при заметной разнице (больше 10 %): иначе 0,57 ↑ 0,57 после округления
@@ -747,6 +762,7 @@ type GroupT = {
   status: RowStatus
   units: number
   ozon: number | null
+  estimated: boolean // правка 21.11: в «Ozon советует» группы есть посчитанное по формуле Ozon
   ads: number
   stock: number
   transit: number
@@ -784,7 +800,7 @@ function buildGroups(rows: SupplyItem[], view: SupplyView): GroupT[] {
               kind: i.kind,
             }
           : { title: i.product.offer_id, sub: i.product.name, href: productHref(i.product.id), kind: null }
-      g = { key, ...head, items: [], status: 'idle', units: 0, ozon: null, ads: 0, stock: 0, transit: 0, days: null, needed: [] }
+      g = { key, ...head, items: [], status: 'idle', units: 0, ozon: null, estimated: false, ads: 0, stock: 0, transit: 0, days: null, needed: [] }
       map.set(key, g)
     }
     g.items.push(i)
@@ -797,6 +813,7 @@ function buildGroups(rows: SupplyItem[], view: SupplyView): GroupT[] {
     g.units = g.needed.reduce((s, i) => s + i.to_order, 0)
     const recs = g.items.filter((i) => i.kind === 'supply' && i.ozon_recommended !== null)
     g.ozon = recs.length ? recs.reduce((s, i) => s + (i.ozon_recommended ?? 0), 0) : null
+    g.estimated = recs.some((i) => i.ozon_estimated)
     g.ads = g.items.reduce((s, i) => s + Number(i.avg_daily), 0)
     g.stock = g.items.reduce((s, i) => s + i.stock, 0)
     g.transit = g.items.reduce((s, i) => s + i.in_transit, 0)
@@ -1052,7 +1069,7 @@ function Grouped({ data, view, show, onView, onShow, lead, picked, onToggle, onQ
                     {g.days === 0 ? '' : 'хватит на '}
                     {groupDays(g, view)}
                   </span>
-                  {g.ozon !== null && <span>Ozon советует {g.ozon}</span>}
+                  {g.ozon !== null && <span>{ozonLabel(g)}</span>}
                   {g.href && (
                     <Link href={g.href} className="text-accent">
                       товар →
@@ -1085,7 +1102,7 @@ function Grouped({ data, view, show, onView, onShow, lead, picked, onToggle, onQ
                             <Days item={i} lead={lead} />
                           </span>
                           <span className="text-muted">
-                            {i.kind === 'supply' ? `${perDay(i.avg_daily)} в день по Ozon` : `${perDay(i.avg_daily)} в день (7 дн.: ${perDay(i.rate)})`}
+                            {i.kind === 'supply' ? `${perDay(i.avg_daily)} в день ${i.from_demand ? '— спрос покупателей кластера' : 'по Ozon'}` : `${perDay(i.avg_daily)} в день (7 дн.: ${perDay(i.rate)})`}
                           </span>
                           <span className="text-muted">
                             там {i.stock}
@@ -1154,7 +1171,7 @@ function Grouped({ data, view, show, onView, onShow, lead, picked, onToggle, onQ
                     </td>
                     <td className="px-3 py-2 text-right">
                       <span className="font-semibold tabular-nums">{g.units ? pieces(g.units) : '—'}</span>
-                      {g.ozon !== null && <span className="block text-xs text-faint">Ozon советует {g.ozon}</span>}
+                      {g.ozon !== null && <span className="block text-xs text-faint">{ozonLabel(g)}</span>}
                       <GroupActions g={g} picked={picked} onToggle={onToggle} onSupply={onSupply} />
                     </td>
                   </tr>

@@ -65,6 +65,8 @@ class SupplyItem(BaseModel):
     # почему не везём (covered | no_sales | below_min); впервые — товара в кластере нет и в данных сервиса не было
     status: str = "planned"
     topup: int = 0  # 20.11: сколько штук добавили, чтобы поставка в кластер дотянула до минимума
+    ozon_estimated: bool = False  # 21.11: «Ozon советует» — по формуле Ozon (API рекомендацию не отдаёт)
+    from_demand: bool = False  # 21.11: продажи в день — спрос покупателей кластера (у Ozon в кластере продаж нет)
     planned: int = 0  # «Не поставлять» из-за минимума: сколько было нужно товару (по продажам или Ozon)
     status_reason: str | None = None
     first: bool = False

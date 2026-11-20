@@ -248,6 +248,44 @@ async def test_sync_zero_everywhere_stays_zero(sessions, client, tokens, stocks_
     assert stats["ozon_recs_source"] == "items" and "второй отказ" in stats["ozon_recs_clusters_error"]
 
 
+async def test_sync_buyer_demand_without_recommendation(sessions, client, tokens, stocks_ozon, local_sale):  # noqa: F811
+    """Правка 21.11: на реальном ключе в ответе нет `recommended_supply` — сохраняем спрос покупателей кластера
+    (`local_data`: купили всего и из них со складов кластера), по нему считаем рекомендацию по формуле Ozon; изменился
+    спрос — новая запись, пропала строка со спросом — нулевая."""
+    user_id = await api_user(sessions, client, tokens, stocks_ozon)
+    for i in local_sale.data["items"]:
+        i["metrics"].pop("recommended_supply", None)
+    stats = await sync_recs(sessions, user_id)
+    assert (stats["ozon_recs"], stats["ozon_recs_positive"], stats["ozon_recs_changed"]) == (3, 0, 3)
+
+    async def demand() -> dict:
+        async with sessions() as db:
+            return {k: (r.recommended, r.demand_qty, r.local_qty) for k, r in (await recs_mod.latest_recs(db, user_id)).items()}
+
+    assert await demand() == {(900001001, 154): (0, 10, 6), (900001002, 777): (0, 5, 0), (900001001, 2): (0, 3, 3)}
+    assert (await sync_recs(sessions, user_id))["ozon_recs_changed"] == 0  # то же — новых записей нет
+    local_sale.data["items"][0]["metrics"]["local_data"]["total_quantity"] = 12
+    del local_sale.data["items"][1]
+    assert (await sync_recs(sessions, user_id))["ozon_recs_changed"] == 2
+    now = await demand()
+    assert now[(900001001, 154)] == (0, 12, 6) and now[(900001002, 777)] == (0, 0, 0)
+    async with sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(OzonSupplyRec)) == 5  # прежние записи остаются
+
+    # в отчёте поставок: ACB в Новосибирске — продаж Ozon в кластере нет, спрос покупателей был 5 шт. за 28 дней —
+    # Ozon советует ⌈5 / 28 × 28 × 1,2⌉ = 6 по формуле, а сами везём больше — на запас и дорогу: ⌈5 / 28 × 52⌉ = 10
+    local_sale.data = json.loads((FIX / "local_sale_items_clusters.json").read_text(encoding="utf-8"))
+    for i in local_sale.data["items"]:
+        i["metrics"].pop("recommended_supply", None)
+    await sync_recs(sessions, user_id)
+    data = (await client.get("/api/v1/supply/recommendations", headers=auth(tokens))).json()
+    nsk = next(i for i in data["items"] if i["destination"]["name"] == "Новосибирск")
+    assert (nsk["product"]["ozon_sku"], nsk["ozon_recommended"], nsk["ozon_estimated"], nsk["own_need"]) == (
+        900001002, 6, True, 10)
+    assert (nsk["to_order"], nsk["from_demand"], nsk["urgency"]) == (10, True, "critical")
+    assert data["ozon_data"]["formula"] is True and data["ozon_data"]["recs_positive"] == 0
+
+
 async def test_admin_supply_recs_check(sessions, client, tokens, stocks_ozon, local_sale, monkeypatch):  # noqa: F811
     """`admin.sh supply-recs-check`: одни и те же товары разными запросами — что ответил Ozon, поля и первая строка
     ответа; `--offer` — только эти товары; в базу ничего не пишет."""
@@ -271,6 +309,9 @@ async def test_admin_supply_recs_check(sessions, client, tokens, stocks_ozon, lo
     assert "→ кластер 154 Екатеринбург: 30 шт." in text
     assert "поля metrics: attention_level, impact_share, local_data" in text
     assert 'первая строка: {"cluster_to_id": 154, "item": {' in text  # как прислал Ozon, а не переложенная
+    # 21.11: сверка с кабинетом — что сервис показывает в «Поставках» (загрузки ещё не было — по остаткам и продажам Ozon)
+    assert "артикул | кластер | продажи в день | остаток | в пути | Ozon советует | везём" in text
+    assert "6001-2RS.C3.SRL.NAC.TH | Екатеринбург | 2 | 9 | 0 | 59 по формуле | 95" in text
 
     # у аккаунта два магазина с ключами — проверяются оба (20.11: на втором команда падала — переменная с названиями
     # магазинов затиралась названиями кластеров)

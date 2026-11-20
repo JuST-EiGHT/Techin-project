@@ -59,12 +59,13 @@ DEFAULT_SUPPLY_DAYS = 28
 # реальном ключе прислал нули по всем товарам, хотя в кабинете советовал 8, 8, 4, 2 шт.
 DELIVERY_SCHEMA = "FBO"
 
-Rec = tuple  # (recommended, attention_level, reasons)
+Rec = tuple  # (recommended, attention_level, reasons, demand_qty, local_qty)
 _CENT = Decimal("0.01")
 
 
 def parse(item: dict) -> tuple[int, int, Rec] | None:
-    """(sku, кластер покупателя, (рекомендовано, внимание, причины)); без SKU или кластера — None."""
+    """(sku, кластер покупателя, (рекомендовано, внимание, причины, купили покупатели кластера, из них с его складов));
+    без SKU или кластера — None. Поля `recommended_supply` на реальном ключе нет (21.11) — 0."""
     sku, cluster = to_id(item.get("sku")), to_id(item.get("macrolocal_cluster_to_id"))
     if sku is None or cluster is None:
         return None
@@ -74,8 +75,11 @@ def parse(item: dict) -> tuple[int, int, Rec] | None:
          "amount": None if (a := to_decimal(r.get("amount"), _CENT)) is None else str(a)}
         for r in metrics.get("overpayment_reasons") or [] if isinstance(r, dict) and r.get("reason")
     ]
+    local = metrics.get("local_data") if isinstance(metrics.get("local_data"), dict) else {}
+    demand = to_count(local["total_quantity"]) if local.get("total_quantity") is not None else None
+    local_qty = to_count(local["local_quantity"]) if local.get("local_quantity") is not None else None
     return sku, cluster, (to_count(metrics.get("recommended_supply")), to_str(metrics.get("attention_level"), 16),
-                          reasons or None)
+                          reasons or None, demand, local_qty)
 
 
 def _period(today, to_today: bool = False) -> dict:
@@ -187,7 +191,7 @@ async def latest_recs(db: AsyncSession, user_id: uuid.UUID) -> dict[tuple[int, i
 
 
 def _rec_of(r: OzonSupplyRec) -> Rec:
-    return (r.recommended, r.attention_level, r.reasons or None, r.period_days)
+    return (r.recommended, r.attention_level, r.reasons or None, r.demand_qty, r.local_qty, r.period_days)
 
 
 async def _state(db: AsyncSession, user_id: uuid.UUID) -> OzonSupplyRecSync:
@@ -246,12 +250,14 @@ async def sync_supply_recs(db: AsyncSession, user_id: uuid.UUID, client: OzonCli
             continue
         db.add(OzonSupplyRec(user_id=user_id, product_id=products.get(sku), sku=sku, macrolocal_cluster_id=cluster,
                              cluster_name=names.get(cluster), recommended=rec[0], attention_level=rec[1],
-                             reasons=rec[2], period_days=days, snapshot_at=now))
+                             reasons=rec[2], demand_qty=rec[3], local_qty=rec[4], period_days=days, snapshot_at=now))
         changed += 1
     for (sku, cluster), prev in last.items():
-        if (sku, cluster) not in current and prev.recommended > 0:  # Ozon больше не советует — нулевая запись
+        # Ozon больше не советует и спроса нет — нулевая запись
+        if (sku, cluster) not in current and (prev.recommended > 0 or (prev.demand_qty or 0) > 0):
             db.add(OzonSupplyRec(user_id=user_id, product_id=prev.product_id, sku=sku, macrolocal_cluster_id=cluster,
-                                 cluster_name=prev.cluster_name, recommended=0, period_days=days, snapshot_at=now))
+                                 cluster_name=prev.cluster_name, recommended=0, demand_qty=0, local_qty=0,
+                                 period_days=days, snapshot_at=now))
             changed += 1
     state = await _state(db, user_id)
     state.attempted_at = state.synced_at = now
