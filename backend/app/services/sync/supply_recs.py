@@ -217,15 +217,21 @@ async def sync_supply_recs(db: AsyncSession, user_id: uuid.UUID, client: OzonCli
     ours = {w for w in (await db.execute(select(Warehouse.macrolocal_cluster_id).where(
         Warehouse.user_id == user_id, Warehouse.type == WH_FBO))).scalars() if w}
     clusters = sorted(set(names) | ours)
+    second: dict = {}  # правка 20.11: что дал второй метод — в статистике загрузки (журнал на сервере его не показывает)
     if clusters and not _has_positive(rows):  # правка 19.11: везде нули — спрашиваем «кластер → товары»
         try:
             wanted = set(skus)
-            alt = [r for r in await fetch_by_clusters(client, today, clusters, days) if to_id(r.get("sku")) in wanted]
+            raw = await fetch_by_clusters(client, today, clusters, days)
+            alt = [r for r in raw if to_id(r.get("sku")) in wanted]
+            second = {"ozon_recs_clusters_asked": len(clusters), "ozon_recs_clusters_rows": len(raw),
+                      "ozon_recs_clusters_ours": len(alt),
+                      "ozon_recs_clusters_positive": sum(1 for r in alt if (p := parse(r)) and p[2][0] > 0)}
         except (OzonAuthError, OzonNotConfiguredError):
             raise
         except OzonAPIError as e:
             log.warning("Рекомендации Ozon «кластер → товары» не получены: %s (%s)", e.message, e.ozon_message)
             alt = []
+            second = {"ozon_recs_clusters_error": f"{e.message}: {e.ozon_message or ''}"[:300]}
         if _has_positive(alt):
             rows, source = alt, CLUSTERS
     current: dict[tuple[int, int], Rec] = {}
@@ -254,4 +260,4 @@ async def sync_supply_recs(db: AsyncSession, user_id: uuid.UUID, client: OzonCli
     log.info("Рекомендации Ozon по поставкам: пользователь %s → строк %d, изменилось %d, метод %s", user_id,
              len(current), changed, source)
     return {"ozon_recs": len(current), "ozon_recs_changed": changed,
-            "ozon_recs_positive": sum(1 for r in current.values() if r[0] > 0), "ozon_recs_source": source}
+            "ozon_recs_positive": sum(1 for r in current.values() if r[0] > 0), "ozon_recs_source": source, **second}

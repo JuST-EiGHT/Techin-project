@@ -270,9 +270,9 @@ async def supply_recs_check(db: AsyncSession, args, out, _ask) -> None:
     from app.services.user_settings import get_settings, supply_ozon_days
 
     user = await _user(db, args.email)
-    names = await stores.names(db, user.id)
+    store_names = await stores.names(db, user.id)
     for store in await stores.stores_of(db, user, active_only=True):
-        title = f"«{names[store.id]}»"
+        title = f"«{store_names.get(store.id) or store.store_name or store.id}»"
         if not await has_active(db, store.id):
             out(f"{title}: нет действующего ключа Ozon — пропущен.")
             continue
@@ -296,10 +296,10 @@ async def supply_recs_check(db: AsyncSession, args, out, _ask) -> None:
         out(f"{title}: товаров в запросе {len(skus)}, срок рекомендации {days} дн., кластеров у складов {len(ours)}")
         async with await get_ozon_client(store.id, db) as client:
             try:
-                names, _, _ = await fetch_clusters(client)
+                cluster_names, _, _ = await fetch_clusters(client)
             except OzonAPIError:
-                names = {}
-            report = await supply_recs.probe(client, today_msk(), skus, days, sorted(set(names) | set(ours)))
+                cluster_names = {}
+            report = await supply_recs.probe(client, today_msk(), skus, days, sorted(set(cluster_names) | set(ours)))
         for variant, r in report.items():
             if "error" in r:
                 out(f"  {variant}: ошибка — {r['error']}")
@@ -308,7 +308,7 @@ async def supply_recs_check(db: AsyncSession, args, out, _ask) -> None:
             out(f"  {variant}: строк {r['rows']}, с рекомендацией {r['positive']} (всего {r['total']} шт.), кластеров "
                 f"{len(r['clusters'])} — из них у ваших складов {known}")
             for sku, cluster, qty in r["top"]:
-                out(f"    {offers.get(sku, sku)} → кластер {cluster} {names.get(cluster) or ours.get(cluster) or ''}: {qty} шт.")
+                out(f"    {offers.get(sku, sku)} → кластер {cluster} {cluster_names.get(cluster) or ours.get(cluster) or ''}: {qty} шт.")
             out(f"    поля metrics: {', '.join(r['metric_keys']) or '—'}")
             if r["sample"]:
                 out(f"    первая строка: {r['sample']}")
