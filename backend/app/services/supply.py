@@ -47,6 +47,7 @@ from app.services.user_settings import (
     supply_demand_days,
     supply_min_qty,
     supply_ozon_days,
+    supply_topup_days,
     supply_params,
     supply_safety_days,
 )
@@ -323,6 +324,7 @@ async def report(db: AsyncSession, user_id: uuid.UUID, params: engine.Params) ->
     _, own = await _destinations(db, user_id)  # кластеры Ozon — ниже, по id; отсюда — свои склады
 
     min_qty = supply_min_qty(settings)
+    topup_days = supply_topup_days(settings)
     preferred = supply_cluster_warehouses(settings)
     oz, ozon_recs, _ = await ozon_clusters(db, user_id)
     rec_state = await db.get(OzonSupplyRecSync, user_id)
@@ -358,9 +360,9 @@ async def report(db: AsyncSession, user_id: uuid.UUID, params: engine.Params) ->
                 product=product_id, offer_id=products[product_id].offer_id, kind=kind, destination=key,
                 stock=stock, in_transit=transit, demand=engine.Demand(sold, sold_7, cov.days_30, cov.days_7),
             ))
-    cluster_recs = engine.plan_clusters(cluster_points, params, thresholds, min_qty)
-    needed = {(r.point.product, r.point.destination) for r in cluster_recs}
-    skips = [engine.cluster_skip(cp, params, min_qty) for cp in cluster_points if (cp.product, cp.destination) not in needed]
+    # 20.11: минимум — на всю поставку в кластер; меньше — довозим, пока запаса не больше topup_days, иначе не везём
+    cluster_recs, skips = engine.plan_clusters(cluster_points, params, thresholds, min_qty, topup_days,
+                                               supply_ozon_days(settings))
     recs = engine.sort_recs(engine.plan(points, params, thresholds) + cluster_recs)
     from app.services import supply_plans  # планы и заявки — свой модуль, он считает по этому же расчёту (10.18)
 
@@ -385,7 +387,7 @@ async def report(db: AsyncSession, user_id: uuid.UUID, params: engine.Params) ->
             dest, ozon = cluster_dest(c, p)
             extra |= ozon | {
                 "ozon_recommended": r.ozon_recommended, "own_need": r.own_need, "basis": r.basis,
-                "min_applied": r.min_applied, "days_after": r.days_after,
+                "min_applied": r.min_applied, "days_after": r.days_after, "topup": r.topup,
                 "first": r.point.stock == 0 and r.point.in_transit == 0 and p.id not in c.ever,
             }
         else:
@@ -417,7 +419,7 @@ async def report(db: AsyncSession, user_id: uuid.UUID, params: engine.Params) ->
             "target_stock": math.ceil(sk.avg_daily * (params.target_days + params.safety_days)),
             "need": math.ceil(sk.avg_daily * horizon), "to_order": 0, "arrives_late": False,
             "in_plans": in_plans.get((engine.SUPPLY, dest["key"], p.id), 0),
-            "in_orders": in_orders.get((dest["key"], p.id), 0), "still_needed": 0,
+            "in_orders": in_orders.get((dest["key"], p.id), 0), "still_needed": 0, "planned": sk.planned,
         })
     totals = {u: sum(1 for r in recs if r.urgency == u) for u in engine.URGENCIES}
     totals |= {"first": sum(1 for i in items if i.get("first")),
@@ -449,6 +451,7 @@ async def report(db: AsyncSession, user_id: uuid.UUID, params: engine.Params) ->
             "ozon_days": supply_ozon_days(settings),
         },
         "min_qty": min_qty,
+        "topup_days": topup_days,
         "totals": {**totals, "supply_units": sum(r.to_order for r in recs if r.point.kind == engine.SUPPLY),
                    "purchase_units": sum(r.to_order for r in recs if r.point.kind == engine.PURCHASE),
                    "products": len({r.point.product for r in recs})},
@@ -494,12 +497,13 @@ def to_xlsx(data: dict) -> bytes:
         f"Планирование поставок — {data['today']:%d.%m.%Y}",
         "",
         f"Запас после поставки: на {prm['target_days']} дн. продаж, страховой — {prm['safety_days']} дн.; поставка в "
-        f"пути: {prm['lead_time_days']} дн.; минимум одного товара на склад — {data['min_qty']} шт.",
+        f"пути: {prm['lead_time_days']} дн.; минимум в поставке в кластер — {data['min_qty']} шт. (довозим, если запаса "
+        f"хватит не больше чем на {data.get('topup_days', engine.DEFAULT_TOPUP_DAYS)} дн., иначе в кластер не везём).",
         f"Срочно — запаса меньше чем на {t['critical']} дн., скоро — меньше чем на {t['low']} дн.",
         "",
         f"Склады Ozon: продажи в день — по данным Ozon в кластере (28 дней). По продажам = продажи в день × {horizon} дн. "
         "минус остаток в кластере и то, что уже едет. Отправить — не меньше, чем рекомендует Ozon (это необходимый "
-        "минимум), и не меньше минимума на склад.",
+        "минимум); поставка в кластер — не меньше минимума.",
         "Поставка в Ozon — в кластер; склад — если задан в настройках, иначе Ozon выберет сам. Закупка на свой склад "
         "(FBS / rFBS) — по заказам за период планирования.",
         "Уже в планах — в открытых планах поставки сервиса; уже в заявках — в заявках Ozon, которые ещё готовятся. "

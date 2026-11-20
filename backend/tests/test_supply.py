@@ -24,6 +24,7 @@ from app.engine.supply_planner import (
     Point,
     cluster_recommend,
     plan,
+    plan_clusters,
     recommend,
 )
 from app.models.cluster_metrics import ClusterStockMetric, OzonSupplyRec, OzonSupplyRecSync
@@ -117,15 +118,45 @@ def test_cluster_ozon_floor():
     assert cluster_recommend(cpoint(500, "2", 0)) is None  # затоварен — не везём
 
 
-def test_cluster_minimum_per_warehouse():
-    """Меньше коробки (6 шт.) не возим: Ozon советует 3 — довозим до 6; по продажам 3 и продаётся меньше 6 за весь срок
-    (0,05 × 52 = 2,6) — не везём; продаётся достаточно — довозим до 6."""
-    r = cluster_recommend(cpoint(0, None, 3, attention="HIGH"))
-    assert (r.to_order, r.min_applied, r.basis, r.days_left, r.urgency) == (6, True, OZON, None, URGENT)
-    assert cluster_recommend(cpoint(0, "0.05", 0)) is None
-    r = cluster_recommend(cpoint(50, "1", None))  # 52 − 50 = 2 по продажам, рекомендаций Ozon нет
-    assert (r.to_order, r.min_applied, r.ozon_recommended) == (6, True, None)
-    assert cluster_recommend(cpoint(0, None, 3), min_qty=1).to_order == 3  # минимум — настройка
+def plan_of(points, **kw) -> tuple[dict, dict]:
+    recs, skips = plan_clusters(points, **kw)
+    return ({(r.point.destination, r.point.offer_id): r for r in recs},
+            {(s.point.destination, s.point.offer_id): s for s in skips})
+
+
+def test_cluster_minimum_per_cluster_owner_case():
+    """Решение владельца 20.11: минимум 6 шт. — на всю поставку в кластер, а не на каждый товар; меньше — довозим,
+    пока запаса хватит не больше чем на 60 дней, иначе в кластер не везём. Цифры — со снимков кабинета Ozon 20.11
+    (рекомендация на 28 дней, в кластерах товара нет): Воронеж 6 + 2 — везём как есть; Казань 4 → 6 (42 дня);
+    Невинномысск 2 + 2 → 3 + 3; Екатеринбург 3 → 6 (56 дней); Уфа 2 → до 6 вышло бы 84 дня — не везём."""
+    pts = [cpoint(0, None, 6, offer="6003", dest="воронеж"), cpoint(0, None, 2, offer="6007", dest="воронеж"),
+           cpoint(0, None, 4, offer="6303", dest="казань"),
+           cpoint(0, None, 2, offer="6202", dest="невинномысск"), cpoint(0, None, 2, offer="6303", dest="невинномысск"),
+           cpoint(0, None, 3, offer="6007", dest="екатеринбург"), cpoint(0, None, 2, offer="ACB", dest="уфа")]
+    recs, skips = plan_of(pts)
+    assert {k: (r.to_order, r.topup, r.days_after) for k, r in recs.items()} == {
+        ("воронеж", "6003"): (6, 0, Decimal("28.0")), ("воронеж", "6007"): (2, 0, Decimal("28.0")),
+        ("казань", "6303"): (6, 2, Decimal("42.0")),
+        ("невинномысск", "6202"): (3, 1, Decimal("42.0")), ("невинномысск", "6303"): (3, 1, Decimal("42.0")),
+        ("екатеринбург", "6007"): (6, 3, Decimal("56.0")),
+    }
+    assert recs[("казань", "6303")].min_applied and recs[("казань", "6303")].basis == OZON
+    ufa = skips[("уфа", "ACB")]
+    assert (ufa.status, ufa.reason, ufa.planned) == (engine.IDLE, engine.BELOW_MIN, 2)
+    # срок довозки — настройка: до 90 дней Уфу везём; минимум 1 — довозить нечего
+    assert plan_of(pts, topup_days=90)[0][("уфа", "ACB")].to_order == 6
+    assert {k: r.to_order for k, r in plan_of(pts, min_qty=1)[0].items()}[("казань", "6303")] == 4
+
+
+def test_cluster_topup_goes_to_better_seller():
+    """Довозим тому товару кластера, у кого после поставки запас короче (продаётся лучше): A — 1 в день, лежит 50, по
+    продажам 2; B — 0,05 в день, по продажам 3. Не хватает одной штуки: A — (50 + 2 + 1) / 1 = 53 дня, B — 80 > 60."""
+    recs, _ = plan_of([cpoint(50, "1", None, offer="A"), cpoint(0, "0.05", 0, offer="B")])
+    assert {k[1]: (r.to_order, r.topup) for k, r in recs.items()} == {"A": (3, 1), "B": (3, 0)}
+    # «Пока хватает» в кластере тоже добирает коробку: A — Ozon советует 2 (≈ 0,07 в день), C — 1 в день, лежит 55, по
+    # продажам везти не нужно. По штуке тому, у кого запас короче: A → 42 дн., C → 56, A → 56, C → 57; A на 70 > 60 — нет
+    recs, _ = plan_of([cpoint(0, None, 2, offer="A"), cpoint(55, "1", 0, offer="C")])
+    assert {k[1]: (r.to_order, r.topup, r.basis) for k, r in recs.items()} == {"A": (4, 2, OZON), "C": (2, 2, None)}
 
 
 def test_cluster_urgency_and_params():
@@ -138,7 +169,7 @@ def test_cluster_urgency_and_params():
 # ── API ──
 TH, ACB, RS, CM = "6001-2RS.C3.SRL.NAC.TH", "ACB305523.NAC.JP", "6000-2RS.C3.SRL.NAC.JP", "6000.CM.NAC.JP"
 URL = "/api/v1/supply/recommendations"
-EKB, SPB, KRD, NSK = 154, 2, 999, 777  # кластеры размещения Ozon (macrolocal_cluster_id), как в cluster_list
+EKB, SPB, KRD, NSK, KZN = 154, 2, 999, 777, 555  # кластеры размещения Ozon (macrolocal_cluster_id), как в cluster_list
 # Остатки после синхронизации (test_sync_stocks): TH — Екатеринбург 9, СПб 10 (в пути 4), свой склад 12 (резерв 2);
 # ACB — СПб 5 (в пути 1); RS — Краснодар 0 (в пути 20); CM — свой склад 1. Продажи Ozon в кластере (ads_cluster, в той же
 # выгрузке): TH — Екатеринбург 2 в день, СПб 0,2; ACB — СПб 0,1; RS — Краснодар 1.
@@ -200,10 +231,11 @@ async def seller(sessions, client, tokens, stocks_ozon):  # noqa: F811
     user_id = await api_user(sessions, client, tokens, stocks_ozon)
     orders = Orders(sessions, user_id)
     # Ozon советует: TH в Екатеринбург 30 (по продажам больше — 95), ACB в СПб 8 (по продажам не нужно — везём 8),
-    # ACB в Новосибирск 3 (склада там нет — до коробки 6), RS в Краснодар 40 (по продажам 32 — берём 40)
-    await orders.ozon_recs([(TH, EKB, 30, None), (ACB, SPB, 8, None), (ACB, NSK, 3, "HIGH"), (RS, KRD, 40, None)],
-                           {NSK: "Новосибирск", KRD: "Краснодар"})
-    # CM продаётся в Екатеринбурге 0,05 в день: за 52 дня — 2,6 шт., меньше коробки — не везём
+    # ACB в Новосибирск 3 (склада там нет; до коробки 6 — 56 дней, везём 6), RS в Краснодар 40 (по продажам 32 — берём
+    # 40), CM в Казань 2 (больше туда ничего; до коробки 6 — 84 дня > 60 — не везём)
+    await orders.ozon_recs([(TH, EKB, 30, None), (ACB, SPB, 8, None), (ACB, NSK, 3, "HIGH"), (RS, KRD, 40, None),
+                            (CM, KZN, 2, None)], {NSK: "Новосибирск", KRD: "Краснодар", KZN: "Казань"})
+    # CM продаётся в Екатеринбурге 0,05 в день: по продажам ⌈2,6⌉ = 3 шт. — едет вместе с TH (минимум — на кластер)
     await orders.metric(CM, 154, EKB, "Екатеринбург", "0.05")
     # свой склад: TH 9 шт. за 30 дней, 3 за неделю; свободно 12 − 2 = 10 — закупка по заказам, как в 5.2
     await orders.loaded("FBS")
@@ -233,6 +265,7 @@ async def test_recommendations(client, tokens, seller):
     assert data["min_qty"] == 6
     assert rows(data) == [
         (RS, "supply", "Краснодар", "critical", "0.0", 40),  # по продажам ⌈1 × 52⌉ − 20 в пути = 32, Ozon — 40
+        (CM, "supply", "Екатеринбург", "critical", "0.0", 3),  # 3 шт. — в одной поставке с TH, кластеру хватает до 6
         (TH, "supply", "Екатеринбург", "critical", "4.5", 95),  # 9 / 2 в день; ⌈2 × 52⌉ − 9 = 95, Ozon — 30
         (ACB, "supply", "Новосибирск", "urgent", None, 6),  # Ozon — 3, склада нет — до коробки
         (TH, "purchase", "Склад Подольск", "planned", "23.3", 6),  # свой склад — по заказам, как в 5.2
@@ -245,24 +278,28 @@ async def test_recommendations(client, tokens, seller):
     rs = item(data, RS, "Краснодар")
     assert (rs["basis"], rs["own_need"], rs["ozon_recommended"], rs["stock"], rs["in_transit"]) == ("ozon", 32, 40, 0, 20)
     nsk = item(data, ACB, "Новосибирск")
-    assert (nsk["min_applied"], nsk["ozon_recommended"], nsk["own_need"], nsk["destination"]["warehouses"]) == (
-        True, 3, None, [])
+    assert (nsk["min_applied"], nsk["topup"], nsk["ozon_recommended"], nsk["own_need"], nsk["destination"]["warehouses"],
+            nsk["days_after"]) == (True, 3, 3, None, [], "56.0")  # спрос — из рекомендации Ozon: 3 шт. на 28 дней
     assert nsk["ozon_reasons"] == ["в кластер не возили — заказы едут издалека"]
-    # TH в СПб: продаётся 0,2 в день, лежит 10 и едет 4 — запаса хватает, Ozon не советует — не везём; CM — меньше коробки
+    # TH в СПб: продаётся 0,2 в день, лежит 10 и едет 4 — запаса хватает, Ozon не советует — не везём; CM в Казань — нет
     assert not any(i["product"]["offer_id"] == TH and i["destination"]["name"].startswith("Санкт") for i in data["items"])
-    assert not any(i["product"]["offer_id"] == CM for i in data["items"])
-    assert data["totals"] == {"critical": 2, "urgent": 1, "planned": 2, "supply_units": 149, "purchase_units": 6,
-                              "products": 3, "first": 1, "enough": 1, "idle": 1}
+    assert not any(i["product"]["offer_id"] == CM and i["destination"]["name"] == "Казань" for i in data["items"])
+    assert data["totals"] == {"critical": 3, "urgent": 1, "planned": 2, "supply_units": 152, "purchase_units": 6,
+                              "products": 4, "first": 2, "enough": 1, "idle": 1}
+    assert data["topup_days"] == 60
     # как в Ozon: статус у каждой строки; в Новосибирске товара нет и не было — «Поставить впервые»; в Краснодар уже
     # едет — не впервые
     assert [(i["status"], i["first"]) for i in data["items"]] == [
-        ("critical", False), ("critical", False), ("urgent", True), ("planned", False), ("planned", False)]
-    # что везти не нужно — тоже видно: TH в СПб — «Пока хватает», CM — «Не поставлять» (за срок меньше коробки)
+        ("critical", False), ("critical", True), ("critical", False), ("urgent", True), ("planned", False),
+        ("planned", False)]
+    # что везти не нужно — тоже видно: TH в СПб — «Пока хватает», CM в Казань — «Не поставлять» (до коробки — больше
+    # 60 дней запаса), сколько было нужно — planned
     assert [(i["product"]["offer_id"], i["destination"]["name"], i["status"], i["status_reason"], i["to_order"],
              i["urgency"], i["days_left"]) for i in data["rest"]] == [
         (TH, "Санкт-Петербург и СЗО", "enough", "covered", 0, None, "50.0"),
-        (CM, "Екатеринбург", "idle", "below_min", 0, None, "0.0"),
+        (CM, "Казань", "idle", "below_min", 0, None, None),
     ]
+    assert data["rest"][1]["planned"] == 2
     spb = data["rest"][0]
     assert (spb["avg_daily"], spb["stock"], spb["in_transit"], spb["own_need"], spb["ozon_recommended"]) == (
         "0.200", 10, 4, 0, 0)
@@ -273,21 +310,33 @@ def test_cluster_skip():
     хватает»."""
     assert (s := engine.cluster_skip(cpoint(5, None, 0))).status == engine.IDLE and s.reason == engine.NO_SALES
     assert (s.days_left, s.own_need) == (None, None)
-    assert (s := engine.cluster_skip(cpoint(0, "0.05", 0))).reason == engine.BELOW_MIN and s.own_need == 3
+    s = engine.cluster_skip(cpoint(0, "0.05", 0), planned=3)  # был нужен, но кластер не дотянул до минимума
+    assert (s.status, s.reason, s.own_need, s.planned) == (engine.IDLE, engine.BELOW_MIN, 3, 3)
     s = engine.cluster_skip(cpoint(120, "2", 0))  # ⌈2 × 52⌉ = 104 ≤ 120
     assert (s.status, s.reason, s.days_left, s.own_need) == (engine.ENOUGH, engine.COVERED, Decimal("60.0"), 0)
 
 
 async def test_preferred_warehouse_and_minimum(client, tokens, seller):
-    """Склад кластера (у владельца — СПб → Бугры) и минимум на склад — настройки."""
+    """Склад кластера (у владельца — СПб → Бугры), минимум на поставку в кластер и срок довозки — настройки. В СПб едет
+    ACB 8 шт.; с минимумом 9 не хватает одной: ACB + 1 — 150 дней запаса, TH + 1 — 75, оба больше 60 — в СПб не везём.
+    Разрешим довозку до 200 дней — довезём тому, у кого запас короче: TH (75 дней)."""
     r = await client.patch("/api/v1/settings", json={"supply_cluster_warehouses": {"санкт-петербург и сзо": 1020000000000202},
                                                     "supply_min_qty": 9}, headers=auth(tokens))
-    assert (r.json()["supply_cluster_warehouses"], r.json()["supply_min_qty"]) == (
-        {"санкт-петербург и сзо": 1020000000000202}, 9)
+    assert (r.json()["supply_cluster_warehouses"], r.json()["supply_min_qty"], r.json()["supply_topup_days"]) == (
+        {"санкт-петербург и сзо": 1020000000000202}, 9, 60)
     data = (await client.get(URL, headers=auth(tokens))).json()
-    spb = item(data, ACB, "Санкт-Петербург и СЗО")
+    assert not any(i["destination"]["name"].startswith("Санкт") for i in data["items"])
+    spb = next(i for i in data["rest"] if i["product"]["offer_id"] == ACB and i["destination"]["name"].startswith("Санкт"))
+    assert (spb["status"], spb["status_reason"], spb["planned"]) == ("idle", "below_min", 8)
     assert spb["destination"]["warehouse"] == {"id": 1020000000000202, "name": "СПБ_БУГРЫ_РФЦ"}
-    assert (spb["to_order"], spb["min_applied"]) == (9, True)  # Ozon советует 8 — до минимума 9
+
+    r = await client.patch("/api/v1/settings", json={"supply_topup_days": 200}, headers=auth(tokens))
+    assert r.json()["supply_topup_days"] == 200
+    data = (await client.get(URL, headers=auth(tokens))).json()
+    assert data["topup_days"] == 200
+    acb, th = item(data, ACB, "Санкт-Петербург и СЗО"), item(data, TH, "Санкт-Петербург и СЗО")
+    assert (acb["to_order"], acb["topup"], th["to_order"], th["topup"], th["min_applied"]) == (8, 0, 1, 1, True)
+    assert acb["destination"]["warehouse"] == {"id": 1020000000000202, "name": "СПБ_БУГРЫ_РФЦ"}
     assert item(data, TH, "Екатеринбург")["destination"]["warehouse"] is None  # не задан — Ozon выберет сам
     r = await client.patch("/api/v1/settings", json={"supply_cluster_warehouses": {}}, headers=auth(tokens))
     assert r.json()["supply_cluster_warehouses"] == {}
@@ -359,13 +408,14 @@ async def test_export_xlsx(client, tokens, seller):
     table = [list(row) for row in wb["Поставки"].iter_rows(values_only=True)]
     assert table[0][:9] == ["Тип", "Куда", "Склад", "Срочность", "Артикул", "Название", "Отправить / закупить, шт.",
                             "Рекомендует Ozon, шт.", "По продажам, шт."]
-    assert [r[:9] for r in table[1:6]] == [  # кластеры с лучшими продажами — первыми
+    assert [r[:9] for r in table[1:7]] == [  # кластеры с лучшими продажами — первыми
+        ["Поставка в Ozon", "Екатеринбург", "любой склад кластера", "Срочно", CM, None, 3, 0, 3],
         ["Поставка в Ozon", "Екатеринбург", "любой склад кластера", "Срочно", TH, None, 95, 30, 95],
         ["Поставка в Ozon", "Краснодар", "любой склад кластера", "Срочно", RS, None, 40, 40, 32],
         ["Поставка в Ozon", "Санкт-Петербург и СЗО", "любой склад кластера", "Плановая", ACB, None, 8, 8, 0],
         ["Поставка в Ozon", "Новосибирск", "любой склад кластера", "Скоро", ACB, None, 6, 3, None],
         ["Закупка на свой склад", "Склад Подольск", None, "Плановая", TH, None, 6, None, None],
     ]
-    assert table[-1][0] == "Итого" and table[-1][6] == 155
+    assert table[-1][0] == "Итого" and table[-1][6] == 158
     notes = [c.value for c in wb["Параметры"]["A"] if c.value]
-    assert "Итого: в Ozon — 149 шт., закупить на свои склады — 6 шт." in notes
+    assert "Итого: в Ozon — 152 шт., закупить на свои склады — 6 шт." in notes

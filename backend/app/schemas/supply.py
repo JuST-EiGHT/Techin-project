@@ -64,6 +64,8 @@ class SupplyItem(BaseModel):
     # статус строки (как в Ozon): critical | urgent | planned — везти; enough — «Пока хватает», idle — «Не поставлять»;
     # почему не везём (covered | no_sales | below_min); впервые — товара в кластере нет и в данных сервиса не было
     status: str = "planned"
+    topup: int = 0  # 20.11: сколько штук добавили, чтобы поставка в кластер дотянула до минимума
+    planned: int = 0  # «Не поставлять» из-за минимума: сколько было нужно товару (по продажам или Ozon)
     status_reason: str | None = None
     first: bool = False
 
@@ -91,7 +93,8 @@ class SupplyReport(BaseModel):
     fbs: PostingsCoverage | None
     has_own_warehouses: bool
     ozon_data: dict = {}  # 10.18a: продажи Ozon по кластерам и рекомендации — загружены ли, когда, ошибка
-    min_qty: int = 6  # минимум одного товара на склад, шт.
+    min_qty: int = 6  # минимум в поставке в кластер, шт. (с 20.11 — на всю поставку)
+    topup_days: int = 60  # довозим до минимума, если запаса хватит не больше чем на столько дней
     totals: SupplyTotals
     today: date
     items: list[SupplyItem]  # что везти

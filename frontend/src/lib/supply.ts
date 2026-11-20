@@ -47,7 +47,9 @@ export type SupplyItem = {
   ozon_recommended: number | null // рекомендует Ozon; null — рекомендации не загружены
   own_need: number | null // по продажам в кластере
   basis: 'ozon' | 'sales' | null
-  min_applied: boolean // довели до минимума на склад (коробка)
+  min_applied: boolean // довезли, чтобы поставка в кластер дотянула до минимума (коробка)
+  topup?: number // сколько штук добавили для этого (правка 20.11)
+  planned?: number // «Не поставлять» из-за минимума: сколько было нужно товару
   days_after: string | null // хватит после поставки, дней
   ozon_grade: string | null
   ozon_reasons: string[]
@@ -76,7 +78,8 @@ export type SupplyReport = {
   fbs: Coverage | null
   has_own_warehouses: boolean
   ozon_data: OzonData
-  min_qty: number
+  min_qty: number // минимум на всю поставку в кластер
+  topup_days?: number // довозим до минимума, если запаса хватит не больше чем на столько дней
   totals: {
     critical: number
     urgent: number
@@ -117,10 +120,11 @@ export const SHOW: { value: SupplyShow; label: string }[] = [
 ]
 
 /** Почему не везём — простыми словами. */
-export function skipText(item: SupplyItem, minQty: number): string | null {
+export function skipText(item: SupplyItem, minQty: number, topupDays = 60): string | null {
   if (item.status_reason === 'covered') return 'запаса хватит на срок'
   if (item.status_reason === 'no_sales') return 'Ozon не видит продаж в кластере'
-  if (item.status_reason === 'below_min') return `за срок продастся меньше ${minQty} шт. — меньше минимума`
+  if (item.status_reason === 'below_min')
+    return `в кластер нужно ${item.planned ?? 0} шт., а до ${minQty} шт. запаса хватило бы больше чем на ${topupDays} дн. — не везём`
   return null
 }
 
@@ -160,7 +164,9 @@ export const GRADE_TEXT: Record<string, string> = {
 }
 
 export const MIN_QTY_WHY =
-  'Меньше скольких штук одного товара не возить на склад — обычно столько, сколько в одной коробке. Меньше — довезём до этого числа, если Ozon советует поставку или столько продастся за срок; иначе не повезём.'
+  'Меньше скольких штук не возить в один кластер — на всю поставку, а не на каждый товар; обычно столько, сколько в одной коробке. Кластеру нужно меньше — довезём до этого числа товарами, которые там продаются лучше, если запаса хватит не дольше срока ниже; иначе в этот кластер не повезём.'
+export const TOPUP_WHY =
+  'До минимума довозим, только если после поставки запаса хватит не больше чем на столько дней. Больше — в кластер не везём: товар пролежит слишком долго, а Ozon привезёт покупателям из другого кластера.'
 export const OZON_DAYS = [7, 14, 28, 56] as const
 export const OZON_DAYS_WHY =
   'Ozon советует везти столько, чтобы хватило до следующей поставки. Поставьте так же, как «Частота поставки» в «Настроить рекомендации» кабинета Ozon, — цифры совпадут с кабинетом. Рекомендация Ozon — нижняя планка поставки: меньше неё сервис не советует.'

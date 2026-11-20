@@ -36,6 +36,7 @@ class SettingsResponse(BaseModel):
     supply_min_qty: int = 6  # 10.18a: минимум одного товара в поставке на склад, шт. (коробка)
     supply_cluster_warehouses: dict[str, int] = {}  # 10.18a: {ключ кластера: id склада Ozon}, куда везти в кластере
     supply_ozon_days: int = 28  # рекомендация Ozon — на сколько дней (7 / 14 / 28 / 56), как «Частота поставки» в Ozon
+    supply_topup_days: int = 60  # 20.11: довозить до минимума кластера, если запаса хватит не больше чем на … дней
     min_profit_rub: Decimal = Decimal(0)  # минимальная допустимая прибыль с продажи, ₽ (10.26); 0 — без убытка
     # порог «низкой маржи», % (шаг 7.1): акции, страница товаров, прибыль по товарам, аномалия «маржа ниже порога»
     low_margin_pct: Decimal
@@ -78,6 +79,7 @@ class SettingsUpdate(BaseModel):
     # целиком заменяет склады кластеров; убрать кластер — не передавать его (Ozon выберет склад сам)
     supply_cluster_warehouses: dict[str, int] | None = Field(None, max_length=200)
     supply_ozon_days: Literal[7, 14, 28, 56] | None = None
+    supply_topup_days: int | None = Field(None, ge=7, le=365)
     min_profit_rub: Decimal | None = Field(None, ge=0, le=1_000_000, decimal_places=2)
     low_margin_pct: Decimal | None = Field(None, ge=0, le=90, decimal_places=2)
     anomaly_sales_drop_pct: int | None = Field(None, ge=1, le=99)

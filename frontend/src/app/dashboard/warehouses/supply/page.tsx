@@ -372,7 +372,7 @@ function Recommendations({ onPlans, view, show, onView, onShow }: {
         {form && data && (
           <span className="ml-auto flex flex-wrap items-center gap-2">
             <span className="text-xs text-faint" data-testid="supply-params-line">
-              запас {data.params.target_days} дн. · в пути {data.params.lead_time_days} · страховой {data.params.safety_days ?? 0} · минимум {data.min_qty} шт.
+              запас {data.params.target_days} дн. · в пути {data.params.lead_time_days} · страховой {data.params.safety_days ?? 0} · минимум {data.min_qty} шт. в кластер, довозим до {data.topup_days ?? 60} дн.
             </span>
             <button
               type="button"
@@ -584,8 +584,9 @@ function Result({ data, busy, onExport, onSync, syncing, picked, onToggle, onQty
         <HelpTip label="Как считаем поставку" testid="supply-how">
           Склады Ozon — по данным Ozon о кластере: продажи в день и остаток на складах кластера. «По продажам» — продажи в день ×
           (запас после поставки + страховой + дни в пути) минус остаток и то, что уже едет. «Отправить» — не меньше, чем
-          рекомендует Ozon, и не меньше {data.min_qty} шт. одного товара на склад. Кластер затоварен и Ozon не советует — не
-          везём. Свои склады (FBS / rFBS) — закупка по заказам. «Нужно ещё» — за вычетом того, что уже в ваших планах и в
+          рекомендует Ozon. Вся поставка в кластер — не меньше {data.min_qty} шт.: не хватает — довозим товарами, которые там
+          продаются лучше, пока запаса хватает не больше чем на {data.topup_days ?? 60} дн.; иначе в кластер не везём.
+          Кластер затоварен и Ozon не советует — не везём. Свои склады (FBS / rFBS) — закупка по заказам. «Нужно ещё» — за вычетом того, что уже в ваших планах и в
           заявках Ozon. Пороги «Срочно» и «Скоро» — те же, что у остатков, в «Настройках».
         </HelpTip>
         <Link href="/dashboard/settings#supply" className="text-accent hover:underline">
@@ -672,7 +673,11 @@ function Basis({ item, minQty }: { item: SupplyItem; minQty: number }) {
         <span className={item.basis === 'ozon' ? 'font-medium text-fg' : ''}>{ozon}</span> ·{' '}
         <span className={item.basis === 'sales' ? 'font-medium text-fg' : ''}>{own}</span>
       </span>
-      {item.min_applied && <span className="block text-xs text-warn">до минимума {minQty} шт. на склад</span>}
+      {item.min_applied && (
+        <span className="block text-xs text-warn">
+          {item.topup ? `+${item.topup} шт. ` : ''}до минимума {minQty} шт. в кластер
+        </span>
+      )}
       {item.days_after !== null && <span className="block text-xs text-faint">хватит на {num(item.days_after)} дн. после</span>}
     </>
   )
@@ -837,8 +842,8 @@ function StatusBadge({ item, status }: { item?: SupplyItem; status: RowStatus })
 }
 
 /** Статус строки и почему: «Пока хватает» / «Не поставлять» — причина; статус и причины Ozon. */
-function StatusCell({ item, minQty }: { item: SupplyItem; minQty: number }) {
-  const skip = skipText(item, minQty)
+function StatusCell({ item, minQty, topupDays }: { item: SupplyItem; minQty: number; topupDays?: number }) {
+  const skip = skipText(item, minQty, topupDays)
   return (
     <>
       <StatusBadge item={item} status={item.status} />
@@ -1071,7 +1076,7 @@ function Grouped({ data, view, show, onView, onShow, lead, picked, onToggle, onQ
                           <Planned item={i} />
                         </div>
                         <div className="mt-1 text-sm">
-                          <StatusCell item={i} minQty={minQty} />
+                          <StatusCell item={i} minQty={minQty} topupDays={data.topup_days} />
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-x-3 text-sm">
                           {i.to_order > 0 && <Pick item={i} picked={picked} onToggle={onToggle} onQty={onQty} />}
@@ -1113,7 +1118,7 @@ function Grouped({ data, view, show, onView, onShow, lead, picked, onToggle, onQ
                   <SortTh {...th('stock')} align="right" className="px-3 py-2 font-normal">
                     Сейчас там
                   </SortTh>
-                  <SortTh {...th('send')} align="right" className="px-3 py-2 font-normal" title="Не меньше рекомендации Ozon и минимума на склад; по продажам — продажи в день × (запас + страховой + дни в пути) − остаток − в пути">
+                  <SortTh {...th('send')} align="right" className="px-3 py-2 font-normal" title="Не меньше рекомендации Ozon; вся поставка в кластер — не меньше минимума; по продажам — продажи в день × (запас + страховой + дни в пути) − остаток − в пути">
                     Отправить
                   </SortTh>
                 </tr>
@@ -1160,7 +1165,7 @@ function Grouped({ data, view, show, onView, onShow, lead, picked, onToggle, onQ
                           {view === 'clusters' ? <ProductCell item={i} /> : <Where item={i} />}
                         </td>
                         <td className="px-3 py-2">
-                          <StatusCell item={i} minQty={minQty} />
+                          <StatusCell item={i} minQty={minQty} topupDays={data.topup_days} />
                         </td>
                         <td className="px-3 py-2">
                           <Days item={i} lead={lead} />
