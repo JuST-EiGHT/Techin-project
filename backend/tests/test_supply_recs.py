@@ -6,7 +6,8 @@
 отвечает так же; срок рекомендации (`supply_period`) — настройка «Рекомендация Ozon — на сколько дней» (по умолчанию 28)."""
 import copy
 import json
-from datetime import timedelta
+import uuid
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -39,6 +40,7 @@ class FakeLocalSale:
         self.cluster_calls: list[dict] = []
         self.status = 200
         self.items_zero = False  # как на реальном ключе 18.11: «товар → кластеры» — строки есть, рекомендации везде 0
+        self.clusters_status = 200
         self.mount(mock)
 
     def mount(self, mock: respx.MockRouter) -> None:
@@ -63,6 +65,8 @@ class FakeLocalSale:
         """«Кластер → товары»: кластеры доставки обязательны, SKU — по желанию; строка — {cluster_to_id, item, metrics}."""
         body = json.loads(request.content)
         self.cluster_calls.append(body)
+        if self.clusters_status != 200:
+            return httpx.Response(self.clusters_status, json={"code": 3, "message": "второй отказ"})
         clusters = body["filter"].get("macrolocal_cluster_to_ids")
         if not clusters:
             return httpx.Response(400, json={"code": 3, "message": "invalid request: macrolocal_cluster_to_ids is required"})
@@ -234,6 +238,14 @@ async def test_sync_zero_everywhere_stays_zero(sessions, client, tokens, stocks_
     local_sale.data["items"] = [{**i, "metrics": {**i["metrics"], "recommended_supply": 0}} for i in local_sale.data["items"]]
     stats = await sync_recs(sessions, user_id)
     assert (stats["ozon_recs_source"], stats["ozon_recs"], stats["ozon_recs_positive"]) == ("items", 3, 0)
+    # что дал второй метод — в статистике загрузки (на сервере её видно запросом к sync_runs, журнал — нет)
+    assert {k: v for k, v in stats.items() if k.startswith("ozon_recs_clusters")} == {
+        "ozon_recs_clusters_asked": 4, "ozon_recs_clusters_rows": 4, "ozon_recs_clusters_ours": 3,
+        "ozon_recs_clusters_positive": 0}
+
+    local_sale.clusters_status = 400  # второй метод отказал — загрузка не падает, причина — в статистике
+    stats = await sync_recs(sessions, user_id)
+    assert stats["ozon_recs_source"] == "items" and "второй отказ" in stats["ozon_recs_clusters_error"]
 
 
 async def test_admin_supply_recs_check(sessions, client, tokens, stocks_ozon, local_sale, monkeypatch):  # noqa: F811
@@ -260,12 +272,35 @@ async def test_admin_supply_recs_check(sessions, client, tokens, stocks_ozon, lo
     assert "поля metrics: attention_level, impact_share, local_data" in text
     assert 'первая строка: {"cluster_to_id": 154, "item": {' in text  # как прислал Ozon, а не переложенная
 
+    # у аккаунта два магазина с ключами — проверяются оба (20.11: на втором команда падала — переменная с названиями
+    # магазинов затиралась названиями кластеров)
+    from app.models.api_credential import ApiCredential
+    from app.models.user import User
+    from app.services.encryption import encrypt
+
+    async with sessions() as db:
+        second = User(id=uuid.uuid4(), owner_id=user_id, store_name="Второй магазин")
+        db.add(second)
+        await db.flush()
+        db.add(ApiCredential(user_id=second.id, label="Второй", client_id="7654321", api_key_encrypted=encrypt("k" * 36),
+                             expires_at=datetime.now(UTC) + timedelta(days=30)))
+        db.add(Product(user_id=second.id, ozon_product_id=77, offer_id="ВТОРОЙ-1", ozon_sku=900001001,
+                       synced_at=datetime.now(UTC)))
+        await db.commit()
+    with respx.mock(base_url=settings.OZON_API_URL, assert_all_called=False) as mock:
+        FakeSupply(mock)
+        local_sale.mount(mock)
+        code, text = await run_admin(sessions, "supply-recs-check", USER["email"])
+    assert code == 0, text
+    assert "«Основной магазин»: товаров в запросе" in text and "«Второй магазин»: товаров в запросе 1" in text
+
     local_sale.calls.clear()
     with respx.mock(base_url=settings.OZON_API_URL, assert_all_called=False) as mock:
         FakeSupply(mock)
         local_sale.mount(mock)
         code, text = await run_admin(sessions, "supply-recs-check", USER["email"], "--offer", "НЕТ-ТАКОГО")
     assert code == 0 and "нет в каталоге (или без SKU): нет-такого" in text and "нет товаров для запроса" in text
+    assert "«Второй магазин»: нет в каталоге" in text
     async with sessions() as db:
         assert await db.scalar(select(func.count()).select_from(OzonSupplyRec)) == 0  # только чтение
         assert await db.get(OzonSupplyRecSync, user_id) is None
