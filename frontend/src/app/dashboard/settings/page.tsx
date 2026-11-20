@@ -14,7 +14,7 @@ import { api, errorMessage } from '@/lib/api'
 import { backPath } from '@/lib/section-settings'
 import { type SupplierPayment, saveSettings, useSettings } from '@/lib/settings'
 import { SUPPLIER_OPTIONS, SUPPLIER_WHY } from '@/lib/supplier'
-import { CLUSTER_WAREHOUSE_WHY, LEAD_WHY, MIN_QTY_WHY, OZON_DAYS, OZON_DAYS_WHY, SAFETY_WHY, TARGET_WHY } from '@/lib/supply'
+import { CLUSTER_WAREHOUSE_WHY, LEAD_WHY, MIN_QTY_WHY, OZON_DAYS, OZON_DAYS_WHY, SAFETY_WHY, TARGET_WHY, TOPUP_WHY } from '@/lib/supply'
 import type { ThemePreference } from '@/lib/theme'
 
 const THEMES: { value: ThemePreference; label: string; hint: string; Icon: React.ComponentType<{ className?: string }> }[] = [
@@ -95,7 +95,7 @@ type NumberField = {
   max: number
   decimals?: boolean // дробное (₽, %); иначе — целое
 }
-type NumberKey = 'supply_target_days' | 'supply_lead_time_days' | 'supply_safety_days' | 'supply_demand_days' | 'supply_min_qty' | 'low_margin_pct' | 'min_profit_rub' | 'recommendation_hide_days'
+type NumberKey = 'supply_target_days' | 'supply_lead_time_days' | 'supply_safety_days' | 'supply_demand_days' | 'supply_min_qty' | 'supply_topup_days' | 'low_margin_pct' | 'min_profit_rub' | 'recommendation_hide_days'
 
 /** Поля-числа одной формой: проверка диапазона по каждому, одно «Сохранить». */
 function NumberForm({ fields, testid, saved, extra }: { fields: NumberField[]; testid: string; saved: string; extra?: React.ReactNode }) {
@@ -490,7 +490,8 @@ const TARGET_FIELD: NumberField = {
 const SUPPLY_FIELDS: NumberField[] = [
   { key: 'supply_lead_time_days', label: 'Срок поставки — в пути', unit: 'дн.', why: LEAD_WHY, min: 0, max: 180 },
   { key: 'supply_safety_days', label: 'Страховой запас', unit: 'дн.', why: SAFETY_WHY, min: 0, max: 180 },
-  { key: 'supply_min_qty', label: 'Минимум на склад', unit: 'шт. одного товара', why: MIN_QTY_WHY, min: 1, max: 1000 },
+  { key: 'supply_min_qty', label: 'Минимум в поставке в кластер', unit: 'шт. всего', why: MIN_QTY_WHY, min: 1, max: 1000 },
+  { key: 'supply_topup_days', label: 'Довозить до минимума — запас не больше', unit: 'дн.', why: TOPUP_WHY, min: 7, max: 365 },
   {
     key: 'supply_demand_days',
     label: 'Период планирования — свои склады',

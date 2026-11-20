@@ -106,10 +106,18 @@ def min_profit(s: UserSettings) -> Decimal:
 
 
 def supply_min_qty(s: UserSettings) -> int:
-    """Минимум одного товара в поставке на склад, шт. (шаг 10.18a, коробка); не задан — 6."""
+    """Минимум в поставке в кластер, шт. (коробка; с 20.11 — на всю поставку, а не на каждый товар); не задан — 6."""
     from app.engine.supply_planner import DEFAULT_MIN_QTY
 
     return DEFAULT_MIN_QTY if s.supply_min_qty is None else s.supply_min_qty
+
+
+def supply_topup_days(s: UserSettings) -> int:
+    """Довозить поставку в кластер до минимума, если запаса хватит не больше чем на столько дней (правка 20.11); не
+    задано — 60."""
+    from app.engine.supply_planner import DEFAULT_TOPUP_DAYS
+
+    return DEFAULT_TOPUP_DAYS if s.supply_topup_days is None else s.supply_topup_days
 
 
 def supply_ozon_days(s: UserSettings) -> int:

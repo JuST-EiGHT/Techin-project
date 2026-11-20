@@ -121,6 +121,7 @@ _FIELD_NAMES = {
     "supply_min_qty": "Минимум на склад",
     "supply_cluster_warehouses": "Склад кластера",
     "supply_ozon_days": "Рекомендация Ozon — на сколько дней",
+    "supply_topup_days": "Довозить до минимума — пока запаса не больше",
     "target_days": "Запас после поставки",
     "lead_time_days": "Дней в пути",
     "action": "Действие",
