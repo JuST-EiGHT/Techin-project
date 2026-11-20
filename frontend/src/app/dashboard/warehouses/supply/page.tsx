@@ -703,7 +703,7 @@ function Sales({ item }: { item: SupplyItem }) {
     return (
       <>
         <span className="tabular-nums">{perDay(item.avg_daily)}</span>
-        <span className="block text-xs text-faint">в кластере, Ozon</span>
+        <span className="block text-xs text-faint">{item.from_demand ? 'спрос покупателей кластера' : 'в кластере, Ozon'}</span>
       </>
     )
   // стрелка — только при заметной разнице (больше 10 %): иначе 0,57 ↑ 0,57 после округления
@@ -1102,7 +1102,7 @@ function Grouped({ data, view, show, onView, onShow, lead, picked, onToggle, onQ
                             <Days item={i} lead={lead} />
                           </span>
                           <span className="text-muted">
-                            {i.kind === 'supply' ? `${perDay(i.avg_daily)} в день по Ozon` : `${perDay(i.avg_daily)} в день (7 дн.: ${perDay(i.rate)})`}
+                            {i.kind === 'supply' ? `${perDay(i.avg_daily)} в день ${i.from_demand ? '— спрос покупателей кластера' : 'по Ozon'}` : `${perDay(i.avg_daily)} в день (7 дн.: ${perDay(i.rate)})`}
                           </span>
                           <span className="text-muted">
                             там {i.stock}

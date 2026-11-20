@@ -392,7 +392,7 @@ async def report(db: AsyncSession, user_id: uuid.UUID, params: engine.Params) ->
             extra |= ozon | {
                 "ozon_recommended": r.ozon_recommended, "own_need": r.own_need, "basis": r.basis,
                 "min_applied": r.min_applied, "days_after": r.days_after, "topup": r.topup,
-                "ozon_estimated": r.ozon_estimated,
+                "ozon_estimated": r.ozon_estimated, "from_demand": r.from_demand,
                 "first": r.point.stock == 0 and r.point.in_transit == 0 and p.id not in c.ever,
             }
         else:
@@ -419,6 +419,7 @@ async def report(db: AsyncSession, user_id: uuid.UUID, params: engine.Params) ->
             "product": {"id": p.id, "offer_id": p.offer_id, "name": p.name, "ozon_sku": p.ozon_sku},
             "kind": engine.SUPPLY, "urgency": None, "status": sk.status, "status_reason": sk.reason, "destination": dest,
             **ozon, "ozon_recommended": sk.ozon_recommended, "ozon_estimated": sk.ozon_estimated,
+            "from_demand": sk.from_demand,
             "own_need": sk.own_need, "sold_30": None, "sold_7": None,
             "avg_daily": sk.avg_daily, "rate": sk.avg_daily, "trend": None, "stock": cp.stock, "in_transit": cp.in_transit,
             "days_left": sk.days_left,

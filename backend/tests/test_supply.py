@@ -182,17 +182,39 @@ def test_ozon_formula_cabinet_rows():
 
 def test_ozon_formula_from_local_sale_demand():
     """Продаж Ozon в кластере (ads) нет — товара там не было, — но «Локальность продаж» знает, сколько купили покупатели
-    кластера за 28 дней: 4 шт. → 4 / 28 в день → ⌈4,8⌉ = 5 по формуле Ozon. Своя потребность — только по продажам Ozon
-    (ads), её нет — везём сколько по формуле; 5 шт. за 28 дней → ровно 6, а не 7 (дробь 5 / 28 бесконечная)."""
+    кластера за 28 дней: 4 шт. → 4 / 28 в день → ⌈4,8⌉ = 5 по формуле Ozon. Это минимум: своя потребность — по тому же
+    спросу на запас + дорогу, ⌈4 / 28 × 52⌉ = 8 — везём 8 (замечание владельца 21.11: «должно получаться больше формулы»).
+    5 шт. за 28 дней → по формуле ровно 6, а не 7 (дробь 5 / 28 бесконечная)."""
     point = ClusterPoint("A", "A", "казань", 0, 0, None, 0, ozon_demand=Decimal(4) / 28)
     assert engine.ozon_value(point) == (5, True)
     r = cluster_recommend(point)
-    assert (r.ozon_recommended, r.ozon_estimated, r.own_need, r.to_order, r.basis) == (5, True, None, 5, OZON)
-    assert r.days_after == Decimal("35.0")  # 5 шт. при 4 / 28 в день
+    assert (r.ozon_recommended, r.ozon_estimated, r.own_need, r.to_order, r.basis) == (5, True, 8, 8, SALES)
+    assert (r.from_demand, r.avg_daily, r.days_left, r.urgency, r.days_after) == (
+        True, Decimal("0.143"), Decimal("0.0"), CRITICAL, Decimal("56.0"))
     assert engine.ozon_value(ClusterPoint("A", "A", "казань", 0, 0, None, 0, ozon_demand=Decimal(5) / 28)) == (6, True)
     # продажи Ozon в кластере есть — берём их, а не спрос покупателей
     both = ClusterPoint("A", "A", "казань", 0, 0, Decimal("0.11"), 0, ozon_demand=Decimal(28) / 28)
-    assert engine.ozon_value(both) == (4, True)
+    assert engine.ozon_value(both) == (4, True) and cluster_recommend(both).from_demand is False
+
+
+def test_never_below_ozon_formula():
+    """Свойство: что везём в кластер — не меньше «Ozon советует» (из API или по формуле): рекомендация Ozon — минимум.
+    Исключение одно — решение владельца 20.11: поставка в кластер не дотягивает до минимума и до него запас вышел бы
+    дольше 60 дней — в кластер не везём («Не поставлять», с числом Ozon в строке)."""
+    points = [
+        cpoint(stock, ads, rec, transit=transit, offer=f"{i}", dest=f"к{i % 7}")
+        for i, (stock, ads, rec, transit) in enumerate(
+            (s, a, r, t) for s in (0, 3, 20) for a in (None, "0.04", "0.11", "0.25", "1.5") for r in (None, 0, 2, 9)
+            for t in (0, 9))
+    ] + [ClusterPoint(f"d{q}", f"d{q}", "спрос", 0, 0, None, 0, ozon_demand=Decimal(q) / 28) for q in (1, 4, 5, 30)]
+    for days in (14, 28, 56):
+        recs, skips = plan_clusters(points, ozon_days=days)
+        for r in recs:
+            assert r.to_order >= (r.ozon_recommended or 0), (r.point, days)
+            if r.ozon_estimated and r.own_need is not None and days == 28:
+                assert r.own_need >= r.ozon_recommended  # 52 дня своих против 33,6 у Ozon — своё не меньше
+        for sk in skips:
+            assert sk.reason == engine.BELOW_MIN or not (sk.ozon_recommended or 0), (sk.point, days)
 
 
 def test_cluster_urgency_and_params():

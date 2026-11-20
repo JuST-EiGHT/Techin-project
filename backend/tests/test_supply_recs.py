@@ -273,7 +273,7 @@ async def test_sync_buyer_demand_without_recommendation(sessions, client, tokens
         assert await db.scalar(select(func.count()).select_from(OzonSupplyRec)) == 5  # прежние записи остаются
 
     # в отчёте поставок: ACB в Новосибирске — продаж Ozon в кластере нет, спрос покупателей был 5 шт. за 28 дней —
-    # Ozon советует ⌈5 / 28 × 28 × 1,2⌉ = 6 по формуле (вернули строку — снова есть спрос)
+    # Ozon советует ⌈5 / 28 × 28 × 1,2⌉ = 6 по формуле, а сами везём больше — на запас и дорогу: ⌈5 / 28 × 52⌉ = 10
     local_sale.data = json.loads((FIX / "local_sale_items_clusters.json").read_text(encoding="utf-8"))
     for i in local_sale.data["items"]:
         i["metrics"].pop("recommended_supply", None)
@@ -281,8 +281,9 @@ async def test_sync_buyer_demand_without_recommendation(sessions, client, tokens
     data = (await client.get("/api/v1/supply/recommendations", headers=auth(tokens))).json()
     nsk = next(i for i in data["items"] if i["destination"]["name"] == "Новосибирск")
     assert (nsk["product"]["ozon_sku"], nsk["ozon_recommended"], nsk["ozon_estimated"], nsk["own_need"]) == (
-        900001002, 6, True, None)
-    assert nsk["to_order"] == 6 and data["ozon_data"]["formula"] is True and data["ozon_data"]["recs_positive"] == 0
+        900001002, 6, True, 10)
+    assert (nsk["to_order"], nsk["from_demand"], nsk["urgency"]) == (10, True, "critical")
+    assert data["ozon_data"]["formula"] is True and data["ozon_data"]["recs_positive"] == 0
 
 
 async def test_admin_supply_recs_check(sessions, client, tokens, stocks_ozon, local_sale, monkeypatch):  # noqa: F811

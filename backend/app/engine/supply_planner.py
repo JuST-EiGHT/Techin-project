@@ -33,6 +33,8 @@
 Через API Ozon её не отдаёт (`recommended_supply` в ответе нет), поэтому считаем сами (`ozon_formula`): продажи в день —
 ads_cluster, а если их нет — спрос покупателей кластера из «Локальности продаж» (`ozon_demand`). «В заявках» вычитается не
 здесь, а в «нужно ещё» (как у любой рекомендации) — иначе вычлось бы дважды. Пришла рекомендация Ozon > 0 — берём её.
+Это минимум: своя потребность считается по тем же продажам в день на запас + страховой + дорогу (по умолчанию 52 дня
+против 28 × 1,2 = 33,6 у Ozon), поэтому «по продажам» обычно больше, а везём max из двух.
 
 Пары, которые везти не нужно, тоже показываем (как Ozon, `cluster_skip`): «Пока хватает» — продаётся, запаса хватит на
 срок; «Не поставлять» — продаж в кластере нет или за срок продастся меньше минимума.
@@ -113,6 +115,7 @@ class SupplyRecommendation:
     days_after: Decimal | None = None
     topup: int = 0  # 20.11: сколько штук добавили, чтобы поставка в кластер дотянула до минимума
     ozon_estimated: bool = False  # 21.11: «Ozon советует» посчитано по формуле Ozon, а не пришло из API
+    from_demand: bool = False  # 21.11: продажи в день — спрос покупателей кластера («Локальность продаж»), ads нет
 
 
 def recommend(
@@ -193,14 +196,23 @@ def _sales(point: ClusterPoint) -> Decimal | None:
     return None
 
 
+def _from_demand(point: ClusterPoint) -> bool:
+    return not (point.ads is not None and point.ads > 0) and _sales(point) is not None
+
+
+def _ceil(x: Decimal) -> int:
+    """⌈x⌉ после округления до 0,0001: спрос 5 шт. за 28 дней = 5 / 28 в день — бесконечная дробь, без этого
+    ⌈6,000…1⌉ = 7."""
+    return math.ceil(x.quantize(_MILLI, ROUND_HALF_UP))
+
+
 def ozon_formula(point: ClusterPoint, ozon_days: int = DEFAULT_OZON_DAYS) -> int | None:
     """Рекомендация Ozon по его формуле: ⌈продажи в день × срок × 1,2⌉ − остаток − в пути (заявки — в «нужно ещё»).
     Продаж не видно — None. Эталоны (кабинет владельца): 0,11 в день → 4; 0,04 → 2; 0,25 и 9 в пути → 0."""
     rate = _sales(point)
     if rate is None or ozon_days <= 0:
         return None
-    # округляем до 0,0001 перед ⌈⌉: спрос 5 шт. за 28 дней = 5 / 28 в день — бесконечная дробь, без этого ⌈6,000…1⌉ = 7
-    need = math.ceil((rate * ozon_days * OZON_STOCK_FACTOR).quantize(_MILLI, ROUND_HALF_UP))
+    need = _ceil(rate * ozon_days * OZON_STOCK_FACTOR)
     return max(0, need - max(point.stock, 0) - max(point.in_transit, 0))
 
 
@@ -235,9 +247,9 @@ def cluster_recommend(
     """Сколько везти товара в кластер без учёта минимума: max(по продажам, рекомендация Ozon) + `extra` (довозка до
     минимума кластера, считает `plan_clusters`); нечего везти — None."""
     horizon = params.target_days + params.safety_days + params.lead_time_days
-    ads = point.ads if point.ads is not None and point.ads > 0 else None
+    ads = _sales(point)  # 21.11: продаж Ozon в кластере нет — спрос покупателей кластера (своя потребность тоже)
     stock, transit = max(point.stock, 0), max(point.in_transit, 0)
-    need = math.ceil(ads * horizon) if ads else 0
+    need = _ceil(ads * horizon) if ads else 0
     own = max(0, need - stock - transit)
     shown, estimated = ozon_value(point, ozon_days)
     rec = max(shown or 0, 0)
@@ -250,12 +262,13 @@ def cluster_recommend(
         point=point,  # type: ignore[arg-type]
         avg_daily=(ads or Decimal(0)).quantize(_RATE, ROUND_HALF_UP),
         rate=(ads or Decimal(0)).quantize(_RATE, ROUND_HALF_UP), trend=None, days_left=days_left,
-        target_stock=math.ceil(ads * (params.target_days + params.safety_days)) if ads else 0,
+        target_stock=_ceil(ads * (params.target_days + params.safety_days)) if ads else 0,
         need=need, to_order=qty, urgency=_urgency(days_left, thresholds, point.attention),
         arrives_late=days_left is not None and days_left < params.lead_time_days,
         ozon_recommended=shown, own_need=own if ads else None,
         basis=(OZON if rec > 0 and rec >= own else SALES) if base > 0 else None, min_applied=extra > 0,
         days_after=_days(stock + transit + qty, _demand(point, ozon_days)), topup=extra, ozon_estimated=estimated,
+        from_demand=_from_demand(point),
     )
 
 
@@ -272,6 +285,7 @@ class ClusterSkip:
     planned: int = 0  # BELOW_MIN: сколько было нужно (по продажам или Ozon), но кластер не дотянул до минимума
     ozon_recommended: int | None = None  # что «советует Ozon» (из API или по его формуле)
     ozon_estimated: bool = False
+    from_demand: bool = False  # продажи в день — спрос покупателей кластера, а не ads Ozon
 
 
 def cluster_skip(point: ClusterPoint, params: Params = Params(), *, planned: int = 0,
@@ -279,9 +293,9 @@ def cluster_skip(point: ClusterPoint, params: Params = Params(), *, planned: int
     """Почему не везём: `planned` > 0 — товар был нужен, но поставка в кластер не дотягивает до минимума и до него
     запас вышел бы дольше срока — «Не поставлять»; продаж нет — тоже; иначе запаса хватает — «Пока хватает»."""
     horizon = params.target_days + params.safety_days + params.lead_time_days
-    ads = point.ads if point.ads is not None and point.ads > 0 else None
+    ads = _sales(point)
     stock, transit = max(point.stock, 0), max(point.in_transit, 0)
-    own = max(0, math.ceil(ads * horizon) - stock - transit) if ads else None
+    own = max(0, _ceil(ads * horizon) - stock - transit) if ads else None
     if planned > 0:
         status, reason = IDLE, BELOW_MIN
     elif ads is None:
@@ -292,6 +306,7 @@ def cluster_skip(point: ClusterPoint, params: Params = Params(), *, planned: int
         point=point, status=status, reason=reason, avg_daily=(ads or Decimal(0)).quantize(_RATE, ROUND_HALF_UP),
         days_left=(Decimal(stock) / ads).quantize(_TENTH, ROUND_HALF_UP) if ads else None, own_need=own,
         planned=planned, ozon_recommended=(ov := ozon_value(point, ozon_days))[0], ozon_estimated=ov[1],
+        from_demand=_from_demand(point),
     )
 
 
