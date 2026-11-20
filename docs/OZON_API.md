@@ -154,7 +154,15 @@ Seller API нельзя: есть только отчёты по вывозу и
   («кластер → товары», вид «По кластерам» в кабинете): обязателен `filter.macrolocal_cluster_to_ids` (строки — кластеры
   из `/v1/cluster/list` и складов магазина, по 50), `skus` — по желанию; ответ `items[]{cluster_to_id, item{sku,
   offer_id, name}, metrics}` — те же `metrics`. Берём его, если там есть рекомендации > 0 (`stats.ozon_recs_source`).
-  `supply-recs-check` (`--offer` — свои артикулы) сравнивает 5 запросов и печатает поля `metrics` и первую строку как есть; `attention_level` — `LOW` / `MEDIUM` / `HIGH`; причины переплаты —
+  `supply-recs-check` (`--offer` — свои артикулы) сравнивает 5 запросов и печатает поля `metrics` и первую строку как есть;
+  **правка 21.11:** первая строка с реального ключа — `{"macrolocal_cluster_to_id": 4042, "sku": …, "metrics":
+  {"attention_level": "UNSPECIFIED", "impact_share": …, "local_data": {"index": 0, "local_quantity": 0,
+  "total_quantity": 4}, "overpayment": …, "overpayment_reasons": …, "price": 3624}}` — **поля `recommended_supply` в
+  ответе нет вовсе** (ни FBO, ни ALL, ни «кластер → товары»), поэтому было 0. Рекомендацию считаем по формуле Ozon из
+  кабинета (`BUSINESS_LOGIC.md` §5, 10.18a), а из ответа берём `local_data`: `total_quantity` — сколько купили покупатели
+  кластера за период, `local_quantity` — из них со складов этого кластера (`ozon_supply_recs.demand_qty`, `local_qty`).
+  Команда в конце печатает сверку с кабинетом: артикул, кластер, продажи в день, остаток, в пути, «Ozon советует» (из Ozon
+  или «по формуле»), сколько везём; `attention_level` — `LOW` / `MEDIUM` / `HIGH`; причины переплаты —
   `NO_SUPPLIES_TO_CLUSTER`, `MISSING_ITEMS_IN_CLUSTER`, `FREQUENT_OUT_OF_STOCK`. Соседний `/clusters-items/info`
   требует `macrolocal_cluster_to_ids`, а не SKU. Сбой метода — в `ozon_supply_rec_syncs` с методом и текстом Ozon
   (`runner.ozon_error_text`), заявкам не мешает.

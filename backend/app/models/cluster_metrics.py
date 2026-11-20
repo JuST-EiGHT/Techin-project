@@ -49,6 +49,10 @@ class OzonSupplyRec(Base):
     attention_level: Mapped[str | None] = mapped_column(String(16))  # LOW | MEDIUM | HIGH …
     reasons: Mapped[list | None] = mapped_column(JSON)  # [{reason, quantity, amount}] — почему переплата за логистику
     period_days: Mapped[int | None] = mapped_column(Integer)  # на сколько дней считал Ozon (`supply_period`); до 16.11 — нет
+    # 21.11: спрос покупателей кластера за период запроса (PERIOD_DAYS) — `local_data.total_quantity`, из них с его складов —
+    # `local_quantity`; до 21.11 — нет
+    demand_qty: Mapped[int | None] = mapped_column(Integer)
+    local_qty: Mapped[int | None] = mapped_column(Integer)
     snapshot_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 

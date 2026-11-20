@@ -159,6 +159,42 @@ def test_cluster_topup_goes_to_better_seller():
     assert {k[1]: (r.to_order, r.topup, r.basis) for k, r in recs.items()} == {"A": (4, 2, OZON), "C": (2, 2, None)}
 
 
+def test_ozon_formula_cabinet_rows():
+    """Правка 21.11: Ozon в API не присылает рекомендацию (`recommended_supply` нет в ответе) — считаем её по формуле
+    Ozon: ⌈продажи в день × 28 × 1,2⌉ − остаток − в пути. Строки — со снимков кабинета Ozon 20.11 (в кластерах товара
+    нет): Казань 0,11 → 4, Ростов 0,04 → 2, Тюмень 0,04 → 2, Москва 0,25 и 9 в пути → 0, Красноярск 0,07 и 3 в пути → 0."""
+    rows = [("казань", "0.11", 0, 4), ("ростов", "0.04", 0, 2), ("тюмень", "0.04", 0, 2), ("москва", "0.25", 9, 0),
+            ("красноярск", "0.07", 3, 0)]
+    for dest, ads, transit, expected in rows:
+        assert engine.ozon_value(cpoint(0, ads, 0, transit=transit, dest=dest)) == (expected, True), dest
+    # Ozon прислал число — оно главнее формулы; нет ни продаж, ни рекомендации — нет и числа
+    assert engine.ozon_value(cpoint(0, "0.11", 7)) == (7, False)
+    assert engine.ozon_value(cpoint(0, None, None)) == (None, False)
+    assert engine.ozon_value(cpoint(0, None, 0)) == (0, False)
+    # «на сколько дней» — настройка, как «Частота поставки» в кабинете: 14 дней — ⌈1,848⌉ = 2
+    assert engine.ozon_value(cpoint(0, "0.11", 0), 14) == (2, True)
+    # в рекомендации: Казань — по формуле 4, дальше — правила владельца (минимум в кластер 6, довозим до 60 дней)
+    r = cluster_recommend(cpoint(0, "0.11", 0, dest="казань"))
+    assert (r.ozon_recommended, r.ozon_estimated, r.basis) == (4, True, SALES)
+    recs, _ = plan_of([cpoint(0, "0.11", 0, dest="казань")])
+    assert (recs[("казань", "A")].to_order, recs[("казань", "A")].ozon_estimated) == (6, True)
+
+
+def test_ozon_formula_from_local_sale_demand():
+    """Продаж Ozon в кластере (ads) нет — товара там не было, — но «Локальность продаж» знает, сколько купили покупатели
+    кластера за 28 дней: 4 шт. → 4 / 28 в день → ⌈4,8⌉ = 5 по формуле Ozon. Своя потребность — только по продажам Ozon
+    (ads), её нет — везём сколько по формуле; 5 шт. за 28 дней → ровно 6, а не 7 (дробь 5 / 28 бесконечная)."""
+    point = ClusterPoint("A", "A", "казань", 0, 0, None, 0, ozon_demand=Decimal(4) / 28)
+    assert engine.ozon_value(point) == (5, True)
+    r = cluster_recommend(point)
+    assert (r.ozon_recommended, r.ozon_estimated, r.own_need, r.to_order, r.basis) == (5, True, None, 5, OZON)
+    assert r.days_after == Decimal("35.0")  # 5 шт. при 4 / 28 в день
+    assert engine.ozon_value(ClusterPoint("A", "A", "казань", 0, 0, None, 0, ozon_demand=Decimal(5) / 28)) == (6, True)
+    # продажи Ozon в кластере есть — берём их, а не спрос покупателей
+    both = ClusterPoint("A", "A", "казань", 0, 0, Decimal("0.11"), 0, ozon_demand=Decimal(28) / 28)
+    assert engine.ozon_value(both) == (4, True)
+
+
 def test_cluster_urgency_and_params():
     r = cluster_recommend(cpoint(0, "1", 0, transit=20))
     assert (r.urgency, r.days_left, r.arrives_late, r.to_order) == (CRITICAL, Decimal("0.0"), True, 32)
@@ -374,7 +410,8 @@ async def test_parameters_override_and_save(client, tokens, seller):
 
 
 async def test_without_ozon_recommendations(sessions, client, tokens, stocks_ozon):  # noqa: F811
-    """Рекомендации Ozon не загружались (или метод не ответил) — считаем по продажам Ozon в кластере, «Ozon» — нет данных."""
+    """Рекомендации Ozon не загружались (или метод не ответил) — считаем по продажам Ozon в кластере; «Ozon советует» —
+    по формуле Ozon из тех же продаж (правка 21.11: раньше — «нет данных»)."""
     user_id = await api_user(sessions, client, tokens, stocks_ozon)
     data = (await client.get(URL, headers=auth(tokens))).json()
     assert data["ozon_data"]["recs_known"] is False and data["ozon_data"]["clusters_known"] is True
@@ -382,7 +419,9 @@ async def test_without_ozon_recommendations(sessions, client, tokens, stocks_ozo
         (RS, "supply", "Краснодар", "critical", "0.0", 32),
         (TH, "supply", "Екатеринбург", "critical", "4.5", 95),
     ]
-    assert item(data, TH, "Екатеринбург")["ozon_recommended"] is None
+    # продажи Ozon 2 в день, лежит 9: ⌈2 × 28 × 1,2⌉ − 9 = 59 — по формуле, а не из Ozon
+    th = item(data, TH, "Екатеринбург")
+    assert (th["ozon_recommended"], th["ozon_estimated"]) == (59, True) and data["ozon_data"]["formula"] is True
     from app.services.sync.supply_recs import record_failure
 
     async with sessions() as db:
@@ -409,7 +448,8 @@ async def test_export_xlsx(client, tokens, seller):
     assert table[0][:9] == ["Тип", "Куда", "Склад", "Срочность", "Артикул", "Название", "Отправить / закупить, шт.",
                             "Рекомендует Ozon, шт.", "По продажам, шт."]
     assert [r[:9] for r in table[1:7]] == [  # кластеры с лучшими продажами — первыми
-        ["Поставка в Ozon", "Екатеринбург", "любой склад кластера", "Срочно", CM, None, 3, 0, 3],
+        # CM: Ozon прислал 0 — по формуле Ozon ⌈0,05 × 28 × 1,2⌉ − 0 = 2 (правка 21.11)
+        ["Поставка в Ozon", "Екатеринбург", "любой склад кластера", "Срочно", CM, None, 3, 2, 3],
         ["Поставка в Ozon", "Екатеринбург", "любой склад кластера", "Срочно", TH, None, 95, 30, 95],
         ["Поставка в Ozon", "Краснодар", "любой склад кластера", "Срочно", RS, None, 40, 40, 32],
         ["Поставка в Ozon", "Санкт-Петербург и СЗО", "любой склад кластера", "Плановая", ACB, None, 8, 8, 0],
@@ -419,3 +459,4 @@ async def test_export_xlsx(client, tokens, seller):
     assert table[-1][0] == "Итого" and table[-1][6] == 158
     notes = [c.value for c in wb["Параметры"]["A"] if c.value]
     assert "Итого: в Ozon — 152 шт., закупить на свои склады — 6 шт." in notes
+    assert any(n.startswith("Рекомендует Ozon — Ozon в API это число не присылает") for n in notes)

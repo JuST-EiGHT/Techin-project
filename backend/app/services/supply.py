@@ -39,6 +39,7 @@ from app.services.stocks import latest_stocks
 from app.services.sync.finance import MSK, today_msk
 from app.services.sync.postings import is_cancelled
 from app.services.sync.stocks import latest_cluster_metrics
+from app.services.sync.supply_recs import PERIOD_DAYS as LOCAL_PERIOD_DAYS
 from app.services.sync.supply_recs import latest_recs
 from app.services.user_settings import (
     get_settings,
@@ -276,7 +277,8 @@ async def ozon_clusters(db: AsyncSession, user_id: uuid.UUID) -> tuple[dict[tupl
             continue
         g = ("m", r.macrolocal_cluster_id)
         cluster(g, r.cluster_name)
-        recs[(product_id, g)] = (r.recommended, r.attention_level, [x.get("reason") for x in r.reasons or []])
+        recs[(product_id, g)] = (r.recommended, r.attention_level, [x.get("reason") for x in r.reasons or []],
+                                 r.demand_qty)
     return clusters, recs, macro_of
 
 
@@ -342,6 +344,8 @@ async def report(db: AsyncSession, user_id: uuid.UUID, params: engine.Params) ->
                 in_transit=transit, ads=c.ads.get(product_id),
                 ozon_rec=rec[0] if rec else (0 if rec_state is not None and rec_state.ok else None),
                 attention=rec[1] if rec else None,
+                # 21.11: спрос покупателей кластера в день («Локальность продаж») — для формулы Ozon без ads
+                ozon_demand=Decimal(rec[3]) / LOCAL_PERIOD_DAYS if rec and rec[3] else None,
             ))
 
     points: list[engine.Point] = []
@@ -388,6 +392,7 @@ async def report(db: AsyncSession, user_id: uuid.UUID, params: engine.Params) ->
             extra |= ozon | {
                 "ozon_recommended": r.ozon_recommended, "own_need": r.own_need, "basis": r.basis,
                 "min_applied": r.min_applied, "days_after": r.days_after, "topup": r.topup,
+                "ozon_estimated": r.ozon_estimated,
                 "first": r.point.stock == 0 and r.point.in_transit == 0 and p.id not in c.ever,
             }
         else:
@@ -413,7 +418,8 @@ async def report(db: AsyncSession, user_id: uuid.UUID, params: engine.Params) ->
         rest.append({
             "product": {"id": p.id, "offer_id": p.offer_id, "name": p.name, "ozon_sku": p.ozon_sku},
             "kind": engine.SUPPLY, "urgency": None, "status": sk.status, "status_reason": sk.reason, "destination": dest,
-            **ozon, "ozon_recommended": cp.ozon_rec, "own_need": sk.own_need, "sold_30": None, "sold_7": None,
+            **ozon, "ozon_recommended": sk.ozon_recommended, "ozon_estimated": sk.ozon_estimated,
+            "own_need": sk.own_need, "sold_30": None, "sold_7": None,
             "avg_daily": sk.avg_daily, "rate": sk.avg_daily, "trend": None, "stock": cp.stock, "in_transit": cp.in_transit,
             "days_left": sk.days_left,
             "target_stock": math.ceil(sk.avg_daily * (params.target_days + params.safety_days)),
@@ -448,6 +454,8 @@ async def report(db: AsyncSession, user_id: uuid.UUID, params: engine.Params) ->
             # правка 18.11: сколько строк прислал Ozon и в скольких рекомендация > 0 — видно, если Ozon прислал одни нули
             "recs_rows": len(ozon_recs),
             "recs_positive": sum(1 for r in ozon_recs.values() if r[0] > 0),
+            # 21.11: рекомендация Ozon посчитана по его формуле (из API не пришла) — хоть у одной строки
+            "formula": any(i.get("ozon_estimated") for i in items) or any(i.get("ozon_estimated") for i in rest),
             "ozon_days": supply_ozon_days(settings),
         },
         "min_qty": min_qty,
@@ -504,6 +512,9 @@ def to_xlsx(data: dict) -> bytes:
         f"Склады Ozon: продажи в день — по данным Ozon в кластере (28 дней). По продажам = продажи в день × {horizon} дн. "
         "минус остаток в кластере и то, что уже едет. Отправить — не меньше, чем рекомендует Ozon (это необходимый "
         "минимум); поставка в кластер — не меньше минимума.",
+        *([(f"Рекомендует Ozon — Ozon в API это число не присылает, посчитано по формуле Ozon: продажи в день × "
+            f"{data['ozon_data']['ozon_days']} дн. × 1,2 (запас на скачки спроса) − остаток в кластере − в пути.")]
+          if data.get("ozon_data", {}).get("formula") else []),
         "Поставка в Ozon — в кластер; склад — если задан в настройках, иначе Ozon выберет сам. Закупка на свой склад "
         "(FBS / rFBS) — по заказам за период планирования.",
         "Уже в планах — в открытых планах поставки сервиса; уже в заявках — в заявках Ozon, которые ещё готовятся. "

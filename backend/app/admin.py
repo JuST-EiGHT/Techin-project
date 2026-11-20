@@ -256,14 +256,17 @@ async def supply_recs_check(db: AsyncSession, args, out, _ask) -> None:
     товары (`--offer` — свои артикулы, иначе первые `--limit`) разными запросами «товар → кластеры» и «кластер → товары»:
     строк, с рекомендацией > 0, сумма, кластеры (совпадают ли с кластерами складов), первые рекомендации, поля ответа и
     первая строка как есть. Только чтение: в базу ничего не пишет, ключ не показывает."""
+    from decimal import Decimal
+
     from sqlalchemy import select
 
     from app.crud.credential import has_active
+    from app.engine.supply_planner import SUPPLY
     from app.integrations.ozon.errors import OzonAPIError
     from app.integrations.ozon.factory import get_ozon_client
     from app.models.product import Product
     from app.models.warehouse import Warehouse
-    from app.services import stores
+    from app.services import stores, supply
     from app.services.sync import supply_recs
     from app.services.sync.finance import today_msk
     from app.services.sync.supply_orders import fetch_clusters
@@ -278,6 +281,7 @@ async def supply_recs_check(db: AsyncSession, args, out, _ask) -> None:
             continue
         catalog = list((await db.execute(select(Product).where(Product.user_id == store.id))).scalars())
         offers = {p.ozon_sku: p.offer_id for p in catalog if p.ozon_sku}
+        wanted: set[str] = set()
         if args.offer:
             wanted = {o.strip().lower() for o in args.offer}
             skus = sorted(p.ozon_sku for p in catalog if p.ozon_sku and p.offer_id.lower() in wanted)
@@ -312,6 +316,21 @@ async def supply_recs_check(db: AsyncSession, args, out, _ask) -> None:
             out(f"    поля metrics: {', '.join(r['metric_keys']) or '—'}")
             if r["sample"]:
                 out(f"    первая строка: {r['sample']}")
+        # 21.11: что сервис показывает в «Поставках» по данным последней загрузки — сверить построчно с кабинетом Ozon
+        data = await supply.report(db, store.id, await supply.load_params(db, store.id))
+        lines = [i for i in data["items"] + data["rest"] if i["kind"] == SUPPLY
+                 and ((i.get("ozon_recommended") or 0) > 0 or i["to_order"] > 0)
+                 and (not args.offer or i["product"]["offer_id"].lower() in wanted)]
+        lines.sort(key=lambda i: (i["destination"]["name"], i["product"]["offer_id"]))
+        out(f"  Сверка с кабинетом (по последней загрузке; Ozon советует — из Ozon или «по формуле»: продажи в день × "
+            f"{days} × 1,2 − остаток − в пути): строк {len(lines)}")
+        out("    артикул | кластер | продажи в день | остаток | в пути | Ozon советует | везём")
+        for i in lines[:max(args.limit, 50)]:
+            rec = i.get("ozon_recommended")
+            shown = "—" if rec is None else f"{rec}{' по формуле' if i.get('ozon_estimated') else ''}"
+            rate = format(Decimal(str(i["avg_daily"] or 0)).normalize(), "f")
+            out(f"    {i['product']['offer_id']} | {i['destination']['name']} | {rate} | {i['stock']} | "
+                f"{i['in_transit']} | {shown} | {i['to_order']}")
 
 
 COMMANDS = {
