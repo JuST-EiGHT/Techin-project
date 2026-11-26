@@ -409,7 +409,7 @@ function Labels({ settings, form, set }: { settings: TrafficSettings; form: Labe
       >
         <input id="traffic-campaign" value={form.campaign} onChange={(e) => set({ campaign: e.target.value })} placeholder="например vk_november" className={input} autoComplete="off" spellCheck={false} data-testid="traffic-campaign" />
       </Field>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field
           label="Источник"
           htmlFor="traffic-source"
@@ -446,7 +446,7 @@ function Labels({ settings, form, set }: { settings: TrafficSettings; form: Labe
           />
         </Field>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Содержание" htmlFor="traffic-content" hint="Необязательно" help="Метка utm_content: какое объявление или место ссылки (link_in_bio, banner_1).">
           <input id="traffic-content" value={form.content} onChange={(e) => set({ content: e.target.value })} onFocus={() => setTarget('content')} className={input} autoComplete="off" spellCheck={false} data-testid="traffic-content" />
         </Field>
@@ -767,7 +767,7 @@ export function LinkBuilderPage() {
     return (
       <div>
         {header}
-        <div className="grid gap-5 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
           <Skeleton className="h-80 lg:col-span-2" />
           <Skeleton className="h-80" />
         </div>
@@ -796,7 +796,7 @@ export function LinkBuilderPage() {
     <div>
       {header}
       <form onSubmit={build} className="space-y-5">
-        <div className="grid gap-5 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
           <Panel
             className="min-w-0 lg:col-span-2"
             title="Что размечаем"

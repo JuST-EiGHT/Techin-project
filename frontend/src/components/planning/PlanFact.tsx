@@ -177,7 +177,7 @@ export function PlanFact() {
           ) : (
             <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-card" data-testid="pf-rows">
               {page.rows.map((row) => (
-                <li key={row.key} className="grid gap-x-4 gap-y-1 px-4 py-2.5 text-sm sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1.3fr)_auto]" data-testid="pf-row">
+                <li key={row.key} className="grid grid-cols-1 gap-x-4 gap-y-1 px-4 py-2.5 text-sm sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1.3fr)_auto]" data-testid="pf-row">
                   <span className="min-w-0">
                     <span className="font-medium">{row.title}</span>
                     <span className="block text-xs text-muted">

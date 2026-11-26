@@ -23,7 +23,7 @@ function Rules({ categories, accounts, reload }: PlanningData) {
   const tab: Tab = TABS.some((t) => t.value === raw) ? (raw as Tab) : 'rules'
   return (
     <div className="space-y-4">
-      <div className="flex gap-1 overflow-x-auto rounded-lg border border-line bg-card p-1 sm:w-fit" role="tablist" aria-label="Правила" data-testid="rules-tabs">
+      <div className="flex flex-wrap gap-x-1 rounded-lg border border-line bg-card p-1 sm:w-fit" role="tablist" aria-label="Правила" data-testid="rules-tabs">
         {TABS.map((t) => (
           <button
             key={t.value}

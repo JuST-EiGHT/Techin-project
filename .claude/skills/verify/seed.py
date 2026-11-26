@@ -13,11 +13,13 @@ import httpx
 from sqlalchemy import delete, select
 
 from app.db.session import AsyncSessionLocal
+from app.models.api_credential import ApiCredential
 from app.models.accrual import Accrual, AccrualDay
 from app.models.product import Product, ProductPrice
 from app.models.user import User
 from app.models.warehouse import ProductStock, Warehouse
 from app.services import sales
+from app.services.encryption import encrypt
 
 EMAIL, PASSWORD = "t1@example.com", "password123"
 NAMES = ["Подшипник шариковый радиальный однорядный 6204 2RS C3 20x47x14 NACHI Таиланд", "Подшипник 6201 12x32x10 NACHI",
@@ -75,6 +77,10 @@ async def main() -> None:
             db.add(Accrual(user_id=user.id, type_name="Размещение товаров на складах", accrual_date=day, amount=Decimal(-40),
                            source="api", sync_scope=f"day:{day}", line_no=k))
             db.add(AccrualDay(user_id=user.id, day=day, synced_at=now, entries=k))
+        # ненастоящий ключ Ozon: главная и разделы показывают данные, как у магазина с ключом (в Ozon не ходим —
+        # синхронизация с ним упадёт с ошибкой ключа, проверкам интерфейса это не мешает)
+        db.add(ApiCredential(user_id=user.id, label="Тестовый ключ", client_id="000000", api_key_encrypted=encrypt("test"),
+                             is_active=True, expires_at=now + timedelta(days=90)))
         await db.commit()
         await sales.rebuild_all(db, user.id)
         await db.commit()

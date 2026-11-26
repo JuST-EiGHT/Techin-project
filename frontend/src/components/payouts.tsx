@@ -512,7 +512,7 @@ export function ScheduleBlock({ schedule, detected, onSaved }: { schedule: Sched
           </fieldset>
 
           {(needDay || needFee) && (
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               {needDay && (
                 <label className="block text-sm">
                   <span className="text-muted">День выплаты</span>

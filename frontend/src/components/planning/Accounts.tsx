@@ -48,7 +48,7 @@ function AccountEditor({ account, onDone }: { account?: Account; onDone: () => v
 
   return (
     <form onSubmit={save} className="space-y-3 rounded-lg border border-accent/40 p-3" data-testid="account-form">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Название" aria-label="Название счёта" required className={input} data-testid="acc-name" />
         <select value={kind} onChange={(e) => setKind(e.target.value as AccountKind)} aria-label="Тип счёта" className={input}>
           {ACCOUNT_KINDS.map((k) => (

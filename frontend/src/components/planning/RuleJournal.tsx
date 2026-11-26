@@ -72,7 +72,7 @@ export function RuleJournal() {
                   </summary>
                   <ul className="mt-2 divide-y divide-line text-xs" data-testid="rule-run-details">
                     {run.details.map((d) => (
-                      <li key={d.op_id} className="grid gap-x-3 gap-y-0.5 py-1.5 sm:grid-cols-[5rem_7rem_minmax(0,1fr)_minmax(0,1.3fr)]">
+                      <li key={d.op_id} className="grid grid-cols-1 gap-x-3 gap-y-0.5 py-1.5 sm:grid-cols-[5rem_7rem_minmax(0,1fr)_minmax(0,1.3fr)]">
                         <span className="tabular-nums text-muted">{fmtDay(d.day)}</span>
                         <span className="tabular-nums">{rub(d.amount)}</span>
                         <span className="truncate text-muted">{d.counterparty ?? '—'}</span>

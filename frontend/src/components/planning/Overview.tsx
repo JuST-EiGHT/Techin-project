@@ -562,7 +562,7 @@ function EmptyHints({ data }: { data: Overview }) {
         <section className="rounded-xl border border-line bg-card p-4" data-testid="ov-suggestions">
           <h2 className="text-sm font-semibold">Добавьте регулярные платежи</h2>
           <p className="mt-1 text-xs text-faint">Чтобы прогноз учитывал аренду, зарплату и другие платежи, которые повторяются. Можно добавить позже — или не добавлять.</p>
-          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+          <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
             {data.empty.suggestions.map((s) => (
               <li key={s.code} className="rounded-lg border border-line p-3 text-sm">
                 <div className="flex items-baseline gap-2">

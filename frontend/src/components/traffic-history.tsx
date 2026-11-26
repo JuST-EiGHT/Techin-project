@@ -157,7 +157,7 @@ function EditModal({ row, settings, onClose, onSaved }: {
         <Field label="Название кампании" htmlFor="edit-campaign" required>
           <input id="edit-campaign" value={f.campaign} onChange={(e) => set({ campaign: e.target.value })} className={input} autoComplete="off" spellCheck={false} data-testid="edit-campaign" />
         </Field>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Источник" htmlFor="edit-source" required hint="utm_source">
             <SuggestInput id="edit-source" value={f.source} onChange={(v) => set({ source: v })} options={channel.source_options} disabled={channel.fixed_source} required placeholder="Выберите или впишите" testid="edit-source" />
           </Field>

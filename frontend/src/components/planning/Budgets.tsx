@@ -597,7 +597,7 @@ function Scenarios({ version }: { version: number }) {
       )}
       {data && (
         <>
-          <div className="grid gap-2 sm:grid-cols-3" data-testid="scenario-cards">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3" data-testid="scenario-cards">
             {data.scenarios.map((s) => {
               const gap = s.first_below_zero
               return (
@@ -675,7 +675,7 @@ function Scenarios({ version }: { version: number }) {
           {form && (
             <form onSubmit={save} className="rounded-xl border border-line bg-card p-4 text-sm" data-testid="scenario-form">
               <p className="mb-2 text-xs text-muted">На сколько процентов плановые суммы сценария больше (+) или меньше (−) базового. Влияет только на прогноз — план не меняется.</p>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 {SCENARIO_FIELDS.map((f) => (
                   <label key={f.key} className="block">
                     <span className="text-muted">{f.label}, %</span>
@@ -787,7 +787,7 @@ export function BudgetsPage({ onChanged }: { onChanged: () => void }) {
               Плана пока нет. Нажмите «+ план» в ячейке, заполните план по факту прошлого года — или скачайте шаблон Excel ниже.
             </p>
           )}
-          <div className="grid gap-px overflow-hidden rounded-xl border border-line bg-line text-sm sm:grid-cols-3" data-testid="budget-summary">
+          <div className="grid grid-cols-1 gap-px overflow-hidden rounded-xl border border-line bg-line text-sm sm:grid-cols-3" data-testid="budget-summary">
             {totals!.map((t) => (
               <div key={t.label} className="min-w-0 bg-card px-3 py-2 sm:px-4">
                 <div className="text-[11px] uppercase tracking-wider text-muted">

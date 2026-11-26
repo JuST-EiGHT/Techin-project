@@ -268,7 +268,7 @@ function ImportPanel({ allCount, missingCount, onDone, onAliases }: { allCount: 
           артикулы, которых нет в Ozon, можно привязать к похожим товарам — привязка запомнится для следующих файлов.
         </p>
       </div>
-      <ol className="grid gap-3 lg:grid-cols-3">
+      <ol className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <Step n={1} title="Скачайте шаблон">
           <div className="inline-flex rounded-lg border border-line p-0.5 text-sm" role="group" aria-label="Формат шаблона">
             {(['xlsx', 'csv'] as const).map((f) => (
@@ -553,7 +553,7 @@ export default function CostsPage() {
 
       <CoverageBlock reloadKey={coverageKey} onFill={fill} />
 
-      <nav className="flex gap-1 overflow-x-auto border-b border-line" aria-label="Себестоимость" data-testid="costs-tabs">
+      <nav className="flex flex-wrap gap-x-1 border-b border-line" aria-label="Себестоимость" data-testid="costs-tabs">
         {(
           [
             { value: 'list', label: 'Справочник' },

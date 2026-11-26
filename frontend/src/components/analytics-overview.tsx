@@ -120,7 +120,7 @@ export function LeadersBlock({ filter }: { filter: AnalyticsFilter }) {
   const p = data.profit
   const s = data.sales
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <section className="rounded-xl border border-line bg-card p-4" data-testid="leaders-profit">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h2 className="font-semibold">Прибыль по товарам</h2>
@@ -138,7 +138,7 @@ export function LeadersBlock({ filter }: { filter: AnalyticsFilter }) {
         {p.data_source === 'none' ? (
           <p className="mt-3 text-sm text-muted">За период нет начислений Ozon — прибыль по товарам считать не из чего.</p>
         ) : (
-          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <List title="Лучшие" items={p.best} empty="Товаров в плюсе нет" testid="leaders-best" value={profitValue} />
             <List title="Худшие" items={p.worst} empty="Остальные — в списке лучших" testid="leaders-worst" value={profitValue} />
           </div>
@@ -174,7 +174,7 @@ export function LeadersBlock({ filter }: { filter: AnalyticsFilter }) {
             {s.note}
           </p>
         ) : (
-          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <List title="Растут" items={s.growth} empty="Заметного роста нет" testid="leaders-growth" value={(x) => salesValue(x, true)} />
             <List title="Падают" items={s.decline} empty="Заметного падения нет" testid="leaders-decline" value={(x) => salesValue(x, false)} />
           </div>

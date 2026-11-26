@@ -61,7 +61,7 @@ function ProfileSection() {
   return (
     <Section title="Профиль" testid="profile">
       <FormError message={error} />
-      <form onSubmit={save} className="grid max-w-xl gap-x-4 sm:grid-cols-2" noValidate>
+      <form onSubmit={save} className="grid grid-cols-1 max-w-xl gap-x-4 sm:grid-cols-2" noValidate>
         <Field label="Имя" id="first_name" value={first} maxLength={100} onChange={(e) => (setFirst(e.target.value), setSaved(false))} data-testid="profile-first" />
         <Field label="Фамилия" id="last_name" value={last} maxLength={100} onChange={(e) => (setLast(e.target.value), setSaved(false))} data-testid="profile-last" />
         <div className="sm:col-span-2">

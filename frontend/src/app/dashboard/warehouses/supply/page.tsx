@@ -393,7 +393,7 @@ function Recommendations({ onPlans, view, show, onView, onShow }: {
       {form && data && paramsOpen && (
         <section className="rounded-xl border border-line bg-card p-5 shadow-card" data-testid="supply-params">
           <h2 className="font-semibold">Параметры рекомендаций</h2>
-          <div className="mt-3 grid gap-4 sm:grid-cols-3">
+          <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-3">
             <DaysField id="target_days" label="Запас после поставки" value={form.target_days} onChange={(v) => change({ target_days: v })} why={TARGET_WHY} />
             <DaysField id="lead_time_days" label="Поставка в пути" value={form.lead_time_days} onChange={(v) => change({ lead_time_days: v })} why={LEAD_WHY} />
             <DaysField id="safety_days" label="Страховой запас" value={form.safety_days} onChange={(v) => change({ safety_days: v })} why={SAFETY_WHY} />

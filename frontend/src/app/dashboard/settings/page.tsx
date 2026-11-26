@@ -139,7 +139,7 @@ function NumberForm({ fields, testid, saved, extra }: { fields: NumberField[]; t
   return (
     <form onSubmit={save} className="space-y-3" data-testid={testid}>
       <FormError message={error} />
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {fields.map((f) => (
           <div key={f.key}>
             <label htmlFor={f.key} className="block text-sm text-muted">
@@ -197,7 +197,7 @@ function ThemeSection() {
   return (
     <Section title="Тема" hint="Тема сохраняется в аккаунте — одинаково на всех устройствах.">
       <FormError message={error} />
-      <div role="radiogroup" aria-label="Тема" className="grid gap-3 sm:grid-cols-3">
+      <div role="radiogroup" aria-label="Тема" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {THEMES.map(({ value, label, hint, Icon }) => {
           const active = preference === value
           return (
@@ -288,7 +288,7 @@ function SupplierSection() {
   return (
     <Section title="Откуда товар" hint={SUPPLIER_WHY}>
       <FormError message={error} />
-      <div role="radiogroup" aria-label="Откуда товар" className="grid gap-3 sm:grid-cols-2">
+      <div role="radiogroup" aria-label="Откуда товар" className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {SUPPLIER_OPTIONS.map(({ value, label, effect }) => {
           const active = deferred ? value === 'deferred' : settings?.supplier_payment === value
           return (
@@ -420,7 +420,7 @@ function StockSection() {
         data-testid="stock-settings"
       >
         <FormError message={error} />
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {STOCK_FIELDS.map(({ key, label, why }) => (
             <div key={key}>
               <label htmlFor={key} className="block text-sm text-muted">
@@ -762,7 +762,7 @@ function AbcSection() {
     >
       <form onSubmit={save} className="space-y-3" data-testid="abc-settings">
         <FormError message={error} />
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {field('abc_a_pct', 'Группа A — первые', a, setA, 'Главные товары: дают эту долю выручки (прибыли, продаж). Обычно 80 %.')}
           {field('abc_b_pct', 'Группа B — до', b, setB, 'Средние — от границы A до этой. Остальные — C. Обычно 95 %.')}
         </div>
@@ -854,7 +854,7 @@ function PlanningSection() {
         <>
           <p className="mt-2 text-xs text-faint">Выключите — раздел перестанет показываться, счета и операции останутся; включить можно в любой момент.</p>
           <form onSubmit={saveParams} className="mt-4 space-y-3 border-t border-line pt-4" data-testid="planning-params">
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label htmlFor="horizon_days" className="block text-sm text-muted">
                   Горизонт прогноза

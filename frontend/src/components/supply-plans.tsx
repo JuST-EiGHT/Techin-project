@@ -73,7 +73,7 @@ function PlanList({ onOpen }: { onOpen: (id: string) => void }) {
             : 'Нет планов.'}
         </p>
       ) : (
-        <ul className="grid gap-3 md:grid-cols-2">
+        <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {plans.map((p) => (
             <li key={p.id}>
               <button
@@ -475,7 +475,7 @@ function OzonCreate({ plan, onDone }: { plan: PlanDetail; onDone: () => void }) 
                   Кластер в Ozon: <span className="font-medium">{draft.cluster_name ?? plan.destination_name}</span>
                   <span className="text-xs text-faint"> · проверка действует до {fmtDateTime(draft.expires_at)}</span>
                 </div>
-                <div className="mt-2 grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Склад Ozon">
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Склад Ozon">
                   {draft.warehouses.map((w) => (
                     <button
                       key={w.id}

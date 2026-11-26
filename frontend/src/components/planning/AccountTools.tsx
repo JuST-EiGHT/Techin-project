@@ -133,7 +133,7 @@ export function ReconcileSection({ version }: { version: number }) {
         сервисе.
       </p>
       {checked.length > 0 ? (
-        <ul className="grid gap-2 lg:grid-cols-2">
+        <ul className="grid grid-cols-1 gap-2 lg:grid-cols-2">
           {checked.map((r) => (
             <ReconcileCard key={r.account.id} r={r} />
           ))}
@@ -321,7 +321,7 @@ export function UnrecognizedSection({ categories, version, onChanged }: { catego
             if (i.rule.counterparty_inn) q.set('inn', i.rule.counterparty_inn)
             if (i.rule.counterparty) q.set('counterparty', i.rule.counterparty)
             return (
-              <li key={i.op_id} className="grid gap-x-3 gap-y-1.5 px-4 py-2.5 text-sm sm:grid-cols-[minmax(0,1fr)_12rem]" data-testid="unrecognized-row">
+              <li key={i.op_id} className="grid grid-cols-1 gap-x-3 gap-y-1.5 px-4 py-2.5 text-sm sm:grid-cols-[minmax(0,1fr)_12rem]" data-testid="unrecognized-row">
                 <span className="min-w-0">
                   <span className="flex flex-wrap items-baseline gap-x-2">
                     <span className="tabular-nums text-muted">{fmtDay(i.day)}</span>

@@ -152,12 +152,12 @@ function ProductPage() {
 
           <Recommendations productId={id} />
 
-          <div className="grid gap-5 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
             <UnitBlock data={data} costLabel={costLabel} lowMargin={lowMargin} profitHref={`/dashboard/analytics/profit?${range}`} />
             <PricesBlock data={data} lowMargin={lowMargin} onChange={item.is_archived ? null : () => setChanging(true)} />
           </div>
 
-          <div className="grid gap-5 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
             <Box title="Цена за 30 дней" testid="product-price-history">
               <PriceChart data={data.detail} />
               <PriceChangesList data={data} />
@@ -171,7 +171,7 @@ function ProductPage() {
 
           <ProductTrafficLinks productId={id} />
 
-          <div className="grid gap-5 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
             {/* у блоков панели товара свои заголовки — карточки без второго */}
             <section id="cost" className="min-w-0 scroll-mt-20 rounded-xl border border-line bg-card p-4" data-testid="product-cost">
               <CostBlock key={data.cost_history.length} data={data.detail} onSaved={refresh} />

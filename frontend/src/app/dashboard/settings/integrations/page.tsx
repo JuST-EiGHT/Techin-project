@@ -44,7 +44,7 @@ function Integrations() {
         </p>
       </div>
       <IntegrationsSummary onOpen={open} />
-      <div className="flex gap-1 overflow-x-auto border-b border-line" role="tablist" aria-label="Интеграции">
+      <div className="flex flex-wrap gap-x-1 border-b border-line" role="tablist" aria-label="Интеграции">
         {TABS.map((t) => (
           <button
             key={t.value}
