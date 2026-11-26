@@ -209,7 +209,7 @@ function Prices() {
       )}
 
       {tips && (tips.loss_count > 0 || tips.underpriced_count > 0) && (
-        <div className="grid gap-3 lg:grid-cols-2" data-testid="price-suggestions">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2" data-testid="price-suggestions">
           <TipList
             title="Ниже минимальной — каждая продажа в минус"
             count={tips.loss_count}

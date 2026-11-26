@@ -259,7 +259,7 @@ function ConnectForm({ onConnected }: { onConnected: (c: Connection, replaced: b
         Выберите банк — покажем, где взять токен. Перед сохранением токен проверяется запросом в банк; храним его только в
         зашифрованном виде и больше нигде не показываем.
       </p>
-      <div role="radiogroup" aria-label="Банк" className="mb-4 grid gap-3 sm:grid-cols-2">
+      <div role="radiogroup" aria-label="Банк" className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
         {BANKS.map((b) => (
           <button
             key={b.code}

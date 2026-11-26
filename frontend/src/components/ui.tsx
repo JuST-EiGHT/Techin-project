@@ -272,7 +272,7 @@ export function Tabs<T extends string>({ value, onChange, items, testid, label, 
   itemTestid?: (v: T) => string
 }) {
   return (
-    <div role="tablist" aria-label={label} className="flex gap-1 overflow-x-auto border-b border-line" data-testid={testid}>
+    <div role="tablist" aria-label={label} className="flex flex-wrap gap-x-1 border-b border-line" data-testid={testid}>
       {items.map((t) => (
         <button
           key={t.value}

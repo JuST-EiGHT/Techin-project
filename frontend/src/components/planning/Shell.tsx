@@ -53,7 +53,7 @@ function SectionTabs({ section }: { section: string }) {
   const pathname = usePathname()
   const items = NAV.find((s) => s.label === section)?.items ?? []
   return (
-    <nav className="flex gap-1 overflow-x-auto border-b border-line" aria-label={section} data-testid="section-tabs">
+    <nav className="flex flex-wrap gap-x-1 border-b border-line" aria-label={section} data-testid="section-tabs">
       {items.map((t) => {
         const active = pathname === t.href
         return (

@@ -64,7 +64,7 @@ export function CoverageBlock({ reloadKey, onFill }: { reloadKey: number; onFill
           продажи за {fmtDay(data.date_from)} – {fmtDay(data.date_to)}
         </span>
       </div>
-      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Fact
           label="Товаров в продаже с себестоимостью"
           value={`${data.catalog_with_cost} из ${data.catalog_total}`}

@@ -1069,7 +1069,7 @@ function PaymentModal({ payment, onClose, onSaved }: { payment: Payment | null; 
     <Modal title={payment ? 'Изменить оплату' : 'Оплата поставщику'} onClose={onClose}>
       <form onSubmit={save} className="space-y-3 text-sm" data-testid="payment-form">
         <p className="text-muted">Оплата закрывает самые старые поставки первыми. Исправление сохраняется новой версией.</p>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="space-y-1">
             <span className="text-xs text-muted">Дата</span>
             <input type="date" value={day} max={today} onChange={(e) => setDay(e.target.value)} className={input} required />

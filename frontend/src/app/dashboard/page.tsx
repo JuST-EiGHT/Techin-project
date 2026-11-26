@@ -97,7 +97,7 @@ function Dashboard() {
               </div>
             )}
             {(hasChart || board) && (
-              <div className="grid items-start gap-5 lg:grid-cols-3">
+              <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-3">
                 {hasChart && data && (
                   <div className="min-w-0 lg:col-span-2">
                     <DynamicsChart data={data} granularity={{ value: filter.granularity, chosen: filter.granularityChosen, onChange: (g) => update({ granularity: g, granularityChosen: true }) }} />
@@ -134,7 +134,7 @@ function HomeSkeleton() {
           </div>
         ))}
       </div>
-      <div className="grid gap-5 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="rounded-xl border border-line bg-card p-5 shadow-card lg:col-span-2">
           <Skeleton className="h-5 w-1/3" />
           <Skeleton className="mt-4 h-64" />
@@ -157,7 +157,7 @@ function Connect() {
       title="Подключите данные Ozon"
       description="Главная показывает продажи, прибыль, заказы, баланс и выплаты Ozon. Данные можно взять двумя способами — можно один, можно оба: где есть отчёт, сервис берёт его, остальные дни — из API."
     >
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Link href="/dashboard/settings/integrations" className="group rounded-xl border border-line p-4 transition-colors hover:border-accent/50 hover:bg-soft/40" data-testid="connect-key">
           <IconBox icon={KeyRound} />
           <div className="mt-3 font-semibold">API-ключ Ozon →</div>

@@ -60,7 +60,7 @@ export function IntegrationsSummary({ onOpen }: { onOpen: (tab: Tab) => void }) 
   }
   if (cards.length === 0) return null
   return (
-    <div className="grid gap-3 sm:grid-cols-3" data-testid="integrations-summary">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3" data-testid="integrations-summary">
       {cards.map((c) => (
         <button key={c.tab} type="button" onClick={() => onOpen(c.tab)} className={`flex flex-col rounded-xl border bg-card p-4 text-left hover:border-accent ${TONE[c.state].split(' ')[0]}`} data-testid={`summary-${c.tab}`} data-state={c.state}>
           <div className="flex items-baseline gap-2">

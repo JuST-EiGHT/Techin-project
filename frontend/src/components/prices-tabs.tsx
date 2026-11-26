@@ -17,7 +17,7 @@ export function PricesTabs() {
     if (nav.current && el) nav.current.scrollLeft = el.offsetLeft - (nav.current.clientWidth - el.offsetWidth) / 2
   }, [pathname])
   return (
-    <nav ref={nav} className="flex gap-1 overflow-x-auto border-b border-line" aria-label="Цены" data-testid="prices-tabs">
+    <nav ref={nav} className="flex flex-wrap gap-x-1 border-b border-line" aria-label="Цены" data-testid="prices-tabs">
       {tabs.map((t) => {
         const active = pathname === t.href
         return (

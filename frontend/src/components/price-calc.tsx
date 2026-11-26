@@ -556,7 +556,7 @@ export function PriceSettingsForm({ onSaved }: { onSaved?: () => void }) {
   return (
     <form onSubmit={save} className="space-y-3" data-testid="price-settings">
       <FormError message={error} />
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <Field label="Реклама, % — если данных Ozon нет" value={ad} placeholder="0" onChange={edit(setAd)} suffix="%" testid="settings-ad" disabled={!settings} />
           <p className="mt-1 text-xs text-faint">{AD_SETTING_WHY}</p>
@@ -573,7 +573,7 @@ export function PriceSettingsForm({ onSaved }: { onSaved?: () => void }) {
           важнее). Реклама и хранение отсюда заменяют начисления Ozon; пустое поле — считать по начислениям. Прочее и доп. расходы
           добавляются сверху; пусто — 0.
         </p>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Реклама, % — вместо начислений" value={adAll} placeholder="по начислениям" onChange={edit(setAdAll)} suffix="%" testid="settings-ad-all" disabled={!settings} />
           <Field label="Хранение на 1 шт. — вместо начислений" value={storageAll} placeholder="по начислениям" onChange={edit(setStorageAll)} suffix="₽" testid="settings-storage-all" disabled={!settings} />
           <Field

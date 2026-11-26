@@ -55,7 +55,7 @@ function Switch({ on, onChange, label, testid, disabled }: { on: boolean; onChan
 
 function Channels({ data }: { data: NotifySettings }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-3" data-testid="channels">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3" data-testid="channels">
       {data.channels.map((c) => (
         <div key={c.key} className={`rounded-lg border p-3 ${c.connected ? 'border-ok/40' : 'border-line'}`} data-testid={`channel-${c.key}`}>
           <div className="flex items-baseline gap-2">
@@ -294,7 +294,7 @@ export default function NotificationsSettingsPage() {
                           </p>
                         )}
                         {group && group.items.length > 0 && (
-                          <div className="grid gap-3 sm:grid-cols-3">
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                             {group.items.map((t) => (
                               <ThresholdInput
                                 key={t.key}

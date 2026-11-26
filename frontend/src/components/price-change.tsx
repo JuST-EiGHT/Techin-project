@@ -122,7 +122,7 @@ export function PriceChangeModal({ product, current, onClose, onDone }: Props) {
           <span className="block text-muted">Сейчас в Ozon: {rub(current)}</span>
         </p>
 
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="text-xs text-muted">
             Новая цена, ₽
             <input

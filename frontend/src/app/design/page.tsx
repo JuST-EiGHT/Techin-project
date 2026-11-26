@@ -119,7 +119,7 @@ export default function DesignSystemPage() {
         </StatGrid>
 
         {/* графики */}
-        <div className="grid gap-5 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
           <Panel
             className="lg:col-span-2"
             title="Выручка по дням"
@@ -244,7 +244,7 @@ export default function DesignSystemPage() {
         </Panel>
 
         {/* кнопки, плашки, состояния */}
-        <div className="grid gap-5 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
           <Panel title="Кнопки и плашки">
             <div className="flex flex-wrap gap-2">
               <Button variant="primary">Применить цены</Button>

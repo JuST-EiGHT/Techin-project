@@ -170,7 +170,7 @@ function AddStore({ onAdded }: { onAdded: (s: Store) => void }) {
       </p>
       <OzonKeyGuide />
       <FormError message={error} />
-      <div className="grid gap-x-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-3">
         <Field label="Название (видно только вам)" id="store_name" placeholder="Например, «Подшипники Юг»" value={form.name} onChange={set('name')} maxLength={100} />
         <Field label="Client-Id" id="store_client_id" inputMode="numeric" autoComplete="off" required value={form.client_id} onChange={set('client_id')} />
         <Field label="Api-Key" id="store_api_key" type="password" autoComplete="off" required value={form.api_key} onChange={set('api_key')} />

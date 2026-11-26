@@ -204,7 +204,7 @@ function Warehouses() {
               </button>
               {showWarehouses && (
                 <div className="space-y-3 border-t border-line p-4">
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" data-testid="warehouse-cards">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3" data-testid="warehouse-cards">
                     {activeWarehouses.map((w) => (
                       <WarehouseCard
                         key={w.id}
@@ -221,7 +221,7 @@ function Warehouses() {
                     </button>
                   )}
                   {showInactive && (
-                    <div className="grid gap-3 opacity-70 sm:grid-cols-2 xl:grid-cols-3">
+                    <div className="grid grid-cols-1 gap-3 opacity-70 sm:grid-cols-2 xl:grid-cols-3">
                       {inactive.map((w) => (
                         <WarehouseCard key={w.id} w={w} selected={w.id === warehouseId} status="" onPick={(s) => setUrl({ warehouse: w.id, status: s }, true)} />
                       ))}

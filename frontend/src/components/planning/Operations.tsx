@@ -183,7 +183,7 @@ function OperationForm({
             : 'Выплата Ozon обновляется сама по данным Ozon — здесь можно поменять статью, контрагента и комментарий.'}
         </p>
       )}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <label className="block text-sm">
           <span className="text-muted">Сумма, ₽</span>
           <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" disabled={lockMoney} required className={`${input} mt-1`} data-testid="op-amount" />
@@ -247,7 +247,7 @@ function OperationForm({
           )
         )}
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {!transfer && (
           <input value={counterparty} onChange={(e) => setCounterparty(e.target.value)} placeholder="Контрагент — необязательно" aria-label="Контрагент" className={input} data-testid="op-counterparty" />
         )}
@@ -735,7 +735,7 @@ function QuickAdd({ accounts, categories, onSaved, onCategoryCreated, onMore }: 
           Подробно: перевод, контрагент, описание
         </button>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[8rem_minmax(0,1fr)_minmax(0,12rem)_10rem_auto] lg:items-end">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[8rem_minmax(0,1fr)_minmax(0,12rem)_10rem_auto] lg:items-end">
         <label className="block text-sm">
           <span className="text-muted">Сумма, ₽</span>
           <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" required className={`${input} mt-1`} data-testid="quick-amount" />
@@ -890,7 +890,7 @@ function PaidForm({ row, accounts, onDone, onCancel }: { row: JournalRow; accoun
         «{row.plan?.title}» по плану {fmtDay(row.day)} на {signed(row.amount)}. Укажите, когда и сколько оплатили, — появится операция, а платёж в календаре
         отметится оплаченным.
       </p>
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <label className="block">
           <span className="text-muted">Дата оплаты</span>
           <input type="date" value={day} max={today} onChange={(e) => setDay(e.target.value)} required className={`${input} mt-1`} data-testid="paid-day" />

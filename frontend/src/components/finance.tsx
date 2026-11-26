@@ -460,7 +460,7 @@ export function ParamsPanel({
         </span>
       </summary>
       <div className="space-y-4 border-t border-line px-5 py-4">
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <label className="block text-sm">
             <span className="mb-1 block text-xs text-muted">НДС поставщика (в цене закупки)</span>
             <select

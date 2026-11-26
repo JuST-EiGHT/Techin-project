@@ -240,7 +240,7 @@ export default function WithdrawalPage() {
       {form && data && t && (
         <section className="rounded-xl border border-line bg-card p-5" data-testid="withdrawal-params">
           <h2 className="text-lg font-semibold">Параметры</h2>
-          <div className="mt-3 grid gap-4 sm:grid-cols-3">
+          <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-3">
             <NumField
               id="total"
               label="Вывезти всего"

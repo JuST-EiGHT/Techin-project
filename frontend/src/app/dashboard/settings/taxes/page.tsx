@@ -397,7 +397,7 @@ export default function TaxesPage() {
       {options && (
         <>
           <Step n={1} title="Кто вы">
-            <div role="radiogroup" aria-label="Кто вы" className="grid gap-3 sm:grid-cols-3">
+            <div role="radiogroup" aria-label="Кто вы" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               {(Object.keys(options.forms) as Form[]).map((f) => (
                 <Choice key={f} active={form === f} onClick={() => chooseForm(f)} title={options.forms[f]} hint={FORM_HINT[f]} testid={`form-${f}`} />
               ))}
@@ -406,7 +406,7 @@ export default function TaxesPage() {
 
           <Step n={2} title="Система налогообложения" aside={<HelpPopover title={help.title} lines={help.lines} />}>
             {!form && <p className="text-sm text-muted">Сначала выберите, кто вы, — покажем подходящие системы.</p>}
-            <div role="radiogroup" aria-label="Система налогообложения" className="grid gap-3 sm:grid-cols-2">
+            <div role="radiogroup" aria-label="Система налогообложения" className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {available.map((r) => (
                 <button
                   key={r.key}
@@ -489,7 +489,7 @@ export default function TaxesPage() {
 
           {current && (
             <Step n={4} title="НДС">
-              <div role="radiogroup" aria-label="НДС" className="grid gap-3 sm:grid-cols-3">
+              <div role="radiogroup" aria-label="НДС" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 {current.vat_modes.map((m) => (
                   <Choice key={m} active={vatMode === m} onClick={() => chooseVat(m)} title={options.vat_modes[m]} testid={`vat-${m}`} />
                 ))}
@@ -547,7 +547,7 @@ export default function TaxesPage() {
               <FormError message={previewError} />
               {!preview && !previewError && <p className="text-sm text-muted">Заполните шаги выше — покажем расчёт на примере.</p>}
               {preview && (
-                <div className="grid gap-3 lg:grid-cols-2">
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                   <ExampleCard example={preview.example} testid="example" />
                   {preview.report_example ? (
                     <ExampleCard example={preview.report_example} testid="report-example" />

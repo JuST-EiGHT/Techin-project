@@ -465,7 +465,7 @@ export function MoneyBlock({ payouts, hasKey }: { payouts: OzonDashboard['payout
         <h2 className="text-base font-semibold">Деньги и ближайшие события</h2>
         <p className="mt-0.5 text-sm text-muted">Баланс и выплаты Ozon, а с «Планированием» — счета, платежи и прогноз на 14 дней</p>
       </div>
-      <div className="mt-2 grid divide-y divide-line md:grid-cols-2 md:divide-x md:divide-y-0">
+      <div className="mt-2 grid grid-cols-1 divide-y divide-line md:grid-cols-2 md:divide-x md:divide-y-0">
         <OzonMoney payouts={payouts} hasKey={hasKey} />
         {state && !state.enabled ? (
           <div className="p-5" data-testid="money-planning-off">

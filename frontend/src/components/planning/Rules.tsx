@@ -144,7 +144,7 @@ function RuleForm({
           </button>
         ))}
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="text-sm">
           ИНН контрагента
           <input value={form.counterparty_inn} onChange={set('counterparty_inn')} inputMode="numeric" className={input} data-testid="rule-inn" />

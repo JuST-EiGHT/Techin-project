@@ -157,7 +157,7 @@ function Alerts() {
         </p>
       </div>
 
-      <div className="flex gap-1 overflow-x-auto border-b border-line" role="tablist" aria-label="Какие уведомления">
+      <div className="flex flex-wrap gap-x-1 border-b border-line" role="tablist" aria-label="Какие уведомления">
         {STATUSES.map((s) => (
           <button
             key={s.value}
@@ -283,7 +283,7 @@ function Alerts() {
             <h2 className="text-sm font-semibold text-muted">
               {g.title} <span className="font-normal text-faint">· {g.items.length}</span>
             </h2>
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               {g.items.map((a) => (
                 <AlertCard key={a.id} anomaly={a} onChange={replace} />
               ))}

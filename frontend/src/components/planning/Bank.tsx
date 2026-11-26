@@ -249,7 +249,7 @@ function Matches({ items, onChanged }: { items: Match[]; onChanged: () => void }
       </div>
       <ul className="divide-y divide-line">
         {items.map((m) => (
-          <li key={`${m.bank.op_id}-${m.manual.op_id}`} className="grid gap-3 px-4 py-3 text-sm sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]" data-testid="bank-match">
+          <li key={`${m.bank.op_id}-${m.manual.op_id}`} className="grid grid-cols-1 gap-3 px-4 py-3 text-sm sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]" data-testid="bank-match">
             {side('Из выписки', m.bank)}
             {side('Внесена вручную', m.manual)}
             <div className="flex items-center gap-2">

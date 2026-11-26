@@ -720,7 +720,7 @@ export function ReportsPage({ scope, header }: { scope: 'analytics' | 'finance';
   return (
     <div className="space-y-6">
       {header}
-      <nav ref={nav} className="flex gap-1 overflow-x-auto border-b border-line" aria-label="Отчёты" data-testid="reports-tabs">
+      <nav ref={nav} className="flex flex-wrap gap-x-1 border-b border-line" aria-label="Отчёты" data-testid="reports-tabs">
         {TABS.map((t) => (
           <button
             key={t.tab}

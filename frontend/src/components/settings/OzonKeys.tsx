@@ -272,7 +272,7 @@ function AddForm({ onAdded, firstKey }: { onAdded: (c: Credential) => void; firs
           </button>
         </div>
       )}
-      <div className="grid gap-x-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
         <Field label="Название" id="label" placeholder="Магазин Ozon" value={form.label} onChange={set('label')} />
         <Field label="Client-Id" id="client_id" inputMode="numeric" autoComplete="off" required value={form.client_id} onChange={set('client_id')} />
         <Field label="Api-Key" id="api_key" type="password" autoComplete="off" required value={form.api_key} onChange={set('api_key')} />

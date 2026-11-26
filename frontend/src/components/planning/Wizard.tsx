@@ -165,7 +165,7 @@ export function Wizard({ onDone }: { onDone: (state: PlanningState) => void }) {
         <div className="space-y-3" data-testid="wizard-step-supplier">
           <h2 className="text-lg font-semibold">Откуда у вас товар?</h2>
           <Why>{SUPPLIER_WHY}</Why>
-          <div role="radiogroup" aria-label="Откуда товар" className="grid gap-2 sm:grid-cols-2">
+          <div role="radiogroup" aria-label="Откуда товар" className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {SUPPLIER_OPTIONS.map((o) => (
               <Choice key={o.value} active={supplier === o.value} onClick={() => setSupplier(o.value)} title={o.label} text={o.effect} testid={`w-supplier-${o.value}`} />
             ))}
@@ -217,7 +217,7 @@ export function Wizard({ onDone }: { onDone: (state: PlanningState) => void }) {
         <div className="space-y-3" data-testid="wizard-step-ozon">
           <h2 className="text-lg font-semibold">Куда приходят выплаты Ozon?</h2>
           <Why>Чтобы выплаты Ozon сами появлялись на этом счёте и в прогнозе — вводить их не нужно.</Why>
-          <div role="radiogroup" aria-label="Куда приходят выплаты Ozon" className="grid gap-2 sm:grid-cols-2">
+          <div role="radiogroup" aria-label="Куда приходят выплаты Ozon" className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {accounts.map((a, i) => (
               <Choice key={i} active={ozon === i} onClick={() => setOzon(i)} title={a.name || 'Без названия'} text={`${kindLabel(a.kind)} — выплаты Ozon будут поступлениями на него`} testid={`w-ozon-${i}`} />
             ))}
@@ -238,13 +238,13 @@ export function Wizard({ onDone }: { onDone: (state: PlanningState) => void }) {
             .map((g) => (
               <div key={g} className="space-y-2">
                 <h3 className="text-xs uppercase tracking-wider text-muted">{GROUP_TITLES[g]}</h3>
-                <div className="grid gap-2 sm:grid-cols-2">{suggested.filter((c) => c.group === g).map(categoryItem)}</div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{suggested.filter((c) => c.group === g).map(categoryItem)}</div>
               </div>
             ))}
           {others.length > 0 && (
             <details className="text-sm">
               <summary className="cursor-pointer text-muted hover:text-fg">Другие статьи ({others.length}) — если нужны</summary>
-              <div className="mt-2 grid gap-2 sm:grid-cols-2">{others.map(categoryItem)}</div>
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">{others.map(categoryItem)}</div>
             </details>
           )}
         </div>

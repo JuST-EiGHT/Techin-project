@@ -564,7 +564,7 @@ export function AnalyticsTabs() {
     if (nav.current && el) nav.current.scrollLeft = el.offsetLeft - (nav.current.clientWidth - el.offsetWidth) / 2
   }, [pathname])
   return (
-    <nav ref={nav} className="flex gap-1 overflow-x-auto border-b border-line" aria-label="Аналитика" data-testid="analytics-tabs">
+    <nav ref={nav} className="flex flex-wrap gap-x-1 border-b border-line" aria-label="Аналитика" data-testid="analytics-tabs">
       {items.map((t) => {
         const active = t.href === '/dashboard/analytics' ? pathname === t.href : pathname.startsWith(t.href)
         const href = FILTER_PAGES.includes(t.href) && query ? `${t.href}?${query}` : t.href

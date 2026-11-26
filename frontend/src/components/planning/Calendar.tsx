@@ -98,7 +98,7 @@ export function GapCausesList({ causes }: { causes: GapCauses }) {
     </li>
   )
   return (
-    <div className="mt-2 grid gap-3 text-xs sm:grid-cols-2" data-testid="gap-causes">
+    <div className="mt-2 grid grid-cols-1 gap-3 text-xs sm:grid-cols-2" data-testid="gap-causes">
       <div>
         <div className="font-medium text-fg">
           Не хватит {rub(causes.shortfall)} <span className="font-normal text-muted">({causes.below_zero ? 'до нуля' : 'до порога'}, минимум {fmtDay(causes.min_day)})</span>
@@ -918,7 +918,7 @@ function PlanForm({ categories, accounts, data, initial, preset, onSaved, onCanc
           </span>
         </div>
       )}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <label className="block text-sm lg:col-span-2">
           <span className="text-muted">Название</span>
           <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} placeholder="Например, аренда склада" className={`${input} mt-1`} data-testid="plan-title" />
@@ -1009,7 +1009,7 @@ function PlanForm({ categories, accounts, data, initial, preset, onSaved, onCanc
           </span>
         </label>
       )}
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <input value={counterparty} onChange={(e) => setCounterparty(e.target.value)} placeholder="Контрагент — по нему узнаем оплату в операциях" aria-label="Контрагент" className={input} data-testid="plan-counterparty" />
         <textarea value={comment} onChange={(e) => setComment(e.target.value)} maxLength={2000} rows={1} placeholder="Описание — необязательно" aria-label="Описание" className={`${input} resize-y`} />
       </div>
