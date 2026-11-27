@@ -26,6 +26,7 @@ from app.api.v1 import (
     products,
     promotions,
     recommendations,
+    referral,
     reports,
     sales,
     settings,
@@ -73,3 +74,4 @@ api_router.include_router(planning_rules.router)
 api_router.include_router(budgets.router)
 api_router.include_router(bank.router)
 api_router.include_router(traffic.router)
+api_router.include_router(referral.router)

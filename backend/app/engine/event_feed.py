@@ -236,6 +236,7 @@ class Action:
 P = "/api/v1"
 INTEGRATIONS = "/dashboard/settings/integrations"
 LINKS = "/dashboard/advertising/links"
+REFERRAL = "/dashboard/advertising/referral"
 # (метод, шаблон пути) → понятное действие. Каждый изменяющий эндпоинт — здесь или в IGNORED (тест следит за этим).
 ACTIONS: dict[tuple[str, str], Action] = {
     ("PATCH", f"{P}/auth/me"): Action("Изменён профиль", "/dashboard/settings/account", "Профиль"),
@@ -372,6 +373,21 @@ ACTIONS: dict[tuple[str, str], Action] = {
     ("DELETE", f"{P}/traffic/links/{{link_id}}"): Action("Удалена ссылка с UTM", f"{LINKS}?tab=history", "Ссылки с UTM"),
     ("POST", f"{P}/traffic/links/{{link_id}}/restore"): Action("Возвращена ссылка с UTM", f"{LINKS}?tab=history",
                                                                "Ссылки с UTM", id_param="link"),
+    # реферальная программа (шаг 11.7)
+    ("PUT", f"{P}/referral/settings"): Action("Изменены настройки реферальной программы", REFERRAL,
+                                              "Реферальная программа"),
+    ("POST", f"{P}/referral/participants"): Action("Добавлен участник реферальной программы — создана личная ссылка",
+                                                   REFERRAL, "Реферальная программа"),
+    ("PATCH", f"{P}/referral/participants/{{participant_id}}"): Action(
+        "Изменён участник реферальной программы", REFERRAL, "Реферальная программа", id_param="participant"),
+    ("POST", f"{P}/referral/participants/{{participant_id}}/sent"): Action(
+        "Личная ссылка участнику отмечена отправленной", REFERRAL, "Реферальная программа", id_param="participant"),
+    ("POST", f"{P}/referral/participants/{{participant_id}}/unsent"): Action(
+        "Снята отметка «ссылка отправлена»", REFERRAL, "Реферальная программа", id_param="participant"),
+    ("DELETE", f"{P}/referral/participants/{{participant_id}}"): Action(
+        "Участник убран из реферальной программы", f"{REFERRAL}?tab=deleted", "Реферальная программа"),
+    ("POST", f"{P}/referral/participants/{{participant_id}}/restore"): Action(
+        "Участник возвращён в реферальную программу", REFERRAL, "Реферальная программа", id_param="participant"),
     ("PUT", f"{P}/discounts/rule"): Action("Изменено правило подсказки по заявкам на скидку",
                                           "/dashboard/products/discounts", "Заявки на скидку"),
 }

@@ -72,6 +72,19 @@ async def save_build(db: AsyncSession, store_id: uuid.UUID, data: BuildRequest) 
     return result.model_copy(update={"rows": rows})
 
 
+def add_link(db: AsyncSession, store_id: uuid.UUID, link: tl.OzonLink, labels: tl.Labels, *, channel: str,
+             product_id: uuid.UUID | None, now: datetime) -> TrafficLink:
+    """Одна новая ссылка (версия 1) без коммита — для тех, кто создаёт ссылки сам: реферальная программа (11.7)."""
+    row = TrafficLink(
+        user_id=store_id, link_id=uuid.uuid4(), version=1, batch_id=uuid.uuid4(), product_id=product_id,
+        source_url=tl.plain_url(link), section=link.section, channel=channel, campaign=labels.campaign,
+        campaign_name=tl.campaign_name_of(labels.campaign), utm_source=labels.source, utm_medium=labels.medium,
+        utm_term=labels.term, utm_content=labels.content, url=tl.tagged_url(link, labels), created_at=now,
+    )
+    db.add(row)
+    return row
+
+
 # ---------- список ----------
 
 

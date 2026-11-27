@@ -44,3 +44,4 @@ from app.models.cluster_metrics import ClusterStockMetric, OzonSupplyRec, OzonSu
 from app.models.supplier_lot import SupplierDocument, SupplierLot, SupplierLotLine, SupplierPayment  # noqa: F401
 from app.models.traffic import TrafficLink, TrafficLinkOpen  # noqa: F401
 from app.models.discount import DiscountDecision, DiscountTask, DiscountTaskEvent  # noqa: F401
+from app.models.referral import ReferralEvent, ReferralParticipant, ReferralProgram  # noqa: F401
