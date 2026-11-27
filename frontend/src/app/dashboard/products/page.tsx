@@ -11,7 +11,9 @@ import { CopyText, Copyable } from '@/components/copy'
 import { BulkBar } from '@/components/products-bulk'
 import { Badge, fmtDay, pctText, rub } from '@/components/reports'
 import { SortTh as TableSortTh } from '@/components/table'
-import { refreshSyncStatus, timeAgo } from '@/lib/sync'
+import { refreshSyncStatus } from '@/lib/sync'
+import { RefreshData } from '@/components/sync'
+import { PageHeader } from '@/components/ui'
 import { api, errorMessage } from '@/lib/api'
 import { rangeOf, type PeriodPreset } from '@/lib/analytics'
 import { saveFile } from '@/lib/download'
@@ -287,24 +289,22 @@ function Products() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-5">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <h1 className="text-2xl font-semibold">Товары</h1>
-        {sync?.has_active_key && (
-          <div className="ml-auto flex items-center gap-3 text-sm">
-            <span className="text-muted" data-testid="products-synced">
-              {syncing || starting ? 'Товары обновляются…' : lastSuccess ? `Обновлено ${timeAgo(lastSuccess)}` : 'Товары ещё не загружались'}
-            </span>
-            <button
-              type="button"
-              onClick={syncNow}
-              disabled={syncing || starting}
-              className="rounded-lg border border-line px-3 py-1.5 hover:border-accent hover:text-accent disabled:opacity-60"
-            >
-              Обновить
-            </button>
-          </div>
-        )}
-      </div>
+      <PageHeader
+        title="Товары"
+        refresh={
+          sync?.has_active_key && (
+            <RefreshData
+              at={lastSuccess}
+              running={syncing || starting}
+              onRefresh={syncNow}
+              failed={Boolean(failed)}
+              what="товары и цены"
+              testid="products-sync"
+              textTestid="products-synced"
+            />
+          )
+        }
+      />
       <FormError message={error ?? (failed ? `Последнее обновление не удалось: ${failed}` : null)} />
 
       {!data ? (

@@ -14,7 +14,8 @@ import { api, errorMessage } from '@/lib/api'
 import { MARK_FILTERS, type DecisionAction, type DiscountList, type DiscountMarkFilter, type DiscountRow, type DiscountTab } from '@/lib/discounts'
 import { saveFile } from '@/lib/download'
 import { type Range, todayMsk } from '@/lib/period'
-import { refreshSyncStatus, timeAgo } from '@/lib/sync'
+import { refreshSyncStatus } from '@/lib/sync'
+import { RefreshData } from '@/components/sync'
 
 type KindStatus = { last_run: { status: string; error: string | null } | null; last_success_at: string | null }
 type SyncStatus = { has_active_key: boolean; discounts?: KindStatus | null }
@@ -173,11 +174,12 @@ function Discounts() {
         description={
           sync && !sync.has_active_key
             ? 'Заявки приходят из Ozon API — подключите ключ в «Интеграциях»'
-            : active || starting
-              ? 'Заявки обновляются…'
-              : lastSuccess
-                ? `Покупатели просят скидку — решите, выгодно ли. Обновлены ${timeAgo(lastSuccess)}, сами — каждые 30 минут`
-                : 'Покупатели просят скидку — решите, выгодно ли'
+            : 'Покупатели просят скидку — решите, выгодно ли. Заявки обновляются сами каждые 30 минут'
+        }
+        refresh={
+          sync?.has_active_key && (
+            <RefreshData at={lastSuccess} running={active || starting} onRefresh={syncNow} failed={lastRun?.status === 'failed'} what="заявки на скидку" testid="discounts-sync" />
+          )
         }
         actions={
           <>
@@ -189,11 +191,6 @@ function Discounts() {
             >
               Excel
             </button>
-            {sync?.has_active_key && (
-              <button type="button" onClick={syncNow} disabled={active || starting} className={buttonClass('secondary', 'sm')} data-testid="discounts-sync">
-                Обновить
-              </button>
-            )}
           </>
         }
       />

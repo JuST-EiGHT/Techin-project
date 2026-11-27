@@ -13,11 +13,12 @@ import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
 import { CopyText } from '@/components/copy'
 import { FormError } from '@/components/AuthForm'
-import { HelpTip, PageHeader, QuickTabs, Segmented, Stat, StatGrid, Tabs, buttonClass } from '@/components/ui'
+import { RefreshData } from '@/components/sync'
+import { HelpTip, PageHeader, PageRefresh, QuickTabs, Segmented, Stat, StatGrid, Tabs, buttonClass } from '@/components/ui'
 import { fmtDateTime } from '@/components/reports'
 import { CalendarTab, OrdersTab } from '@/components/supply-orders'
 import { PlansTab } from '@/components/supply-plans'
-import { syncAll, timeAgo } from '@/lib/sync'
+import { syncAll } from '@/lib/sync'
 import { useAuth } from '@/contexts/AuthContext'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
@@ -361,14 +362,18 @@ function Recommendations({ onPlans, view, show, onView, onShow }: {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
         {sync?.has_active_key && (
-          <>
-            <span className="text-muted" data-testid="postings-synced">
-              {active || starting ? 'Данные загружаются…' : lastSuccess ? `Данные обновлены ${timeAgo(lastSuccess)}` : 'Данные ещё не загружались'}
-            </span>
-            <button type="button" onClick={syncNow} disabled={active || starting} className={buttonClass('ghost', 'sm')} data-testid="postings-sync">
-              ↻ Обновить данные
-            </button>
-          </>
+          // «Обновить» — в шапке страницы, как во всех разделах (решение владельца 27.11.2026)
+          <PageRefresh>
+            <RefreshData
+              at={lastSuccess}
+              running={active || starting}
+              onRefresh={syncNow}
+              failed={Boolean(lastRun)}
+              what="остатки, рекомендации Ozon и заказы"
+              testid="postings-sync"
+              textTestid="postings-synced"
+            />
+          </PageRefresh>
         )}
         {form && data && (
           <span className="ml-auto flex flex-wrap items-center gap-2">
@@ -548,10 +553,7 @@ function Result({ data, busy, onExport, onSync, syncing, picked, onToggle, onQty
     return (
       <Empty testid="supply-empty">
         Ozon ещё не посчитал продажи по кластерам — они приходят вместе с остатками (каждые 30 минут) и рекомендациями
-        поставок (каждые 3 часа).{' '}
-        <button type="button" onClick={onSync} disabled={syncing} className="text-accent hover:underline disabled:opacity-60">
-          Обновить данные →
-        </button>
+        поставок (каждые 3 часа). Загрузить сейчас — «Обновить» справа вверху.
       </Empty>
     )
   const od = data.ozon_data

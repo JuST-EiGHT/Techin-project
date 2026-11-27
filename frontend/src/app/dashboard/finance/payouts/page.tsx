@@ -22,7 +22,9 @@ import {
   weekdayShort,
 } from '@/components/payouts'
 import { Warnings, fmtDay, rub } from '@/components/reports'
-import { refreshSyncStatus, timeAgo } from '@/lib/sync'
+import { refreshSyncStatus } from '@/lib/sync'
+import { PageHeader } from '@/components/ui'
+import { RefreshData } from '@/components/sync'
 import { api, errorMessage } from '@/lib/api'
 import { addDays, todayMsk } from '@/lib/period'
 
@@ -174,28 +176,22 @@ function PayoutsView() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <h1 className="text-2xl font-semibold">Выплаты и расчёты с Ozon</h1>
-        {sync?.has_active_key && (
-          <div className="flex items-center gap-3 text-sm sm:ml-auto">
-            <span className="text-muted" data-testid="balance-updated">
-              {active || starting
-                ? 'Баланс загружается…'
-                : lastSuccess
-                  ? `Баланс обновлён ${timeAgo(lastSuccess)}`
-                  : 'Баланс ещё не загружался'}
-            </span>
-            <button
-              onClick={syncNow}
-              disabled={active || starting}
-              className="rounded-lg border border-line px-3 py-1.5 hover:border-accent hover:text-accent disabled:opacity-60"
-              data-testid="balance-sync"
-            >
-              Обновить
-            </button>
-          </div>
-        )}
-      </div>
+      <PageHeader
+        title="Выплаты и расчёты с Ozon"
+        refresh={
+          sync?.has_active_key && (
+            <RefreshData
+              at={lastSuccess}
+              running={active || starting}
+              onRefresh={syncNow}
+              failed={lastRun?.status === 'failed'}
+              what="баланс и выплаты"
+              testid="balance-sync"
+              textTestid="balance-updated"
+            />
+          )
+        }
+      />
 
       <FormError message={error ?? (lastRun?.status === 'failed' ? `Последнее обновление не удалось: ${lastRun.error}` : null)} />
 

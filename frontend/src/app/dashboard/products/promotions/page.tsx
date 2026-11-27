@@ -12,7 +12,8 @@ import { PromoHistory } from '@/components/promo-history'
 import { pctText, rub } from '@/components/reports'
 import { SearchBox } from '@/components/filters'
 import { Badge, EmptyState, PageHeader, Panel, QuickTabs, Skeleton, Tabs, buttonClass } from '@/components/ui'
-import { refreshSyncStatus, timeAgo } from '@/lib/sync'
+import { refreshSyncStatus } from '@/lib/sync'
+import { RefreshData } from '@/components/sync'
 import { api, errorMessage } from '@/lib/api'
 import { MARGIN_TEXT, fmtDate, type AutoAddedResponse, type AutoAddedRow, type Promotion } from '@/lib/promotions'
 import { SortTh, num, useSort } from '@/components/table'
@@ -139,20 +140,9 @@ function Promotions() {
       {/* 10.27c — как «Акции от Ozon»: вкладки со счётчиками, быстрые фильтры, карточки-строки, сводка справа */}
       <PageHeader
         title="Акции Ozon"
-        description={
-          sync?.has_active_key
-            ? active || starting
-              ? 'Акции обновляются…'
-              : lastSuccess
-                ? `Обновлены ${timeAgo(lastSuccess)}`
-                : 'Акции ещё не загружались'
-            : undefined
-        }
-        actions={
+        refresh={
           sync?.has_active_key && (
-            <button type="button" onClick={syncNow} disabled={active || starting} className={buttonClass('secondary', 'sm')}>
-              Обновить акции
-            </button>
+            <RefreshData at={lastSuccess} running={active || starting} onRefresh={syncNow} failed={lastRun?.status === 'failed'} what="акции" testid="promotions-sync" />
           )
         }
       >
@@ -192,7 +182,7 @@ function Promotions() {
           </div>
         ) : promotions.length === 0 ? (
           <EmptyState title="Акций пока нет" testid="promo-empty">
-            Акции приходят из Ozon API — нажмите «Обновить акции».
+            Акции приходят из Ozon API — нажмите «Обновить» справа вверху.
           </EmptyState>
         ) : (
           <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">

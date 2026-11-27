@@ -8,6 +8,7 @@ import { usePathname } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { FormError } from '@/components/AuthForm'
+import { buttonClass } from '@/components/ui'
 import { useStores } from '@/contexts/StoreContext'
 import { useDismiss } from '@/hooks/useDismiss'
 import { errorMessage } from '@/lib/api'
@@ -319,5 +320,47 @@ export function SyncButton() {
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * Обновить данные раздела из Ozon — одинаково на всех страницах (решение владельца 27.11.2026): в шапке страницы справа
+ * (`PageHeader` → `refresh` или `PageRefresh` из вкладки), точка состояния, «Обновлено … назад» и кнопка «↻ Обновить».
+ * Что именно загрузится — в подсказке кнопки (`what`).
+ */
+export function RefreshData({ at, running, onRefresh, disabled, failed, what, testid, textTestid }: {
+  /** Когда данные раздела последний раз загрузились; null — ещё не загружались. */
+  at: string | null | undefined
+  running: boolean
+  onRefresh: () => void
+  disabled?: boolean
+  /** Последняя загрузка не удалась — красная точка (причина — на странице). */
+  failed?: boolean
+  /** «акции», «остатки», «начисления за 01.11 – 27.11» — для подсказки кнопки. */
+  what: string
+  testid?: string
+  textTestid?: string
+}) {
+  useTick()
+  const text = running ? 'Обновляется…' : at ? `Обновлено ${timeAgo(at)}` : 'Ещё не загружалось'
+  const dot = running ? 'animate-pulse bg-accent' : failed ? 'bg-bad' : at ? 'bg-ok' : 'bg-warn'
+  return (
+    <span className="inline-flex items-center gap-2" data-testid="refresh-data">
+      <span className={`inline-flex items-center gap-1.5 whitespace-nowrap text-xs ${failed && !running ? 'text-bad' : 'text-muted'}`} data-testid={textTestid}>
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden />
+        {text}
+      </span>
+      <button
+        type="button"
+        onClick={onRefresh}
+        disabled={running || disabled}
+        title={`Загрузить свежие данные из Ozon: ${what}`}
+        className={buttonClass('secondary', 'sm')}
+        data-testid={testid}
+      >
+        <RefreshCw className={`h-3.5 w-3.5 ${running ? 'animate-spin' : ''}`} aria-hidden />
+        Обновить
+      </button>
+    </span>
   )
 }

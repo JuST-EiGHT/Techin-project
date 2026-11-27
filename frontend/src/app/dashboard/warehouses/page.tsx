@@ -13,7 +13,8 @@ import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { FormError } from '@/components/AuthForm'
 import { EmptyState, HelpTip, PageHeader, Sub, Tabs, buttonClass } from '@/components/ui'
 import { StockTablePanel, TABLE_STATUSES } from '@/components/stock-table'
-import { refreshSyncStatus, timeAgo } from '@/lib/sync'
+import { refreshSyncStatus } from '@/lib/sync'
+import { RefreshData } from '@/components/sync'
 import { api, errorMessage } from '@/lib/api'
 import {
   type ProductStock,
@@ -145,20 +146,9 @@ function Warehouses() {
       {/* 10.27c — как «Управление остатками» в Ozon: сводка ликвидности, что требует внимания, таблица-дерево */}
       <PageHeader
         title="Склады и остатки"
-        description={
-          sync?.has_active_key
-            ? active || starting
-              ? 'Остатки обновляются…'
-              : lastSuccess
-                ? `Остатки обновлены ${timeAgo(lastSuccess)}`
-                : 'Остатки ещё не загружались'
-            : undefined
-        }
-        actions={
+        refresh={
           sync?.has_active_key && (
-            <button type="button" onClick={syncNow} disabled={active || starting} className={buttonClass('secondary', 'sm')}>
-              Обновить остатки
-            </button>
+            <RefreshData at={lastSuccess} running={active || starting} onRefresh={syncNow} failed={lastRun?.status === 'failed'} what="остатки на складах" testid="stocks-sync" />
           )
         }
       />
@@ -235,7 +225,7 @@ function Warehouses() {
 
         {summary && !summary.stocks_known && sync?.has_active_key && (
           <EmptyState title="Остатки ещё не загружены" testid="stocks-empty">
-            Нажмите «Обновить остатки» — дальше они обновляются сами каждые 30 минут.
+            Нажмите «Обновить» справа вверху — дальше остатки обновляются сами каждые 30 минут.
           </EmptyState>
         )}
 

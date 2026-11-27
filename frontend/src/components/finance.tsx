@@ -6,7 +6,8 @@ import { Bar, CartesianGrid, Cell, ComposedChart, ReferenceLine, ResponsiveConta
 
 import { type Drill, MoreLink, TipBox, useDrill } from '@/components/charts'
 import { type BankHint, type PnL, fmtDay, rub, rubSigned, vatPctText } from '@/components/reports'
-import { Badge, Button, HelpTip, Panel } from '@/components/ui'
+import { RefreshData } from '@/components/sync'
+import { Badge, Button, HelpTip, PageRefresh, Panel } from '@/components/ui'
 import { useTheme } from '@/contexts/ThemeContext'
 import { api, errorMessage } from '@/lib/api'
 import { type Range, daysWord, todayMsk } from '@/lib/period'
@@ -102,8 +103,9 @@ export function reloadRange(range: Range, today = todayMsk()): (Range & { cut: b
 }
 
 /**
- * Начисления из Ozon API за период: подключён ли ключ, когда загружались, что сломалось — словами, и «Загрузить новые
- * данные» (перезагрузить период из API; когда загрузка закончится — onLoaded, P&L перечитывается).
+ * Начисления из Ozon API за период: подключён ли ключ, когда загружались, что сломалось — словами, и «Обновить» в шапке
+ * страницы (`RefreshData` через `PageRefresh`; перезагрузить период из API; когда загрузка закончится — onLoaded, P&L
+ * перечитывается). Всё в порядке — блок не показывается, остаётся только «Обновлено … · Обновить» в шапке.
  */
 export function OzonApiStatus({ range, coverage, onLoaded }: { range: Range; coverage?: Coverage; onLoaded: () => void }) {
   const sync = useSyncStatus()
@@ -163,7 +165,26 @@ export function OzonApiStatus({ range, coverage, onLoaded }: { range: Range; cov
   }
   const dot = { ok: 'bg-ok', warn: 'bg-warn', bad: 'bg-bad', muted: 'bg-faint' }[state.tone]
   const missing = coverage?.missing_days ?? 0
+  // «Обновить» — в шапке страницы, как во всех разделах (решение владельца 27.11.2026): начисления за выбранный период
+  const refresh = sync.has_active_key && span && (
+    <PageRefresh>
+      <RefreshData
+        at={kind?.last_success_at}
+        running={loading}
+        onRefresh={reload}
+        disabled={posting}
+        failed={kind?.state === 'error'}
+        what={`начисления за ${fmtDay(span.from)} – ${fmtDay(span.to)}`}
+        testid="api-reload"
+      />
+    </PageRefresh>
+  )
+  // всё в порядке и сказать нечего — блок не нужен: время обновления — у кнопки «Обновить»
+  const quiet = state.tone === 'ok' && !(missing > 0) && !span?.cut && !message && !error
+  if (quiet) return <>{refresh}</>
   return (
+    <>
+    {refresh}
     <div className="space-y-1.5 rounded-lg border border-line bg-card px-3 py-2 text-xs" data-testid="api-status">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <span className="flex min-w-0 flex-1 items-start gap-2">
@@ -185,18 +206,6 @@ export function OzonApiStatus({ range, coverage, onLoaded }: { range: Range; cov
             {kind?.action?.label ?? 'Подключить ключ Ozon →'}
           </Link>
         ) : null}
-        {sync.has_active_key && span && (
-          <button
-            type="button"
-            onClick={reload}
-            disabled={posting || loading}
-            className="rounded-lg border border-accent px-3 py-1 font-medium text-accent hover:bg-accent hover:text-on-accent disabled:opacity-60"
-            data-testid="api-reload"
-            title={`Загрузить начисления из Ozon API заново за ${fmtDay(span.from)} – ${fmtDay(span.to)}`}
-          >
-            {loading ? 'Загружаем…' : 'Загрузить новые данные'}
-          </button>
-        )}
       </div>
       {span?.cut && sync.has_active_key && (
         <p className="text-faint">За раз загружается до 92 дней — загрузим {fmtDay(span.from)} – {fmtDay(span.to)}.</p>
@@ -212,6 +221,7 @@ export function OzonApiStatus({ range, coverage, onLoaded }: { range: Range; cov
         </p>
       )}
     </div>
+    </>
   )
 }
 

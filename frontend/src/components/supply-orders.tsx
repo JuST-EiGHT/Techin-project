@@ -11,7 +11,9 @@ import { ChipOptions, FilterButton, FilterField, SearchBox } from '@/components/
 import { fmtDateTime, fmtDay } from '@/components/reports'
 import { api, errorMessage } from '@/lib/api'
 import { saveFile } from '@/lib/download'
-import { refreshSyncStatus, timeAgo } from '@/lib/sync'
+import { refreshSyncStatus } from '@/lib/sync'
+import { RefreshData } from '@/components/sync'
+import { PageRefresh, buttonClass } from '@/components/ui'
 import { productHref } from '@/lib/stocks'
 import { SortTh, useSort } from '@/components/table'
 import {
@@ -118,16 +120,20 @@ export function OrdersTab({ openId, onOpen, onPlan }: { openId: string | null; o
         </FilterButton>
         <div className="flex items-center gap-2 text-sm sm:ml-auto">
           {hasKey && (
-            <>
-              <span className="text-xs text-faint" data-testid="orders-synced">
-                {active ? 'Заявки загружаются…' : sync?.last_success_at ? `обновлены ${timeAgo(sync.last_success_at)}` : 'ещё не загружались'}
-              </span>
-              <button type="button" onClick={syncNow} disabled={active} className="rounded-lg border border-line px-3 py-1.5 hover:border-accent hover:text-accent disabled:opacity-60" data-testid="orders-sync">
-                Обновить
-              </button>
-            </>
+            // «Обновить» — в шапке страницы, как во всех разделах (решение владельца 27.11.2026)
+            <PageRefresh>
+              <RefreshData
+                at={sync?.last_success_at}
+                running={active}
+                onRefresh={syncNow}
+                failed={sync?.last_run?.status === 'failed'}
+                what="заявки на поставку"
+                testid="orders-sync"
+                textTestid="orders-synced"
+              />
+            </PageRefresh>
           )}
-          <button type="button" onClick={exportXlsx} disabled={!data?.items.length} className="rounded-lg border border-line px-3 py-1.5 hover:border-accent hover:text-accent disabled:opacity-60" data-testid="orders-export">
+          <button type="button" onClick={exportXlsx} disabled={!data?.items.length} className={buttonClass('secondary', 'sm')} data-testid="orders-export">
             Excel
           </button>
         </div>

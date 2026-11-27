@@ -4,6 +4,7 @@
 // Разделы при переделке берут элементы отсюда, а не собирают свои: так новый вид приходит на все страницы сразу.
 import Link from 'next/link'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 type Icon = React.ComponentType<{ className?: string }>
 export type Tone = 'accent' | 'ok' | 'bad' | 'warn' | 'muted'
@@ -13,8 +14,10 @@ const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).jo
 // ---------- страница ----------
 
 /** Заголовок страницы: название, одна строка «что здесь», действия справа (на телефоне — под заголовком). */
-export function PageHeader({ title, description, actions, children, titleTestid }: {
+export function PageHeader({ title, description, actions, refresh, children, titleTestid }: {
   title: string
+  /** «Обновлено … · Обновить» (`RefreshData`) — всегда в правом краю шапки; из вкладки — через `PageRefresh`. */
+  refresh?: React.ReactNode
   titleTestid?: string
   description?: React.ReactNode
   actions?: React.ReactNode
@@ -23,18 +26,31 @@ export function PageHeader({ title, description, actions, children, titleTestid 
 }) {
   return (
     <header className="mb-5 space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight" data-testid={titleTestid}>
             {title}
           </h1>
           {description && <p className="mt-1 text-sm text-muted">{description}</p>}
         </div>
-        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+        <div className="flex flex-wrap items-center gap-2">
+          {actions}
+          {/* место кнопки «Обновить» — одно на всех страницах (решение владельца 27.11.2026) */}
+          <span className="flex items-center empty:hidden" data-page-refresh>
+            {refresh}
+          </span>
+        </div>
       </div>
       {children}
     </header>
   )
+}
+
+/** «Обновить» из вкладки или блока страницы — в то же место шапки (`PageHeader` → `data-page-refresh`), что и у всех. */
+export function PageRefresh({ children }: { children: React.ReactNode }) {
+  const [slot, setSlot] = useState<Element | null>(null)
+  useEffect(() => setSlot(document.querySelector('[data-page-refresh]')), [])
+  return slot ? createPortal(children, slot) : null
 }
 
 /** Панель — главный контейнер: заголовок, «что это» и действие справа (кнопка, «Подробнее →»), содержимое.
